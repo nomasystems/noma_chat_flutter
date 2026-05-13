@@ -27,7 +27,7 @@ jobs:
     # Nomasystems self-hosted runner. The downstream `publish` job uses the
     # `dart-lang/setup-dart` reusable workflow, which pins itself to
     # `ubuntu-latest` for OIDC reasons — that one cannot be moved here.
-    runs-on: [self-hosted-linux]
+    runs-on: [self-hosted, linux]
     steps:
       - uses: actions/checkout@v4
 
