@@ -90,32 +90,57 @@ manual flow is also the fallback if automated publishing is unavailable.
 
 [releases]: https://github.com/nomasystems/noma_chat_flutter/releases
 
-## Release procedure (automated, recommended once enabled)
+## Release procedure (automated, **recommended**)
 
-After `0.2.0` is on pub.dev:
+Automated publishing is **live** as of `0.2.1`. The pub.dev side is
+configured at <https://pub.dev/packages/noma_chat/admin> →
+**Publishing from GitHub Actions**:
 
-1. Go to the package admin page on pub.dev:
-   <https://pub.dev/packages/noma_chat/admin> → **Automated publishing** →
-   **Publishing from GitHub Actions**.
-2. Authorise the repository `nomasystems/noma_chat_flutter` and set the
-   tag pattern to `v{{version}}` (or the regex
-   `^v[0-9]+\.[0-9]+\.[0-9]+(-.*)?$`).
-3. From then on, the workflow at `.github/workflows/publish.yml` takes
-   over. To release:
+- Repository: `nomasystems/noma_chat_flutter`
+- Tag pattern: `v{{version}}`
+- "Enable publishing from `push` events": **on**
+- `workflow_dispatch`: off (the workflow does not declare a `workflow_dispatch:` trigger)
+- "Require GitHub Actions environment": off (single maintainer)
 
-    ```bash
-    # bump version in pubspec.yaml + CHANGELOG.md, commit, push
-    git tag vX.Y.Z
-    git push origin vX.Y.Z
-    ```
+The end-to-end flow:
 
-    The workflow runs analyse + tests + dartdoc dry-run; on green it
-    mints an OIDC token, hands it to pub.dev, and `dart pub publish
-    --force` uploads the tarball. **No secrets are stored in the repo.**
+```bash
+# 1. bump version in pubspec.yaml + CHANGELOG.md, commit, push
+git add pubspec.yaml CHANGELOG.md
+git commit -m "chore: release vX.Y.Z"
+git push
 
-4. If the workflow fails on the verification step ("Tag does not match
-   pubspec.yaml version") the tag is left in place but pub.dev is not
-   touched — fix the version mismatch with a follow-up commit + new tag.
+# 2. tag and push the tag — this is what triggers publishing
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+The workflow at `.github/workflows/publish.yml`:
+
+1. Verifies the git tag matches the `version:` in `pubspec.yaml`.
+   On mismatch it fails fast and pub.dev is not touched — fix with a
+   follow-up commit + new tag.
+2. Runs `flutter analyze --fatal-infos --fatal-warnings` and
+   `flutter test` on a fresh `ubuntu-latest` runner.
+3. Runs `dart doc --dry-run`.
+4. Delegates to `dart-lang/setup-dart/.github/workflows/publish.yml@v1`,
+   which mints a short-lived OIDC token, sends it to pub.dev, and
+   `dart pub publish --force` uploads the tarball.
+
+**No secrets are stored anywhere.** Authentication is bound to the
+repository + tag-pattern configured on pub.dev; GitHub signs a JWT with
+the workflow context (repo, ref, run id, actor) and pub.dev verifies it
+against GitHub's public keys.
+
+### Why a publish run might fail
+
+- **OIDC trust** is set up wrong on pub.dev (last step "Authentication
+  failed!" with exit 65). Re-check the repo and tag pattern on the
+  admin page and rerun: `gh run rerun <run-id>`.
+- **Tag does not match pubspec version** — fix the version mismatch.
+- **`flutter analyze` finds issues** — the run reflects what was on the
+  tag's commit, even if `main` is green. Cut a new patch with the fix
+  and tag it.
 
 ## CI
 
@@ -123,7 +148,8 @@ After `0.2.0` is on pub.dev:
 
 - `dart format` (must be clean)
 - `flutter analyze --fatal-infos --fatal-warnings`
-- `flutter test`
+- `flutter test --coverage`
+- Coverage gate — fails if line coverage drops below **80%**
 - `dart doc --dry-run`
 - `pana` (informational, never blocks)
 
@@ -136,9 +162,10 @@ A reasonable pre-release local check, mirroring what CI does:
 ```bash
 dart format --output=none --set-exit-if-changed . \
   && flutter analyze --fatal-infos --fatal-warnings \
-  && flutter test \
+  && flutter test --coverage \
+  && awk 'BEGIN{lh=0;lf=0} /^LF:/{sub("LF:","");lf+=$1} /^LH:/{sub("LH:","");lh+=$1} END{p=(lh/lf)*100; printf "Coverage: %.2f%%\n", p; exit (p<80)}' coverage/lcov.info \
   && dart doc --dry-run \
   && flutter pub publish --dry-run
 ```
 
-If all five steps are green, the release is safe to cut.
+If all six steps are green, the release is safe to cut.
