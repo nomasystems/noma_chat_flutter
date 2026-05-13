@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/) from `0.2.0`
 onwards. Until `1.0.0`, **breaking changes may land in any minor release**.
 
+## [0.3.0] - 2026-05-13
+
+Quality + architecture release. No public API breaking changes; the audio
+backend migration is transparent to consumers.
+
+### Changed
+
+- **Audio backend**: migrated from `just_audio` to `audioplayers ^6.1.0`.
+  Same feature surface (play / pause / seek / playback rate / state stream)
+  but `audioplayers` ships implementations for all six Flutter targets,
+  unblocking Linux and Windows. `pubspec.yaml` `platforms:` now lists
+  android / ios / macos / linux / windows / web; see README "Platform
+  support" for the production / best effort breakdown.
+- **`ChatClient` interface**: `set onOfflineMessageSent` is now part of the
+  abstract contract (was concrete-only on `NomaChatClient`). The UI adapter
+  no longer needs an `as NomaChatClient` cast. `MockChatClient` and any
+  custom `ChatClient` impl in tests implement the setter (no-op is fine).
+- **`ChatUiAdapter` internal SRP refactor** (no API change): the 2272-line
+  monolith was split into four `part of` collaborators —
+  `_PresenceManager`, `_ChatEventRouter`, `_RoomEnricher`,
+  `_OptimisticHandler`. The facade is now ~1500 lines and the
+  responsibilities are obvious from the file layout.
+- **`MockChatClient.rooms`** now emits `RoomUpdatedEvent` after each
+  successful `mute` / `unmute` / `pin` / `unpin` / `hide` / `unhide` to
+  match the real client's event semantics. Tests that count events should
+  expect one per mutation.
+- **Models**: every public value-object class in `lib/src/models/` and
+  `lib/src/ui/models/` is now annotated `@immutable`. No runtime
+  difference; the analyzer now flags accidental subclassed mutability.
+
+### Fixed
+
+- `loadRooms()` and `_enrichAndSetRooms` guard `_disposed` after every
+  long await so they cannot write to a disposed `ValueNotifier` or
+  `RoomListController`.
+- `rejectInvitation` now restores the room on network failure (previously
+  it dropped the invitation permanently if the request errored out).
+- `sendThreadReply` no longer double-emits to `operationErrors`: both
+  `OperationKind.sendMessage` and `OperationKind.sendThreadReply` used to
+  fire for a single failure. `sendMessage` accepts an optional
+  `operationKind` override and the thread-reply path uses it to emit a
+  single, more specific kind.
+- `loadMoreMessages` wraps its body in `try/finally` so
+  `controller.setLoadingMore(false)` runs even if the SDK call leaks an
+  exception past the `Result` wrapper.
+- `VoiceRecordingController.startRecording()` early-returns with
+  `StartRecordingResult.permissionDenied` on Web (it was crashing on
+  `dart:io` / `path_provider`). A MediaRecorder-backed Web flow is on
+  the roadmap.
+- `LinkPreviewFetcher` retries cached failures after a configurable TTL
+  (default 5 min) instead of caching `null` forever. Transient network
+  glitches no longer poison the per-session preview cache.
+- Hardcoded English Semantics labels in `ImageBubble`, `VideoBubble` and
+  `ScrollToBottomButton` are now routed through `theme.l10n`. A new
+  `scrollToBottom` localisation key was added across all seven shipped
+  locales (en / es / fr / de / it / pt / ca).
+- Dark + high-contrast themes now ship explicit `markdownCodeStyle` and
+  `markdownLinkStyle` overrides; the previous defaults bled light-mode
+  values into the dark UI and failed WCAG AA contrast for inline links.
+- A handful of dark-theme accent colours (`reactionBackgroundColor`,
+  `audioPlayButtonColor`, `audioListenedIconColor`,
+  `audioUnlistenedIconColor`, `linkPreviewBackgroundColor`) are now
+  overridden in `ChatTheme.dark` instead of inheriting light defaults.
+- Voice upload progress `ValueNotifier`s detached after a completed
+  upload are now tracked and disposed during `adapter.dispose()` (they
+  used to outlive the adapter when the optimistic bubble held a
+  reference).
+- `_resolveDmContact` rewritten from a `Future.sync().then().catchError()`
+  chain to `async`/`await` + `try`/`catch` with an explicit `unawaited()`
+  so the fire-and-forget intent is visible at the call site.
+
+### Documentation
+
+- README `Platform support` table rewritten to reflect the audioplayers
+  migration (six platforms supported via the new backend; voice
+  recording on Web is documented as "Limited" with the reason).
+- `RELEASING.md` updated for the now-live automated publishing flow,
+  including the three pub.dev configuration toggles and the four
+  failure modes a maintainer might hit.
+- `TESTING.md` test counts refreshed to reflect the current suite size
+  (1474+) and the 80% coverage gate enforced in CI.
+- `markdown_parser.dart` dartdoc now lists the supported inline syntax
+  and the deliberate non-support (`[label](url)`, block markdown).
+
+### Tests
+
+- 1485 tests passing on Linux (CI), + 4 skipped. On macOS the 19 golden
+  bubble diffs fail by ~1% pixel-diff because the baselines are
+  generated on Linux for CI; regenerate locally with
+  `flutter test --update-goldens` if needed.
+- Coverage 80.55% (8248/10239), enforced ≥80% in CI.
+
 ## [0.2.1] - 2026-05-13
 
 Post-publish polish driven by the pub.dev scoring report. No behavioural

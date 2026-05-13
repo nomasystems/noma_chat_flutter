@@ -6,7 +6,7 @@ Plug & play Flutter chat package. One dependency, five lines of setup.
 
 ```yaml
 dependencies:
-  noma_chat: ^0.2.0
+  noma_chat: ^0.3.0
 ```
 
 ```dart

@@ -2,7 +2,7 @@ name: noma_chat
 description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and a ready-to-use UI Kit for the Noma chat backend.
-version: 0.2.1
+version: 0.3.0
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
