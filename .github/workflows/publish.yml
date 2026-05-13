@@ -24,10 +24,10 @@ on:
 jobs:
   test:
     name: Pre-publish tests
-    # Nomasystems self-hosted runner. The downstream `publish` job uses the
-    # `dart-lang/setup-dart` reusable workflow, which pins itself to
-    # `ubuntu-latest` for OIDC reasons — that one cannot be moved here.
-    runs-on: [self-hosted-linux]
+    # GitHub-hosted Ubuntu. Self-hosted runners are blocked for public repos
+    # by default at the org level (security: anyone can submit PRs).
+    # GitHub-hosted is free + unlimited for public OSS repos.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

@@ -14,7 +14,10 @@ concurrency:
 jobs:
   analyze-and-test:
     name: Analyze + test (Flutter ${{ matrix.flutter }})
-    runs-on: [self-hosted-linux]
+    # GitHub-hosted Ubuntu. Self-hosted runners are blocked for public repos
+    # by default at the org level (security: anyone can submit PRs).
+    # GitHub-hosted is free + unlimited for public OSS repos.
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -54,7 +57,7 @@ jobs:
 
   pana:
     name: pub.dev score (pana)
-    runs-on: [self-hosted-linux]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
