@@ -6,7 +6,7 @@ Plug & play Flutter chat package. One dependency, five lines of setup.
 
 ```yaml
 dependencies:
-  noma_chat: ^0.1.0
+  noma_chat: ^0.2.0
 ```
 
 ```dart
@@ -89,8 +89,12 @@ See the [example app](example/) for a working demo with `MockChatClient`.
 ## More documentation
 
 - [ARCHITECTURE.md](./ARCHITECTURE.md) — internal layers, transports, cache, UI adapter
-- [INTEGRATION.md](./INTEGRATION.md) — contract with the CHT backend (endpoints, auth, real-time, WS close codes, S2S)
+- [INTEGRATION.md](./INTEGRATION.md) — contract with the Noma chat backend (endpoints, auth, real-time, WS close codes, S2S)
 - [TESTING.md](./TESTING.md) — conventions, running tests, mocking patterns
 - [CHANGELOG.md](./CHANGELOG.md) — version history
 
-For consumers using AI assistance, the canonical synthesized docs live in `proyectos/.claude/info/noma-chat/` (Spanish, kept fresh by `/audita-info`).
+## Links
+
+- Source: [github.com/nomasystems/noma_chat_flutter](https://github.com/nomasystems/noma_chat_flutter)
+- Issues: [github.com/nomasystems/noma_chat_flutter/issues](https://github.com/nomasystems/noma_chat_flutter/issues)
+- License: [Apache-2.0](./LICENSE)

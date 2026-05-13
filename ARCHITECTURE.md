@@ -24,7 +24,7 @@ App Flutter
               └── Bootstraps presence + contact cache
 ```
 
-Until 2026-04-18, the package was split into three (`noma_chat_sdk`, `noma_chat_cache_hive`, `noma_chat_ui_kit`). They were unified into a single `noma_chat` for plug-and-play enterprise deployment (DEC-029).
+Earlier in development the package was split into three (`noma_chat_sdk`, `noma_chat_cache_hive`, `noma_chat_ui_kit`); they were unified into a single `noma_chat` so consumers depend on one package and the layering is enforced by directory boundaries rather than separate releases.
 
 ## Internal structure
 
@@ -96,8 +96,8 @@ TransportManager
 **Behavior:**
 - Connects WS first. After N attempts with exponential backoff + jitter, opens SSE as fallback.
 - `_wsHasConnected` flag prevents premature SSE activation.
-- Optional circular replay buffer (`eventBufferSize` in `ChatConfig`, default 0) for late subscribers (DEC-009).
-- Opt-in reconnection catch-up (`enableReconnectCatchUp`): after reconnect, requests unread rooms and emits `UnreadUpdatedEvent` for each (DEC-010). `lastDisconnectedAt` exposed.
+- Optional circular replay buffer (`eventBufferSize` in `ChatConfig`, default 0) for late subscribers.
+- Opt-in reconnection catch-up (`enableReconnectCatchUp`): after reconnect, requests unread rooms and emits `UnreadUpdatedEvent` for each. `lastDisconnectedAt` exposed.
 - WS close 4003 (token_expired) and 4004 (token_revoked) — invalidate interceptor token cache + emit signal so the consumer can refresh.
 - Opt-in frame `auth_refresh` (30s cooldown server-side) to rotate token without reconnecting.
 
@@ -105,7 +105,7 @@ TransportManager
 
 `HiveChatDatasource` implements the `ChatLocalDatasource` interface.
 
-**Why Hive CE** (DEC-014): pure Dart, no native dependencies (clean to publish), box-per-room for messages (O(1) clear/get per room), lazy box opening, opt-in encryption at rest.
+**Why Hive CE**: pure Dart, no native dependencies (clean to publish), box-per-room for messages (O(1) clear/get per room), lazy box opening, opt-in encryption at rest.
 
 **Strategies:**
 - Keys are timestamp-sortable (`{iso_timestamp}_{msg_id}`) so alphabetical ordering equals chronological → `getMessages` is O(limit).
@@ -114,11 +114,11 @@ TransportManager
 - Versioned schema with automatic wipe on migration (it's a cache, refetched).
 - Step-by-step migrations with wipe fallback.
 - Resilient deserialization: corrupt records are dropped, not crashed on.
-- `_safeWrite` wrapper logs Hive errors (DEC-034/035).
+- `_safeWrite` wrapper logs Hive errors through the configured `logger`.
 
 **Cache policies** (`CachePolicy`): `cacheFirst`, `networkFirst`, `cacheOnly`, `networkOnly`.
 
-**Cache-then-network** (stale-while-revalidate, DEC-023):
+**Cache-then-network** (stale-while-revalidate):
 - `loadMessages` runs a `cacheOnly` phase (instant) + `networkOnly` phase with delta sync (`after=newestCachedTimestamp`).
 - `loadRooms` same pattern with `cacheOnly` enrichment in the cache phase.
 
@@ -128,19 +128,19 @@ Bridges SDK events to UI controllers.
 
 **Event sync:**
 - Subscribes to `client.events`. On `NewMessageEvent`, `MessageUpdatedEvent`, `RoomDeletedEvent`, etc., updates the relevant `ChatController` (per room) or `RoomListController`.
-- `MessageUpdatedEvent`, `RoomCreatedEvent`, `RoomUpdatedEvent` carry only IDs (BUG-SDK-001/002 fixes). The adapter fetches the full payload via API.
+- `MessageUpdatedEvent`, `RoomCreatedEvent`, `RoomUpdatedEvent` carry only IDs (the server keeps real-time frames lean); the adapter fetches the full payload via API.
 
 **Initial load:**
 - `loadRooms(controller)` — populates `RoomListController` with `rooms.getUserRooms()` enriched + presence bootstrap.
 - `loadMessages(roomId, controller)` — cache-then-network.
-- `_enrichAndSetRooms` runs `presence.getAll()` to populate `RoomListItem.isOnline` from the first render (DEC-036).
+- `_enrichAndSetRooms` runs `presence.getAll()` to populate `RoomListItem.isOnline` from the first render.
 
 **Actions exposed:**
 - `sendMessage`, `sendVoiceMessage` (optimistic + upload progress + send).
 - `editMessage`, `deleteMessage`, `addReaction`, `deleteReaction`, `pinMessage`, etc.
 - `markAsRead` on `dispose` (leaving the chat).
 
-**`isDmRoom` predicate** (DEC-033, backend ADR-074):
+**`isDmRoom` predicate**:
 
 ```dart
 final chat = await NomaChat.create(
@@ -163,7 +163,7 @@ Distinguishes real DMs from conceptual groups with 2 participants (e.g. a plan w
 - Persists each successful operation atomically.
 - Configurable `logger` for deserialization errors.
 
-## Observability (DEC-034, DEC-035)
+## Observability
 
 - Optional `logger` in `ChatConfig`, propagated to `BearerAuthInterceptor` and the 4 main APIs (users, rooms, messages, contacts).
 - 11 `catch (_)` cache-best-effort sites replaced with `catch (e) { _logger?.call('warn', '...: $e'); }`.
@@ -172,4 +172,4 @@ Distinguishes real DMs from conceptual groups with 2 participants (e.g. a plan w
 
 ## Backend integration
 
-See [INTEGRATION.md](./INTEGRATION.md) for the full contract with the backend (CHT / user_client).
+See [INTEGRATION.md](./INTEGRATION.md) for the full contract with the Noma chat backend.

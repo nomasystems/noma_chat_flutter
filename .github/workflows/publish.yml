@@ -1,0 +1,64 @@
+name: publish
+
+# Publishes to pub.dev whenever a `vX.Y.Z` (or `vX.Y.Z-pre.N`) tag is pushed
+# to the repository. Authentication uses pub.dev's automated publishing
+# (OIDC), so no secrets are required — only the matching tag pattern set
+# in https://pub.dev/packages/noma_chat/admin > Automated publishing.
+#
+# First-time setup (one-shot, manual):
+#   1. Publish 0.2.0 manually with `flutter pub publish` from a maintainer
+#      machine so pub.dev claims the package name for the uploader account.
+#   2. In the package admin page, enable "Publishing from GitHub Actions"
+#      and authorise the repository `nomasystems/noma_chat_flutter` with
+#      a tag pattern such as `v{{version}}` (the workflow filters down to
+#      semver-shaped tags).
+#   3. From then on every `git tag vX.Y.Z && git push --tags` triggers this
+#      workflow, which runs tests first and only publishes on green.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+jobs:
+  test:
+    name: Pre-publish tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Verify pubspec version matches the git tag
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pubspec=$(grep '^version:' pubspec.yaml | awk '{print $2}')
+          if [ "$tag" != "$pubspec" ]; then
+            echo "Tag $GITHUB_REF_NAME (=$tag) does not match pubspec.yaml version $pubspec"
+            exit 1
+          fi
+          echo "Publishing version $pubspec"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Tests
+        run: flutter test
+
+      - name: Dartdoc dry-run
+        run: dart doc --dry-run
+
+  publish:
+    needs: test
+    # The reusable workflow does setup-dart + `dart pub publish --force`
+    # using OIDC. `id-token: write` is required so the runner can mint the
+    # short-lived token pub.dev expects.
+    permissions:
+      id-token: write
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1

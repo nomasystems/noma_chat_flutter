@@ -1,18 +1,24 @@
 # Testing
 
-`noma_chat` ships with **908+ tests** across SDK, cache, UI Kit, and facade.
+`noma_chat` ships with **1156 passing tests** (+ 4 skipped) across the SDK,
+cache, UI Kit, integration, accessibility and golden suites.
 
-## Status
+## What's covered
 
-| Suite | Approx. test count |
-|---|---|
-| SDK (`test/sdk/`) | ~278 |
-| Cache (`test/cache/`) | ~137 |
-| UI Kit (`test/ui/`) | ~488 |
-| Facade (`test/facade/`) | ~5 |
-| **Total** | **~908+** |
+| Area | What's tested |
+| --- | --- |
+| `test/sdk/` | Sub-API repositories, transports (WS / SSE / manager), interceptors (auth, retry, circuit breaker), mappers, models, offline queue. |
+| `test/cache/` | `HiveChatDatasource` (serialization, eviction, TTL, migrations, corrupt data, 10k-message performance regression guard). |
+| `test/ui/` | `ChatController`, `RoomListController`, `MessageSearchController`, `ChatUiAdapter` (events + optimistic ops + operation errors), localizations, theme, utilities, widgets with logic. |
+| `test/facade/` | `NomaChat.create` / `fromClient` wiring. |
+| `test/integration/` | End-to-end flow against `MockChatClient` (load → open → send → edit → delete → pin → mute). |
+| `test/a11y/` | `meetsGuideline` audits for tap-target sizes, labels and contrast on the main widgets. |
+| `test/golden/` | 19 golden baselines for bubbles (7 widgets × 2 themes) and outgoing message status icons. |
 
-A small number of preexisting tests fail in `thread_view_test.dart` and some semantic tests (UI dependencies that drifted). They do not block development.
+4 golden tests are intentionally skipped (`ImageBubble` and
+`LinkPreviewBubble`, both themes) because `CachedNetworkImage` pulls in
+`flutter_cache_manager` → `sqflite` + `path_provider`, which isn't worth
+mocking for a widget test in this codebase.
 
 ## Running tests
 
@@ -24,8 +30,10 @@ flutter test
 flutter test test/sdk/
 flutter test test/cache/
 flutter test test/ui/
+flutter test test/integration/
+flutter test test/golden/
 
-# Single suite
+# Single file
 flutter test test/sdk/transport/ws_transport_test.dart
 
 # Coverage
@@ -34,29 +42,48 @@ genhtml coverage/lcov.info -o coverage/html
 open coverage/html/index.html
 ```
 
-For iterative work, use targeted suites. Running the full set takes minutes and surfaces a lot of output you don't need.
+For iterative work, use targeted suites. The full set takes a few minutes
+and is normally only run before releasing.
+
+### Golden tests
+
+```bash
+# Verify (default)
+flutter test test/golden/
+
+# Regenerate baselines after an intentional visual change
+flutter test --update-goldens test/golden/
+```
+
+Always review the new `.png` diffs visually before committing — the whole
+point of goldens is catching unintended changes.
 
 ## Conventions
 
 ### What to test
 
-Tests cover **business logic, not pure presentation** (rule inherited from WB monorepo). Specifically:
+Tests cover **business logic, not pure presentation**:
 
-- Sub-API repositories (`MessagesApi`, `RoomsApi`, etc.)
-- Controllers (`ChatController`, `RoomListController`) — state transitions and event handling
-- Transport layer (`WsTransport`, `SseTransport`, `TransportManager`)
-- `EventParser` and all mappers
-- `HiveChatDatasource` — serialization, eviction, TTL, migrations, corrupt data resilience
-- `OfflineQueue` — enqueue, dedup, restore, retry strategy
-- DI wiring (facade) — ensure objects are created and connected
-- `ChatUiAdapter` — event-to-controller sync, optimistic actions
-- Utilities (`last_message_preview`, `date_formatter`, `url_detector`)
+- Sub-API repositories (`MessagesApi`, `RoomsApi`, …).
+- Controllers — state transitions and event handling.
+- Transport layer (`WsTransport`, `SseTransport`, `TransportManager`).
+- `EventParser` and all mappers.
+- `HiveChatDatasource` — serialization, eviction, TTL, migrations,
+  corrupt data resilience.
+- `OfflineQueue` — enqueue, dedup, restore, retry strategy.
+- Facade wiring — that the right objects are created and connected.
+- `ChatUiAdapter` — event-to-controller sync, optimistic actions,
+  `operationErrors` stream.
+- Utilities (`last_message_preview`, `date_formatter`, `url_detector`,
+  `read_receipts_helper`, `markdown_parser`).
 
-**Do not write tests for**: widgets that only render UI from props with no logic. Visual correctness is verified manually and through QA.
+Widgets with no behaviour (pure renderers from props) are covered by
+golden tests rather than by widget tests. Visual correctness for the rest
+relies on the example app and manual QA.
 
 ### Mocking
 
-Mocks use `mocktail` (not `mockito`). Pattern:
+The package uses `mocktail`. Typical pattern:
 
 ```dart
 class _MockDio extends Mock implements Dio {}
@@ -70,45 +97,53 @@ when(() => dio.fetch<dynamic>(any())).thenAnswer((_) async => Response(...));
 verify(() => dio.fetch<dynamic>(any())).called(1);
 ```
 
-### MockChatClient
+### `MockChatClient`
 
-`src/mock/mock_chat_client.dart` is a complete in-memory implementation of `ChatClient` (~30 methods, simulated events, configurable latency). Used for:
+`src/mock/mock_chat_client.dart` is a complete in-memory implementation of
+`ChatClient` (sub-APIs, simulated events, configurable latency). It is
+re-exported as part of the public API and is used by:
 
-- UI integration tests
-- The example app
-- Consumer apps during development before backend is reachable
-
-### Test data helpers
-
-Build models with sensible defaults using helper constructors in test files:
-
-```dart
-ChatMessage testMessage({String? text, MessageType? type, ...}) =>
-  ChatMessage(id: 'm1', roomId: 'r1', text: text ?? 'hi', timestamp: DateTime.now(), ...);
-```
+- UI and integration tests.
+- The example app (`example/`).
+- Consumer apps during development before the real backend is reachable.
 
 ### Hive in tests
 
-`HiveChatDatasource` tests use `Hive.init(temp_dir)`. Each test is isolated with `tearDown` cleanup.
+`HiveChatDatasource` tests use `Hive.init(<temp dir>)` and clean up in
+`tearDown`. Each test is isolated.
 
 ## CI
 
-Tests run as part of the WB mobile CI pipeline (GitHub Actions). See `WB/.github/workflows/` for details. The package is exercised both standalone and as a dependency of `WB/mobile/`.
+The repository's CI workflow is at `.github/workflows/ci.yml`. It runs
+on every pull request and push to `main`:
+
+- `dart format --output=none --set-exit-if-changed .`
+- `flutter analyze --fatal-infos --fatal-warnings`
+- `flutter test`
+- `dart doc --dry-run`
+- `pana` (informational, never blocks).
+
+A red CI is a blocker for merge.
 
 ## When you add or change features
 
 Update the relevant suite(s):
 
-- New sub-API method → tests in `test/sdk/api/`
-- New event type → `test/sdk/transport/event_parser_test.dart` + `ChatUiAdapter` handler test
-- New cache field → roundtrip test in `test/cache/`
-- New UI widget with logic → `test/ui/widgets/` (logic only, not presentation)
-- New model with Freezed → `test/sdk/models/` roundtrip
+- New sub-API method → tests in `test/sdk/api/`.
+- New event type → `test/sdk/transport/event_parser_test.dart` +
+  `ChatUiAdapter` handler test.
+- New cache field → roundtrip test in `test/cache/`.
+- New UI widget with logic → `test/ui/widgets/` (logic only).
+- New visual bubble or status → golden test in `test/golden/`.
+- New model with Freezed → `test/sdk/models/` roundtrip.
 
-When you touch the public API, also update the example app in `example/` to demonstrate the new feature.
+When you touch the public API, also update the example app in `example/`
+to exercise the new behaviour.
 
 ## Known limitations
 
-- Some preexisting tests in `thread_view_test.dart` and a few semantic tests fail due to UI dependency drift. Tracked but not blocking.
-- `chat_ui_adapter` bootstrap tests for presence are pending (require extending `_DmRoomsApi` / `_FailableMembersApi` wrappers with `presence.getAll()` stubs).
-- Coverage isn't enforced numerically in pre-release. Aim for high coverage on business logic.
+- The 4 skipped golden tests listed above. Mocking the
+  `flutter_cache_manager` chain (with e.g. `sqflite_common_ffi`) would
+  unblock them; not done yet because the cost isn't worth the coverage.
+- Numeric coverage isn't enforced. Aim for high coverage on business logic
+  and keep `flutter test` green.

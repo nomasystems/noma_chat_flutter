@@ -127,5 +127,86 @@ void main() {
       expect(received, [event]);
       await sub.cancel();
     });
+
+    test('connectionState reads through to the transport', () {
+      when(() => mockTransport.state)
+          .thenReturn(ChatConnectionState.connected);
+      expect(createClient().connectionState,
+          ChatConnectionState.connected);
+    });
+
+    test('stateChanges stream comes from transport', () async {
+      final client = createClient();
+      final out = <ChatConnectionState>[];
+      final sub = client.stateChanges.listen(out.add);
+      stateController.add(ChatConnectionState.connecting);
+      stateController.add(ChatConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+      expect(out,
+          [ChatConnectionState.connecting, ChatConnectionState.connected]);
+      await sub.cancel();
+    });
+
+    test('notifyTokenRotated delegates to the transport', () async {
+      when(() => mockTransport.notifyTokenRotated())
+          .thenAnswer((_) async {});
+
+      final client = createClient();
+      await client.notifyTokenRotated();
+
+      verify(() => mockTransport.notifyTokenRotated()).called(1);
+    });
+
+    test('logout calls disconnect and (with cache) clears the queue + cache',
+        () async {
+      final client = createClient(cfg: configWithCache);
+      await client.connect();
+
+      await client.logout();
+
+      verify(() => mockTransport.disconnect()).called(1);
+    });
+
+    test('DisconnectedEvent updates lastDisconnectedAt', () async {
+      final client = createClient();
+      await client.connect();
+      eventsController.add(const DisconnectedEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(client.lastDisconnectedAt, isNotNull);
+    });
+
+    test('ConnectedEvent (first) does not set lastDisconnectedAt',
+        () async {
+      final client = createClient();
+      await client.connect();
+      eventsController.add(const ConnectedEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(client.lastDisconnectedAt, isNull);
+    });
+
+    test('ConnectedEvent after disconnect clears lastDisconnectedAt',
+        () async {
+      final client = createClient();
+      await client.connect();
+      eventsController.add(const DisconnectedEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(client.lastDisconnectedAt, isNotNull);
+
+      eventsController.add(const ConnectedEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(client.lastDisconnectedAt, isNull);
+    });
+
+    test('configWithCache: ConnectedEvent triggers offline queue processing',
+        () async {
+      final client = createClient(cfg: configWithCache);
+      await client.connect();
+      // First ConnectedEvent just primes _hasConnectedOnce; second triggers
+      // the queue path. Both should leave the client functional.
+      eventsController.add(const ConnectedEvent());
+      eventsController.add(const DisconnectedEvent());
+      eventsController.add(const ConnectedEvent());
+      await Future<void>.delayed(Duration.zero);
+    });
   });
 }

@@ -1,6 +1,8 @@
-# Integration with CHT backend
+# Integration with the Noma chat backend
 
-`noma_chat` consumes the chat-core backend (`CHT/apps/user_client/` in the Nomasystems monorepo). This document describes the contract: endpoints, auth, real-time, sync behavior, and operational caveats.
+`noma_chat` is the Flutter client for the Noma chat backend (a chat-core
+service built by Nomasystems). This document describes the contract:
+endpoints, auth, real-time, sync behavior, and operational caveats.
 
 ## Endpoints
 
@@ -26,7 +28,7 @@ NomaChat.create(
 ```
 
 - `tokenProvider` is called per request. It must return a valid JWT (refresh internally if needed).
-- The backend validates the JWT (Cognito JWKS in the WB deployment).
+- The backend validates the JWT against the deployment's JWKS endpoint (e.g. Cognito, Auth0, custom IdP).
 - On 401, `BearerAuthInterceptor` retries once after the consumer's refresh, then calls `onAuthFailure`.
 
 ### Token rotation
@@ -44,7 +46,7 @@ This sends `{"type":"auth_refresh","token":"<new>"}` to the open WebSocket. The 
 - `4001 auth_timeout` — client didn't send `auth` within 10s.
 - `4002 auth_failed` — invalid token at handshake.
 - `4003 token_expired` — the server-side timer fired at the JWT's `exp`.
-- `4004 token_revoked` — the user's tokens were revoked in `wb_token_blacklist` (e.g. logout, deactivation).
+- `4004 token_revoked` — the user's tokens were revoked by the backend (e.g. logout, deactivation) via its revocation list.
 
 Both `4003` and `4004` should trigger the consumer to refresh the cached token and reconnect.
 
@@ -61,7 +63,7 @@ The WS/SSE channel emits events that the SDK parses into a sealed `ChatEvent` un
 | `room_updated` | `RoomUpdatedEvent` (IDs only) |
 | `room_deleted` | `RoomDeletedEvent` |
 | `user_joined`, `user_left`, `user_role_changed` | corresponding events |
-| `receipt_updated` | `ReceiptUpdatedEvent` (with `userId` since Fase 3 audit 2026-04-08) |
+| `receipt_updated` | `ReceiptUpdatedEvent` (carries the `userId` of the reader) |
 | `typing` | `TypingEvent` (room: `roomId`; DM: `contactId`) |
 | `presence_changed` | `PresenceChangedEvent` |
 | `reaction_added`, `reaction_deleted` | reaction events with `emoji` field |
@@ -77,7 +79,7 @@ The backend supports several room shapes:
 - `RoomType.group` — group rooms with multiple members.
 - `RoomType.announcement` — read-only broadcast rooms (only owner/admin sends; implicit membership).
 
-For a clean DM vs group distinction in your UI when 1:1 rooms can semantically be groups (e.g. a 2-person plan in WannaBeer), provide an `isDmRoom` predicate (DEC-033) and the backend's `forceGroup` flag at room creation (backend ADR-074).
+For a clean DM vs group distinction in your UI when 1:1 rooms can semantically be groups (e.g. a 2-person event group), provide an `isDmRoom` predicate and the backend's `forceGroup` flag at room creation.
 
 ## Cache-then-network with delta sync
 
@@ -99,7 +101,7 @@ This eliminates blank screens after navigation and keeps bandwidth low.
 
 The backend exposes `/v1/internal/*` for service-to-service calls. The SDK exposes them via `client.internal.*` (createUser, deleteUser, createRoom, deleteRoom, addRoomUser, addContact, blockUser, unblockUser, deleteSession, revoke). Authentication uses `X-Api-Key` (not JWT) and `X-User-Id` for the acting user.
 
-These are typically called by a backend service (e.g. WannaBeer's `WB/back`), not by an end-user mobile app. The SDK includes them for completeness — your code should gatekeep them.
+These are typically called by another backend service of yours (e.g. your auth or directory service), not by an end-user mobile app. The SDK includes them for completeness — your code should gatekeep them.
 
 ## Admin endpoints
 
@@ -114,8 +116,7 @@ The backend's admin endpoints (`/v1/admin/*`) are also exposed via `client.admin
 
 ## OpenAPI spec
 
-The full backend API is described in `CHT/apps/user_client/doc/user-openapi.yml` (currently v2.5.0). When in doubt about a request/response shape, that's the source of truth. The SDK's mappers stay in sync with that spec.
-
-## Reference
-
-For complete backend documentation see `proyectos/.claude/info/cht/` (set of canonical docs). For cross-system flows (e.g. follow → contact sync, plan creation → room creation), see `proyectos/.claude/info/cross/INTEGRATION.md`.
+The full backend API is described by an OpenAPI document that your
+deployment ships with the backend. When in doubt about a request/response
+shape, that document is the source of truth. The SDK's mappers stay in
+sync with it.

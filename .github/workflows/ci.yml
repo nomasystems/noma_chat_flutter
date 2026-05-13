@@ -1,0 +1,73 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch/PR.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze-and-test:
+    name: Analyze + test (Flutter ${{ matrix.flutter }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Pin to a stable channel; bump explicitly when the package's
+        # `environment.sdk` constraint is widened.
+        flutter: ["3.x"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ matrix.flutter }}
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Format check
+        run: dart format --output=none --set-exit-if-changed .
+
+      - name: Analyze
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Tests + coverage
+        run: flutter test --coverage
+
+      - name: Coverage gate (≥80%)
+        run: |
+          awk 'BEGIN{lh=0; lf=0} /^LF:/{sub("LF:",""); lf+=$1} /^LH:/{sub("LH:",""); lh+=$1} END{ pct=(lh/lf)*100; printf "Coverage: %d/%d = %.2f%%\n", lh, lf, pct; if (pct < 80.0) { print "FAIL: coverage below 80% threshold"; exit 1 } }' coverage/lcov.info
+
+      - name: Dartdoc dry-run
+        run: dart doc --dry-run
+
+  pana:
+    name: pub.dev score (pana)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install pana
+        run: dart pub global activate pana
+
+      - name: Run pana
+        run: |
+          dart pub global run pana --no-warning --exit-code-threshold 0 \
+            --json . > pana.json || true
+          # Print the human summary as well, never fail the job — pana is
+          # informational; the real gate is `dart pub publish --dry-run`.
+          dart pub global run pana --no-warning . || true
