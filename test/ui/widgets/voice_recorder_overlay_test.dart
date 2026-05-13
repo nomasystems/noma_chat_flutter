@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:record/record.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -25,6 +25,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(FakeRecordConfig());
     registerFallbackValue(Duration.zero);
+    registerFallbackValue(UrlSource('_'));
   });
 
   setUp(() async {
@@ -46,19 +47,19 @@ void main() {
     when(() => mockRecorder.stop()).thenAnswer((_) async => '');
     when(() => mockPlayer.stop()).thenAnswer((_) async {});
     when(() => mockPlayer.pause()).thenAnswer((_) async {});
-    when(() => mockPlayer.playing).thenReturn(false);
-    when(() => mockPlayer.position).thenReturn(Duration.zero);
-    when(() => mockPlayer.duration).thenReturn(null);
-    when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);
-    when(() => mockPlayer.play()).thenAnswer((_) async {});
+    when(() => mockPlayer.resume()).thenAnswer((_) async {});
+    when(() => mockPlayer.seek(any())).thenAnswer((_) async {});
     when(
-      () => mockPlayer.positionStream,
+      () => mockPlayer.play(any()),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockPlayer.onPositionChanged,
     ).thenAnswer((_) => const Stream<Duration>.empty());
     when(
-      () => mockPlayer.durationStream,
-    ).thenAnswer((_) => const Stream<Duration?>.empty());
+      () => mockPlayer.onDurationChanged,
+    ).thenAnswer((_) => const Stream<Duration>.empty());
     when(
-      () => mockPlayer.playerStateStream,
+      () => mockPlayer.onPlayerStateChanged,
     ).thenAnswer((_) => const Stream<PlayerState>.empty());
 
     tempDir = await Directory.systemTemp.createTemp('overlay_test_');
@@ -206,8 +207,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(controller.state, VoiceRecordingState.preListen);
-    verify(() => mockPlayer.setFilePath(any())).called(1);
-    verify(() => mockPlayer.play()).called(1);
+    verify(() => mockPlayer.play(any())).called(1);
 
     await controller.cancelRecording();
     controller.dispose();

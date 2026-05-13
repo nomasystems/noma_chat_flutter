@@ -2,6 +2,24 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
 /// Inline markdown roles recognised by [parseMarkdown].
+///
+/// **Supported syntax (inline only):**
+///
+/// * `*bold*` and `**bold**`
+/// * `_italic_` (mid-word italics intentionally do not match)
+/// * `~~strikethrough~~`
+/// * `` `code` ``
+/// * bare URLs starting with `http://` or `https://`
+/// * `@mentions` of the form `@username`
+///
+/// **Not supported (rendered verbatim):**
+///
+/// * Markdown link syntax `[label](url)` — type the URL directly instead.
+/// * Block-level features: headings, lists, blockquotes, fences.
+/// * HTML, footnotes, tables, images.
+///
+/// The chat composer is single-line, inline-oriented, so block markdown is
+/// outside the scope on purpose.
 enum MarkdownStyle { plain, bold, italic, code, strikethrough, link, mention }
 
 /// One contiguous slice of text emitted by [parseMarkdown], carrying its

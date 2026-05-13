@@ -1,6 +1,7 @@
 import 'dart:collection';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:html/dom.dart' show Document, Element;
 import 'package:html/parser.dart' show parse;
 
@@ -16,8 +17,12 @@ class LinkPreviewFetcher {
     Dio? dio,
     Duration timeout = const Duration(seconds: 5),
     int cacheSize = 64,
+    Duration failureTtl = const Duration(minutes: 5),
+    @visibleForTesting DateTime Function()? clock,
   }) : _dio = dio ?? _defaultDio(timeout),
-       _cacheSize = cacheSize;
+       _cacheSize = cacheSize,
+       _failureTtl = failureTtl,
+       _clock = clock ?? DateTime.now;
 
   static Dio _defaultDio(Duration timeout) => Dio(
     BaseOptions(
@@ -43,15 +48,37 @@ class LinkPreviewFetcher {
 
   final Dio _dio;
   final int _cacheSize;
+  final Duration _failureTtl;
+  final DateTime Function() _clock;
   final LinkedHashMap<String, LinkPreviewMetadata?> _cache =
       LinkedHashMap<String, LinkPreviewMetadata?>();
+  // Wall-clock at which a `null` cache entry was stored. Successful previews
+  // never expire (they would only become stale if the page itself changes);
+  // failures retry after `_failureTtl` so a transient network glitch does
+  // not poison the cache for the rest of the session.
+  final Map<String, DateTime> _failureStoredAt = {};
   final Map<String, Future<LinkPreviewMetadata?>> _inFlight = {};
 
   Future<LinkPreviewMetadata?> fetch(String url) {
     if (_cache.containsKey(url)) {
-      final cached = _cache.remove(url);
-      _cache[url] = cached;
-      return Future.value(cached);
+      final cached = _cache[url];
+      if (cached == null) {
+        final storedAt = _failureStoredAt[url];
+        if (storedAt != null && _clock().difference(storedAt) >= _failureTtl) {
+          // Failure expired — evict and refetch.
+          _cache.remove(url);
+          _failureStoredAt.remove(url);
+        } else {
+          // Refresh LRU position even on cached failures.
+          _cache.remove(url);
+          _cache[url] = null;
+          return Future.value(null);
+        }
+      } else {
+        _cache.remove(url);
+        _cache[url] = cached;
+        return Future.value(cached);
+      }
     }
     final pending = _inFlight[url];
     if (pending != null) return pending;
@@ -82,9 +109,16 @@ class LinkPreviewFetcher {
 
   void _store(String url, LinkPreviewMetadata? value) {
     if (_cache.length >= _cacheSize) {
-      _cache.remove(_cache.keys.first);
+      final oldest = _cache.keys.first;
+      _cache.remove(oldest);
+      _failureStoredAt.remove(oldest);
     }
     _cache[url] = value;
+    if (value == null) {
+      _failureStoredAt[url] = _clock();
+    } else {
+      _failureStoredAt.remove(url);
+    }
   }
 
   LinkPreviewMetadata? _parse(String url, String html) {

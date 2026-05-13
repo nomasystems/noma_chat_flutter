@@ -29,7 +29,7 @@ class VideoBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: caption ?? 'Video message',
+      label: caption ?? theme.l10n.videoPreview,
       button: onTap != null,
       child: GestureDetector(
         onTap: onTap,

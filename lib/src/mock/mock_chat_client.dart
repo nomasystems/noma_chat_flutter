@@ -133,6 +133,13 @@ class MockChatClient implements ChatClient {
     await _eventController.close();
     await _stateController.close();
   }
+
+  // The mock does not have an offline queue, so the setter is a no-op.
+  // Implemented to satisfy the `ChatClient` contract introduced in 0.3.0.
+  @override
+  set onOfflineMessageSent(
+    void Function(String roomId, String tempId, ChatMessage message)? value,
+  ) {}
 }
 
 class MockAuthApi implements ChatAuthApi {
@@ -370,23 +377,45 @@ class MockRoomsApi implements ChatRoomsApi {
     return const Success(null);
   }
 
-  @override
-  Future<Result<void>> mute(String roomId) async => const Success(null);
+  // Room mutations mirror the real client: every successful mutation
+  // surfaces a `RoomUpdatedEvent` so adapter code that depends on the
+  // event behaves identically against the mock.
 
   @override
-  Future<Result<void>> unmute(String roomId) async => const Success(null);
+  Future<Result<void>> mute(String roomId) async {
+    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
+    return const Success(null);
+  }
 
   @override
-  Future<Result<void>> pin(String roomId) async => const Success(null);
+  Future<Result<void>> unmute(String roomId) async {
+    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
+    return const Success(null);
+  }
 
   @override
-  Future<Result<void>> unpin(String roomId) async => const Success(null);
+  Future<Result<void>> pin(String roomId) async {
+    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
+    return const Success(null);
+  }
 
   @override
-  Future<Result<void>> hide(String roomId) async => const Success(null);
+  Future<Result<void>> unpin(String roomId) async {
+    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
+    return const Success(null);
+  }
 
   @override
-  Future<Result<void>> unhide(String roomId) async => const Success(null);
+  Future<Result<void>> hide(String roomId) async {
+    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
+    return const Success(null);
+  }
+
+  @override
+  Future<Result<void>> unhide(String roomId) async {
+    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
+    return const Success(null);
+  }
 
   @override
   Future<Result<void>> batchMarkAsRead(List<String> roomIds) async =>

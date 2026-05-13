@@ -490,6 +490,26 @@ class ChatTheme {
       color: Color(0xFFE0E0E0),
       fontSize: 13,
     ),
+    // Markdown inline styles tuned for the dark backgrounds above. The
+    // light-mode defaults (gray-200 code background, Material blue link)
+    // would otherwise blend into the bubble or fail WCAG AA contrast.
+    markdownCodeStyle: const TextStyle(
+      color: Color(0xFFE6E6E6),
+      backgroundColor: Color(0xFF3A3A3A),
+      fontFamily: 'monospace',
+      fontSize: 13,
+    ),
+    markdownLinkStyle: const TextStyle(
+      color: Color(0xFF64B5F6),
+      decoration: TextDecoration.underline,
+    ),
+    // A handful of accent colours that would otherwise default to
+    // light-mode values and look out of place over the dark bubbles.
+    reactionBackgroundColor: const Color(0xFF263238),
+    audioPlayButtonColor: const Color(0xFF64B5F6),
+    audioListenedIconColor: const Color(0xFF64B5F6),
+    audioUnlistenedIconColor: const Color(0xFFB0BEC5),
+    linkPreviewBackgroundColor: const Color(0xFF263238),
   );
 
   static final ChatTheme highContrast = ChatTheme(
@@ -538,6 +558,19 @@ class ChatTheme {
       color: Color(0xFFFFFFFF),
       fontSize: 16,
       fontWeight: FontWeight.bold,
+    ),
+    markdownCodeStyle: const TextStyle(
+      color: Color(0xFF000000),
+      backgroundColor: Color(0xFFE0E0E0),
+      fontFamily: 'monospace',
+      fontSize: 17,
+      fontWeight: FontWeight.w600,
+    ),
+    markdownLinkStyle: const TextStyle(
+      color: Color(0xFF0000EE),
+      decoration: TextDecoration.underline,
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
     ),
   );
 

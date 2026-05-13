@@ -29,7 +29,7 @@ class ImageBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       image: true,
-      label: caption ?? 'Image',
+      label: caption ?? theme.l10n.imagePreview,
       child: GestureDetector(
         onTap: onTap,
         child: Column(

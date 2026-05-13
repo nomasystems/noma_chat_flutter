@@ -11,14 +11,16 @@ class ScrollToBottomButton extends StatelessWidget {
     required this.onPressed,
     this.unreadCount = 0,
     this.theme = ChatTheme.defaults,
-    this.semanticLabel = 'Scroll to bottom',
+    this.semanticLabel,
   });
 
   final bool visible;
   final VoidCallback onPressed;
   final int unreadCount;
   final ChatTheme theme;
-  final String semanticLabel;
+  /// Optional Semantics label. When omitted, falls back to the localised
+  /// `theme.l10n.scrollToBottom` (shipped in 7 locales).
+  final String? semanticLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +35,7 @@ class ScrollToBottomButton extends StatelessWidget {
             child: UnreadBadge(count: unreadCount, theme: theme),
           ),
         Semantics(
-          label: semanticLabel,
+          label: semanticLabel ?? theme.l10n.scrollToBottom,
           button: true,
           child: FloatingActionButton.small(
             onPressed: onPressed,

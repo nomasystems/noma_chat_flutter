@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:record/record.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -24,6 +24,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(FakeRecordConfig());
     registerFallbackValue(Duration.zero);
+    registerFallbackValue(UrlSource('_'));
   });
 
   setUp(() async {
@@ -39,13 +40,13 @@ void main() {
     when(() => mockRecorder.stop()).thenAnswer((_) async => null);
     when(() => mockPlayer.stop()).thenAnswer((_) async {});
     when(
-      () => mockPlayer.positionStream,
+      () => mockPlayer.onPositionChanged,
     ).thenAnswer((_) => const Stream<Duration>.empty());
     when(
-      () => mockPlayer.durationStream,
-    ).thenAnswer((_) => const Stream<Duration?>.empty());
+      () => mockPlayer.onDurationChanged,
+    ).thenAnswer((_) => const Stream<Duration>.empty());
     when(
-      () => mockPlayer.playerStateStream,
+      () => mockPlayer.onPlayerStateChanged,
     ).thenAnswer((_) => const Stream<PlayerState>.empty());
 
     tempDir = await Directory.systemTemp.createTemp('voice_test_');
@@ -267,17 +268,17 @@ void main() {
     'preListen forwards player position events as listener notifications',
     () async {
       final positionController = StreamController<Duration>.broadcast();
-      final durationController = StreamController<Duration?>.broadcast();
+      final durationController = StreamController<Duration>.broadcast();
       final stateController = StreamController<PlayerState>.broadcast();
 
       when(
-        () => mockPlayer.positionStream,
+        () => mockPlayer.onPositionChanged,
       ).thenAnswer((_) => positionController.stream);
       when(
-        () => mockPlayer.durationStream,
+        () => mockPlayer.onDurationChanged,
       ).thenAnswer((_) => durationController.stream);
       when(
-        () => mockPlayer.playerStateStream,
+        () => mockPlayer.onPlayerStateChanged,
       ).thenAnswer((_) => stateController.stream);
       when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
       when(
@@ -288,8 +289,7 @@ void main() {
       ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
       when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
       when(() => mockRecorder.stop()).thenAnswer((_) async => '');
-      when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);
-      when(() => mockPlayer.play()).thenAnswer((_) async {});
+      when(() => mockPlayer.play(any())).thenAnswer((_) async {});
       when(() => mockPlayer.pause()).thenAnswer((_) async {});
       when(() => mockPlayer.seek(any())).thenAnswer((_) async {});
 
@@ -321,8 +321,7 @@ void main() {
     ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
     when(() => mockRecorder.stop()).thenAnswer((_) async => '');
-    when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);
-    when(() => mockPlayer.play()).thenAnswer((_) async {});
+    when(() => mockPlayer.play(any())).thenAnswer((_) async {});
     when(() => mockPlayer.stop()).thenAnswer((_) async {});
 
     await controller.startRecording();

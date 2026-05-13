@@ -189,10 +189,9 @@ class ChatUiAdapter {
     _cancelSubscriptions();
     _eventSub = client.events.listen(_handleEvent);
     _stateSub = client.stateChanges.listen(_handleStateChange);
-    if (client is NomaChatClient) {
-      (client as NomaChatClient).onOfflineMessageSent =
-          _handleOfflineMessageSent;
-    }
+    // The offline-queue callback is part of the `ChatClient` contract as of
+    // 0.3.0; mocks implement it as a no-op. No `is`/`as` cast needed.
+    client.onOfflineMessageSent = _handleOfflineMessageSent;
   }
 
   void _handleOfflineMessageSent(
@@ -257,6 +256,10 @@ class ChatUiAdapter {
       notifier.dispose();
     }
     _voiceUploadProgress.clear();
+    for (final notifier in _detachedUploadNotifiers) {
+      notifier.dispose();
+    }
+    _detachedUploadNotifiers.clear();
     initializedNotifier.dispose();
     connectionStateNotifier.dispose();
     roomListController.dispose();
@@ -306,6 +309,7 @@ class ChatUiAdapter {
     );
     if (networkResult.isSuccess) {
       await _enrichAndSetRooms(networkResult.dataOrNull!);
+      if (_disposed) return const Success(null);
       initializedNotifier.value = true;
       onRoomsLoaded?.call(roomListController.allRooms);
       return const Success(null);
@@ -402,6 +406,7 @@ class ChatUiAdapter {
       );
     }
 
+    if (_disposed) return;
     roomListController.setRooms(items);
 
     // Resolve DM contacts in background
@@ -443,36 +448,41 @@ class ChatUiAdapter {
     }
   }
 
+  /// Background-resolves the "other" user in a DM room and caches the
+  /// mapping. Fire-and-forget on purpose: the room list is already painted
+  /// when this runs, so any failure logs a warning rather than blocks the UI.
   void _resolveDmContact(String roomId) {
-    Future.sync(() => client.members.list(roomId))
-        .then((membersResult) {
-          if (_disposed) return;
-          final members = membersResult.dataOrNull?.items ?? [];
-          final other = members
-              .where((m) => m.userId != currentUser.id)
-              .firstOrNull;
-          if (other == null) return;
-          _dmRoomByContact[other.userId] = roomId;
-          final existing = roomListController.getRoomById(roomId);
-          if (existing != null) {
-            final cachedPresence = _presenceCache[other.userId];
-            roomListController.updateRoom(
-              existing.copyWith(
-                otherUserId: other.userId,
-                isOnline: cachedPresence?.online ?? existing.isOnline,
-                presenceStatus:
-                    cachedPresence?.status ?? existing.presenceStatus,
-              ),
-            );
-          }
-          onDmContactResolved?.call(roomId, other.userId);
-        })
-        .catchError((Object e) {
-          logger?.call(
-            'warn',
-            'Failed to resolve DM contact for room $roomId: $e',
-          );
-        });
+    unawaited(_doResolveDmContact(roomId));
+  }
+
+  Future<void> _doResolveDmContact(String roomId) async {
+    try {
+      final membersResult = await client.members.list(roomId);
+      if (_disposed) return;
+      final members = membersResult.dataOrNull?.items ?? [];
+      final other =
+          members.where((m) => m.userId != currentUser.id).firstOrNull;
+      if (other == null) return;
+      _dmRoomByContact[other.userId] = roomId;
+      final existing = roomListController.getRoomById(roomId);
+      if (existing != null) {
+        final cachedPresence = _presenceCache[other.userId];
+        roomListController.updateRoom(
+          existing.copyWith(
+            otherUserId: other.userId,
+            isOnline: cachedPresence?.online ?? existing.isOnline,
+            presenceStatus:
+                cachedPresence?.status ?? existing.presenceStatus,
+          ),
+        );
+      }
+      onDmContactResolved?.call(roomId, other.userId);
+    } catch (e) {
+      logger?.call(
+        'warn',
+        'Failed to resolve DM contact for room $roomId: $e',
+      );
+    }
   }
 
   void _loadReactionsFromMessages(
@@ -629,62 +639,74 @@ class ChatUiAdapter {
     }
 
     controller.setLoadingMore(true);
-    final pagination = CursorPaginationParams(
-      before: controller.oldestMessageCursor,
-      limit: limit,
-    );
-
-    // Phase 1: Instant load from cache
-    final cachedResult = await client.messages.list(
-      roomId,
-      pagination: pagination,
-      cachePolicy: CachePolicy.cacheOnly,
-    );
-    final hasCached =
-        cachedResult.isSuccess &&
-        (cachedResult.dataOrNull?.items.isNotEmpty ?? false);
-    if (hasCached) {
-      final cachedData = cachedResult.dataOrNull!;
-      controller.addMessages(cachedData.items);
-      _loadReactionsFromMessages(controller, cachedData.items);
-      controller.setPaginationState(
-        hasMore: cachedData.hasMore,
-        cursor: cachedData.items.isNotEmpty ? cachedData.items.last.id : null,
+    // try/finally ensures the loading flag is cleared even if a sub-API call
+    // leaks an exception past the `Result` wrapper. Without it, the
+    // controller would stay `isLoadingMore: true` forever and every later
+    // call would early-return — a permanent UX dead-end.
+    try {
+      final pagination = CursorPaginationParams(
+        before: controller.oldestMessageCursor,
+        limit: limit,
       );
-    }
 
-    // Phase 2: Sync from network
-    final networkResult = await client.messages.list(
-      roomId,
-      pagination: pagination,
-      cachePolicy: CachePolicy.networkOnly,
-    );
-
-    controller.setLoadingMore(false);
-
-    if (networkResult.isSuccess) {
-      final networkData = networkResult.dataOrNull!;
-      controller.addMessages(networkData.items);
-      _loadReactionsFromMessages(controller, networkData.items);
-      controller.setPaginationState(
-        hasMore: networkData.hasMore,
-        cursor: networkData.items.isNotEmpty ? networkData.items.last.id : null,
+      // Phase 1: Instant load from cache
+      final cachedResult = await client.messages.list(
+        roomId,
+        pagination: pagination,
+        cachePolicy: CachePolicy.cacheOnly,
       );
-      return Success(networkData.items);
-    }
+      final hasCached =
+          cachedResult.isSuccess &&
+          (cachedResult.dataOrNull?.items.isNotEmpty ?? false);
+      if (hasCached) {
+        final cachedData = cachedResult.dataOrNull!;
+        controller.addMessages(cachedData.items);
+        _loadReactionsFromMessages(controller, cachedData.items);
+        controller.setPaginationState(
+          hasMore: cachedData.hasMore,
+          cursor:
+              cachedData.items.isNotEmpty ? cachedData.items.last.id : null,
+        );
+      }
 
-    if (hasCached) return Success(cachedResult.dataOrNull!.items);
-    return _emitFailure(
-      Failure<List<ChatMessage>>(networkResult.failureOrNull!),
-      OperationKind.loadMoreMessages,
-      roomId: roomId,
-    );
+      // Phase 2: Sync from network
+      final networkResult = await client.messages.list(
+        roomId,
+        pagination: pagination,
+        cachePolicy: CachePolicy.networkOnly,
+      );
+
+      if (networkResult.isSuccess) {
+        final networkData = networkResult.dataOrNull!;
+        controller.addMessages(networkData.items);
+        _loadReactionsFromMessages(controller, networkData.items);
+        controller.setPaginationState(
+          hasMore: networkData.hasMore,
+          cursor:
+              networkData.items.isNotEmpty ? networkData.items.last.id : null,
+        );
+        return Success(networkData.items);
+      }
+
+      if (hasCached) return Success(cachedResult.dataOrNull!.items);
+      return _emitFailure(
+        Failure<List<ChatMessage>>(networkResult.failureOrNull!),
+        OperationKind.loadMoreMessages,
+        roomId: roomId,
+      );
+    } finally {
+      controller.setLoadingMore(false);
+    }
   }
 
   // Message IDs with pending reaction deletes — skip WS refresh for these.
   final Set<String> _pendingReactionDeletes = {};
 
   /// Sends a message with optimistic UI update. Shows immediately, confirms on server response.
+  ///
+  /// [operationKind] lets callers like [sendThreadReply] surface a more
+  /// specific [OperationKind] on the error stream instead of the default
+  /// [OperationKind.sendMessage]; pass `null` to use the default.
   Future<Result<ChatMessage>> sendMessage(
     String roomId, {
     required String text,
@@ -692,6 +714,7 @@ class ChatUiAdapter {
     MessageType messageType = MessageType.regular,
     Map<String, dynamic>? metadata,
     String? attachmentUrl,
+    OperationKind? operationKind,
   }) async {
     final controller = _chatControllers[roomId];
     final tempId = '_pending_${DateTime.now().microsecondsSinceEpoch}';
@@ -766,7 +789,7 @@ class ChatUiAdapter {
 
     return _emitFailure(
       result,
-      OperationKind.sendMessage,
+      operationKind ?? OperationKind.sendMessage,
       roomId: roomId,
       messageId: tempId,
     );
@@ -1050,6 +1073,10 @@ class ChatUiAdapter {
   /// failure). Used by the UI layer to draw a determinate spinner inside the
   /// `AudioBubble` of the pending optimistic message.
   final Map<String, ValueNotifier<double>> _voiceUploadProgress = {};
+  // Notifiers detached from `_voiceUploadProgress` after a completed upload.
+  // We keep a strong reference so `dispose()` can drop them; otherwise they
+  // outlive the adapter (still referenced by the bubble until rebuild).
+  final List<ValueNotifier<double>> _detachedUploadNotifiers = [];
 
   /// Returns a listenable for the upload progress of a pending voice message.
   /// Returns `null` if there is no upload in flight for that id.
@@ -1179,10 +1206,12 @@ class ChatUiAdapter {
     // Detach the notifier from the active map. We deliberately do not call
     // `dispose()` here: the optimistic bubble may still hold a reference
     // until the controller's rebuild swaps tempId for the real id, and a
-    // disposed ChangeNotifier would throw on the next read. The notifier
-    // is GC'd once the bubble is replaced. The adapter's `dispose()`
-    // handles in-flight notifiers that never completed.
-    _voiceUploadProgress.remove(tempId);
+    // disposed ChangeNotifier would throw on the next read. Track it in
+    // `_detachedUploadNotifiers` so `dispose()` can release it on teardown.
+    final detached = _voiceUploadProgress.remove(tempId);
+    if (detached != null) {
+      _detachedUploadNotifiers.add(detached);
+    }
 
     return _emitFailure(
       sendResult,
@@ -1380,23 +1409,20 @@ class ChatUiAdapter {
   }
 
   /// Sends a reply within a thread.
+  ///
+  /// Emits `OperationKind.sendThreadReply` on failure (not the generic
+  /// `sendMessage`), so a single consumer of `operationErrors` does not
+  /// receive a duplicate event for the same underlying failure.
   Future<Result<ChatMessage>> sendThreadReply(
     String roomId,
     String parentMessageId, {
     required String text,
   }) async {
-    final result = await sendMessage(
+    return sendMessage(
       roomId,
       text: text,
       referencedMessageId: parentMessageId,
-    );
-    // `sendMessage` already emits `sendMessage`; also surface as
-    // `sendThreadReply` so consumers can branch on the more specific kind.
-    return _emitFailure(
-      result,
-      OperationKind.sendThreadReply,
-      roomId: roomId,
-      messageId: parentMessageId,
+      operationKind: OperationKind.sendThreadReply,
     );
   }
 
@@ -1452,10 +1478,15 @@ class ChatUiAdapter {
     return _emitFailure(result, OperationKind.acceptInvitation, roomId: roomId);
   }
 
-  /// Rejects a room invitation and removes it from the list.
+  /// Rejects a room invitation and removes it from the list. Restores the
+  /// row on failure so a network glitch does not silently lose the invite.
   Future<Result<void>> rejectInvitation(String roomId) async {
+    final previous = roomListController.getRoomById(roomId);
     roomListController.removeRoom(roomId);
     final result = await client.members.leave(roomId);
+    if (result.isFailure && previous != null && !_disposed) {
+      roomListController.addRoom(previous);
+    }
     return _emitFailure(result, OperationKind.rejectInvitation, roomId: roomId);
   }
 

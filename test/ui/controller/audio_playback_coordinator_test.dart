@@ -1,11 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:just_audio/just_audio.dart';
+import 'package:audioplayers/audioplayers.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 class MockAudioPlayer extends Mock implements AudioPlayer {}
 
 void main() {
+  setUpAll(() {
+    // `seek` and `setPlaybackRate` take `Duration` / `double` non-nullable
+    // arguments; mocktail needs an explicit fallback for `any()` matchers.
+    registerFallbackValue(Duration.zero);
+  });
+
   late AudioPlaybackCoordinator coordinator;
   late MockAudioPlayer player1;
   late MockAudioPlayer player2;
@@ -15,15 +21,15 @@ void main() {
     player1 = MockAudioPlayer();
     player2 = MockAudioPlayer();
 
-    when(() => player1.play()).thenAnswer((_) async {});
+    when(() => player1.resume()).thenAnswer((_) async {});
     when(() => player1.pause()).thenAnswer((_) async {});
     when(() => player1.seek(any())).thenAnswer((_) async {});
-    when(() => player1.setSpeed(any())).thenAnswer((_) async {});
+    when(() => player1.setPlaybackRate(any())).thenAnswer((_) async {});
     when(() => player1.dispose()).thenAnswer((_) async {});
-    when(() => player2.play()).thenAnswer((_) async {});
+    when(() => player2.resume()).thenAnswer((_) async {});
     when(() => player2.pause()).thenAnswer((_) async {});
     when(() => player2.seek(any())).thenAnswer((_) async {});
-    when(() => player2.setSpeed(any())).thenAnswer((_) async {});
+    when(() => player2.setPlaybackRate(any())).thenAnswer((_) async {});
     when(() => player2.dispose()).thenAnswer((_) async {});
   });
 
@@ -42,8 +48,8 @@ void main() {
     expect(coordinator.currentlyPlayingId, 'msg1');
     // Speed is owned by each AudioBubble; the coordinator no longer touches
     // it during play() so each audio keeps its own 1x/1.5x/2x.
-    verifyNever(() => player1.setSpeed(any()));
-    verify(() => player1.play()).called(1);
+    verifyNever(() => player1.setPlaybackRate(any()));
+    verify(() => player1.resume()).called(1);
   });
 
   test('playing a second audio pauses the first', () async {
@@ -55,7 +61,7 @@ void main() {
 
     expect(coordinator.currentlyPlayingId, 'msg2');
     verify(() => player1.pause()).called(1);
-    verify(() => player2.play()).called(1);
+    verify(() => player2.resume()).called(1);
   });
 
   test('pause clears currentlyPlayingId', () async {
@@ -89,7 +95,7 @@ void main() {
     await coordinator.play('msg1');
 
     coordinator.cycleSpeed();
-    verify(() => player1.setSpeed(1.5)).called(1);
+    verify(() => player1.setPlaybackRate(1.5)).called(1);
   });
 
   test('stopAll pauses all and resets', () async {
@@ -145,16 +151,16 @@ void main() {
         await coordinator.notifyCompleted('msg1');
 
         expect(coordinator.currentlyPlayingId, 'msg2');
-        verify(() => player2.play()).called(1);
+        verify(() => player2.resume()).called(1);
       },
     );
 
     test('skips outgoing audios as auto-play target', () async {
       final player3 = MockAudioPlayer();
-      when(() => player3.play()).thenAnswer((_) async {});
+      when(() => player3.resume()).thenAnswer((_) async {});
       when(() => player3.pause()).thenAnswer((_) async {});
       when(() => player3.seek(any())).thenAnswer((_) async {});
-      when(() => player3.setSpeed(any())).thenAnswer((_) async {});
+      when(() => player3.setPlaybackRate(any())).thenAnswer((_) async {});
       when(() => player3.dispose()).thenAnswer((_) async {});
 
       coordinator.registerPlayer('msg1', player1, isOutgoing: false);
@@ -166,16 +172,16 @@ void main() {
       await coordinator.notifyCompleted('msg1');
 
       expect(coordinator.currentlyPlayingId, 'msg3');
-      verifyNever(() => player2.play());
-      verify(() => player3.play()).called(1);
+      verifyNever(() => player2.resume());
+      verify(() => player3.resume()).called(1);
     });
 
     test('skips already listened audios', () async {
       final player3 = MockAudioPlayer();
-      when(() => player3.play()).thenAnswer((_) async {});
+      when(() => player3.resume()).thenAnswer((_) async {});
       when(() => player3.pause()).thenAnswer((_) async {});
       when(() => player3.seek(any())).thenAnswer((_) async {});
-      when(() => player3.setSpeed(any())).thenAnswer((_) async {});
+      when(() => player3.setPlaybackRate(any())).thenAnswer((_) async {});
       when(() => player3.dispose()).thenAnswer((_) async {});
 
       coordinator.registerPlayer('msg1', player1, isOutgoing: false);
@@ -192,8 +198,8 @@ void main() {
       await coordinator.notifyCompleted('msg1');
 
       expect(coordinator.currentlyPlayingId, 'msg3');
-      verifyNever(() => player2.play());
-      verify(() => player3.play()).called(1);
+      verifyNever(() => player2.resume());
+      verify(() => player3.resume()).called(1);
     });
 
     test('stops auto-play when no next unlistened exists', () async {
@@ -204,7 +210,7 @@ void main() {
       await coordinator.notifyCompleted('msg1');
 
       expect(coordinator.currentlyPlayingId, isNull);
-      verifyNever(() => player2.play());
+      verifyNever(() => player2.resume());
     });
 
     test('markListened on already listened entry is a no-op', () {

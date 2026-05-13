@@ -1,8 +1,13 @@
 import 'dart:async';
+// `dart:io` is unavailable on the Web platform. The controller still
+// imports it because every other platform uses `File`/`Directory` to
+// stage temporary recordings; the `startRecording()` entry point short-
+// circuits with `permissionDenied` on Web before any of those types are
+// touched, so the import is safe to keep at the top level.
 import 'dart:io';
 
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
@@ -61,17 +66,22 @@ class VoiceRecordingController extends ChangeNotifier {
   Timer? _amplitudeTimer;
   bool _isPaused = false;
   StreamSubscription<Duration>? _preListenPositionSub;
-  StreamSubscription<Duration?>? _preListenDurationSub;
+  StreamSubscription<Duration>? _preListenDurationSub;
   StreamSubscription<PlayerState>? _preListenStateSub;
+  // audioplayers does not expose synchronous `playing`/`position`/`duration`
+  // getters; we mirror them locally and update from the player's streams.
+  bool _preListenPlaying = false;
+  Duration _preListenPosition = Duration.zero;
+  Duration? _preListenDuration;
 
   VoiceRecordingState get state => _state;
   Duration get currentDuration => _currentDuration;
   List<double> get liveWaveform => List.unmodifiable(_liveWaveform);
   bool get isPaused => _isPaused;
   bool get isPreListening =>
-      _state == VoiceRecordingState.preListen && _preListenPlayer.playing;
-  Duration get preListenPosition => _preListenPlayer.position;
-  Duration? get preListenDuration => _preListenPlayer.duration;
+      _state == VoiceRecordingState.preListen && _preListenPlaying;
+  Duration get preListenPosition => _preListenPosition;
+  Duration? get preListenDuration => _preListenDuration;
 
   bool _permissionDialogShown = false;
 
@@ -79,6 +89,13 @@ class VoiceRecordingController extends ChangeNotifier {
     if (_state != VoiceRecordingState.idle) {
       return StartRecordingResult.alreadyRunning;
     }
+
+    // Voice recording is unsupported on Web in this release: the path-based
+    // staging flow (`File`/`Directory`/`getTemporaryDirectory`) relies on
+    // dart:io. Returning `permissionDenied` keeps the UI consistent (the
+    // overlay informs the user instead of crashing) until the controller
+    // grows a MediaRecorder-backed Web variant.
+    if (kIsWeb) return StartRecordingResult.permissionDenied;
 
     final stopwatch = Stopwatch()..start();
     final hasPermission = await _recorder.hasPermission();
@@ -198,15 +215,12 @@ class VoiceRecordingController extends ChangeNotifier {
   }
 
   Future<void> startPreListen() async {
-    // If we're already in pre-listen, treat the call as "replay": rewind to
-    // start when the previous playback finished and play again. This is what
-    // the play button in the pre-listen UI reuses for repeated playbacks.
+    // If we're already in pre-listen, treat the call as "replay": after
+    // playback completes the listener below already seeks back to zero, so
+    // a fresh `resume()` restarts from the beginning.
     if (_state == VoiceRecordingState.preListen) {
       try {
-        if (_preListenPlayer.processingState == ProcessingState.completed) {
-          await _preListenPlayer.seek(Duration.zero);
-        }
-        await _preListenPlayer.play();
+        await _preListenPlayer.resume();
       } catch (_) {}
       notifyListeners();
       return;
@@ -224,8 +238,7 @@ class VoiceRecordingController extends ChangeNotifier {
 
     if (_recordingPath != null) {
       _attachPreListenStreams();
-      await _preListenPlayer.setFilePath(_recordingPath!);
-      _preListenPlayer.play();
+      await _preListenPlayer.play(DeviceFileSource(_recordingPath!));
     }
     notifyListeners();
   }
@@ -238,19 +251,22 @@ class VoiceRecordingController extends ChangeNotifier {
 
   void _attachPreListenStreams() {
     _detachPreListenStreams();
-    _preListenPositionSub = _preListenPlayer.positionStream.listen((_) {
+    _preListenPositionSub = _preListenPlayer.onPositionChanged.listen((pos) {
+      _preListenPosition = pos;
       notifyListeners();
     });
-    _preListenDurationSub = _preListenPlayer.durationStream.listen((_) {
+    _preListenDurationSub = _preListenPlayer.onDurationChanged.listen((dur) {
+      _preListenDuration = dur;
       notifyListeners();
     });
-    _preListenStateSub = _preListenPlayer.playerStateStream.listen((
+    _preListenStateSub = _preListenPlayer.onPlayerStateChanged.listen((
       state,
     ) async {
-      if (state.processingState == ProcessingState.completed) {
+      _preListenPlaying = state == PlayerState.playing;
+      if (state == PlayerState.completed) {
         try {
-          await _preListenPlayer.pause();
           await _preListenPlayer.seek(Duration.zero);
+          _preListenPosition = Duration.zero;
         } catch (_) {}
       }
       notifyListeners();

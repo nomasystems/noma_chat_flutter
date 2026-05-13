@@ -45,6 +45,10 @@ class _PinFailingClient implements ChatClient {
   Future<void> dispose() => _delegate.dispose();
   @override
   Future<void> notifyTokenRotated() => _delegate.notifyTokenRotated();
+  @override
+  set onOfflineMessageSent(
+    void Function(String roomId, String tempId, ChatMessage message)? value,
+  ) => _delegate.onOfflineMessageSent = value;
 }
 
 class _PinFailingMessagesApi implements ChatMessagesApi {

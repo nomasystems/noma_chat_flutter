@@ -1,5 +1,5 @@
+import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:just_audio/just_audio.dart';
 
 /// Coordinates exclusive playback across multiple [AudioBubble]s and chains
 /// auto-play to the next unlistened incoming voice note.
@@ -63,7 +63,7 @@ class AudioPlaybackCoordinator extends ChangeNotifier {
       // Speed is owned by each [AudioBubble] now, so the coordinator only
       // handles exclusivity (pausing the previous one) and triggering play.
       // Bubbles set their own speed before delegating to the coordinator.
-      await player.play();
+      await player.resume();
     }
     notifyListeners();
   }
@@ -121,7 +121,7 @@ class AudioPlaybackCoordinator extends ChangeNotifier {
     final current = _currentlyPlayingId != null
         ? _players[_currentlyPlayingId]
         : null;
-    current?.setSpeed(_speed);
+    current?.setPlaybackRate(_speed);
     notifyListeners();
   }
 

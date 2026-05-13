@@ -123,6 +123,7 @@ class ChatUiLocalizations {
     this.relativeYearTemplate = '{count} y',
     this.relativeYearsTemplate = '{count} y',
     this.readOnlyChannel = 'This channel is read-only',
+    this.scrollToBottom = 'Scroll to bottom',
   });
 
   final String today;
@@ -243,6 +244,7 @@ class ChatUiLocalizations {
   final String relativeYearTemplate;
   final String relativeYearsTemplate;
   final String readOnlyChannel;
+  final String scrollToBottom;
 
   String replies(int count) =>
       (count == 1 ? replySingleTemplate : repliesTemplate).replaceAll(
@@ -425,6 +427,7 @@ class ChatUiLocalizations {
     String? relativeYearTemplate,
     String? relativeYearsTemplate,
     String? readOnlyChannel,
+    String? scrollToBottom,
   }) {
     return ChatUiLocalizations(
       today: today ?? this.today,
@@ -559,6 +562,7 @@ class ChatUiLocalizations {
       relativeYearsTemplate:
           relativeYearsTemplate ?? this.relativeYearsTemplate,
       readOnlyChannel: readOnlyChannel ?? this.readOnlyChannel,
+      scrollToBottom: scrollToBottom ?? this.scrollToBottom,
     );
   }
 
@@ -683,6 +687,7 @@ class ChatUiLocalizations {
     relativeYearTemplate: '{count} año',
     relativeYearsTemplate: '{count} años',
     readOnlyChannel: 'Este canal es de solo lectura',
+    scrollToBottom: 'Bajar al final',
   );
 
   static const ChatUiLocalizations fr = ChatUiLocalizations(
@@ -804,6 +809,7 @@ class ChatUiLocalizations {
     relativeYearTemplate: '{count} an',
     relativeYearsTemplate: '{count} ans',
     readOnlyChannel: 'Ce canal est en lecture seule',
+    scrollToBottom: 'Aller en bas',
   );
 
   static const ChatUiLocalizations de = ChatUiLocalizations(
@@ -925,6 +931,7 @@ class ChatUiLocalizations {
     relativeYearTemplate: '{count} J.',
     relativeYearsTemplate: '{count} J.',
     readOnlyChannel: 'Dieser Kanal ist schreibgeschützt',
+    scrollToBottom: 'Zum Ende scrollen',
   );
 
   static const ChatUiLocalizations it = ChatUiLocalizations(
@@ -1046,6 +1053,7 @@ class ChatUiLocalizations {
     relativeYearTemplate: '{count} anno',
     relativeYearsTemplate: '{count} anni',
     readOnlyChannel: 'Questo canale è di sola lettura',
+    scrollToBottom: 'Vai in fondo',
   );
 
   static const ChatUiLocalizations pt = ChatUiLocalizations(
@@ -1167,6 +1175,7 @@ class ChatUiLocalizations {
     relativeYearTemplate: '{count} ano',
     relativeYearsTemplate: '{count} anos',
     readOnlyChannel: 'Este canal é apenas de leitura',
+    scrollToBottom: 'Ir para o final',
   );
 
   static const ChatUiLocalizations ca = ChatUiLocalizations(
@@ -1288,5 +1297,6 @@ class ChatUiLocalizations {
     relativeYearTemplate: '{count} any',
     relativeYearsTemplate: '{count} anys',
     readOnlyChannel: 'Aquest canal és de només lectura',
+    scrollToBottom: 'Anar al final',
   );
 }

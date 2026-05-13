@@ -76,6 +76,18 @@ abstract class ChatClient {
 
   /// Releases all resources. The client must not be used after this call.
   Future<void> dispose();
+
+  /// Optional callback invoked by clients with an offline queue when a
+  /// queued send completes after the connection is restored. The callback
+  /// receives the room id, the original optimistic temp id, and the
+  /// server-confirmed message. Clients that do not implement an offline
+  /// queue may leave this as a no-op setter.
+  ///
+  /// Promoted to the abstract interface in 0.3.0 so the UI adapter no
+  /// longer needs to `as` cast to a concrete implementation.
+  set onOfflineMessageSent(
+    void Function(String roomId, String tempId, ChatMessage message)? value,
+  );
 }
 
 /// Server health and authentication checks.
