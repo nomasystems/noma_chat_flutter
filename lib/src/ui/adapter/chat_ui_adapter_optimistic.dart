@@ -43,7 +43,9 @@ class _OptimisticHandler {
     }
 
     unawaited(
-      _adapter._cache?.savePendingMessage(roomId, optimistic).catchError((_) {}) ??
+      _adapter._cache
+              ?.savePendingMessage(roomId, optimistic)
+              .catchError((_) {}) ??
           Future.value(),
     );
 
@@ -59,8 +61,9 @@ class _OptimisticHandler {
       tempId: tempId,
     );
 
-    final confirmed =
-        result.isSuccess ? _adapter._ensureSentReceipt(result.dataOrNull!) : null;
+    final confirmed = result.isSuccess
+        ? _adapter._ensureSentReceipt(result.dataOrNull!)
+        : null;
     if (controller != null) {
       if (confirmed != null) {
         controller.confirmSent(tempId, confirmed);
@@ -71,13 +74,17 @@ class _OptimisticHandler {
 
     if (confirmed != null) {
       unawaited(
-        _adapter._cache?.deletePendingMessage(roomId, tempId).catchError((_) {}) ??
+        _adapter._cache
+                ?.deletePendingMessage(roomId, tempId)
+                .catchError((_) {}) ??
             Future.value(),
       );
       _adapter._updateRoomLastMessage(roomId, confirmed);
     } else if (_adapter._isBlockedError(result.failureOrNull)) {
       unawaited(
-        _adapter._cache?.deletePendingMessage(roomId, tempId).catchError((_) {}) ??
+        _adapter._cache
+                ?.deletePendingMessage(roomId, tempId)
+                .catchError((_) {}) ??
             Future.value(),
       );
       _adapter.roomListController.removeRoom(roomId);
@@ -106,8 +113,9 @@ class _OptimisticHandler {
     Map<String, dynamic>? metadata,
   }) async {
     final controller = _adapter._chatControllers[roomId];
-    final originalMessage =
-        controller?.messages.where((m) => m.id == messageId).firstOrNull;
+    final originalMessage = controller?.messages
+        .where((m) => m.id == messageId)
+        .firstOrNull;
 
     if (controller != null && originalMessage != null) {
       controller.updateMessage(originalMessage.copyWith(text: text));
@@ -134,8 +142,9 @@ class _OptimisticHandler {
 
   Future<Result<void>> deleteMessage(String roomId, String messageId) async {
     final controller = _adapter._chatControllers[roomId];
-    final originalMessage =
-        controller?.messages.where((m) => m.id == messageId).firstOrNull;
+    final originalMessage = controller?.messages
+        .where((m) => m.id == messageId)
+        .firstOrNull;
 
     if (controller != null && originalMessage != null) {
       controller.removeMessage(messageId);
@@ -198,8 +207,10 @@ class _OptimisticHandler {
     controller?.removeOwnReaction(messageId, emoji);
     _adapter._pendingReactionDeletes.add(messageId);
 
-    final result =
-        await _adapter.client.messages.deleteReaction(roomId, messageId);
+    final result = await _adapter.client.messages.deleteReaction(
+      roomId,
+      messageId,
+    );
 
     _adapter._pendingReactionDeletes.remove(messageId);
     if (result.isFailure) {
@@ -220,8 +231,9 @@ class _OptimisticHandler {
       return const Failure(NotFoundFailure('Controller not found'));
     }
 
-    final message =
-        controller.messages.where((m) => m.id == messageId).firstOrNull;
+    final message = controller.messages
+        .where((m) => m.id == messageId)
+        .firstOrNull;
     if (message == null) {
       return const Failure(NotFoundFailure('Message not found'));
     }
@@ -285,8 +297,7 @@ class _OptimisticHandler {
       );
     }
 
-    final result =
-        await _adapter.client.messages.pinMessage(roomId, messageId);
+    final result = await _adapter.client.messages.pinMessage(roomId, messageId);
 
     if (result.isFailure && controller != null && !wasAlreadyPinned) {
       controller.removePin(messageId);
@@ -308,8 +319,10 @@ class _OptimisticHandler {
       controller.removePin(messageId);
     }
 
-    final result =
-        await _adapter.client.messages.unpinMessage(roomId, messageId);
+    final result = await _adapter.client.messages.unpinMessage(
+      roomId,
+      messageId,
+    );
 
     if (result.isFailure && controller != null && existing != null) {
       controller.addPin(existing);

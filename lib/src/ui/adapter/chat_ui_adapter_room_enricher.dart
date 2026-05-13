@@ -64,9 +64,11 @@ class _RoomEnricher {
       final unread = userRooms.rooms[i];
       final detail = details[i].dataOrNull;
 
-      final clearedAt =
-          await _adapter.client.messages.getClearedAt(unread.roomId);
-      final isCleared = clearedAt != null &&
+      final clearedAt = await _adapter.client.messages.getClearedAt(
+        unread.roomId,
+      );
+      final isCleared =
+          clearedAt != null &&
           unread.lastMessageTime != null &&
           !unread.lastMessageTime!.isAfter(clearedAt);
 
@@ -83,22 +85,24 @@ class _RoomEnricher {
           lastMessageReceipt: isCleared
               ? null
               : (unread.lastMessageUserId == _adapter.currentUser.id
-                  ? ReceiptStatus.sent
-                  : null),
+                    ? ReceiptStatus.sent
+                    : null),
           lastMessageType: isCleared ? null : unread.lastMessageType,
           lastMessageMimeType: isCleared ? null : unread.lastMessageMimeType,
           lastMessageFileName: isCleared ? null : unread.lastMessageFileName,
-          lastMessageDurationMs:
-              isCleared ? null : unread.lastMessageDurationMs,
-          lastMessageIsDeleted:
-              isCleared ? false : unread.lastMessageIsDeleted,
-          lastMessageReactionEmoji:
-              isCleared ? null : unread.lastMessageReactionEmoji,
+          lastMessageDurationMs: isCleared
+              ? null
+              : unread.lastMessageDurationMs,
+          lastMessageIsDeleted: isCleared ? false : unread.lastMessageIsDeleted,
+          lastMessageReactionEmoji: isCleared
+              ? null
+              : unread.lastMessageReactionEmoji,
           unreadCount: isCleared ? 0 : unread.unreadMessages,
           muted: detail?.muted ?? false,
           pinned: detail?.pinned ?? false,
           hidden: detail?.hidden ?? false,
-          isGroup: detail?.type == RoomType.group ||
+          isGroup:
+              detail?.type == RoomType.group ||
               detail?.type == RoomType.announcement,
           isAnnouncement: detail?.type == RoomType.announcement,
           userRole: detail?.userRole,
@@ -165,8 +169,9 @@ class _RoomEnricher {
       final membersResult = await _adapter.client.members.list(roomId);
       if (_adapter._disposed) return;
       final members = membersResult.dataOrNull?.items ?? [];
-      final other =
-          members.where((m) => m.userId != _adapter.currentUser.id).firstOrNull;
+      final other = members
+          .where((m) => m.userId != _adapter.currentUser.id)
+          .firstOrNull;
       if (other == null) return;
       _adapter._dmRoomByContact[other.userId] = roomId;
       final existing = _adapter.roomListController.getRoomById(roomId);
@@ -176,8 +181,7 @@ class _RoomEnricher {
           existing.copyWith(
             otherUserId: other.userId,
             isOnline: cachedPresence?.online ?? existing.isOnline,
-            presenceStatus:
-                cachedPresence?.status ?? existing.presenceStatus,
+            presenceStatus: cachedPresence?.status ?? existing.presenceStatus,
           ),
         );
       }
@@ -197,50 +201,51 @@ class _RoomEnricher {
     _adapter.client.rooms
         .get(roomId)
         .then((result) {
-      if (_adapter._disposed) return;
-      if (_adapter.roomListController.getRoomById(roomId) != null) {
-        // Another path (e.g. loadRooms running in parallel) already added
-        // this room; just enrich any missing fields.
-        _applyDetailToExisting(roomId, result.dataOrNull, lastMessage);
-        return;
-      }
-      final detail = result.dataOrNull;
-      if (detail == null) {
-        _adapter.logger?.call(
-          'warn',
-          'Skipping addRoomFromDetail for $roomId: detail not available',
-        );
-        return;
-      }
-      final isOneToOne = detail.type == RoomType.oneToOne;
-      final item = RoomListItem(
-        id: roomId,
-        name: detail.name,
-        subject: detail.subject,
-        avatarUrl: detail.avatarUrl,
-        muted: detail.muted,
-        pinned: detail.pinned,
-        hidden: detail.hidden,
-        isGroup: !isOneToOne,
-        isAnnouncement: detail.type == RoomType.announcement,
-        userRole: detail.userRole,
-        memberCount: detail.memberCount,
-        custom: detail.custom,
-        lastMessage: lastMessage?.text,
-        lastMessageTime: lastMessage?.timestamp,
-        lastMessageUserId: lastMessage?.from,
-        lastMessageId: lastMessage?.id,
-      );
-      _adapter.roomListController.addRoom(item);
-      if (_adapter._isDmDetail(detail)) {
-        resolveDmContact(roomId);
-      }
-    }).catchError((Object e) {
-      _adapter.logger?.call(
-        'warn',
-        'Failed to fetch detail for new room $roomId; not adding: $e',
-      );
-    });
+          if (_adapter._disposed) return;
+          if (_adapter.roomListController.getRoomById(roomId) != null) {
+            // Another path (e.g. loadRooms running in parallel) already added
+            // this room; just enrich any missing fields.
+            _applyDetailToExisting(roomId, result.dataOrNull, lastMessage);
+            return;
+          }
+          final detail = result.dataOrNull;
+          if (detail == null) {
+            _adapter.logger?.call(
+              'warn',
+              'Skipping addRoomFromDetail for $roomId: detail not available',
+            );
+            return;
+          }
+          final isOneToOne = detail.type == RoomType.oneToOne;
+          final item = RoomListItem(
+            id: roomId,
+            name: detail.name,
+            subject: detail.subject,
+            avatarUrl: detail.avatarUrl,
+            muted: detail.muted,
+            pinned: detail.pinned,
+            hidden: detail.hidden,
+            isGroup: !isOneToOne,
+            isAnnouncement: detail.type == RoomType.announcement,
+            userRole: detail.userRole,
+            memberCount: detail.memberCount,
+            custom: detail.custom,
+            lastMessage: lastMessage?.text,
+            lastMessageTime: lastMessage?.timestamp,
+            lastMessageUserId: lastMessage?.from,
+            lastMessageId: lastMessage?.id,
+          );
+          _adapter.roomListController.addRoom(item);
+          if (_adapter._isDmDetail(detail)) {
+            resolveDmContact(roomId);
+          }
+        })
+        .catchError((Object e) {
+          _adapter.logger?.call(
+            'warn',
+            'Failed to fetch detail for new room $roomId; not adding: $e',
+          );
+        });
   }
 
   void _applyDetailToExisting(
@@ -277,57 +282,65 @@ class _RoomEnricher {
   /// Refreshes the room detail in-place after a `RoomUpdatedEvent` /
   /// `UserRoleChangedEvent`. Also resolves the DM "other user" if applicable.
   void refreshRoom(String roomId) {
-    _adapter.client.rooms.get(roomId).then((result) {
-      if (_adapter._disposed) return;
-      final detail = result.dataOrNull;
-      if (detail == null) return;
-      final existing = _adapter.roomListController.getRoomById(roomId);
-      if (existing == null) return;
-      final isOneToOne = detail.type == RoomType.oneToOne;
-      _adapter.roomListController.updateRoom(
-        existing.copyWith(
-          name: detail.name,
-          subject: detail.subject,
-          avatarUrl: detail.avatarUrl,
-          muted: detail.muted,
-          pinned: detail.pinned,
-          hidden: detail.hidden,
-          isGroup: !isOneToOne,
-          isAnnouncement: detail.type == RoomType.announcement,
-          userRole: detail.userRole,
-          memberCount: detail.memberCount,
-          custom: detail.custom,
-        ),
-      );
-      if (_adapter._isDmDetail(detail)) {
-        _adapter.client.members.list(roomId).then((membersResult) {
+    _adapter.client.rooms
+        .get(roomId)
+        .then((result) {
           if (_adapter._disposed) return;
-          final members = membersResult.dataOrNull?.items ?? [];
-          final other = members
-              .where((m) => m.userId != _adapter.currentUser.id)
-              .firstOrNull;
-          if (other != null) {
-            _adapter._dmRoomByContact[other.userId] = roomId;
-            final current = _adapter.roomListController.getRoomById(roomId);
-            if (current != null) {
-              _adapter.roomListController.updateRoom(
-                current.copyWith(otherUserId: other.userId),
-              );
-            }
-            _adapter.onDmContactResolved?.call(roomId, other.userId);
+          final detail = result.dataOrNull;
+          if (detail == null) return;
+          final existing = _adapter.roomListController.getRoomById(roomId);
+          if (existing == null) return;
+          final isOneToOne = detail.type == RoomType.oneToOne;
+          _adapter.roomListController.updateRoom(
+            existing.copyWith(
+              name: detail.name,
+              subject: detail.subject,
+              avatarUrl: detail.avatarUrl,
+              muted: detail.muted,
+              pinned: detail.pinned,
+              hidden: detail.hidden,
+              isGroup: !isOneToOne,
+              isAnnouncement: detail.type == RoomType.announcement,
+              userRole: detail.userRole,
+              memberCount: detail.memberCount,
+              custom: detail.custom,
+            ),
+          );
+          if (_adapter._isDmDetail(detail)) {
+            _adapter.client.members
+                .list(roomId)
+                .then((membersResult) {
+                  if (_adapter._disposed) return;
+                  final members = membersResult.dataOrNull?.items ?? [];
+                  final other = members
+                      .where((m) => m.userId != _adapter.currentUser.id)
+                      .firstOrNull;
+                  if (other != null) {
+                    _adapter._dmRoomByContact[other.userId] = roomId;
+                    final current = _adapter.roomListController.getRoomById(
+                      roomId,
+                    );
+                    if (current != null) {
+                      _adapter.roomListController.updateRoom(
+                        current.copyWith(otherUserId: other.userId),
+                      );
+                    }
+                    _adapter.onDmContactResolved?.call(roomId, other.userId);
+                  }
+                })
+                .catchError((Object e) {
+                  _adapter.logger?.call(
+                    'warn',
+                    'Failed to list members for room $roomId: $e',
+                  );
+                });
           }
-        }).catchError((Object e) {
+        })
+        .catchError((Object e) {
           _adapter.logger?.call(
             'warn',
-            'Failed to list members for room $roomId: $e',
+            'Failed to enrich room detail for $roomId: $e',
           );
         });
-      }
-    }).catchError((Object e) {
-      _adapter.logger?.call(
-        'warn',
-        'Failed to enrich room detail for $roomId: $e',
-      );
-    });
   }
 }

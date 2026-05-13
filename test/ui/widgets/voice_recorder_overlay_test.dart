@@ -49,9 +49,7 @@ void main() {
     when(() => mockPlayer.pause()).thenAnswer((_) async {});
     when(() => mockPlayer.resume()).thenAnswer((_) async {});
     when(() => mockPlayer.seek(any())).thenAnswer((_) async {});
-    when(
-      () => mockPlayer.play(any()),
-    ).thenAnswer((_) async {});
+    when(() => mockPlayer.play(any())).thenAnswer((_) async {});
     when(
       () => mockPlayer.onPositionChanged,
     ).thenAnswer((_) => const Stream<Duration>.empty());

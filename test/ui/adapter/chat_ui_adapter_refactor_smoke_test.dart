@@ -15,11 +15,7 @@ void main() {
   setUp(() {
     client = MockChatClient(currentUserId: 'u1');
     client.seedRoom(
-      const ChatRoom(
-        id: 'r1',
-        name: 'Room1',
-        members: ['u1', 'u2'],
-      ),
+      const ChatRoom(id: 'r1', name: 'Room1', members: ['u1', 'u2']),
     );
     adapter = ChatUiAdapter(client: client, currentUser: currentUser);
     adapter.start();
@@ -81,10 +77,7 @@ void main() {
       final r = await adapter.sendMessage('r1', text: 'hi');
       expect(r.isSuccess, isTrue);
       // After confirm, the controller has the server-confirmed message.
-      expect(
-        controller.messages.where((m) => m.text == 'hi'),
-        isNotEmpty,
-      );
+      expect(controller.messages.where((m) => m.text == 'hi'), isNotEmpty);
     });
 
     test('editMessage runs the optimistic + rollback path', () async {
@@ -129,8 +122,10 @@ void main() {
       adapter.onReconnected = () => reconnected++;
       client.emitEvent(const ConnectedEvent());
       await Future<void>.delayed(const Duration(milliseconds: 10));
-      expect(adapter.connectionStateNotifier.value,
-          ChatConnectionState.connected);
+      expect(
+        adapter.connectionStateNotifier.value,
+        ChatConnectionState.connected,
+      );
       // Reconnect signals only on the rising edge (not connected → connected).
       expect(reconnected, greaterThanOrEqualTo(0));
     });

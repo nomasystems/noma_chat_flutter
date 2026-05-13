@@ -18,6 +18,7 @@ class ScrollToBottomButton extends StatelessWidget {
   final VoidCallback onPressed;
   final int unreadCount;
   final ChatTheme theme;
+
   /// Optional Semantics label. When omitted, falls back to the localised
   /// `theme.l10n.scrollToBottom` (shipped in 7 locales).
   final String? semanticLabel;

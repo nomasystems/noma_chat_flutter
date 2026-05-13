@@ -479,8 +479,7 @@ class ChatUiAdapter {
         _loadReactionsFromMessages(controller, cachedData.items);
         controller.setPaginationState(
           hasMore: cachedData.hasMore,
-          cursor:
-              cachedData.items.isNotEmpty ? cachedData.items.last.id : null,
+          cursor: cachedData.items.isNotEmpty ? cachedData.items.last.id : null,
         );
       }
 
@@ -497,8 +496,9 @@ class ChatUiAdapter {
         _loadReactionsFromMessages(controller, networkData.items);
         controller.setPaginationState(
           hasMore: networkData.hasMore,
-          cursor:
-              networkData.items.isNotEmpty ? networkData.items.last.id : null,
+          cursor: networkData.items.isNotEmpty
+              ? networkData.items.last.id
+              : null,
         );
         return Success(networkData.items);
       }
@@ -531,14 +531,14 @@ class ChatUiAdapter {
     String? attachmentUrl,
     OperationKind? operationKind,
   }) => _optimistic.sendMessage(
-        roomId,
-        text: text,
-        referencedMessageId: referencedMessageId,
-        messageType: messageType,
-        metadata: metadata,
-        attachmentUrl: attachmentUrl,
-        operationKind: operationKind,
-      );
+    roomId,
+    text: text,
+    referencedMessageId: referencedMessageId,
+    messageType: messageType,
+    metadata: metadata,
+    attachmentUrl: attachmentUrl,
+    operationKind: operationKind,
+  );
 
   /// Edits a message with optimistic update. Reverts on failure.
   Future<Result<void>> editMessage(
@@ -547,11 +547,11 @@ class ChatUiAdapter {
     required String text,
     Map<String, dynamic>? metadata,
   }) => _optimistic.editMessage(
-        roomId,
-        messageId,
-        text: text,
-        metadata: metadata,
-      );
+    roomId,
+    messageId,
+    text: text,
+    metadata: metadata,
+  );
 
   /// Deletes a message with optimistic removal. Restores on failure.
   Future<Result<void>> deleteMessage(String roomId, String messageId) =>
@@ -562,11 +562,7 @@ class ChatUiAdapter {
     String roomId, {
     required String messageId,
     required String emoji,
-  }) => _optimistic.sendReaction(
-        roomId,
-        messageId: messageId,
-        emoji: emoji,
-      );
+  }) => _optimistic.sendReaction(roomId, messageId: messageId, emoji: emoji);
 
   /// Fetches aggregated reactions for a message from the server.
   Future<Result<List<AggregatedReaction>>> getReactions(
@@ -587,11 +583,7 @@ class ChatUiAdapter {
     String roomId, {
     required String messageId,
     required String emoji,
-  }) => _optimistic.deleteReaction(
-        roomId,
-        messageId: messageId,
-        emoji: emoji,
-      );
+  }) => _optimistic.deleteReaction(roomId, messageId: messageId, emoji: emoji);
 
   /// Sends a typing indicator to a room (throttled: max once per 3 seconds per room).
   /// Automatically sends stopsTyping after [_typingStopDelay] of inactivity.
@@ -1405,7 +1397,8 @@ class ChatUiAdapter {
   }
 
   /// Returns the cached presence for a contact user, or null when unknown.
-  /// Populated by [_bootstrapPresence] and live `PresenceChangedEvent`s.
+  /// Populated by the internal presence bootstrap (after every reconnect)
+  /// and live `PresenceChangedEvent`s.
   ChatPresence? presenceFor(String userId) => _presence.presenceFor(userId);
 
   /// Stream of presence updates filtered to a single user. Useful for widgets

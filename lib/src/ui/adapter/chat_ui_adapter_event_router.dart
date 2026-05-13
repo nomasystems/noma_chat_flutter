@@ -101,7 +101,9 @@ class _ChatEventRouter {
     final existing = _adapter.roomListController.getRoomById(roomId);
     if (existing != null) {
       if (existing.hidden) {
-        _adapter.roomListController.updateRoom(existing.copyWith(hidden: false));
+        _adapter.roomListController.updateRoom(
+          existing.copyWith(hidden: false),
+        );
         _adapter.client.rooms.unhide(roomId);
       }
       _adapter._updateRoomUnread(roomId, existing.unreadCount + 1);
@@ -110,11 +112,7 @@ class _ChatEventRouter {
     // means the sender will see the message in `sent` state for longer.
     unawaited(
       _adapter.client.messages
-          .sendReceipt(
-            roomId,
-            message.id,
-            status: ReceiptStatus.delivered,
-          )
+          .sendReceipt(roomId, message.id, status: ReceiptStatus.delivered)
           .catchError(
             (_) => const Failure<void>(
               UnexpectedFailure('delivery receipt failed'),
@@ -184,8 +182,8 @@ class _ChatEventRouter {
   }
 
   void _onConnected() {
-    final wasConnected = _adapter.connectionStateNotifier.value ==
-        ChatConnectionState.connected;
+    final wasConnected =
+        _adapter.connectionStateNotifier.value == ChatConnectionState.connected;
     _adapter.connectionStateNotifier.value = ChatConnectionState.connected;
     // Refresh the presence cache after a (re)connection so that contact
     // online states reflect the current server snapshot. CHT does not

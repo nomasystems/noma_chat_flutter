@@ -342,10 +342,7 @@ class _AudioBubbleState extends State<AudioBubble> {
         child: Container(
           width: 40,
           height: 40,
-          decoration: BoxDecoration(
-            color: playColor,
-            shape: BoxShape.circle,
-          ),
+          decoration: BoxDecoration(color: playColor, shape: BoxShape.circle),
           child: Icon(
             playing ? Icons.pause : Icons.play_arrow,
             color: widget.theme.audioPlayIconColor ?? Colors.white,
@@ -396,15 +393,12 @@ class _AudioBubbleState extends State<AudioBubble> {
             samples: WaveformDisplay.normalizeIntSamples(widget.waveform!),
             progress: progress,
             height: 28,
-            activeColor:
-                widget.theme.waveformActiveColor ?? defaultActiveColor,
+            activeColor: widget.theme.waveformActiveColor ?? defaultActiveColor,
             inactiveColor:
                 widget.theme.waveformInactiveColor ?? defaultInactiveColor,
             onSeek: (value) {
               if (maxMs > 0) {
-                _player?.seek(
-                  Duration(milliseconds: (value * maxMs).toInt()),
-                );
+                _player?.seek(Duration(milliseconds: (value * maxMs).toInt()));
               }
             },
           ),
@@ -412,9 +406,7 @@ class _AudioBubbleState extends State<AudioBubble> {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
-              _formatDuration(
-                position > Duration.zero ? position : duration,
-              ),
+              _formatDuration(position > Duration.zero ? position : duration),
               style:
                   widget.theme.audioDurationTextStyle ??
                   TextStyle(fontSize: 11, color: defaultDurationColor),
@@ -442,8 +434,7 @@ class _AudioBubbleState extends State<AudioBubble> {
                 ? position.inMilliseconds.toDouble().clamp(0, maxMs)
                 : 0,
             max: maxMs > 0 ? maxMs : 1,
-            onChanged: (v) =>
-                _player?.seek(Duration(milliseconds: v.toInt())),
+            onChanged: (v) => _player?.seek(Duration(milliseconds: v.toInt())),
           ),
         ),
         Padding(
