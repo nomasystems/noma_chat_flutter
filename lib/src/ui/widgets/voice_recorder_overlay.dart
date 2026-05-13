@@ -43,10 +43,7 @@ class VoiceRecorderOverlay extends StatelessWidget {
             duration: const Duration(milliseconds: 200),
             switchInCurve: Curves.easeOut,
             switchOutCurve: Curves.easeIn,
-            child: KeyedSubtree(
-              key: ValueKey(controller.state),
-              child: child,
-            ),
+            child: KeyedSubtree(key: ValueKey(controller.state), child: child),
           ),
         );
       },
@@ -56,14 +53,15 @@ class VoiceRecorderOverlay extends StatelessWidget {
   Widget _buildRecording(BuildContext context) {
     final l10n = theme.l10n;
     final activeColor = theme.voiceRecorderActiveColor ?? Colors.red;
-    final hintColor =
-        theme.voiceRecorderLockIconColor ?? Colors.grey.shade500;
-    final hintStyle = theme.voiceRecorderHintStyle ??
+    final hintColor = theme.voiceRecorderLockIconColor ?? Colors.grey.shade500;
+    final hintStyle =
+        theme.voiceRecorderHintStyle ??
         TextStyle(color: Colors.grey.shade600, fontSize: 12);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: theme.voiceRecorderOverlayColor ??
+      color:
+          theme.voiceRecorderOverlayColor ??
           theme.inputBackgroundColor ??
           Theme.of(context).scaffoldBackgroundColor,
       child: Column(
@@ -75,7 +73,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 formatDuration(controller.currentDuration),
-                style: theme.voiceRecorderTimerStyle ??
+                style:
+                    theme.voiceRecorderTimerStyle ??
                     TextStyle(
                       color: activeColor,
                       fontSize: 14,
@@ -123,7 +122,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: theme.voiceRecorderOverlayColor ??
+      color:
+          theme.voiceRecorderOverlayColor ??
           theme.inputBackgroundColor ??
           Theme.of(context).scaffoldBackgroundColor,
       child: Column(
@@ -135,7 +135,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 formatDuration(controller.currentDuration),
-                style: theme.voiceRecorderTimerStyle ??
+                style:
+                    theme.voiceRecorderTimerStyle ??
                     TextStyle(
                       color: activeColor,
                       fontSize: 14,
@@ -143,9 +144,12 @@ class VoiceRecorderOverlay extends StatelessWidget {
                     ),
               ),
               const SizedBox(width: 4),
-              Text(l10n.voiceRecording,
-                  style: theme.voiceRecorderHintStyle ??
-                      TextStyle(color: Colors.grey.shade600, fontSize: 12)),
+              Text(
+                l10n.voiceRecording,
+                style:
+                    theme.voiceRecorderHintStyle ??
+                    TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -204,7 +208,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      color: theme.voiceRecorderOverlayColor ??
+      color:
+          theme.voiceRecorderOverlayColor ??
           theme.inputBackgroundColor ??
           Theme.of(context).scaffoldBackgroundColor,
       child: Column(
@@ -227,7 +232,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
                   samples: controller.liveWaveform,
                   progress: _preListenProgress,
                   height: 36,
-                  activeColor: theme.waveformActiveColor ??
+                  activeColor:
+                      theme.waveformActiveColor ??
                       theme.audioSeekBarActiveColor ??
                       Colors.blue,
                   inactiveColor:
@@ -237,7 +243,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 formatDuration(controller.currentDuration),
-                style: theme.audioDurationTextStyle ??
+                style:
+                    theme.audioDurationTextStyle ??
                     TextStyle(color: Colors.grey.shade600, fontSize: 11),
               ),
             ],

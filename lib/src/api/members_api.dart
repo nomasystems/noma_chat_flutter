@@ -14,27 +14,27 @@ class MembersApi implements ChatMembersApi {
   final String? _userId;
 
   MembersApi({required RestClient rest, String? userId})
-      : _rest = rest,
-        _userId = userId;
+    : _rest = rest,
+      _userId = userId;
 
   @override
   Future<Result<PaginatedResponse<RoomUser>>> list(
     String roomId, {
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/users',
-            queryParams: pagination?.toQueryParams());
-        final users = (json['users'] as List? ?? [])
-            .map((e) =>
-                UserMapper.roomUserFromJson(e as Map<String, dynamic>))
-            .toList();
-        return PaginatedResponse(
-          items: users,
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/rooms/$roomId/users',
+      queryParams: pagination?.toQueryParams(),
+    );
+    final users = (json['users'] as List? ?? [])
+        .map((e) => UserMapper.roomUserFromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedResponse(
+      items: users,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   @override
   Future<Result<void>> add(
@@ -42,12 +42,16 @@ class MembersApi implements ChatMembersApi {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
     RoomRole? userRole,
-  }) =>
-      safeVoidCall(() => _rest.postVoid('/rooms/$roomId/users', data: {
-            'userIds': userIds,
-            'mode': _modeToString(mode),
-            if (userRole != null) 'userRole': userRole.toJson(),
-          }));
+  }) => safeVoidCall(
+    () => _rest.postVoid(
+      '/rooms/$roomId/users',
+      data: {
+        'userIds': userIds,
+        'mode': _modeToString(mode),
+        if (userRole != null) 'userRole': userRole.toJson(),
+      },
+    ),
+  );
 
   @override
   Future<Result<void>> remove(String roomId, String userId) =>
@@ -57,10 +61,12 @@ class MembersApi implements ChatMembersApi {
   Future<Result<void>> leave(String roomId) {
     if (_userId == null) {
       return Future.value(
-          const Failure(ValidationFailure(message: 'userId required for leave')));
+        const Failure(ValidationFailure(message: 'userId required for leave')),
+      );
     }
     return safeVoidCall(
-        () => _rest.postVoid('/rooms/$roomId/users/$_userId/leave'));
+      () => _rest.postVoid('/rooms/$roomId/users/$_userId/leave'),
+    );
   }
 
   @override
@@ -68,40 +74,40 @@ class MembersApi implements ChatMembersApi {
     String roomId,
     String userId,
     RoomRole role,
-  ) =>
-      safeVoidCall(() => _rest.putVoid(
-            '/rooms/$roomId/users/$userId/role',
-            data: {'role': role.toJson()},
-          ));
+  ) => safeVoidCall(
+    () => _rest.putVoid(
+      '/rooms/$roomId/users/$userId/role',
+      data: {'role': role.toJson()},
+    ),
+  );
 
   // Moderation
 
   @override
   Future<Result<void>> ban(String roomId, String userId, {String? reason}) =>
-      safeVoidCall(() => _rest.putVoid(
-            '/rooms/$roomId/users/$userId/ban',
-            data: {if (reason != null) 'reason': reason},
-          ));
+      safeVoidCall(
+        () => _rest.putVoid(
+          '/rooms/$roomId/users/$userId/ban',
+          data: {if (reason != null) 'reason': reason},
+        ),
+      );
 
   @override
   Future<Result<void>> unban(String roomId, String userId) =>
-      safeVoidCall(
-          () => _rest.delete('/rooms/$roomId/users/$userId/ban'));
+      safeVoidCall(() => _rest.delete('/rooms/$roomId/users/$userId/ban'));
 
   @override
   Future<Result<void>> muteUser(String roomId, String userId) =>
-      safeVoidCall(
-          () => _rest.putVoid('/rooms/$roomId/users/$userId/mute'));
+      safeVoidCall(() => _rest.putVoid('/rooms/$roomId/users/$userId/mute'));
 
   @override
   Future<Result<void>> unmuteUser(String roomId, String userId) =>
-      safeVoidCall(
-          () => _rest.delete('/rooms/$roomId/users/$userId/mute'));
+      safeVoidCall(() => _rest.delete('/rooms/$roomId/users/$userId/mute'));
 
   String _modeToString(RoomUserMode mode) => switch (mode) {
-        RoomUserMode.invite => 'invite',
-        RoomUserMode.acceptInvitation => 'accept_invitation',
-        RoomUserMode.declineInvitation => 'decline_invitation',
-        RoomUserMode.inviteAndJoin => 'invite_and_join',
-      };
+    RoomUserMode.invite => 'invite',
+    RoomUserMode.acceptInvitation => 'accept_invitation',
+    RoomUserMode.declineInvitation => 'decline_invitation',
+    RoomUserMode.inviteAndJoin => 'invite_and_join',
+  };
 }

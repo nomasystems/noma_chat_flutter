@@ -4,10 +4,12 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   group('cached filtered room list', () {
     test('returns same list instance on repeated access without changes', () {
-      final controller = RoomListController(initialRooms: [
-        const RoomListItem(id: 'a', name: 'Alice'),
-        const RoomListItem(id: 'b', name: 'Bob'),
-      ]);
+      final controller = RoomListController(
+        initialRooms: [
+          const RoomListItem(id: 'a', name: 'Alice'),
+          const RoomListItem(id: 'b', name: 'Bob'),
+        ],
+      );
 
       controller.setFilter('ali');
       final first = controller.rooms;
@@ -19,10 +21,12 @@ void main() {
     });
 
     test('invalidates cache when rooms change', () {
-      final controller = RoomListController(initialRooms: [
-        const RoomListItem(id: 'a', name: 'Alice'),
-        const RoomListItem(id: 'b', name: 'Bob'),
-      ]);
+      final controller = RoomListController(
+        initialRooms: [
+          const RoomListItem(id: 'a', name: 'Alice'),
+          const RoomListItem(id: 'b', name: 'Bob'),
+        ],
+      );
 
       controller.setFilter('ali');
       final beforeAdd = controller.rooms;
@@ -38,10 +42,12 @@ void main() {
     });
 
     test('invalidates cache when filter changes', () {
-      final controller = RoomListController(initialRooms: [
-        const RoomListItem(id: 'a', name: 'Alice'),
-        const RoomListItem(id: 'b', name: 'Bob'),
-      ]);
+      final controller = RoomListController(
+        initialRooms: [
+          const RoomListItem(id: 'a', name: 'Alice'),
+          const RoomListItem(id: 'b', name: 'Bob'),
+        ],
+      );
 
       controller.setFilter('ali');
       final first = controller.rooms;
@@ -57,10 +63,12 @@ void main() {
     });
 
     test('invalidates cache on updateRoom', () {
-      final controller = RoomListController(initialRooms: [
-        const RoomListItem(id: 'a', name: 'Alice'),
-        const RoomListItem(id: 'b', name: 'Bob'),
-      ]);
+      final controller = RoomListController(
+        initialRooms: [
+          const RoomListItem(id: 'a', name: 'Alice'),
+          const RoomListItem(id: 'b', name: 'Bob'),
+        ],
+      );
 
       controller.setFilter('ali');
       final before = controller.rooms;
@@ -75,10 +83,12 @@ void main() {
     });
 
     test('invalidates cache on removeRoom', () {
-      final controller = RoomListController(initialRooms: [
-        const RoomListItem(id: 'a', name: 'Alice'),
-        const RoomListItem(id: 'b', name: 'Alina'),
-      ]);
+      final controller = RoomListController(
+        initialRooms: [
+          const RoomListItem(id: 'a', name: 'Alice'),
+          const RoomListItem(id: 'b', name: 'Alina'),
+        ],
+      );
 
       controller.setFilter('ali');
       final before = controller.rooms;
@@ -93,17 +103,15 @@ void main() {
     });
 
     test('invalidates cache on setRooms', () {
-      final controller = RoomListController(initialRooms: [
-        const RoomListItem(id: 'a', name: 'Alice'),
-      ]);
+      final controller = RoomListController(
+        initialRooms: [const RoomListItem(id: 'a', name: 'Alice')],
+      );
 
       controller.setFilter('ali');
       final before = controller.rooms;
       expect(before, hasLength(1));
 
-      controller.setRooms([
-        const RoomListItem(id: 'x', name: 'Xavier'),
-      ]);
+      controller.setRooms([const RoomListItem(id: 'x', name: 'Xavier')]);
       final after = controller.rooms;
       expect(after, isEmpty);
       expect(identical(before, after), false);

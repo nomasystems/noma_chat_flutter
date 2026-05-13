@@ -24,8 +24,8 @@ class SseTransport {
   CancelToken? _cancelToken;
 
   SseTransport({required ChatConfig config, Dio? dio})
-      : _config = config,
-        _dio = dio ?? Dio();
+    : _config = config,
+      _dio = dio ?? Dio();
 
   Stream<ChatEvent> get events => _eventController.stream;
   Stream<ChatConnectionState> get stateChanges => _stateController.stream;
@@ -60,10 +60,7 @@ class SseTransport {
       };
       final response = await _dio.get<ResponseBody>(
         url,
-        options: Options(
-          headers: headers,
-          responseType: ResponseType.stream,
-        ),
+        options: Options(headers: headers, responseType: ResponseType.stream),
         cancelToken: _cancelToken,
       );
       _setState(ChatConnectionState.connected);
@@ -122,7 +119,8 @@ class SseTransport {
     _setState(ChatConnectionState.error);
     if (!_eventController.isClosed) {
       _eventController.add(
-          ChatEvent.error(exception: ChatNetworkException(error.toString())));
+        ChatEvent.error(exception: ChatNetworkException(error.toString())),
+      );
     }
     _scheduleReconnect();
   }
@@ -132,8 +130,9 @@ class SseTransport {
       _config.log('warn', 'SSE stream ended, will reconnect');
       _setState(ChatConnectionState.reconnecting);
       if (!_eventController.isClosed) {
-        _eventController
-            .add(const ChatEvent.disconnected(reason: 'SSE stream ended'));
+        _eventController.add(
+          const ChatEvent.disconnected(reason: 'SSE stream ended'),
+        );
       }
       _scheduleReconnect();
     } else {
@@ -151,9 +150,13 @@ class SseTransport {
       _config.log('error', 'SSE max reconnect attempts ($maxAttempts) reached');
       _setState(ChatConnectionState.error);
       if (!_eventController.isClosed) {
-        _eventController.add(ChatEvent.error(
+        _eventController.add(
+          ChatEvent.error(
             exception: ChatNetworkException(
-                'Max reconnect attempts ($maxAttempts) reached')));
+              'Max reconnect attempts ($maxAttempts) reached',
+            ),
+          ),
+        );
       }
       _shouldReconnect = false;
       return;

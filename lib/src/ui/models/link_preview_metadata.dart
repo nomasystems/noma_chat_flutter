@@ -20,9 +20,9 @@ class LinkPreviewMetadata {
       (imageUrl?.isNotEmpty ?? false);
 
   Map<String, dynamic> toMessageMetadata() => {
-        'linkUrl': url,
-        if (title != null) 'linkTitle': title,
-        if (description != null) 'linkDescription': description,
-        if (imageUrl != null) 'linkImage': imageUrl,
-      };
+    'linkUrl': url,
+    if (title != null) 'linkTitle': title,
+    if (description != null) 'linkDescription': description,
+    if (imageUrl != null) 'linkImage': imageUrl,
+  };
 }

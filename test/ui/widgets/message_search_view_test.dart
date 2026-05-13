@@ -19,12 +19,9 @@ void main() {
             const Success(PaginatedResponse(items: [], hasMore: false)),
       );
 
-      await tester.pumpWidget(wrap(
-        MessageSearchView(
-          controller: controller,
-          roomId: 'room1',
-        ),
-      ));
+      await tester.pumpWidget(
+        wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+      );
 
       expect(find.text('Search messages'), findsOneWidget);
       controller.dispose();
@@ -32,18 +29,19 @@ void main() {
 
     testWidgets('shows results after search', (tester) async {
       final controller = MessageSearchController(
-        searchFn: (q, r, {pagination}) async => Success(
-          PaginatedResponse(items: [msg1], hasMore: false),
-        ),
+        searchFn: (q, r, {pagination}) async =>
+            Success(PaginatedResponse(items: [msg1], hasMore: false)),
       );
 
-      await tester.pumpWidget(wrap(
-        MessageSearchView(
-          controller: controller,
-          roomId: 'room1',
-          senderNameResolver: (id) => id == 'u1' ? 'Alice' : id,
+      await tester.pumpWidget(
+        wrap(
+          MessageSearchView(
+            controller: controller,
+            roomId: 'room1',
+            senderNameResolver: (id) => id == 'u1' ? 'Alice' : id,
+          ),
         ),
-      ));
+      );
 
       await controller.search('hello', 'room1');
       await tester.pump();
@@ -59,12 +57,9 @@ void main() {
             const Success(PaginatedResponse(items: [], hasMore: false)),
       );
 
-      await tester.pumpWidget(wrap(
-        MessageSearchView(
-          controller: controller,
-          roomId: 'room1',
-        ),
-      ));
+      await tester.pumpWidget(
+        wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+      );
 
       await controller.search('nonexistent', 'room1');
       await tester.pump();
@@ -81,17 +76,13 @@ void main() {
         text: 'The quick brown fox',
       );
       final controller = MessageSearchController(
-        searchFn: (q, r, {pagination}) async => Success(
-          PaginatedResponse(items: [msg], hasMore: false),
-        ),
+        searchFn: (q, r, {pagination}) async =>
+            Success(PaginatedResponse(items: [msg], hasMore: false)),
       );
 
-      await tester.pumpWidget(wrap(
-        MessageSearchView(
-          controller: controller,
-          roomId: 'room1',
-        ),
-      ));
+      await tester.pumpWidget(
+        wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+      );
 
       await controller.search('Quick', 'room1');
       await tester.pump();
@@ -103,11 +94,15 @@ void main() {
           if (span.children != null) span.children!.forEach(visit);
         }
       }
+
       for (final rt in tester.widgetList<RichText>(find.byType(RichText))) {
         visit(rt.text);
       }
-      expect(matches, isNotEmpty,
-          reason: 'expected a span with text "quick" (case-folded match)');
+      expect(
+        matches,
+        isNotEmpty,
+        reason: 'expected a span with text "quick" (case-folded match)',
+      );
       expect(matches.first.style?.fontWeight, FontWeight.w700);
       controller.dispose();
     });
@@ -117,21 +112,22 @@ void main() {
       String? tappedMessageId;
 
       final controller = MessageSearchController(
-        searchFn: (q, r, {pagination}) async => Success(
-          PaginatedResponse(items: [msg1], hasMore: false),
-        ),
+        searchFn: (q, r, {pagination}) async =>
+            Success(PaginatedResponse(items: [msg1], hasMore: false)),
       );
 
-      await tester.pumpWidget(wrap(
-        MessageSearchView(
-          controller: controller,
-          roomId: 'room1',
-          onMessageTap: (roomId, messageId) {
-            tappedRoomId = roomId;
-            tappedMessageId = messageId;
-          },
+      await tester.pumpWidget(
+        wrap(
+          MessageSearchView(
+            controller: controller,
+            roomId: 'room1',
+            onMessageTap: (roomId, messageId) {
+              tappedRoomId = roomId;
+              tappedMessageId = messageId;
+            },
+          ),
         ),
-      ));
+      );
 
       await controller.search('hello', 'room1');
       await tester.pump();

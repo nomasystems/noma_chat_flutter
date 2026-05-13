@@ -15,19 +15,18 @@ class _FailableMembersApi implements ChatMembersApi {
   }) {
     if (throwOnList) throw StateError('members.list threw synchronously');
     if (failList) {
-      return Future.value(
-        const Failure(ServerFailure(statusCode: 500)),
-      );
+      return Future.value(const Failure(ServerFailure(statusCode: 500)));
     }
     return _delegate.list(roomId, pagination: pagination);
   }
 
   @override
-  Future<Result<void>> add(String roomId,
-          {required List<String> userIds,
-          RoomUserMode mode = RoomUserMode.invite,
-          RoomRole? userRole}) =>
-      _delegate.add(roomId, userIds: userIds, mode: mode, userRole: userRole);
+  Future<Result<void>> add(
+    String roomId, {
+    required List<String> userIds,
+    RoomUserMode mode = RoomUserMode.invite,
+    RoomRole? userRole,
+  }) => _delegate.add(roomId, userIds: userIds, mode: mode, userRole: userRole);
 
   @override
   Future<Result<void>> remove(String roomId, String userId) =>
@@ -38,8 +37,10 @@ class _FailableMembersApi implements ChatMembersApi {
 
   @override
   Future<Result<void>> updateRole(
-          String roomId, String userId, RoomRole role) =>
-      _delegate.updateRole(roomId, userId, role);
+    String roomId,
+    String userId,
+    RoomRole role,
+  ) => _delegate.updateRole(roomId, userId, role);
 
   @override
   Future<Result<void>> ban(String roomId, String userId, {String? reason}) =>
@@ -76,14 +77,16 @@ class _DmRoomsApi implements ChatRoomsApi {
     if (result.isFailure) return result;
     final userRooms = result.dataOrNull!;
     final dmRooms = userRooms.rooms
-        .map((r) => UnreadRoom(
-              roomId: r.roomId,
-              unreadMessages: r.unreadMessages,
-              name: r.name,
-              avatarUrl: r.avatarUrl,
-              type: 'one-to-one',
-              memberCount: r.memberCount,
-            ))
+        .map(
+          (r) => UnreadRoom(
+            roomId: r.roomId,
+            unreadMessages: r.unreadMessages,
+            name: r.name,
+            avatarUrl: r.avatarUrl,
+            type: 'one-to-one',
+            memberCount: r.memberCount,
+          ),
+        )
         .toList();
     return Success(UserRooms(rooms: dmRooms));
   }
@@ -97,59 +100,66 @@ class _DmRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
-  }) =>
-      _delegate.create(
-        audience: audience,
-        allowInvitations: allowInvitations,
-        name: name,
-        subject: subject,
-        members: members,
-        avatarUrl: avatarUrl,
-        custom: custom,
-      );
+  }) => _delegate.create(
+    audience: audience,
+    allowInvitations: allowInvitations,
+    name: name,
+    subject: subject,
+    members: members,
+    avatarUrl: avatarUrl,
+    custom: custom,
+  );
 
   @override
   Future<Result<void>> delete(String roomId) => _delegate.delete(roomId);
 
   @override
-  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(String query,
-          {PaginationParams? pagination}) =>
-      _delegate.discover(query, pagination: pagination);
+  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
+    String query, {
+    PaginationParams? pagination,
+  }) => _delegate.discover(query, pagination: pagination);
 
   @override
-  Future<Result<RoomDetail>> get(String roomId,
-      {CachePolicy? cachePolicy}) async {
+  Future<Result<RoomDetail>> get(
+    String roomId, {
+    CachePolicy? cachePolicy,
+  }) async {
     final base = await _delegate.get(roomId, cachePolicy: cachePolicy);
     if (base.isFailure) return base;
     final raw = base.dataOrNull!;
-    return Success(RoomDetail(
-      id: raw.id,
-      name: raw.name,
-      subject: raw.subject,
-      type: RoomType.oneToOne,
-      memberCount: raw.memberCount,
-      userRole: raw.userRole,
-      config: raw.config,
-      muted: raw.muted,
-      pinned: raw.pinned,
-      hidden: raw.hidden,
-      createdAt: raw.createdAt,
-      avatarUrl: raw.avatarUrl,
-      custom: raw.custom,
-    ));
+    return Success(
+      RoomDetail(
+        id: raw.id,
+        name: raw.name,
+        subject: raw.subject,
+        type: RoomType.oneToOne,
+        memberCount: raw.memberCount,
+        userRole: raw.userRole,
+        config: raw.config,
+        muted: raw.muted,
+        pinned: raw.pinned,
+        hidden: raw.hidden,
+        createdAt: raw.createdAt,
+        avatarUrl: raw.avatarUrl,
+        custom: raw.custom,
+      ),
+    );
   }
 
   @override
-  Future<Result<void>> updateConfig(String roomId,
-          {String? name,
-          String? subject,
-          String? avatarUrl,
-          Map<String, dynamic>? custom}) =>
-      _delegate.updateConfig(roomId,
-          name: name,
-          subject: subject,
-          avatarUrl: avatarUrl,
-          custom: custom);
+  Future<Result<void>> updateConfig(
+    String roomId, {
+    String? name,
+    String? subject,
+    String? avatarUrl,
+    Map<String, dynamic>? custom,
+  }) => _delegate.updateConfig(
+    roomId,
+    name: name,
+    subject: subject,
+    avatarUrl: avatarUrl,
+    custom: custom,
+  );
 
   @override
   Future<Result<void>> mute(String roomId) => _delegate.mute(roomId);
@@ -190,20 +200,19 @@ class _DmRoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
-  }) =>
-      _delegate.updateCachedRoomPreview(
-        roomId,
-        lastMessage: lastMessage,
-        lastMessageTime: lastMessageTime,
-        lastMessageUserId: lastMessageUserId,
-        lastMessageId: lastMessageId,
-        lastMessageType: lastMessageType,
-        lastMessageMimeType: lastMessageMimeType,
-        lastMessageFileName: lastMessageFileName,
-        lastMessageDurationMs: lastMessageDurationMs,
-        lastMessageIsDeleted: lastMessageIsDeleted,
-        lastMessageReactionEmoji: lastMessageReactionEmoji,
-      );
+  }) => _delegate.updateCachedRoomPreview(
+    roomId,
+    lastMessage: lastMessage,
+    lastMessageTime: lastMessageTime,
+    lastMessageUserId: lastMessageUserId,
+    lastMessageId: lastMessageId,
+    lastMessageType: lastMessageType,
+    lastMessageMimeType: lastMessageMimeType,
+    lastMessageFileName: lastMessageFileName,
+    lastMessageDurationMs: lastMessageDurationMs,
+    lastMessageIsDeleted: lastMessageIsDeleted,
+    lastMessageReactionEmoji: lastMessageReactionEmoji,
+  );
 }
 
 class _DmTestClient implements ChatClient {

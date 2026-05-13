@@ -112,79 +112,63 @@ class RoomListItem {
     return RoomListItem(
       id: id,
       name: identical(name, _absent) ? this.name : name as String?,
-      subject:
-          identical(subject, _absent) ? this.subject : subject as String?,
-      avatarUrl:
-          identical(avatarUrl, _absent)
-              ? this.avatarUrl
-              : avatarUrl as String?,
-      lastMessage:
-          identical(lastMessage, _absent)
-              ? this.lastMessage
-              : lastMessage as String?,
-      lastMessageTime:
-          identical(lastMessageTime, _absent)
-              ? this.lastMessageTime
-              : lastMessageTime as DateTime?,
-      lastMessageUserId:
-          identical(lastMessageUserId, _absent)
-              ? this.lastMessageUserId
-              : lastMessageUserId as String?,
-      lastMessageId:
-          identical(lastMessageId, _absent)
-              ? this.lastMessageId
-              : lastMessageId as String?,
-      lastMessageReceipt:
-          identical(lastMessageReceipt, _absent)
-              ? this.lastMessageReceipt
-              : lastMessageReceipt as ReceiptStatus?,
-      lastMessageType:
-          identical(lastMessageType, _absent)
-              ? this.lastMessageType
-              : lastMessageType as MessageType?,
-      lastMessageMimeType:
-          identical(lastMessageMimeType, _absent)
-              ? this.lastMessageMimeType
-              : lastMessageMimeType as String?,
-      lastMessageFileName:
-          identical(lastMessageFileName, _absent)
-              ? this.lastMessageFileName
-              : lastMessageFileName as String?,
-      lastMessageDurationMs:
-          identical(lastMessageDurationMs, _absent)
-              ? this.lastMessageDurationMs
-              : lastMessageDurationMs as int?,
-      lastMessageIsDeleted:
-          lastMessageIsDeleted ?? this.lastMessageIsDeleted,
-      lastMessageReactionEmoji:
-          identical(lastMessageReactionEmoji, _absent)
-              ? this.lastMessageReactionEmoji
-              : lastMessageReactionEmoji as String?,
+      subject: identical(subject, _absent) ? this.subject : subject as String?,
+      avatarUrl: identical(avatarUrl, _absent)
+          ? this.avatarUrl
+          : avatarUrl as String?,
+      lastMessage: identical(lastMessage, _absent)
+          ? this.lastMessage
+          : lastMessage as String?,
+      lastMessageTime: identical(lastMessageTime, _absent)
+          ? this.lastMessageTime
+          : lastMessageTime as DateTime?,
+      lastMessageUserId: identical(lastMessageUserId, _absent)
+          ? this.lastMessageUserId
+          : lastMessageUserId as String?,
+      lastMessageId: identical(lastMessageId, _absent)
+          ? this.lastMessageId
+          : lastMessageId as String?,
+      lastMessageReceipt: identical(lastMessageReceipt, _absent)
+          ? this.lastMessageReceipt
+          : lastMessageReceipt as ReceiptStatus?,
+      lastMessageType: identical(lastMessageType, _absent)
+          ? this.lastMessageType
+          : lastMessageType as MessageType?,
+      lastMessageMimeType: identical(lastMessageMimeType, _absent)
+          ? this.lastMessageMimeType
+          : lastMessageMimeType as String?,
+      lastMessageFileName: identical(lastMessageFileName, _absent)
+          ? this.lastMessageFileName
+          : lastMessageFileName as String?,
+      lastMessageDurationMs: identical(lastMessageDurationMs, _absent)
+          ? this.lastMessageDurationMs
+          : lastMessageDurationMs as int?,
+      lastMessageIsDeleted: lastMessageIsDeleted ?? this.lastMessageIsDeleted,
+      lastMessageReactionEmoji: identical(lastMessageReactionEmoji, _absent)
+          ? this.lastMessageReactionEmoji
+          : lastMessageReactionEmoji as String?,
       unreadCount: unreadCount ?? this.unreadCount,
       muted: muted ?? this.muted,
       pinned: pinned ?? this.pinned,
       hidden: hidden ?? this.hidden,
       isGroup: isGroup ?? this.isGroup,
       isAnnouncement: isAnnouncement ?? this.isAnnouncement,
-      isOnline:
-          identical(isOnline, _absent) ? this.isOnline : isOnline as bool?,
-      presenceStatus:
-          identical(presenceStatus, _absent)
-              ? this.presenceStatus
-              : presenceStatus as PresenceStatus?,
-      otherUserId:
-          identical(otherUserId, _absent)
-              ? this.otherUserId
-              : otherUserId as String?,
-      userRole:
-          identical(userRole, _absent)
-              ? this.userRole
-              : userRole as RoomRole?,
+      isOnline: identical(isOnline, _absent)
+          ? this.isOnline
+          : isOnline as bool?,
+      presenceStatus: identical(presenceStatus, _absent)
+          ? this.presenceStatus
+          : presenceStatus as PresenceStatus?,
+      otherUserId: identical(otherUserId, _absent)
+          ? this.otherUserId
+          : otherUserId as String?,
+      userRole: identical(userRole, _absent)
+          ? this.userRole
+          : userRole as RoomRole?,
       memberCount: memberCount ?? this.memberCount,
-      custom:
-          identical(custom, _absent)
-              ? this.custom
-              : custom as Map<String, dynamic>?,
+      custom: identical(custom, _absent)
+          ? this.custom
+          : custom as Map<String, dynamic>?,
       typingUserIds: typingUserIds ?? this.typingUserIds,
     );
   }
@@ -224,34 +208,34 @@ class RoomListItem {
 
   @override
   int get hashCode => Object.hashAll([
-        id,
-        name,
-        subject,
-        avatarUrl,
-        lastMessage,
-        lastMessageTime,
-        lastMessageUserId,
-        lastMessageId,
-        lastMessageReceipt,
-        lastMessageType,
-        lastMessageMimeType,
-        lastMessageFileName,
-        lastMessageDurationMs,
-        lastMessageIsDeleted,
-        lastMessageReactionEmoji,
-        unreadCount,
-        muted,
-        pinned,
-        hidden,
-        isGroup,
-        isAnnouncement,
-        isOnline,
-        presenceStatus,
-        otherUserId,
-        userRole,
-        memberCount,
-        Object.hashAllUnordered(typingUserIds),
-      ]);
+    id,
+    name,
+    subject,
+    avatarUrl,
+    lastMessage,
+    lastMessageTime,
+    lastMessageUserId,
+    lastMessageId,
+    lastMessageReceipt,
+    lastMessageType,
+    lastMessageMimeType,
+    lastMessageFileName,
+    lastMessageDurationMs,
+    lastMessageIsDeleted,
+    lastMessageReactionEmoji,
+    unreadCount,
+    muted,
+    pinned,
+    hidden,
+    isGroup,
+    isAnnouncement,
+    isOnline,
+    presenceStatus,
+    otherUserId,
+    userRole,
+    memberCount,
+    Object.hashAllUnordered(typingUserIds),
+  ]);
 
   @override
   String toString() =>

@@ -32,8 +32,7 @@ void main() {
       expect(result.isSuccess, true);
       expect(result.dataOrNull, isNotEmpty);
 
-      final controller =
-          adapter.getChatController('thread_room1_msg1');
+      final controller = adapter.getChatController('thread_room1_msg1');
       expect(controller, isNotNull);
     });
 
@@ -53,18 +52,20 @@ void main() {
   });
 
   group('Search', () {
-    test('searchMessages delegates to SDK and returns paginated response',
-        () async {
-      final result = await adapter.searchMessages(
-        'hello',
-        'room1',
-        pagination: const PaginationParams(limit: 10),
-      );
+    test(
+      'searchMessages delegates to SDK and returns paginated response',
+      () async {
+        final result = await adapter.searchMessages(
+          'hello',
+          'room1',
+          pagination: const PaginationParams(limit: 10),
+        );
 
-      expect(result.isSuccess, true);
-      expect(result.dataOrNull, isA<PaginatedResponse<ChatMessage>>());
-      expect(result.dataOrNull!.items, isA<List<ChatMessage>>());
-    });
+        expect(result.isSuccess, true);
+        expect(result.dataOrNull, isA<PaginatedResponse<ChatMessage>>());
+        expect(result.dataOrNull!.items, isA<List<ChatMessage>>());
+      },
+    );
 
     test('searchMessages uses default pagination when null', () async {
       final result = await adapter.searchMessages('hello', 'room1');
@@ -73,18 +74,20 @@ void main() {
       expect(result.dataOrNull, isA<PaginatedResponse<ChatMessage>>());
     });
 
-    test('searchMessages is compatible with MessageSearchController.searchFn',
-        () async {
-      final controller = MessageSearchController(
-        searchFn: adapter.searchMessages,
-      );
+    test(
+      'searchMessages is compatible with MessageSearchController.searchFn',
+      () async {
+        final controller = MessageSearchController(
+          searchFn: adapter.searchMessages,
+        );
 
-      await controller.search('hello', 'room1');
+        await controller.search('hello', 'room1');
 
-      expect(controller.query, 'hello');
-      expect(controller.isLoading, false);
-      controller.dispose();
-    });
+        expect(controller.query, 'hello');
+        expect(controller.isLoading, false);
+        controller.dispose();
+      },
+    );
   });
 
   group('Read Receipts', () {
@@ -103,11 +106,13 @@ void main() {
         name: 'Invited Room',
       );
       final roomId = createResult.dataOrNull!.id;
-      adapter.roomListController.addRoom(RoomListItem(
-        id: roomId,
-        name: 'Invited Room',
-        custom: const {'invited': true, 'invitedBy': 'u2'},
-      ));
+      adapter.roomListController.addRoom(
+        RoomListItem(
+          id: roomId,
+          name: 'Invited Room',
+          custom: const {'invited': true, 'invitedBy': 'u2'},
+        ),
+      );
 
       final result = await adapter.acceptInvitation(roomId);
       expect(result.isSuccess, true);
@@ -117,18 +122,17 @@ void main() {
     });
 
     test('rejectInvitation removes room from list', () async {
-      adapter.roomListController.addRoom(RoomListItem(
-        id: 'invited-room',
-        name: 'Invited',
-        custom: {'invited': true},
-      ));
+      adapter.roomListController.addRoom(
+        RoomListItem(
+          id: 'invited-room',
+          name: 'Invited',
+          custom: {'invited': true},
+        ),
+      );
 
       final result = await adapter.rejectInvitation('invited-room');
       expect(result.isSuccess, true);
-      expect(
-        adapter.roomListController.getRoomById('invited-room'),
-        isNull,
-      );
+      expect(adapter.roomListController.getRoomById('invited-room'), isNull);
     });
   });
 

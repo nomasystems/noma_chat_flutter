@@ -40,10 +40,12 @@ class ContactSuggestionsBar extends StatelessWidget {
         if (title != null)
           Padding(
             padding: EdgeInsets.only(bottom: 8, left: leadingPadding),
-            child: titleBuilder?.call(context, title!) ??
+            child:
+                titleBuilder?.call(context, title!) ??
                 Text(
                   title!,
-                  style: theme.suggestionsBarTitleStyle ??
+                  style:
+                      theme.suggestionsBarTitleStyle ??
                       const TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -107,8 +109,8 @@ class _ContactItem extends StatelessWidget {
           const SizedBox(height: 4),
           Text(
             contact.displayName,
-            style: theme.suggestionsBarNameStyle ??
-                const TextStyle(fontSize: 12),
+            style:
+                theme.suggestionsBarNameStyle ?? const TextStyle(fontSize: 12),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             textAlign: TextAlign.center,

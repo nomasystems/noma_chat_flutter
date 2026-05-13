@@ -23,8 +23,7 @@ class UserProfileView extends StatelessWidget {
 
   Color _presenceDotColor() {
     return switch (presence!) {
-      PresenceStatus.available =>
-        theme.presenceAvailableColor ?? Colors.green,
+      PresenceStatus.available => theme.presenceAvailableColor ?? Colors.green,
       PresenceStatus.away => theme.presenceAwayColor ?? Colors.amber,
       PresenceStatus.busy => theme.presenceBusyColor ?? Colors.red,
       PresenceStatus.dnd => theme.presenceDndColor ?? Colors.red.shade900,
@@ -44,8 +43,7 @@ class UserProfileView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasActions =
-        onStartChat != null || onMute != null || onBlock != null;
+    final hasActions = onStartChat != null || onMute != null || onBlock != null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
@@ -62,7 +60,8 @@ class UserProfileView extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             user.displayName ?? user.id,
-            style: theme.roomNameTextStyle ??
+            style:
+                theme.roomNameTextStyle ??
                 const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
           ),
           if (user.bio != null && user.bio!.isNotEmpty) ...[
@@ -70,7 +69,8 @@ class UserProfileView extends StatelessWidget {
             Text(
               user.bio!,
               textAlign: TextAlign.center,
-              style: theme.roomPreviewTextStyle ??
+              style:
+                  theme.roomPreviewTextStyle ??
                   TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ],
@@ -90,7 +90,8 @@ class UserProfileView extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   _presenceText(),
-                  style: theme.timestampTextStyle ??
+                  style:
+                      theme.timestampTextStyle ??
                       TextStyle(fontSize: 13, color: Colors.grey.shade500),
                 ),
               ],
@@ -158,10 +159,7 @@ class _ActionButton extends StatelessWidget {
         children: [
           Icon(icon, color: color, size: 24),
           const SizedBox(height: 4),
-          Text(
-            label,
-            style: TextStyle(fontSize: 12, color: color),
-          ),
+          Text(label, style: TextStyle(fontSize: 12, color: color)),
         ],
       ),
     );

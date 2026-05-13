@@ -8,44 +8,42 @@ import '../dto/room_dto.dart';
 
 class RoomMapper {
   static ChatRoom fromDto(RoomDto dto) => ChatRoom(
-        id: dto.roomId,
-        owner: dto.owner,
-        name: dto.name,
-        subject: dto.subject,
-        audience: _parseAudience(dto.audience),
-        allowInvitations: dto.allowInvitations ?? false,
-        members: dto.members ?? [],
-        publicToken: dto.publicToken,
-        avatarUrl: dto.avatarUrl,
-        custom: dto.custom,
-      );
+    id: dto.roomId,
+    owner: dto.owner,
+    name: dto.name,
+    subject: dto.subject,
+    audience: _parseAudience(dto.audience),
+    allowInvitations: dto.allowInvitations ?? false,
+    members: dto.members ?? [],
+    publicToken: dto.publicToken,
+    avatarUrl: dto.avatarUrl,
+    custom: dto.custom,
+  );
 
   static ChatRoom fromJson(Map<String, dynamic> json) =>
       fromDto(RoomDto.fromJson(json));
 
   static RoomDetail detailFromDto(RoomDetailDto dto) => RoomDetail(
-        id: dto.id,
-        name: dto.name,
-        subject: dto.subject,
-        type: switch (dto.type) {
-          'one-to-one' => RoomType.oneToOne,
-          'announcement' => RoomType.announcement,
-          _ => RoomType.group,
-        },
-        memberCount: dto.memberCount,
-        userRole: _parseRoomRole(dto.userRole),
-        config: RoomConfig(
-          allowInvitations:
-              dto.config?['allowInvitations'] as bool? ?? false,
-        ),
-        muted: dto.muted,
-        pinned: dto.pinned,
-        hidden: dto.hidden,
-        createdAt:
-            dto.createdAt != null ? DateTime.tryParse(dto.createdAt!) : null,
-        avatarUrl: dto.avatarUrl,
-        custom: dto.custom,
-      );
+    id: dto.id,
+    name: dto.name,
+    subject: dto.subject,
+    type: switch (dto.type) {
+      'one-to-one' => RoomType.oneToOne,
+      'announcement' => RoomType.announcement,
+      _ => RoomType.group,
+    },
+    memberCount: dto.memberCount,
+    userRole: _parseRoomRole(dto.userRole),
+    config: RoomConfig(
+      allowInvitations: dto.config?['allowInvitations'] as bool? ?? false,
+    ),
+    muted: dto.muted,
+    pinned: dto.pinned,
+    hidden: dto.hidden,
+    createdAt: dto.createdAt != null ? DateTime.tryParse(dto.createdAt!) : null,
+    avatarUrl: dto.avatarUrl,
+    custom: dto.custom,
+  );
 
   static RoomDetail detailFromJson(Map<String, dynamic> json) =>
       detailFromDto(RoomDetailDto.fromJson(json));
@@ -62,10 +60,10 @@ class RoomMapper {
       );
 
   static UserRooms userRoomsFromDto(UserRoomsDto dto) => UserRooms(
-        rooms: dto.rooms.map(unreadRoomFromJson).toList(),
-        invitedRooms: dto.invitedRooms.map(_invitedRoomFromJson).toList(),
-        hasMore: dto.hasMore,
-      );
+    rooms: dto.rooms.map(unreadRoomFromJson).toList(),
+    invitedRooms: dto.invitedRooms.map(_invitedRoomFromJson).toList(),
+    hasMore: dto.hasMore,
+  );
 
   static UserRooms userRoomsFromJson(Map<String, dynamic> json) =>
       userRoomsFromDto(UserRoomsDto.fromJson(json));
@@ -149,16 +147,15 @@ class RoomMapper {
 
   static String? _asString(Object? value) => value is String ? value : null;
 
-  static MessageType? _parseMessageTypeNullable(String? type) =>
-      switch (type) {
-        'attachment' => MessageType.attachment,
-        'reaction' => MessageType.reaction,
-        'reply' => MessageType.reply,
-        'audio' => MessageType.audio,
-        'forward' => MessageType.forward,
-        'regular' => MessageType.regular,
-        _ => null,
-      };
+  static MessageType? _parseMessageTypeNullable(String? type) => switch (type) {
+    'attachment' => MessageType.attachment,
+    'reaction' => MessageType.reaction,
+    'reply' => MessageType.reply,
+    'audio' => MessageType.audio,
+    'forward' => MessageType.forward,
+    'regular' => MessageType.regular,
+    _ => null,
+  };
 
   static InvitedRoom _invitedRoomFromJson(Map<String, dynamic> json) =>
       InvitedRoom(
@@ -167,21 +164,21 @@ class RoomMapper {
       );
 
   static RoomAudience _parseAudience(String? audience) => switch (audience) {
-        'public' => RoomAudience.public,
-        'unrestricted' => RoomAudience.unrestricted,
-        _ => RoomAudience.contacts,
-      };
+    'public' => RoomAudience.public,
+    'unrestricted' => RoomAudience.unrestricted,
+    _ => RoomAudience.contacts,
+  };
 
   static RoomRole _parseRoomRole(String? role) => switch (role) {
-        'owner' => RoomRole.owner,
-        'admin' => RoomRole.admin,
-        _ => RoomRole.member,
-      };
+    'owner' => RoomRole.owner,
+    'admin' => RoomRole.admin,
+    _ => RoomRole.member,
+  };
 
   static RoomRole? _parseRoomRoleNullable(String? role) => switch (role) {
-        'owner' => RoomRole.owner,
-        'admin' => RoomRole.admin,
-        'user' || 'member' => RoomRole.member,
-        _ => null,
-      };
+    'owner' => RoomRole.owner,
+    'admin' => RoomRole.admin,
+    'user' || 'member' => RoomRole.member,
+    _ => null,
+  };
 }

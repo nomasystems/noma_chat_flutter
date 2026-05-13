@@ -46,7 +46,7 @@ class NomaChatClient implements ChatClient {
   /// Called when an offline queue send completes; receives the room id, the
   /// optimistic temp id and the server-confirmed message.
   void Function(String roomId, String tempId, ChatMessage message)?
-      onOfflineMessageSent;
+  onOfflineMessageSent;
 
   DateTime? get lastDisconnectedAt => _disconnectedAt;
 
@@ -71,25 +71,26 @@ class NomaChatClient implements ChatClient {
     required ChatConfig config,
     RestClient? restClient,
     TransportManager? transportManager,
-  }) : _transport = transportManager ??
-            TransportManager(
-              ws: WsTransport(config: config),
-              sse: SseTransport(config: config),
-              eventBufferSize: config.eventBufferSize,
-            ),
-        _cache = config.localDatasource,
-        _cacheManager = config.cacheConfig != null
-            ? CacheManager(config: config.cacheConfig!)
-            : null,
-        _offlineQueue = config.cacheConfig != null
-            ? OfflineQueue(
-                maxRetries: config.cacheConfig!.offlineQueueMaxRetries,
-                store: config.localDatasource,
-                logger: config.logger,
-              )
-            : null,
-        _enableCatchUp = config.enableReconnectCatchUp,
-        _logger = config.logger {
+  }) : _transport =
+           transportManager ??
+           TransportManager(
+             ws: WsTransport(config: config),
+             sse: SseTransport(config: config),
+             eventBufferSize: config.eventBufferSize,
+           ),
+       _cache = config.localDatasource,
+       _cacheManager = config.cacheConfig != null
+           ? CacheManager(config: config.cacheConfig!)
+           : null,
+       _offlineQueue = config.cacheConfig != null
+           ? OfflineQueue(
+               maxRetries: config.cacheConfig!.offlineQueueMaxRetries,
+               store: config.localDatasource,
+               logger: config.logger,
+             )
+           : null,
+       _enableCatchUp = config.enableReconnectCatchUp,
+       _logger = config.logger {
     MessageMapper.logger = config.logger;
     UserMapper.logger = config.logger;
     EventParser.logger = config.logger;
@@ -198,10 +199,12 @@ class NomaChatClient implements ChatClient {
       (userRooms) {
         for (final room in userRooms.rooms) {
           if (room.unreadMessages > 0) {
-            _transport.emitSynthetic(ChatEvent.unreadUpdated(
-              roomId: room.roomId,
-              count: room.unreadMessages,
-            ));
+            _transport.emitSynthetic(
+              ChatEvent.unreadUpdated(
+                roomId: room.roomId,
+                count: room.unreadMessages,
+              ),
+            );
           }
         }
       },
@@ -298,11 +301,7 @@ class NomaChatClient implements ChatClient {
                 _ => RoomRole.member,
               }
             : null;
-        return members.add(
-          op.roomId,
-          userIds: [op.userId],
-          userRole: userRole,
-        );
+        return members.add(op.roomId, userIds: [op.userId], userRole: userRole);
       case PendingRemoveMember():
         return members.remove(op.roomId, op.userId);
     }

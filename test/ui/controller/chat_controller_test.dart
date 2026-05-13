@@ -54,15 +54,18 @@ void main() {
       expect(controller.messages, hasLength(2));
     });
 
-    test('re-sorts when updating existing message with different timestamp', () {
-      controller.addMessage(makeMsg('3', timestamp: DateTime(2026, 1, 3)));
-      expect(controller.messages.last.id, '3');
+    test(
+      're-sorts when updating existing message with different timestamp',
+      () {
+        controller.addMessage(makeMsg('3', timestamp: DateTime(2026, 1, 3)));
+        expect(controller.messages.last.id, '3');
 
-      final updated = makeMsg('3', timestamp: DateTime(2025, 12, 1));
-      controller.addMessage(updated);
-      expect(controller.messages.first.id, '3');
-      expect(controller.messages, hasLength(3));
-    });
+        final updated = makeMsg('3', timestamp: DateTime(2025, 12, 1));
+        controller.addMessage(updated);
+        expect(controller.messages.first.id, '3');
+        expect(controller.messages, hasLength(3));
+      },
+    );
   });
 
   group('updateMessage', () {

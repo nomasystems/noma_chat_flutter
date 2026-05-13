@@ -52,8 +52,7 @@ void main() {
     test('icon builders can be set and copied', () {
       Widget builder(BuildContext context) => const SizedBox();
       const fallback = Icons.attach_file;
-      final theme = const ChatTheme(attachButtonIcon: fallback)
-          .copyWith(
+      final theme = const ChatTheme(attachButtonIcon: fallback).copyWith(
         attachIconBuilder: builder,
         cameraIconBuilder: builder,
         voiceIconBuilder: builder,

@@ -97,7 +97,10 @@ void main() {
       await transport.connect();
       await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(fakeDio.requestedUrls.first, 'http://localhost:8077/custom-events');
+      expect(
+        fakeDio.requestedUrls.first,
+        'http://localhost:8077/custom-events',
+      );
 
       await transport.dispose();
     });
@@ -127,7 +130,8 @@ void main() {
       expect(transport.state, ChatConnectionState.error);
       expect(
         events.whereType<ErrorEvent>().any(
-            (e) => e.exception.message.contains('Max reconnect attempts')),
+          (e) => e.exception.message.contains('Max reconnect attempts'),
+        ),
         isTrue,
       );
 

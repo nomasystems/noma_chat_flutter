@@ -16,26 +16,20 @@ void main() {
     });
 
     test('enqueue adds operations', () {
-      queue.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'room-1',
-        text: 'Hello',
-      ));
+      queue.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'room-1', text: 'Hello'),
+      );
       expect(queue.length, 1);
       expect(queue.isNotEmpty, isTrue);
     });
 
     test('processQueue executes and removes successful operations', () async {
-      queue.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'room-1',
-        text: 'Hello',
-      ));
-      queue.enqueue(PendingDeleteMessage(
-        id: 'op-2',
-        roomId: 'room-1',
-        messageId: 'msg-1',
-      ));
+      queue.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'room-1', text: 'Hello'),
+      );
+      queue.enqueue(
+        PendingDeleteMessage(id: 'op-2', roomId: 'room-1', messageId: 'msg-1'),
+      );
 
       await queue.processQueue((op) async => true);
       expect(queue.isEmpty, isTrue);
@@ -43,15 +37,10 @@ void main() {
 
     test('processQueue retries failed operations up to maxRetries', () async {
       var now = DateTime(2024);
-      final q = OfflineQueue(
-        maxRetries: 3,
-        clock: () => now,
+      final q = OfflineQueue(maxRetries: 3, clock: () => now);
+      q.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'room-1', text: 'Hello'),
       );
-      q.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'room-1',
-        text: 'Hello',
-      ));
 
       var attempts = 0;
       await q.processQueue((op) async {
@@ -70,15 +59,10 @@ void main() {
 
     test('processQueue succeeds on retry', () async {
       var now = DateTime(2024);
-      final q = OfflineQueue(
-        maxRetries: 3,
-        clock: () => now,
+      final q = OfflineQueue(maxRetries: 3, clock: () => now);
+      q.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'room-1', text: 'Hello'),
       );
-      q.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'room-1',
-        text: 'Hello',
-      ));
 
       await q.processQueue((op) async => false);
       expect(q.length, 1);
@@ -89,27 +73,25 @@ void main() {
     });
 
     test('clear empties the queue', () {
-      queue.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'room-1',
-        text: 'Hello',
-      ));
+      queue.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'room-1', text: 'Hello'),
+      );
       queue.clear();
       expect(queue.isEmpty, isTrue);
     });
 
     test('pending returns list of operations', () {
-      queue.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'room-1',
-        text: 'Hello',
-      ));
-      queue.enqueue(PendingEditMessage(
-        id: 'op-2',
-        roomId: 'room-1',
-        messageId: 'msg-1',
-        text: 'Updated',
-      ));
+      queue.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'room-1', text: 'Hello'),
+      );
+      queue.enqueue(
+        PendingEditMessage(
+          id: 'op-2',
+          roomId: 'room-1',
+          messageId: 'msg-1',
+          text: 'Updated',
+        ),
+      );
 
       final pending = queue.pending;
       expect(pending.length, 2);

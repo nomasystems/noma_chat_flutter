@@ -36,18 +36,17 @@ class MessagesApi implements ChatMessagesApi {
     CacheManager? cacheManager,
     OfflineQueue? offlineQueue,
     void Function(String level, String message)? logger,
-  })  : _rest = rest,
-        _transport = transport,
-        _cache = cache,
-        _cacheManager = cacheManager,
-        _offlineQueue = offlineQueue,
-        _logger = logger;
+  }) : _rest = rest,
+       _transport = transport,
+       _cache = cache,
+       _cacheManager = cacheManager,
+       _offlineQueue = offlineQueue,
+       _logger = logger;
 
   @override
   Future<Result<ChatMessage>> get(String roomId, String messageId) =>
       safeApiCall(() async {
-        final json =
-            await _rest.get('/rooms/$roomId/messages/$messageId');
+        final json = await _rest.get('/rooms/$roomId/messages/$messageId');
         return MessageMapper.fromJson(json);
       });
 
@@ -75,14 +74,22 @@ class MessagesApi implements ChatMessagesApi {
           );
           if (cached.isEmpty) return null;
           // Conservative: assume more exist if cache returned as many as requested.
-          return PaginatedResponse(items: cached, hasMore: cached.length >= (pagination?.limit ?? 50));
+          return PaginatedResponse(
+            items: cached,
+            hasMore: cached.length >= (pagination?.limit ?? 50),
+          );
         },
         fromNetwork: () => safeApiCall(() async {
-          final json = await _rest.get('/rooms/$roomId/messages', queryParams: {
-            ...?pagination?.toQueryParams(),
-            if (unreadOnly != null) 'unreadOnly': unreadOnly.toString(),
-          });
-          final messages = MessageMapper.fromJsonList(json['messages'] as List? ?? []);
+          final json = await _rest.get(
+            '/rooms/$roomId/messages',
+            queryParams: {
+              ...?pagination?.toQueryParams(),
+              if (unreadOnly != null) 'unreadOnly': unreadOnly.toString(),
+            },
+          );
+          final messages = MessageMapper.fromJsonList(
+            json['messages'] as List? ?? [],
+          );
           final filtered = _filterByClearedAt(messages, clearedAt);
           return PaginatedResponse(
             items: filtered,
@@ -93,11 +100,16 @@ class MessagesApi implements ChatMessagesApi {
       );
     }
     return safeApiCall(() async {
-      final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/messages', queryParams: {
-        ...?pagination?.toQueryParams(),
-        if (unreadOnly != null) 'unreadOnly': unreadOnly.toString(),
-      });
-      final messages = MessageMapper.fromJsonList(json['messages'] as List? ?? []);
+      final (json, totalCount) = await _rest.getWithTotalCount(
+        '/rooms/$roomId/messages',
+        queryParams: {
+          ...?pagination?.toQueryParams(),
+          if (unreadOnly != null) 'unreadOnly': unreadOnly.toString(),
+        },
+      );
+      final messages = MessageMapper.fromJsonList(
+        json['messages'] as List? ?? [],
+      );
       final filtered = _filterByClearedAt(messages, clearedAt);
       return PaginatedResponse(
         items: filtered,
@@ -112,9 +124,7 @@ class MessagesApi implements ChatMessagesApi {
     DateTime? clearedAt,
   ) {
     if (clearedAt == null) return messages;
-    return messages
-        .where((m) => m.timestamp.isAfter(clearedAt))
-        .toList();
+    return messages.where((m) => m.timestamp.isAfter(clearedAt)).toList();
   }
 
   @override
@@ -130,16 +140,19 @@ class MessagesApi implements ChatMessagesApi {
     String? tempId,
   }) async {
     final result = await safeApiCall(() async {
-      final json = await _rest.post('/rooms/$roomId/messages', data: {
-        if (text != null) 'text': text,
-        'messageType': messageType.name,
-        if (referencedMessageId != null)
-          'referencedMessageId': referencedMessageId,
-        if (reaction != null) 'emoji': reaction,
-        if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
-        if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
-        if (metadata != null) 'metadata': metadata,
-      });
+      final json = await _rest.post(
+        '/rooms/$roomId/messages',
+        data: {
+          if (text != null) 'text': text,
+          'messageType': messageType.name,
+          if (referencedMessageId != null)
+            'referencedMessageId': referencedMessageId,
+          if (reaction != null) 'emoji': reaction,
+          if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+          if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
+          if (metadata != null) 'metadata': metadata,
+        },
+      );
       return MessageMapper.fromJson(json);
     });
     if (result.isSuccess && _cache != null) {
@@ -152,18 +165,20 @@ class MessagesApi implements ChatMessagesApi {
     } else if (result.isFailure &&
         result.failureOrNull is NetworkFailure &&
         _offlineQueue != null) {
-      _offlineQueue.enqueue(PendingSendMessage(
-        id: 'pending-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
-        roomId: roomId,
-        text: text,
-        messageType: messageType,
-        referencedMessageId: referencedMessageId,
-        reaction: reaction,
-        attachmentUrl: attachmentUrl,
-        sourceRoomId: sourceRoomId,
-        metadata: metadata,
-        tempId: tempId,
-      ));
+      _offlineQueue.enqueue(
+        PendingSendMessage(
+          id: 'pending-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
+          roomId: roomId,
+          text: text,
+          messageType: messageType,
+          referencedMessageId: referencedMessageId,
+          reaction: reaction,
+          attachmentUrl: attachmentUrl,
+          sourceRoomId: sourceRoomId,
+          metadata: metadata,
+          tempId: tempId,
+        ),
+      );
     }
     return result;
   }
@@ -181,7 +196,8 @@ class MessagesApi implements ChatMessagesApi {
   }) {
     if (_transport == null || !_transport.isWsConnected) {
       return Future.value(
-          const Failure(NetworkFailure('WebSocket not connected')));
+        const Failure(NetworkFailure('WebSocket not connected')),
+      );
     }
     _transport.sendMessage(
       roomId,
@@ -203,13 +219,12 @@ class MessagesApi implements ChatMessagesApi {
     required String text,
     Map<String, dynamic>? metadata,
   }) async {
-    final result = await safeVoidCall(() => _rest.putVoid(
-          '/rooms/$roomId/messages/$messageId',
-          data: {
-            'text': text,
-            if (metadata != null) 'metadata': metadata,
-          },
-        ));
+    final result = await safeVoidCall(
+      () => _rest.putVoid(
+        '/rooms/$roomId/messages/$messageId',
+        data: {'text': text, if (metadata != null) 'metadata': metadata},
+      ),
+    );
     if (result.isSuccess && _cache != null) {
       try {
         final cached = await _cache.getMessages(roomId);
@@ -241,7 +256,8 @@ class MessagesApi implements ChatMessagesApi {
   @override
   Future<Result<void>> delete(String roomId, String messageId) async {
     final result = await safeVoidCall(
-        () => _rest.delete('/rooms/$roomId/messages/$messageId'));
+      () => _rest.delete('/rooms/$roomId/messages/$messageId'),
+    );
     if (result.isSuccess && _cache != null) {
       try {
         await _cache.deleteMessage(roomId, messageId);
@@ -252,11 +268,13 @@ class MessagesApi implements ChatMessagesApi {
     } else if (result.isFailure &&
         result.failureOrNull is NetworkFailure &&
         _offlineQueue != null) {
-      _offlineQueue.enqueue(PendingDeleteMessage(
-        id: 'pending-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
-        roomId: roomId,
-        messageId: messageId,
-      ));
+      _offlineQueue.enqueue(
+        PendingDeleteMessage(
+          id: 'pending-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+        ),
+      );
     }
     return result;
   }
@@ -273,58 +291,90 @@ class MessagesApi implements ChatMessagesApi {
       _transport.sendReceipt(roomId, messageId, status: status);
       return Future.value(const Success(null));
     }
-    return safeVoidCall(() => _rest.putVoid(
-          '/rooms/$roomId/messages/$messageId/receipts',
-          data: {'status': status.name},
-        ));
+    return safeVoidCall(
+      () => _rest.putVoid(
+        '/rooms/$roomId/messages/$messageId/receipts',
+        data: {'status': status.name},
+      ),
+    );
   }
 
   @override
-  Future<Result<void>> markRoomAsRead(String roomId,
-      {String? lastReadMessageId}) async {
-    final result =
-        await safeVoidCall(() => _rest.postVoid('/rooms/$roomId/read', data: {
-              if (lastReadMessageId != null)
-                'lastReadMessageId': lastReadMessageId,
-            }));
+  Future<Result<void>> markRoomAsRead(
+    String roomId, {
+    String? lastReadMessageId,
+  }) async {
+    final result = await safeVoidCall(
+      () => _rest.postVoid(
+        '/rooms/$roomId/read',
+        data: {
+          if (lastReadMessageId != null) 'lastReadMessageId': lastReadMessageId,
+        },
+      ),
+    );
     if (result.isSuccess && _cache != null) {
       try {
         await _cache.deleteUnread(roomId);
         _cacheManager?.invalidate('rooms:all');
         _cacheManager?.invalidate('rooms:unread');
       } catch (e) {
-        _logger?.call('warn', 'messages.markRoomAsRead: cache update failed: $e');
+        _logger?.call(
+          'warn',
+          'messages.markRoomAsRead: cache update failed: $e',
+        );
       }
     }
     return result;
   }
 
   @override
-  Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(String roomId) {
+  Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(
+    String roomId,
+  ) {
     if (_cacheManager != null && _cache != null) {
       return _cacheManager.resolve<PaginatedResponse<ReadReceipt>>(
         key: 'receipts:$roomId',
         ttl: _cacheManager.config.ttlMessages,
         fromCache: () async {
           final cached = await _cache.getReceipts(roomId);
-          return cached.isEmpty ? null : PaginatedResponse(items: cached, hasMore: false);
+          return cached.isEmpty
+              ? null
+              : PaginatedResponse(items: cached, hasMore: false);
         },
         fromNetwork: () => safeApiCall(() async {
-          final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/receipts');
+          final (json, totalCount) = await _rest.getWithTotalCount(
+            '/rooms/$roomId/receipts',
+          );
           final receipts = (json['receipts'] as List? ?? [])
-              .map((e) => MessageMapper.readReceiptFromJson(e as Map<String, dynamic>))
+              .map(
+                (e) => MessageMapper.readReceiptFromJson(
+                  e as Map<String, dynamic>,
+                ),
+              )
               .toList();
-          return PaginatedResponse(items: receipts, hasMore: (json['hasMore'] ?? false) as bool, totalCount: totalCount);
+          return PaginatedResponse(
+            items: receipts,
+            hasMore: (json['hasMore'] ?? false) as bool,
+            totalCount: totalCount,
+          );
         }),
         saveToCache: (data) => _cache.saveReceipts(roomId, data.items),
       );
     }
     return safeApiCall(() async {
-      final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/receipts');
+      final (json, totalCount) = await _rest.getWithTotalCount(
+        '/rooms/$roomId/receipts',
+      );
       final receipts = (json['receipts'] as List? ?? [])
-          .map((e) => MessageMapper.readReceiptFromJson(e as Map<String, dynamic>))
+          .map(
+            (e) => MessageMapper.readReceiptFromJson(e as Map<String, dynamic>),
+          )
           .toList();
-      return PaginatedResponse(items: receipts, hasMore: (json['hasMore'] ?? false) as bool, totalCount: totalCount);
+      return PaginatedResponse(
+        items: receipts,
+        hasMore: (json['hasMore'] ?? false) as bool,
+        totalCount: totalCount,
+      );
     });
   }
 
@@ -342,15 +392,15 @@ class MessagesApi implements ChatMessagesApi {
     final userId = _rest.userId;
     if (userId == null) {
       return Future.value(
-          const Failure(ValidationFailure(message: 'userId required for typing')));
+        const Failure(ValidationFailure(message: 'userId required for typing')),
+      );
     }
-    return safeVoidCall(() => _rest.putVoid(
-            '/rooms/$roomId/users/$userId/activity',
-            data: {
-              'activity': activity.name,
-              'from': userId,
-            },
-          ));
+    return safeVoidCall(
+      () => _rest.putVoid(
+        '/rooms/$roomId/users/$userId/activity',
+        data: {'activity': activity.name, 'from': userId},
+      ),
+    );
   }
 
   // Threads
@@ -360,24 +410,26 @@ class MessagesApi implements ChatMessagesApi {
     String roomId,
     String messageId, {
     CursorPaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount(
-          '/rooms/$roomId/messages/$messageId/thread',
-          queryParams: pagination?.toQueryParams(),
-        );
-        return PaginatedResponse(
-          items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/rooms/$roomId/messages/$messageId/thread',
+      queryParams: pagination?.toQueryParams(),
+    );
+    return PaginatedResponse(
+      items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   // Reactions
 
   @override
   Future<Result<List<AggregatedReaction>>> getReactions(
-      String roomId, String messageId, {bool forceRefresh = false}) {
+    String roomId,
+    String messageId, {
+    bool forceRefresh = false,
+  }) {
     if (_cacheManager != null && _cache != null) {
       if (forceRefresh) {
         _cacheManager.invalidate('reactions:$roomId:$messageId');
@@ -390,16 +442,23 @@ class MessagesApi implements ChatMessagesApi {
           return cached.isEmpty ? null : cached;
         },
         fromNetwork: () => safeApiCall(() async {
-          final json = await _rest.get('/rooms/$roomId/messages/$messageId/reactions');
+          final json = await _rest.get(
+            '/rooms/$roomId/messages/$messageId/reactions',
+          );
           return (json['reactions'] as List? ?? [])
-              .map((e) => MessageMapper.reactionFromJson(e as Map<String, dynamic>))
+              .map(
+                (e) =>
+                    MessageMapper.reactionFromJson(e as Map<String, dynamic>),
+              )
               .toList();
         }),
         saveToCache: (data) => _cache.saveReactions(roomId, messageId, data),
       );
     }
     return safeApiCall(() async {
-      final json = await _rest.get('/rooms/$roomId/messages/$messageId/reactions');
+      final json = await _rest.get(
+        '/rooms/$roomId/messages/$messageId/reactions',
+      );
       return (json['reactions'] as List? ?? [])
           .map((e) => MessageMapper.reactionFromJson(e as Map<String, dynamic>))
           .toList();
@@ -408,23 +467,26 @@ class MessagesApi implements ChatMessagesApi {
 
   @override
   Future<Result<void>> deleteReaction(String roomId, String messageId) =>
-      safeVoidCall(() =>
-          _rest.delete('/rooms/$roomId/messages/$messageId/reactions'));
+      safeVoidCall(
+        () => _rest.delete('/rooms/$roomId/messages/$messageId/reactions'),
+      );
 
   // Pins
 
   @override
   Future<Result<void>> pinMessage(String roomId, String messageId) async {
-    final result = await safeVoidCall(() =>
-        _rest.putVoid('/rooms/$roomId/messages/$messageId/pin'));
+    final result = await safeVoidCall(
+      () => _rest.putVoid('/rooms/$roomId/messages/$messageId/pin'),
+    );
     if (result.isSuccess) _cacheManager?.invalidate('pins:$roomId');
     return result;
   }
 
   @override
   Future<Result<void>> unpinMessage(String roomId, String messageId) async {
-    final result = await safeVoidCall(() =>
-        _rest.delete('/rooms/$roomId/messages/$messageId/pin'));
+    final result = await safeVoidCall(
+      () => _rest.delete('/rooms/$roomId/messages/$messageId/pin'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('pins:$roomId');
       _cache?.deletePin(roomId, messageId);
@@ -443,26 +505,40 @@ class MessagesApi implements ChatMessagesApi {
         ttl: _cacheManager.config.ttlMessages,
         fromCache: () async {
           final cached = await _cache.getPins(roomId);
-          return cached.isEmpty ? null : PaginatedResponse(items: cached, hasMore: false);
+          return cached.isEmpty
+              ? null
+              : PaginatedResponse(items: cached, hasMore: false);
         },
         fromNetwork: () => safeApiCall(() async {
-          final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/pins',
-              queryParams: pagination?.toQueryParams());
+          final (json, totalCount) = await _rest.getWithTotalCount(
+            '/rooms/$roomId/pins',
+            queryParams: pagination?.toQueryParams(),
+          );
           final pins = (json['pins'] as List? ?? [])
               .map((e) => MessageMapper.pinFromJson(e as Map<String, dynamic>))
               .toList();
-          return PaginatedResponse(items: pins, hasMore: (json['hasMore'] ?? false) as bool, totalCount: totalCount);
+          return PaginatedResponse(
+            items: pins,
+            hasMore: (json['hasMore'] ?? false) as bool,
+            totalCount: totalCount,
+          );
         }),
         saveToCache: (data) => _cache.savePins(roomId, data.items),
       );
     }
     return safeApiCall(() async {
-      final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/pins',
-          queryParams: pagination?.toQueryParams());
+      final (json, totalCount) = await _rest.getWithTotalCount(
+        '/rooms/$roomId/pins',
+        queryParams: pagination?.toQueryParams(),
+      );
       final pins = (json['pins'] as List? ?? [])
           .map((e) => MessageMapper.pinFromJson(e as Map<String, dynamic>))
           .toList();
-      return PaginatedResponse(items: pins, hasMore: (json['hasMore'] ?? false) as bool, totalCount: totalCount);
+      return PaginatedResponse(
+        items: pins,
+        hasMore: (json['hasMore'] ?? false) as bool,
+        totalCount: totalCount,
+      );
     });
   }
 
@@ -473,48 +549,54 @@ class MessagesApi implements ChatMessagesApi {
     String query, {
     required String roomId,
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/messages/search', queryParams: {
-          'q': query,
-          'roomId': roomId,
-          ...?pagination?.toQueryParams(),
-        });
-        return PaginatedResponse(
-          items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/messages/search',
+      queryParams: {
+        'q': query,
+        'roomId': roomId,
+        ...?pagination?.toQueryParams(),
+      },
+    );
+    return PaginatedResponse(
+      items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   // Reports
 
   @override
   Future<Result<void>> report(
-          String roomId, String messageId, {required String reason}) =>
-      safeVoidCall(() => _rest.postVoid(
-            '/rooms/$roomId/messages/$messageId/report',
-            data: {'reason': reason},
-          ));
+    String roomId,
+    String messageId, {
+    required String reason,
+  }) => safeVoidCall(
+    () => _rest.postVoid(
+      '/rooms/$roomId/messages/$messageId/report',
+      data: {'reason': reason},
+    ),
+  );
 
   @override
   Future<Result<PaginatedResponse<MessageReport>>> listReports(
     String roomId, {
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/rooms/$roomId/reports',
-            queryParams: pagination?.toQueryParams());
-        final reports = (json['reports'] as List? ?? [])
-            .map((e) =>
-                MessageMapper.reportFromJson(e as Map<String, dynamic>))
-            .toList();
-        return PaginatedResponse(
-          items: reports,
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/rooms/$roomId/reports',
+      queryParams: pagination?.toQueryParams(),
+    );
+    final reports = (json['reports'] as List? ?? [])
+        .map((e) => MessageMapper.reportFromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedResponse(
+      items: reports,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   // Scheduled messages
 
@@ -524,38 +606,40 @@ class MessagesApi implements ChatMessagesApi {
     required DateTime sendAt,
     String? text,
     Map<String, dynamic>? metadata,
-  }) =>
-      safeApiCall(() async {
-        final json =
-            await _rest.post('/rooms/$roomId/scheduled-messages', data: {
-          'sendAt': sendAt.toUtc().toIso8601String(),
-          if (text != null) 'text': text,
-          if (metadata != null) 'metadata': metadata,
-        });
-        return MessageMapper.scheduledFromJson(json);
-      });
+  }) => safeApiCall(() async {
+    final json = await _rest.post(
+      '/rooms/$roomId/scheduled-messages',
+      data: {
+        'sendAt': sendAt.toUtc().toIso8601String(),
+        if (text != null) 'text': text,
+        if (metadata != null) 'metadata': metadata,
+      },
+    );
+    return MessageMapper.scheduledFromJson(json);
+  });
 
   @override
   Future<Result<PaginatedResponse<ScheduledMessage>>> listScheduled(
-          String roomId) =>
-      safeApiCall(() async {
-        final (json, totalCount) =
-            await _rest.getWithTotalCount('/rooms/$roomId/scheduled-messages');
-        final items = (json['scheduledMessages'] as List? ?? [])
-            .map((e) =>
-                MessageMapper.scheduledFromJson(e as Map<String, dynamic>))
-            .toList();
-        return PaginatedResponse(
-          items: items,
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+    String roomId,
+  ) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/rooms/$roomId/scheduled-messages',
+    );
+    final items = (json['scheduledMessages'] as List? ?? [])
+        .map((e) => MessageMapper.scheduledFromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedResponse(
+      items: items,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   @override
   Future<Result<void>> cancelScheduled(String roomId, String scheduledId) =>
-      safeVoidCall(() => _rest
-          .delete('/rooms/$roomId/scheduled-messages/$scheduledId'));
+      safeVoidCall(
+        () => _rest.delete('/rooms/$roomId/scheduled-messages/$scheduledId'),
+      );
 
   @override
   Future<Result<void>> clearChat(String roomId) async {
@@ -567,9 +651,7 @@ class MessagesApi implements ChatMessagesApi {
       await markRoomAsRead(roomId);
       return const Success(null);
     } catch (e) {
-      return Failure(
-        UnexpectedFailure(e.toString()),
-      );
+      return Failure(UnexpectedFailure(e.toString()));
     }
   }
 
@@ -578,4 +660,3 @@ class MessagesApi implements ChatMessagesApi {
     return _cache?.getClearedAt(roomId);
   }
 }
-

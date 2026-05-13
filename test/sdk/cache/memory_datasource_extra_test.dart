@@ -51,16 +51,18 @@ void main() {
   });
 
   // ---- Contacts --------------------------------------------------------
-  test('saveContacts replaces previous list and getContacts returns it',
-      () async {
-    const c1 = ChatContact(userId: 'u1');
-    const c2 = ChatContact(userId: 'u2');
-    await ds.saveContacts([c1, c2]);
-    expect((await ds.getContacts()).length, 2);
+  test(
+    'saveContacts replaces previous list and getContacts returns it',
+    () async {
+      const c1 = ChatContact(userId: 'u1');
+      const c2 = ChatContact(userId: 'u2');
+      await ds.saveContacts([c1, c2]);
+      expect((await ds.getContacts()).length, 2);
 
-    await ds.saveContacts([c1]);
-    expect((await ds.getContacts()).single.userId, 'u1');
-  });
+      await ds.saveContacts([c1]);
+      expect((await ds.getContacts()).single.userId, 'u1');
+    },
+  );
 
   // ---- Unreads / invited rooms ----------------------------------------
   test('saveUnreads + getUnreads + deleteUnread', () async {
@@ -134,21 +136,23 @@ void main() {
     expect(await ds.getPendingMessages('r1'), isEmpty);
   });
 
-  test('savePendingMessage updates an existing entry instead of duplicating',
-      () async {
-    final msg = ChatMessage(
-      id: 'tmp-1',
-      from: 'u1',
-      timestamp: DateTime.now(),
-      text: 'hi',
-    );
-    await ds.savePendingMessage('r1', msg);
-    await ds.savePendingMessage('r1', msg, isFailed: true);
+  test(
+    'savePendingMessage updates an existing entry instead of duplicating',
+    () async {
+      final msg = ChatMessage(
+        id: 'tmp-1',
+        from: 'u1',
+        timestamp: DateTime.now(),
+        text: 'hi',
+      );
+      await ds.savePendingMessage('r1', msg);
+      await ds.savePendingMessage('r1', msg, isFailed: true);
 
-    final pending = await ds.getPendingMessages('r1');
-    expect(pending, hasLength(1));
-    expect(pending.single.isFailed, true);
-  });
+      final pending = await ds.getPendingMessages('r1');
+      expect(pending, hasLength(1));
+      expect(pending.single.isFailed, true);
+    },
+  );
 
   // ---- Cleared-at + offline queue + clear / dispose -------------------
   test('setClearedAt + getClearedAt', () async {
@@ -172,12 +176,7 @@ void main() {
     await ds.saveUsers(const [ChatUser(id: 'u1', displayName: 'A')]);
     await ds.savePendingMessage(
       'r1',
-      ChatMessage(
-        id: 'tmp',
-        from: 'u1',
-        timestamp: DateTime.now(),
-        text: 'x',
-      ),
+      ChatMessage(id: 'tmp', from: 'u1', timestamp: DateTime.now(), text: 'x'),
     );
 
     await ds.clear();

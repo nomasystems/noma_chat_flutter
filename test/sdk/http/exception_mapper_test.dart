@@ -12,7 +12,8 @@ void main() {
 
     test('maps ChatForbiddenException to ForbiddenFailure', () {
       final f = mapExceptionToFailure(
-          const ChatForbiddenException(message: 'No access'));
+        const ChatForbiddenException(message: 'No access'),
+      );
       expect(f, isA<ForbiddenFailure>());
       expect((f as ForbiddenFailure).message, 'No access');
     });
@@ -24,7 +25,11 @@ void main() {
 
     test('maps ChatValidationException to ValidationFailure', () {
       final f = mapExceptionToFailure(
-          const ChatValidationException(message: 'Bad', errors: {'field': 'details'}));
+        const ChatValidationException(
+          message: 'Bad',
+          errors: {'field': 'details'},
+        ),
+      );
       expect(f, isA<ValidationFailure>());
       expect((f as ValidationFailure).errors, {'field': 'details'});
     });
@@ -36,7 +41,8 @@ void main() {
 
     test('maps ChatRateLimitException to RateLimitFailure', () {
       final f = mapExceptionToFailure(
-          const ChatRateLimitException(retryAfter: Duration(seconds: 10)));
+        const ChatRateLimitException(retryAfter: Duration(seconds: 10)),
+      );
       expect(f, isA<RateLimitFailure>());
       expect((f as RateLimitFailure).retryAfter, const Duration(seconds: 10));
     });
@@ -53,13 +59,17 @@ void main() {
 
     test('maps ChatApiException to ServerFailure', () {
       final f = mapExceptionToFailure(
-          const ChatApiException(statusCode: 502, message: 'Bad gateway'));
+        const ChatApiException(statusCode: 502, message: 'Bad gateway'),
+      );
       expect(f, isA<ServerFailure>());
       expect((f as ServerFailure).statusCode, 502);
     });
 
     test('ChatWsOperationException has action and reason', () {
-      const e = ChatWsOperationException(action: 'message', reason: 'forbidden');
+      const e = ChatWsOperationException(
+        action: 'message',
+        reason: 'forbidden',
+      );
       expect(e.action, 'message');
       expect(e.reason, 'forbidden');
       expect(e.message, contains('forbidden'));
@@ -68,7 +78,8 @@ void main() {
 
     test('ChatWsOperationException maps to UnexpectedFailure', () {
       final f = mapExceptionToFailure(
-          const ChatWsOperationException(reason: 'rate_limited'));
+        const ChatWsOperationException(reason: 'rate_limited'),
+      );
       expect(f, isA<UnexpectedFailure>());
     });
 
@@ -88,7 +99,8 @@ void main() {
 
     test('returns Failure on exception', () async {
       final result = await safeApiCall<int>(
-          () async => throw const ChatAuthException());
+        () async => throw const ChatAuthException(),
+      );
       expect(result.isFailure, isTrue);
       expect(result.failureOrNull, isA<AuthFailure>());
     });
@@ -101,8 +113,9 @@ void main() {
     });
 
     test('returns Failure on exception', () async {
-      final result =
-          await safeVoidCall(() async => throw const ChatNetworkException());
+      final result = await safeVoidCall(
+        () async => throw const ChatNetworkException(),
+      );
       expect(result.isFailure, isTrue);
       expect(result.failureOrNull, isA<NetworkFailure>());
     });

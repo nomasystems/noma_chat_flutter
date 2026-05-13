@@ -166,8 +166,7 @@ class _AudioBubbleState extends State<AudioBubble> {
       if (!_initialized) return;
 
       final playing = _player!.playing;
-      final completed =
-          _player!.processingState == ProcessingState.completed;
+      final completed = _player!.processingState == ProcessingState.completed;
       if (completed) await _player!.seek(Duration.zero);
 
       if (playing) {
@@ -217,8 +216,7 @@ class _AudioBubbleState extends State<AudioBubble> {
       );
     }
 
-    final outgoingText =
-        widget.theme.outgoingTextStyle?.color ?? Colors.white;
+    final outgoingText = widget.theme.outgoingTextStyle?.color ?? Colors.white;
     final playColor = widget.isOutgoing
         ? (outgoingText.withValues(alpha: 0.3))
         : (widget.theme.audioPlayButtonColor ?? Colors.blue);
@@ -259,7 +257,8 @@ class _AudioBubbleState extends State<AudioBubble> {
                 if (widget.timestamp != null)
                   Text(
                     DateFormatter.formatTime(widget.timestamp!),
-                    style: (widget.isOutgoing
+                    style:
+                        (widget.isOutgoing
                             ? widget.theme.outgoingTimestampTextStyle
                             : widget.theme.incomingTimestampTextStyle) ??
                         widget.theme.timestampTextStyle ??
@@ -284,8 +283,7 @@ class _AudioBubbleState extends State<AudioBubble> {
         valueListenable: progressListenable,
         builder: (context, value, _) {
           final clamped = value.clamp(0.0, 1.0);
-          final iconColor =
-              widget.theme.audioPlayIconColor ?? Colors.white;
+          final iconColor = widget.theme.audioPlayIconColor ?? Colors.white;
           return Semantics(
             label: 'Uploading voice message ${(clamped * 100).round()}%',
             child: SizedBox(
@@ -312,11 +310,7 @@ class _AudioBubbleState extends State<AudioBubble> {
                       backgroundColor: iconColor.withValues(alpha: 0.2),
                     ),
                   ),
-                  Icon(
-                    Icons.arrow_upward,
-                    size: 14,
-                    color: iconColor,
-                  ),
+                  Icon(Icons.arrow_upward, size: 14, color: iconColor),
                 ],
               ),
             ),
@@ -328,7 +322,8 @@ class _AudioBubbleState extends State<AudioBubble> {
       stream: _player?.playerStateStream,
       builder: (context, snapshot) {
         final state = snapshot.data;
-        final playing = (state?.playing ?? false) &&
+        final playing =
+            (state?.playing ?? false) &&
             state?.processingState != ProcessingState.completed;
         return Semantics(
           label: playing ? 'Pause audio message' : 'Play audio message',
@@ -408,7 +403,8 @@ class _AudioBubbleState extends State<AudioBubble> {
                 onSeek: (value) {
                   if (maxMs > 0) {
                     _player?.seek(
-                        Duration(milliseconds: (value * maxMs).toInt()));
+                      Duration(milliseconds: (value * maxMs).toInt()),
+                    );
                   }
                 },
               ),
@@ -417,8 +413,10 @@ class _AudioBubbleState extends State<AudioBubble> {
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Text(
                   _formatDuration(
-                      position > Duration.zero ? position : duration),
-                  style: widget.theme.audioDurationTextStyle ??
+                    position > Duration.zero ? position : duration,
+                  ),
+                  style:
+                      widget.theme.audioDurationTextStyle ??
                       TextStyle(fontSize: 11, color: defaultDurationColor),
                 ),
               ),
@@ -433,10 +431,9 @@ class _AudioBubbleState extends State<AudioBubble> {
             SliderTheme(
               data: SliderThemeData(
                 trackHeight: 3,
-                thumbShape:
-                    const RoundSliderThumbShape(enabledThumbRadius: 6),
-                activeTrackColor: widget.theme.audioSeekBarActiveColor ??
-                    defaultActiveColor,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                activeTrackColor:
+                    widget.theme.audioSeekBarActiveColor ?? defaultActiveColor,
                 inactiveTrackColor:
                     widget.theme.audioSeekBarColor ?? defaultInactiveColor,
               ),
@@ -452,9 +449,9 @@ class _AudioBubbleState extends State<AudioBubble> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                _formatDuration(
-                    position > Duration.zero ? position : duration),
-                style: widget.theme.audioDurationTextStyle ??
+                _formatDuration(position > Duration.zero ? position : duration),
+                style:
+                    widget.theme.audioDurationTextStyle ??
                     TextStyle(fontSize: 11, color: defaultDurationColor),
               ),
             ),
@@ -488,8 +485,7 @@ class _AudioBubbleState extends State<AudioBubble> {
 
   Widget _buildSpeedButton() {
     final outgoing = widget.isOutgoing;
-    final outgoingText =
-        widget.theme.outgoingTextStyle?.color ?? Colors.white;
+    final outgoingText = widget.theme.outgoingTextStyle?.color ?? Colors.white;
 
     return Semantics(
       label: 'Playback speed $_speedLabel',
@@ -503,13 +499,13 @@ class _AudioBubbleState extends State<AudioBubble> {
             borderRadius: BorderRadius.circular(12),
             color: outgoing
                 ? outgoingText.withValues(alpha: 0.2)
-                : (widget.theme.audioSpeedButtonColor ??
-                    Colors.grey.shade200),
+                : (widget.theme.audioSpeedButtonColor ?? Colors.grey.shade200),
           ),
           alignment: Alignment.center,
           child: Text(
             _speedLabel,
-            style: widget.theme.audioSpeedTextStyle ??
+            style:
+                widget.theme.audioSpeedTextStyle ??
                 TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,

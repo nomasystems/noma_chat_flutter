@@ -97,12 +97,14 @@ void main() {
 
   group('setMessages', () {
     test('replaces all messages', () {
-      controller.addMessage(ChatMessage(
-        id: 'old',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'old',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: 'old',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'old',
+        ),
+      );
 
       controller.setMessages([
         ChatMessage(

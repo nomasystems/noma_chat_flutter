@@ -7,9 +7,9 @@ void main() {
 
   group('RoomSearchBar', () {
     testWidgets('renders text field with hint', (tester) async {
-      await tester.pumpWidget(wrap(
-        const RoomSearchBar(hintText: 'Search rooms'),
-      ));
+      await tester.pumpWidget(
+        wrap(const RoomSearchBar(hintText: 'Search rooms')),
+      );
 
       expect(find.byType(TextField), findsOneWidget);
       expect(find.text('Search rooms'), findsOneWidget);
@@ -17,12 +17,14 @@ void main() {
 
     testWidgets('calls onChanged after debounce', (tester) async {
       String? lastValue;
-      await tester.pumpWidget(wrap(
-        RoomSearchBar(
-          onChanged: (value) => lastValue = value,
-          debounceDuration: const Duration(milliseconds: 100),
+      await tester.pumpWidget(
+        wrap(
+          RoomSearchBar(
+            onChanged: (value) => lastValue = value,
+            debounceDuration: const Duration(milliseconds: 100),
+          ),
         ),
-      ));
+      );
 
       await tester.enterText(find.byType(TextField), 'test');
       expect(lastValue, isNull);

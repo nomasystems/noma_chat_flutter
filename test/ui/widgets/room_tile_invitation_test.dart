@@ -4,12 +4,13 @@ import 'package:noma_chat/noma_chat.dart';
 
 void main() {
   Widget wrap(Widget child) => MaterialApp(
-        home: Scaffold(body: SingleChildScrollView(child: child)),
-      );
+    home: Scaffold(body: SingleChildScrollView(child: child)),
+  );
 
   group('RoomTile invitation', () {
-    testWidgets('shows accept and reject buttons for invited room',
-        (tester) async {
+    testWidgets('shows accept and reject buttons for invited room', (
+      tester,
+    ) async {
       final room = RoomListItem(
         id: 'r1',
         name: 'Invited Room',
@@ -31,12 +32,9 @@ void main() {
         custom: const {'invited': true},
       );
 
-      await tester.pumpWidget(wrap(
-        RoomTile(
-          room: room,
-          onAcceptInvitation: () => accepted = true,
-        ),
-      ));
+      await tester.pumpWidget(
+        wrap(RoomTile(room: room, onAcceptInvitation: () => accepted = true)),
+      );
 
       await tester.tap(find.text('Accept'));
       expect(accepted, true);
@@ -50,12 +48,9 @@ void main() {
         custom: const {'invited': true},
       );
 
-      await tester.pumpWidget(wrap(
-        RoomTile(
-          room: room,
-          onRejectInvitation: () => rejected = true,
-        ),
-      ));
+      await tester.pumpWidget(
+        wrap(RoomTile(room: room, onRejectInvitation: () => rejected = true)),
+      );
 
       await tester.tap(find.text('Reject'));
       expect(rejected, true);

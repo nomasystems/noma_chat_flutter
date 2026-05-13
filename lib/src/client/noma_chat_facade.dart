@@ -85,7 +85,8 @@ class NomaChat {
       effectiveDatasource = hiveCache;
     }
 
-    final effectiveConfig = config ??
+    final effectiveConfig =
+        config ??
         ChatConfig(
           baseUrl: baseUrl,
           realtimeUrl: realtimeUrl,

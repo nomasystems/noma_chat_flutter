@@ -11,8 +11,7 @@ void main() {
       expect(r.failureOrNull, isNull);
     });
 
-    test('isSuccess/isFailure and dataOrNull/failureOrNull match Failure',
-        () {
+    test('isSuccess/isFailure and dataOrNull/failureOrNull match Failure', () {
       const r = Failure<int>(NotFoundFailure());
       expect(r.isSuccess, false);
       expect(r.isFailure, true);
@@ -28,8 +27,9 @@ void main() {
     });
 
     test('runs the failure branch', () {
-      final out = const Failure<int>(NetworkFailure())
-          .fold((f) => f.message, (d) => 'never');
+      final out = const Failure<int>(
+        NetworkFailure(),
+      ).fold((f) => f.message, (d) => 'never');
       expect(out, contains('Network'));
     });
   });
@@ -50,14 +50,16 @@ void main() {
 
   group('Result.flatMap', () {
     test('chains on Success', () async {
-      final out = await const Success<int>(2)
-          .flatMap<String>((v) async => Success('v$v'));
+      final out = await const Success<int>(
+        2,
+      ).flatMap<String>((v) async => Success('v$v'));
       expect(out.dataOrNull, 'v2');
     });
 
     test('short-circuits on Failure', () async {
-      final out = await const Failure<int>(NetworkFailure())
-          .flatMap<String>((v) async => Success('reached'));
+      final out = await const Failure<int>(
+        NetworkFailure(),
+      ).flatMap<String>((v) async => Success('reached'));
       expect(out.isFailure, true);
     });
   });
@@ -84,12 +86,13 @@ void main() {
       expect(const AuthFailure().message, 'Authentication failed');
       expect(const NotFoundFailure().message, 'Not found');
       expect(const ValidationFailure().message, 'Validation failed');
-      expect(const ContentFilterFailure().message,
-          'Message blocked by content filter');
+      expect(
+        const ContentFilterFailure().message,
+        'Message blocked by content filter',
+      );
       expect(const ConflictFailure().message, 'Conflict');
       expect(const NetworkFailure().message, 'Network error');
-      expect(
-          const ServerFailure(statusCode: 503).message, 'Server error');
+      expect(const ServerFailure(statusCode: 503).message, 'Server error');
       expect(const RateLimitFailure().message, 'Rate limit exceeded');
       expect(const TimeoutFailure().message, 'Operation timed out');
       expect(const UnexpectedFailure().message, 'Unexpected error');
@@ -97,8 +100,10 @@ void main() {
     });
 
     test('toString includes the runtimeType', () {
-      expect(const NetworkFailure().toString(),
-          'NetworkFailure: Network error');
+      expect(
+        const NetworkFailure().toString(),
+        'NetworkFailure: Network error',
+      );
     });
 
     test('ServerFailure carries statusCode + body', () {
@@ -113,8 +118,7 @@ void main() {
     });
 
     test('ValidationFailure carries errors map', () {
-      const f =
-          ValidationFailure(errors: {'email': 'invalid'});
+      const f = ValidationFailure(errors: {'email': 'invalid'});
       expect(f.errors, {'email': 'invalid'});
     });
   });

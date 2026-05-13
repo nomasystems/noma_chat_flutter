@@ -44,8 +44,7 @@ class ThreadView extends StatelessWidget {
                   final message = allMessages[index];
                   final isOutgoing = message.from == currentUserId;
                   if (messageBubbleBuilder != null) {
-                    return messageBubbleBuilder!(
-                        context, message, isOutgoing);
+                    return messageBubbleBuilder!(context, message, isOutgoing);
                   }
                   return MessageBubble(
                     message: message,
@@ -61,9 +60,7 @@ class ThreadView extends StatelessWidget {
           controller: controller,
           onSendMessage: (text) => onSendReply?.call(text),
           theme: theme.copyWith(
-            l10n: theme.l10n.copyWith(
-              writeMessage: theme.l10n.replyInThread,
-            ),
+            l10n: theme.l10n.copyWith(writeMessage: theme.l10n.replyInThread),
           ),
           showAttachButton: false,
           showVoiceButton: false,
@@ -95,19 +92,13 @@ class ThreadView extends StatelessWidget {
                           ? replies.length
                           : controller.messages.length,
                     ),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.grey.shade600,
-                    ),
+                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
               ],
             ),
           ),
           if (onClose != null)
-            IconButton(
-              icon: const Icon(Icons.close),
-              onPressed: onClose,
-            ),
+            IconButton(icon: const Icon(Icons.close), onPressed: onClose),
         ],
       ),
     );

@@ -30,8 +30,9 @@ class ImageViewer extends StatelessWidget {
           fit: BoxFit.contain,
           placeholder: (_, __) =>
               const Center(child: CircularProgressIndicator()),
-          errorWidget: (_, __, ___) =>
-              const Center(child: Icon(Icons.broken_image, color: Colors.white)),
+          errorWidget: (_, __, ___) => const Center(
+            child: Icon(Icons.broken_image, color: Colors.white),
+          ),
         ),
       ),
     );
@@ -46,7 +47,10 @@ class ImageViewer extends StatelessWidget {
         backgroundColor: Colors.transparent,
         elevation: 0,
         leading: IconButton(
-          icon: Icon(Icons.close, color: theme.imageViewerIconColor ?? Colors.white),
+          icon: Icon(
+            Icons.close,
+            color: theme.imageViewerIconColor ?? Colors.white,
+          ),
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),

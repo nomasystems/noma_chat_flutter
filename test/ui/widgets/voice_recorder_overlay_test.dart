@@ -33,10 +33,12 @@ void main() {
     when(() => mockRecorder.dispose()).thenAnswer((_) async {});
     when(() => mockPlayer.dispose()).thenAnswer((_) async {});
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => false);
     when(() => mockRecorder.isPaused()).thenAnswer((_) async => false);
     when(() => mockRecorder.pause()).thenAnswer((_) async {});
@@ -49,12 +51,15 @@ void main() {
     when(() => mockPlayer.duration).thenReturn(null);
     when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);
     when(() => mockPlayer.play()).thenAnswer((_) async {});
-    when(() => mockPlayer.positionStream)
-        .thenAnswer((_) => const Stream<Duration>.empty());
-    when(() => mockPlayer.durationStream)
-        .thenAnswer((_) => const Stream<Duration?>.empty());
-    when(() => mockPlayer.playerStateStream)
-        .thenAnswer((_) => const Stream<PlayerState>.empty());
+    when(
+      () => mockPlayer.positionStream,
+    ).thenAnswer((_) => const Stream<Duration>.empty());
+    when(
+      () => mockPlayer.durationStream,
+    ).thenAnswer((_) => const Stream<Duration?>.empty());
+    when(
+      () => mockPlayer.playerStateStream,
+    ).thenAnswer((_) => const Stream<PlayerState>.empty());
 
     tempDir = await Directory.systemTemp.createTemp('overlay_test_');
   });
@@ -64,28 +69,30 @@ void main() {
   });
 
   VoiceRecordingController createController() => VoiceRecordingController(
-        recorder: mockRecorder,
-        preListenPlayer: mockPlayer,
-        tempDirectoryPath: tempDir.path,
-      );
+    recorder: mockRecorder,
+    preListenPlayer: mockPlayer,
+    tempDirectoryPath: tempDir.path,
+  );
 
   test('formatDuration formats correctly', () {
     expect(VoiceRecorderOverlay.formatDuration(Duration.zero), '00:00');
-    expect(VoiceRecorderOverlay.formatDuration(const Duration(seconds: 5)),
-        '00:05');
     expect(
-        VoiceRecorderOverlay.formatDuration(
-            const Duration(minutes: 1, seconds: 30)),
-        '01:30');
+      VoiceRecorderOverlay.formatDuration(const Duration(seconds: 5)),
+      '00:05',
+    );
+    expect(
+      VoiceRecorderOverlay.formatDuration(
+        const Duration(minutes: 1, seconds: 30),
+      ),
+      '01:30',
+    );
   });
 
   testWidgets('renders nothing in idle state', (tester) async {
     final controller = createController();
     addTearDown(() => controller.dispose());
 
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     expect(find.byType(WaveformDisplay), findsNothing);
   });
@@ -94,9 +101,7 @@ void main() {
     final controller = createController();
 
     await controller.startRecording();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     expect(find.byType(WaveformDisplay), findsOneWidget);
     expect(find.text('00:00'), findsOneWidget);
@@ -109,15 +114,14 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('shows pause/delete/send buttons in locked state',
-      (tester) async {
+  testWidgets('shows pause/delete/send buttons in locked state', (
+    tester,
+  ) async {
     final controller = createController();
 
     await controller.startRecording();
     controller.lockRecording();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
     expect(find.byIcon(Icons.pause), findsOneWidget);
@@ -128,17 +132,16 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('shows resume button when locked recording is paused',
-      (tester) async {
+  testWidgets('shows resume button when locked recording is paused', (
+    tester,
+  ) async {
     final controller = createController();
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
 
     await controller.startRecording();
     controller.lockRecording();
     await controller.pauseRecording();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     expect(controller.isPaused, isTrue);
     expect(find.byIcon(Icons.fiber_manual_record), findsOneWidget);
@@ -154,9 +157,7 @@ void main() {
 
     await controller.startRecording();
     controller.lockRecording();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     await tester.tap(find.byIcon(Icons.delete_outline));
     await tester.pump();
@@ -171,12 +172,14 @@ void main() {
 
     await controller.startRecording();
     controller.lockRecording();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(
-        controller: controller,
-        onSend: () => sendCalled = true,
+    await tester.pumpWidget(
+      wrap(
+        VoiceRecorderOverlay(
+          controller: controller,
+          onSend: () => sendCalled = true,
+        ),
       ),
-    ));
+    );
 
     await tester.tap(find.byIcon(Icons.send));
     await tester.pump();
@@ -187,16 +190,15 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('locked state shows play button that triggers preListen',
-      (tester) async {
+  testWidgets('locked state shows play button that triggers preListen', (
+    tester,
+  ) async {
     final controller = createController();
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
 
     await controller.startRecording();
     controller.lockRecording();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     expect(find.byIcon(Icons.play_arrow), findsOneWidget);
 
@@ -218,9 +220,7 @@ void main() {
     await controller.startRecording();
     controller.lockRecording();
     await controller.startPreListen();
-    await tester.pumpWidget(wrap(
-      VoiceRecorderOverlay(controller: controller),
-    ));
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
 
     expect(find.byIcon(Icons.delete_outline), findsOneWidget);
     expect(find.byIcon(Icons.send), findsOneWidget);

@@ -5,10 +5,8 @@ import 'package:noma_chat/noma_chat.dart';
 /// already-built content widget and is responsible for displaying it in the
 /// host app's preferred bottom sheet style. When `null`, [ReactionDetailSheet]
 /// falls back to a vanilla [showModalBottomSheet].
-typedef ReactionDetailSheetBuilder = Future<void> Function(
-  BuildContext context,
-  Widget content,
-);
+typedef ReactionDetailSheetBuilder =
+    Future<void> Function(BuildContext context, Widget content);
 
 /// Bottom sheet that lists every user who reacted to a message, grouped by
 /// emoji. Use the static [show] entry point.
@@ -111,10 +109,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
       if (!mounted) return;
 
       _tabController?.dispose();
-      _tabController = TabController(
-        length: reactions.length + 1,
-        vsync: this,
-      );
+      _tabController = TabController(length: reactions.length + 1, vsync: this);
 
       setState(() {
         _reactions = reactions;
@@ -157,11 +152,14 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
     final allUsers = <_UserWithEmoji>[];
     for (final r in reactions) {
       for (final userId in r.users) {
-        allUsers.add(_UserWithEmoji(
-          user: _resolvedUsers[userId] ??
-              ReactionUser(id: userId, displayName: userId),
-          emoji: r.emoji,
-        ));
+        allUsers.add(
+          _UserWithEmoji(
+            user:
+                _resolvedUsers[userId] ??
+                ReactionUser(id: userId, displayName: userId),
+            emoji: r.emoji,
+          ),
+        );
       }
     }
     final totalCount = allUsers.length;
@@ -174,7 +172,9 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
             controller: _tabController,
             isScrollable: true,
             labelColor: Theme.of(context).colorScheme.primary,
-            unselectedLabelColor: Theme.of(context).colorScheme.onSurfaceVariant,
+            unselectedLabelColor: Theme.of(
+              context,
+            ).colorScheme.onSurfaceVariant,
             indicatorColor: Theme.of(context).colorScheme.primary,
             tabs: [
               Tab(text: '${widget.theme.l10n.allReactions} $totalCount'),
@@ -188,11 +188,14 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
                 _buildUserList(allUsers),
                 ...reactions.map((r) {
                   final users = r.users
-                      .map((id) => _UserWithEmoji(
-                            user: _resolvedUsers[id] ??
-                                ReactionUser(id: id, displayName: id),
-                            emoji: r.emoji,
-                          ))
+                      .map(
+                        (id) => _UserWithEmoji(
+                          user:
+                              _resolvedUsers[id] ??
+                              ReactionUser(id: id, displayName: id),
+                          emoji: r.emoji,
+                        ),
+                      )
                       .toList();
                   return _buildUserList(users);
                 }),
@@ -235,8 +238,9 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
                     icon: Icon(
                       Icons.close,
                       size: 18,
-                      color: widget.theme.reactionDetailRemoveColor ??
-                        Theme.of(context).colorScheme.error,
+                      color:
+                          widget.theme.reactionDetailRemoveColor ??
+                          Theme.of(context).colorScheme.error,
                     ),
                     onPressed: () {
                       widget.onRemoveReaction(item.emoji);

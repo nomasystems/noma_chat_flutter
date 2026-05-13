@@ -152,10 +152,7 @@ class AudioPlaybackCoordinator extends ChangeNotifier {
 }
 
 class _RegisteredAudio {
-  const _RegisteredAudio({
-    required this.isOutgoing,
-    required this.isListened,
-  });
+  const _RegisteredAudio({required this.isOutgoing, required this.isListened});
 
   final bool isOutgoing;
   final bool isListened;

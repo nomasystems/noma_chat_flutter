@@ -24,9 +24,9 @@ void main() {
     queue.enqueue(op);
     await Future<void>.delayed(Duration.zero);
 
-    final captured = verify(() => store.saveOfflineQueue(captureAny()))
-        .captured
-        .last as List<Map<String, dynamic>>;
+    final captured =
+        verify(() => store.saveOfflineQueue(captureAny())).captured.last
+            as List<Map<String, dynamic>>;
     expect(captured, hasLength(1));
 
     // Restore using the captured payload.
@@ -91,14 +91,20 @@ void main() {
 
     test('PendingDeleteMessage', () async {
       final op = PendingDeleteMessage(
-          id: 'op-4', roomId: 'r1', messageId: 'm1');
+        id: 'op-4',
+        roomId: 'r1',
+        messageId: 'm1',
+      );
       final r = await roundTrip<PendingDeleteMessage>(op);
       expect(r.messageId, 'm1');
     });
 
     test('PendingDeleteReaction', () async {
       final op = PendingDeleteReaction(
-          id: 'op-5', roomId: 'r1', messageId: 'm1');
+        id: 'op-5',
+        roomId: 'r1',
+        messageId: 'm1',
+      );
       final r = await roundTrip<PendingDeleteReaction>(op);
       expect(r.roomId, 'r1');
     });
@@ -135,15 +141,18 @@ void main() {
 
     test('PendingAddMember', () async {
       final op = PendingAddMember(
-          id: 'op-8', roomId: 'r1', userId: 'u3', role: 'admin');
+        id: 'op-8',
+        roomId: 'r1',
+        userId: 'u3',
+        role: 'admin',
+      );
       final r = await roundTrip<PendingAddMember>(op);
       expect(r.userId, 'u3');
       expect(r.role, 'admin');
     });
 
     test('PendingRemoveMember', () async {
-      final op = PendingRemoveMember(
-          id: 'op-9', roomId: 'r1', userId: 'u3');
+      final op = PendingRemoveMember(id: 'op-9', roomId: 'r1', userId: 'u3');
       final r = await roundTrip<PendingRemoveMember>(op);
       expect(r.userId, 'u3');
     });
@@ -151,48 +160,56 @@ void main() {
 
   group('OfflineQueue deserialization edge cases', () {
     test('unknown operation type is dropped, not crashed', () async {
-      when(() => store.getOfflineQueue()).thenAnswer((_) async => [
-            {
-              'id': 'op-x',
-              'createdAt': DateTime.now().toIso8601String(),
-              'attempts': 0,
-              'type': 'definitely_unknown',
-            }
-          ]);
+      when(() => store.getOfflineQueue()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'op-x',
+            'createdAt': DateTime.now().toIso8601String(),
+            'attempts': 0,
+            'type': 'definitely_unknown',
+          },
+        ],
+      );
       final queue = OfflineQueue(store: store);
       await queue.restore();
       expect(queue.pending, isEmpty);
     });
 
-    test('malformed payload is dropped via the catch in deserializer',
-        () async {
-      String? warnLevel;
-      when(() => store.getOfflineQueue()).thenAnswer((_) async => [
+    test(
+      'malformed payload is dropped via the catch in deserializer',
+      () async {
+        String? warnLevel;
+        when(() => store.getOfflineQueue()).thenAnswer(
+          (_) async => [
             {'no_id': true},
-          ]);
-      final queue = OfflineQueue(
-        store: store,
-        logger: (level, msg) {
-          if (level == 'warn') warnLevel = level;
-        },
-      );
-      await queue.restore();
-      expect(queue.pending, isEmpty);
-      expect(warnLevel, 'warn');
-    });
+          ],
+        );
+        final queue = OfflineQueue(
+          store: store,
+          logger: (level, msg) {
+            if (level == 'warn') warnLevel = level;
+          },
+        );
+        await queue.restore();
+        expect(queue.pending, isEmpty);
+        expect(warnLevel, 'warn');
+      },
+    );
 
     test('legacy snake_case types are also accepted', () async {
-      when(() => store.getOfflineQueue()).thenAnswer((_) async => [
-            {
-              'id': 'a',
-              'createdAt': DateTime.now().toIso8601String(),
-              'attempts': 0,
-              'type': 'create_room',
-              'name': 'x',
-              'audience': 'public',
-              'members': <String>[],
-            }
-          ]);
+      when(() => store.getOfflineQueue()).thenAnswer(
+        (_) async => [
+          {
+            'id': 'a',
+            'createdAt': DateTime.now().toIso8601String(),
+            'attempts': 0,
+            'type': 'create_room',
+            'name': 'x',
+            'audience': 'public',
+            'members': <String>[],
+          },
+        ],
+      );
       final queue = OfflineQueue(store: store);
       await queue.restore();
       expect(queue.pending.single, isA<PendingCreateRoom>());
@@ -203,7 +220,8 @@ void main() {
     test('dispose persists then clears', () async {
       final queue = OfflineQueue(store: store);
       queue.enqueue(
-          PendingDeleteMessage(id: 'op', roomId: 'r', messageId: 'm'));
+        PendingDeleteMessage(id: 'op', roomId: 'r', messageId: 'm'),
+      );
       await queue.dispose();
       expect(queue.pending, isEmpty);
     });
@@ -211,7 +229,8 @@ void main() {
     test('clear empties + persists empty list', () async {
       final queue = OfflineQueue(store: store);
       queue.enqueue(
-          PendingDeleteMessage(id: 'op', roomId: 'r', messageId: 'm'));
+        PendingDeleteMessage(id: 'op', roomId: 'r', messageId: 'm'),
+      );
       queue.clear();
       // After clear, queue is empty so saveOfflineQueue won't be called with
       // items; clearOfflineQueue is used instead.

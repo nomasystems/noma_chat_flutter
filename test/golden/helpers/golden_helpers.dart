@@ -10,17 +10,16 @@ import 'package:noma_chat/noma_chat.dart';
 /// `CachedNetworkImage` either hang for 10 minutes or fail with
 /// `MissingPluginException`.
 void configureGoldenTests() {
+  // ignore: deprecated_member_use
   GoldenToolkit.configure(
-    GoldenToolkitConfiguration(
-      primeAssets: (tester) async {},
-    ),
+    GoldenToolkitConfiguration(primeAssets: (tester) async {}),
   );
   TestWidgetsFlutterBinding.ensureInitialized();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
-    const MethodChannel('plugins.flutter.io/path_provider'),
-    (call) async => '/tmp',
-  );
+        const MethodChannel('plugins.flutter.io/path_provider'),
+        (call) async => '/tmp',
+      );
 }
 
 /// Light theme used by all golden tests by default.
@@ -37,9 +36,7 @@ Widget goldenHost(Widget child, {bool darkBackground = false}) {
   return MaterialApp(
     debugShowCheckedModeBanner: false,
     home: Scaffold(
-      backgroundColor: darkBackground
-          ? const Color(0xFF121212)
-          : Colors.white,
+      backgroundColor: darkBackground ? const Color(0xFF121212) : Colors.white,
       body: Padding(
         padding: const EdgeInsets.all(16),
         child: Align(alignment: Alignment.topLeft, child: child),

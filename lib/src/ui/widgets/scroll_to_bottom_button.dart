@@ -37,8 +37,14 @@ class ScrollToBottomButton extends StatelessWidget {
           button: true,
           child: FloatingActionButton.small(
             onPressed: onPressed,
-            backgroundColor: theme.scrollToBottomButtonColor ?? theme.sendButtonColor ?? Colors.blue,
-            child: Icon(Icons.keyboard_arrow_down, color: theme.scrollToBottomIconColor ?? Colors.white),
+            backgroundColor:
+                theme.scrollToBottomButtonColor ??
+                theme.sendButtonColor ??
+                Colors.blue,
+            child: Icon(
+              Icons.keyboard_arrow_down,
+              color: theme.scrollToBottomIconColor ?? Colors.white,
+            ),
           ),
         ),
       ],

@@ -146,7 +146,10 @@ class MockUsersApi implements ChatUsersApi {
   MockUsersApi(this._client);
 
   @override
-  Future<Result<ChatUser>> get(String userId, {CachePolicy? cachePolicy}) async {
+  Future<Result<ChatUser>> get(
+    String userId, {
+    CachePolicy? cachePolicy,
+  }) async {
     final user = _client._users[userId];
     if (user == null) return const Failure(NotFoundFailure());
     return Success(user);
@@ -164,12 +167,16 @@ class MockUsersApi implements ChatUsersApi {
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatUser>>> search(String query,
-      {PaginationParams? pagination}) async {
+  Future<Result<PaginatedResponse<ChatUser>>> search(
+    String query, {
+    PaginationParams? pagination,
+  }) async {
     final matches = _client._users.values
-        .where((u) =>
-            u.displayName?.toLowerCase().contains(query.toLowerCase()) ??
-            false)
+        .where(
+          (u) =>
+              u.displayName?.toLowerCase().contains(query.toLowerCase()) ??
+              false,
+        )
         .toList();
     return Success(PaginatedResponse(items: matches, hasMore: false));
   }
@@ -217,34 +224,30 @@ class MockUsersApi implements ChatUsersApi {
   @override
   Future<Result<List<ChatUser>>> createManaged({
     required List<String> externalIds,
-  }) async =>
-      const Success([]);
+  }) async => const Success([]);
 
   @override
   Future<Result<PaginatedResponse<ChatUser>>> getManaged(
     String userId, {
     PaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<void>> deleteManaged(
     String userId, {
     required String fromUserId,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 
   @override
   Future<Result<ManagedUserConfiguration>> getManagedConfig(
-          String userId) async =>
-      const Success(UserConfiguration());
+    String userId,
+  ) async => const Success(UserConfiguration());
 
   @override
   Future<Result<void>> updateManagedConfig(
     String userId, {
     required ManagedUserConfiguration configuration,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 }
 
 class MockRoomsApi implements ChatRoomsApi {
@@ -285,14 +288,16 @@ class MockRoomsApi implements ChatRoomsApi {
     CachePolicy? cachePolicy,
   }) async {
     final rooms = _client._rooms.values
-        .map((r) => UnreadRoom(
-              roomId: r.id,
-              unreadMessages: 0,
-              name: r.name,
-              avatarUrl: r.avatarUrl,
-              type: r.audience == RoomAudience.public ? 'group' : 'group',
-              memberCount: r.members.length,
-            ))
+        .map(
+          (r) => UnreadRoom(
+            roomId: r.id,
+            unreadMessages: 0,
+            name: r.name,
+            avatarUrl: r.avatarUrl,
+            type: r.audience == RoomAudience.public ? 'group' : 'group',
+            memberCount: r.members.length,
+          ),
+        )
         .toList();
     return Success(UserRooms(rooms: rooms));
   }
@@ -303,26 +308,32 @@ class MockRoomsApi implements ChatRoomsApi {
     PaginationParams? pagination,
   }) async {
     final matches = _client._rooms.values
-        .where((r) =>
-            r.name?.toLowerCase().contains(query.toLowerCase()) ?? false)
+        .where(
+          (r) => r.name?.toLowerCase().contains(query.toLowerCase()) ?? false,
+        )
         .map((r) => DiscoveredRoom(id: r.id, name: r.name, subject: r.subject))
         .toList();
     return Success(PaginatedResponse(items: matches, hasMore: false));
   }
 
   @override
-  Future<Result<RoomDetail>> get(String roomId, {CachePolicy? cachePolicy}) async {
+  Future<Result<RoomDetail>> get(
+    String roomId, {
+    CachePolicy? cachePolicy,
+  }) async {
     final room = _client._rooms[roomId];
     if (room == null) return const Failure(NotFoundFailure());
-    return Success(RoomDetail(
-      id: room.id,
-      name: room.name,
-      subject: room.subject,
-      type: RoomType.group,
-      memberCount: room.members.length,
-      userRole: RoomRole.owner,
-      config: RoomConfig(allowInvitations: room.allowInvitations),
-    ));
+    return Success(
+      RoomDetail(
+        id: room.id,
+        name: room.name,
+        subject: room.subject,
+        type: RoomType.group,
+        memberCount: room.members.length,
+        userRole: RoomRole.owner,
+        config: RoomConfig(allowInvitations: room.allowInvitations),
+      ),
+    );
   }
 
   @override
@@ -382,11 +393,10 @@ class MockRoomsApi implements ChatRoomsApi {
       const Success(null);
 
   @override
-  Future<Result<List<UnreadRoom>>> batchGetUnread(
-          List<String> roomIds) async =>
-      Success(roomIds
-          .map((id) => UnreadRoom(roomId: id, unreadMessages: 0))
-          .toList());
+  Future<Result<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) async =>
+      Success(
+        roomIds.map((id) => UnreadRoom(roomId: id, unreadMessages: 0)).toList(),
+      );
 
   @override
   Future<void> updateCachedRoomPreview(
@@ -409,12 +419,13 @@ class MockMembersApi implements ChatMembersApi {
   MockMembersApi(this._client);
 
   @override
-  Future<Result<PaginatedResponse<RoomUser>>> list(String roomId,
-      {PaginationParams? pagination}) async {
+  Future<Result<PaginatedResponse<RoomUser>>> list(
+    String roomId, {
+    PaginationParams? pagination,
+  }) async {
     final room = _client._rooms[roomId];
     if (room == null) return const Failure(NotFoundFailure());
-    final users =
-        room.members.map((id) => RoomUser(userId: id)).toList();
+    final users = room.members.map((id) => RoomUser(userId: id)).toList();
     return Success(PaginatedResponse(items: users, hasMore: false));
   }
 
@@ -446,18 +457,21 @@ class MockMembersApi implements ChatMembersApi {
       const Success(null);
 
   @override
-  Future<Result<void>> leave(String roomId) async =>
-      const Success(null);
+  Future<Result<void>> leave(String roomId) async => const Success(null);
 
   @override
   Future<Result<void>> updateRole(
-          String roomId, String userId, RoomRole role) async =>
-      const Success(null);
+    String roomId,
+    String userId,
+    RoomRole role,
+  ) async => const Success(null);
 
   @override
-  Future<Result<void>> ban(String roomId, String userId,
-          {String? reason}) async =>
-      const Success(null);
+  Future<Result<void>> ban(
+    String roomId,
+    String userId, {
+    String? reason,
+  }) async => const Success(null);
 
   @override
   Future<Result<void>> unban(String roomId, String userId) async =>
@@ -510,12 +524,14 @@ class MockMessagesApi implements ChatMessagesApi {
     _client._messages.putIfAbsent(roomId, () => []);
     _client._messages[roomId]!.insert(0, msg);
     if (messageType == MessageType.reaction && reaction != null) {
-      _client.emitEvent(ChatEvent.reactionAdded(
-        roomId: roomId,
-        messageId: referencedMessageId ?? msg.id,
-        userId: msg.from,
-        reaction: reaction,
-      ));
+      _client.emitEvent(
+        ChatEvent.reactionAdded(
+          roomId: roomId,
+          messageId: referencedMessageId ?? msg.id,
+          userId: msg.from,
+          reaction: reaction,
+        ),
+      );
     } else {
       _client.emitEvent(ChatEvent.newMessage(message: msg, roomId: roomId));
     }
@@ -543,8 +559,7 @@ class MockMessagesApi implements ChatMessagesApi {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 
   @override
   Future<Result<void>> update(
@@ -572,25 +587,24 @@ class MockMessagesApi implements ChatMessagesApi {
     String roomId,
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 
   @override
-  Future<Result<void>> markRoomAsRead(String roomId,
-          {String? lastReadMessageId}) async =>
-      const Success(null);
+  Future<Result<void>> markRoomAsRead(
+    String roomId, {
+    String? lastReadMessageId,
+  }) async => const Success(null);
 
   @override
   Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(
-          String roomId) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+    String roomId,
+  ) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<void>> sendTyping(
     String roomId, {
     ChatActivity activity = ChatActivity.startsTyping,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> getThread(
@@ -605,12 +619,13 @@ class MockMessagesApi implements ChatMessagesApi {
 
   @override
   Future<Result<List<AggregatedReaction>>> getReactions(
-          String roomId, String messageId, {bool forceRefresh = false}) async =>
-      const Success([]);
+    String roomId,
+    String messageId, {
+    bool forceRefresh = false,
+  }) async => const Success([]);
 
   @override
-  Future<Result<void>> deleteReaction(
-          String roomId, String messageId) async =>
+  Future<Result<void>> deleteReaction(String roomId, String messageId) async =>
       const Success(null);
 
   @override
@@ -618,36 +633,34 @@ class MockMessagesApi implements ChatMessagesApi {
       const Success(null);
 
   @override
-  Future<Result<void>> unpinMessage(
-          String roomId, String messageId) async =>
+  Future<Result<void>> unpinMessage(String roomId, String messageId) async =>
       const Success(null);
 
   @override
   Future<Result<PaginatedResponse<MessagePin>>> listPins(
     String roomId, {
     PaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> search(
     String query, {
     required String roomId,
     PaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<void>> report(String roomId, String messageId,
-          {required String reason}) async =>
-      const Success(null);
+  Future<Result<void>> report(
+    String roomId,
+    String messageId, {
+    required String reason,
+  }) async => const Success(null);
 
   @override
   Future<Result<PaginatedResponse<MessageReport>>> listReports(
     String roomId, {
     PaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<ScheduledMessage>> schedule(
@@ -655,26 +668,28 @@ class MockMessagesApi implements ChatMessagesApi {
     required DateTime sendAt,
     String? text,
     Map<String, dynamic>? metadata,
-  }) async =>
-      Success(ScheduledMessage(
-        id: 'mock-scheduled-1',
-        userId: _client.currentUserId,
-        roomId: roomId,
-        sendAt: sendAt,
-        createdAt: DateTime.now(),
-        text: text,
-        metadata: metadata,
-      ));
+  }) async => Success(
+    ScheduledMessage(
+      id: 'mock-scheduled-1',
+      userId: _client.currentUserId,
+      roomId: roomId,
+      sendAt: sendAt,
+      createdAt: DateTime.now(),
+      text: text,
+      metadata: metadata,
+    ),
+  );
 
   @override
   Future<Result<PaginatedResponse<ScheduledMessage>>> listScheduled(
-          String roomId) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+    String roomId,
+  ) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<void>> cancelScheduled(
-          String roomId, String scheduledId) async =>
-      const Success(null);
+    String roomId,
+    String scheduledId,
+  ) async => const Success(null);
 
   @override
   Future<Result<void>> clearChat(String roomId) async => const Success(null);
@@ -694,10 +709,13 @@ class MockContactsApi implements ChatContactsApi {
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatContact>>> list(
-      {PaginationParams? pagination, CachePolicy? cachePolicy}) async {
-    final contacts =
-        _client._contacts.map((id) => ChatContact(userId: id)).toList();
+  Future<Result<PaginatedResponse<ChatContact>>> list({
+    PaginationParams? pagination,
+    CachePolicy? cachePolicy,
+  }) async {
+    final contacts = _client._contacts
+        .map((id) => ChatContact(userId: id))
+        .toList();
     return Success(PaginatedResponse(items: contacts, hasMore: false));
   }
 
@@ -731,30 +749,29 @@ class MockContactsApi implements ChatContactsApi {
   Future<Result<PaginatedResponse<ChatMessage>>> getDirectMessages(
     String contactUserId, {
     CursorPaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> getConversationMessages(
     String conversationId, {
     CursorPaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<ChatPresence>> getPresence(String contactUserId) async =>
-      Success(ChatPresence(
-        userId: contactUserId,
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      Success(
+        ChatPresence(
+          userId: contactUserId,
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
 
   @override
   Future<Result<void>> sendTyping(
     String contactUserId, {
     ChatActivity activity = ChatActivity.startsTyping,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 
   @override
   Future<Result<void>> block(String userId) async => const Success(null);
@@ -763,9 +780,9 @@ class MockContactsApi implements ChatContactsApi {
   Future<Result<void>> unblock(String userId) async => const Success(null);
 
   @override
-  Future<Result<PaginatedResponse<String>>> listBlocked(
-          {PaginationParams? pagination}) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  Future<Result<PaginatedResponse<String>>> listBlocked({
+    PaginationParams? pagination,
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 }
 
 class MockPresenceApi implements ChatPresenceApi {
@@ -788,31 +805,34 @@ class MockPresenceApi implements ChatPresenceApi {
   }
 
   @override
-  Future<Result<ChatPresence>> getOwn() async => Success(ChatPresence(
-        userId: _currentUserId,
-        status: PresenceStatus.available,
-        online: true,
-      ));
+  Future<Result<ChatPresence>> getOwn() async => Success(
+    ChatPresence(
+      userId: _currentUserId,
+      status: PresenceStatus.available,
+      online: true,
+    ),
+  );
 
   @override
   Future<Result<BulkPresenceResponse>> getAll() async {
     _getAllCallCount++;
-    return Success(BulkPresenceResponse(
-      own: ChatPresence(
-        userId: _currentUserId,
-        status: PresenceStatus.available,
-        online: true,
+    return Success(
+      BulkPresenceResponse(
+        own: ChatPresence(
+          userId: _currentUserId,
+          status: PresenceStatus.available,
+          online: true,
+        ),
+        contacts: List<ChatPresence>.from(_injectedContacts),
       ),
-      contacts: List<ChatPresence>.from(_injectedContacts),
-    ));
+    );
   }
 
   @override
   Future<Result<void>> update({
     required PresenceStatus status,
     String? statusText,
-  }) async =>
-      const Success(null);
+  }) async => const Success(null);
 }
 
 class MockAttachmentsApi implements ChatAttachmentsApi {
@@ -821,26 +841,25 @@ class MockAttachmentsApi implements ChatAttachmentsApi {
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
-  }) async =>
-      const Success(AttachmentUploadResult(
-        attachmentId: 'mock-attachment-1',
-        raw: {'attachmentId': 'mock-attachment-1'},
-      ));
+  }) async => const Success(
+    AttachmentUploadResult(
+      attachmentId: 'mock-attachment-1',
+      raw: {'attachmentId': 'mock-attachment-1'},
+    ),
+  );
 
   @override
   Future<Result<Uint8List>> download(
     String attachmentId, {
     String? metadata,
     void Function(int received, int total)? onProgress,
-  }) async =>
-      Success(Uint8List(0));
+  }) async => Success(Uint8List(0));
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> listInRoom(
     String roomId, {
     CursorPaginationParams? pagination,
-  }) async =>
-      const Success(PaginatedResponse(items: [], hasMore: false));
+  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
 
   @override
   Future<Result<void>> deleteInRoom(String roomId, String messageId) async =>

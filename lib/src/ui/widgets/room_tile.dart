@@ -79,16 +79,13 @@ class RoomTile extends StatelessWidget {
                 _formatTimestamp(room.lastMessageTime!),
                 style: room.unreadCount > 0
                     ? (theme.roomTimestampUnreadTextStyle ??
-                        theme.roomTimestampTextStyle ??
-                        TextStyle(
-                          fontSize: 12,
-                          color: theme.unreadBadgeColor ?? Colors.red,
-                        ))
+                          theme.roomTimestampTextStyle ??
+                          TextStyle(
+                            fontSize: 12,
+                            color: theme.unreadBadgeColor ?? Colors.red,
+                          ))
                     : (theme.roomTimestampTextStyle ??
-                        TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey.shade500,
-                        )),
+                          TextStyle(fontSize: 12, color: Colors.grey.shade500)),
               ),
             const SizedBox(height: 4),
             Row(
@@ -133,7 +130,12 @@ class RoomTile extends StatelessWidget {
           onTap: onTap,
           onLongPress: onLongPress,
           child: Padding(
-            padding: const EdgeInsets.only(left: 28, right: 16, top: 12, bottom: 12),
+            padding: const EdgeInsets.only(
+              left: 28,
+              right: 16,
+              top: 12,
+              bottom: 12,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -148,16 +150,17 @@ class RoomTile extends StatelessWidget {
                         room.displayName,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: (theme.roomNameTextStyle ??
-                                const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ))
-                            .copyWith(
-                          fontWeight: room.unreadCount > 0
-                              ? FontWeight.w700
-                              : null,
-                        ),
+                        style:
+                            (theme.roomNameTextStyle ??
+                                    const TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w600,
+                                    ))
+                                .copyWith(
+                                  fontWeight: room.unreadCount > 0
+                                      ? FontWeight.w700
+                                      : null,
+                                ),
                       ),
                       if (subtitle != null) ...[
                         const SizedBox(height: 2),
@@ -203,12 +206,9 @@ class RoomTile extends StatelessWidget {
     }
 
     final overrideText = lastMessagePreviewBuilder?.call(context, room);
-    final body = overrideText ??
-        buildLastMessagePreview(
-          room,
-          theme.l10n,
-          currentUserId: currentUserId,
-        );
+    final body =
+        overrideText ??
+        buildLastMessagePreview(room, theme.l10n, currentUserId: currentUserId);
 
     if (body == null) return null;
 
@@ -218,11 +218,10 @@ class RoomTile extends StatelessWidget {
         TextStyle(fontSize: 14, color: Colors.grey.shade600);
     final style = hasUnread
         ? (theme.roomPreviewUnreadTextStyle ??
-            defaultStyle.copyWith(fontWeight: FontWeight.w600))
+              defaultStyle.copyWith(fontWeight: FontWeight.w600))
         : defaultStyle;
 
-    final showReceipt =
-        _isOwnLastMessage && room.lastMessageReceipt != null;
+    final showReceipt = _isOwnLastMessage && room.lastMessageReceipt != null;
     final prefix = _resolvePrefix();
     final fullText = '$prefix$body';
 
@@ -284,8 +283,7 @@ class RoomTile extends StatelessWidget {
     }
 
     final color = theme.sendButtonColor ?? Colors.blue;
-    final base = theme.roomPreviewTextStyle ??
-        const TextStyle(fontSize: 14);
+    final base = theme.roomPreviewTextStyle ?? const TextStyle(fontSize: 14);
     return Text(
       text,
       maxLines: 1,

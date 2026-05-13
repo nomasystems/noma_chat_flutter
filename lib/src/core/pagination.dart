@@ -5,19 +5,14 @@ class PaginationParams {
   final String? sort;
   final SortOrder? order;
 
-  const PaginationParams({
-    this.limit,
-    this.offset,
-    this.sort,
-    this.order,
-  });
+  const PaginationParams({this.limit, this.offset, this.sort, this.order});
 
   Map<String, dynamic> toQueryParams() => {
-        if (limit != null) 'limit': limit,
-        if (offset != null) 'offset': offset,
-        if (sort != null) 'sort': sort,
-        if (order != null) 'order': order!.name,
-      };
+    if (limit != null) 'limit': limit,
+    if (offset != null) 'offset': offset,
+    if (sort != null) 'sort': sort,
+    if (order != null) 'order': order!.name,
+  };
 }
 
 /// Cursor-based pagination using before/after timestamps (ISO 8601).
@@ -26,17 +21,13 @@ class CursorPaginationParams {
   final String? after;
   final int? limit;
 
-  const CursorPaginationParams({
-    this.before,
-    this.after,
-    this.limit,
-  });
+  const CursorPaginationParams({this.before, this.after, this.limit});
 
   Map<String, dynamic> toQueryParams() => {
-        if (before != null) 'before': before,
-        if (after != null) 'after': after,
-        if (limit != null) 'limit': limit,
-      };
+    if (before != null) 'before': before,
+    if (after != null) 'after': after,
+    if (limit != null) 'limit': limit,
+  };
 }
 
 /// A page of results with a flag indicating whether more data is available.

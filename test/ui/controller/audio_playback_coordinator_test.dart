@@ -124,28 +124,30 @@ void main() {
   });
 
   group('auto-play next unlistened', () {
-    test('plays the next incoming unlistened audio when one completes',
-        () async {
-      coordinator.registerPlayer(
-        'msg1',
-        player1,
-        isOutgoing: false,
-        isListened: false,
-      );
-      coordinator.registerPlayer(
-        'msg2',
-        player2,
-        isOutgoing: false,
-        isListened: false,
-      );
+    test(
+      'plays the next incoming unlistened audio when one completes',
+      () async {
+        coordinator.registerPlayer(
+          'msg1',
+          player1,
+          isOutgoing: false,
+          isListened: false,
+        );
+        coordinator.registerPlayer(
+          'msg2',
+          player2,
+          isOutgoing: false,
+          isListened: false,
+        );
 
-      await coordinator.play('msg1');
-      coordinator.markListened('msg1');
-      await coordinator.notifyCompleted('msg1');
+        await coordinator.play('msg1');
+        coordinator.markListened('msg1');
+        await coordinator.notifyCompleted('msg1');
 
-      expect(coordinator.currentlyPlayingId, 'msg2');
-      verify(() => player2.play()).called(1);
-    });
+        expect(coordinator.currentlyPlayingId, 'msg2');
+        verify(() => player2.play()).called(1);
+      },
+    );
 
     test('skips outgoing audios as auto-play target', () async {
       final player3 = MockAudioPlayer();

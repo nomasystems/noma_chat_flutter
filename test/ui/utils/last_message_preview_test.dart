@@ -17,19 +17,18 @@ void main() {
     bool lastMessageIsDeleted = false,
     String? lastMessageReactionEmoji,
     bool isGroup = false,
-  }) =>
-      RoomListItem(
-        id: roomId,
-        lastMessage: lastMessage,
-        lastMessageUserId: lastMessageUserId,
-        lastMessageType: lastMessageType,
-        lastMessageMimeType: lastMessageMimeType,
-        lastMessageFileName: lastMessageFileName,
-        lastMessageDurationMs: lastMessageDurationMs,
-        lastMessageIsDeleted: lastMessageIsDeleted,
-        lastMessageReactionEmoji: lastMessageReactionEmoji,
-        isGroup: isGroup,
-      );
+  }) => RoomListItem(
+    id: roomId,
+    lastMessage: lastMessage,
+    lastMessageUserId: lastMessageUserId,
+    lastMessageType: lastMessageType,
+    lastMessageMimeType: lastMessageMimeType,
+    lastMessageFileName: lastMessageFileName,
+    lastMessageDurationMs: lastMessageDurationMs,
+    lastMessageIsDeleted: lastMessageIsDeleted,
+    lastMessageReactionEmoji: lastMessageReactionEmoji,
+    isGroup: isGroup,
+  );
 
   group('formatVoiceDuration', () {
     test('rounds and pads seconds', () {
@@ -144,10 +143,7 @@ void main() {
         lastMessageType: MessageType.reaction,
         lastMessageReactionEmoji: '😀',
       );
-      expect(
-        buildLastMessagePreview(r, l10n),
-        'Reaccionaste 😀 a "hola"',
-      );
+      expect(buildLastMessagePreview(r, l10n), 'Reaccionaste 😀 a "hola"');
     });
 
     test('reaction without snippet uses generic reactionPreview', () {
@@ -168,17 +164,11 @@ void main() {
         lastMessage: 'mira lo que me han mandado',
         lastMessageType: MessageType.forward,
       );
-      expect(
-        buildLastMessagePreview(r, l10n),
-        'mira lo que me han mandado',
-      );
+      expect(buildLastMessagePreview(r, l10n), 'mira lo que me han mandado');
     });
 
     test('regular text returns the text', () {
-      final r = item(
-        lastMessage: 'hola',
-        lastMessageType: MessageType.regular,
-      );
+      final r = item(lastMessage: 'hola', lastMessageType: MessageType.regular);
       expect(buildLastMessagePreview(r, l10n), 'hola');
     });
 

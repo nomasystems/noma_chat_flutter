@@ -12,30 +12,40 @@ void main() {
     setUp(() async {
       client = MockChatClient(currentUserId: 'u1');
       // Seed two rooms with a couple of messages so loadRooms returns data.
-      client.seedRoom(const ChatRoom(
-        id: 'room-dm',
-        name: 'Alice',
-        audience: RoomAudience.contacts,
-        members: ['u1', 'alice'],
-      ));
-      client.addMessage('room-dm', ChatMessage(
-        id: 'm1',
-        from: 'alice',
-        timestamp: DateTime(2026, 5, 12, 9),
-        text: 'Hello',
-      ));
-      client.seedRoom(const ChatRoom(
-        id: 'room-group',
-        name: 'Squad',
-        audience: RoomAudience.contacts,
-        members: ['u1', 'alice', 'bob'],
-      ));
-      client.addMessage('room-group', ChatMessage(
-        id: 'g1',
-        from: 'bob',
-        timestamp: DateTime(2026, 5, 12, 10),
-        text: 'Group hello',
-      ));
+      client.seedRoom(
+        const ChatRoom(
+          id: 'room-dm',
+          name: 'Alice',
+          audience: RoomAudience.contacts,
+          members: ['u1', 'alice'],
+        ),
+      );
+      client.addMessage(
+        'room-dm',
+        ChatMessage(
+          id: 'm1',
+          from: 'alice',
+          timestamp: DateTime(2026, 5, 12, 9),
+          text: 'Hello',
+        ),
+      );
+      client.seedRoom(
+        const ChatRoom(
+          id: 'room-group',
+          name: 'Squad',
+          audience: RoomAudience.contacts,
+          members: ['u1', 'alice', 'bob'],
+        ),
+      );
+      client.addMessage(
+        'room-group',
+        ChatMessage(
+          id: 'g1',
+          from: 'bob',
+          timestamp: DateTime(2026, 5, 12, 10),
+          text: 'Group hello',
+        ),
+      );
 
       chat = NomaChat.fromClient(
         client: client,
@@ -58,8 +68,7 @@ void main() {
       );
     });
 
-    test('loadMessages populates ChatController for the opened room',
-        () async {
+    test('loadMessages populates ChatController for the opened room', () async {
       final controller = chat.adapter.getChatController('room-dm');
       await chat.adapter.loadMessages('room-dm');
 
@@ -72,8 +81,10 @@ void main() {
       await chat.adapter.loadMessages('room-dm');
       final before = controller.messages.length;
 
-      final result =
-          await chat.adapter.sendMessage('room-dm', text: 'Hey there');
+      final result = await chat.adapter.sendMessage(
+        'room-dm',
+        text: 'Hey there',
+      );
 
       expect(result.isSuccess, true);
       expect(controller.messages.length, greaterThan(before));
@@ -84,15 +95,15 @@ void main() {
       final controller = chat.adapter.getChatController('room-dm');
       await chat.adapter.loadMessages('room-dm');
 
-      final sent = await chat.adapter
-          .sendMessage('room-dm', text: 'first version');
+      final sent = await chat.adapter.sendMessage(
+        'room-dm',
+        text: 'first version',
+      );
       final sentId = sent.dataOrNull!.id;
 
-      await chat.adapter
-          .editMessage('room-dm', sentId, text: 'edited version');
+      await chat.adapter.editMessage('room-dm', sentId, text: 'edited version');
 
-      final edited =
-          controller.messages.firstWhere((m) => m.id == sentId);
+      final edited = controller.messages.firstWhere((m) => m.id == sentId);
       expect(edited.text, 'edited version');
     });
 
@@ -100,8 +111,7 @@ void main() {
       final controller = chat.adapter.getChatController('room-dm');
       await chat.adapter.loadMessages('room-dm');
 
-      final sent =
-          await chat.adapter.sendMessage('room-dm', text: 'to delete');
+      final sent = await chat.adapter.sendMessage('room-dm', text: 'to delete');
       final sentId = sent.dataOrNull!.id;
       expect(controller.messages.any((m) => m.id == sentId), true);
 
@@ -121,30 +131,26 @@ void main() {
 
     test('mute/unmute round-trip on a room', () async {
       await chat.adapter.muteRoom('room-group');
-      expect(
-        chat.roomListController.getRoomById('room-group')!.muted,
-        true,
-      );
+      expect(chat.roomListController.getRoomById('room-group')!.muted, true);
 
       await chat.adapter.unmuteRoom('room-group');
-      expect(
-        chat.roomListController.getRoomById('room-group')!.muted,
-        false,
-      );
+      expect(chat.roomListController.getRoomById('room-group')!.muted, false);
     });
 
-    test('operationErrors stream stays silent during a happy-path flow',
-        () async {
-      final errors = <OperationError>[];
-      final sub = chat.adapter.operationErrors.listen(errors.add);
+    test(
+      'operationErrors stream stays silent during a happy-path flow',
+      () async {
+        final errors = <OperationError>[];
+        final sub = chat.adapter.operationErrors.listen(errors.add);
 
-      await chat.adapter.loadMessages('room-dm');
-      await chat.adapter.sendMessage('room-dm', text: 'no errors expected');
-      await chat.adapter.muteRoom('room-dm');
+        await chat.adapter.loadMessages('room-dm');
+        await chat.adapter.sendMessage('room-dm', text: 'no errors expected');
+        await chat.adapter.muteRoom('room-dm');
 
-      await Future<void>.delayed(Duration.zero);
-      await sub.cancel();
-      expect(errors, isEmpty);
-    });
+        await Future<void>.delayed(Duration.zero);
+        await sub.cancel();
+        expect(errors, isEmpty);
+      },
+    );
   });
 }

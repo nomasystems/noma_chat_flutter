@@ -33,7 +33,9 @@ class LocationBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final radius =
-        theme.videoBorderRadius ?? theme.imageBorderRadius ?? BorderRadius.circular(8);
+        theme.videoBorderRadius ??
+        theme.imageBorderRadius ??
+        BorderRadius.circular(8);
     final mapHeight = theme.videoHeight ?? 180;
     final placeholderColor = theme.videoPlaceholderColor ?? Colors.black26;
 
@@ -60,16 +62,15 @@ class LocationBubble extends StatelessWidget {
                       child: mapBuilder != null
                           ? mapBuilder(context, latitude, longitude)
                           : staticMapUrl != null
-                              ? CachedNetworkImage(
-                                  imageUrl: staticMapUrl!,
-                                  fit: BoxFit.cover,
-                                  placeholder: (_, __) => Container(
-                                    color: placeholderColor,
-                                  ),
-                                  errorWidget: (_, __, ___) =>
-                                      _fallback(mapHeight, placeholderColor),
-                                )
-                              : _fallback(mapHeight, placeholderColor),
+                          ? CachedNetworkImage(
+                              imageUrl: staticMapUrl!,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) =>
+                                  Container(color: placeholderColor),
+                              errorWidget: (_, __, ___) =>
+                                  _fallback(mapHeight, placeholderColor),
+                            )
+                          : _fallback(mapHeight, placeholderColor),
                     ),
                   ),
                   if (!hasMapPreview)
@@ -77,7 +78,8 @@ class LocationBubble extends StatelessWidget {
                       padding: const EdgeInsets.all(6),
                       decoration: BoxDecoration(
                         color:
-                            theme.videoPlayIconBackgroundColor ?? Colors.black54,
+                            theme.videoPlayIconBackgroundColor ??
+                            Colors.black54,
                         shape: BoxShape.circle,
                       ),
                       child: Icon(
@@ -106,7 +108,8 @@ class LocationBubble extends StatelessWidget {
                     if (timestamp != null)
                       Text(
                         DateFormatter.formatTime(timestamp!),
-                        style: (isOutgoing
+                        style:
+                            (isOutgoing
                                 ? theme.outgoingTimestampTextStyle
                                 : theme.incomingTimestampTextStyle) ??
                             theme.timestampTextStyle ??
@@ -130,14 +133,10 @@ class LocationBubble extends StatelessWidget {
   }
 
   Widget _fallback(double height, Color color) => Container(
-        height: height,
-        width: double.infinity,
-        color: color,
-        alignment: Alignment.center,
-        child: const Icon(
-          Icons.map,
-          color: Colors.white54,
-          size: 48,
-        ),
-      );
+    height: height,
+    width: double.infinity,
+    color: color,
+    alignment: Alignment.center,
+    child: const Icon(Icons.map, color: Colors.white54, size: 48),
+  );
 }

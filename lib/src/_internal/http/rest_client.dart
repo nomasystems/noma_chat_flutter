@@ -13,8 +13,8 @@ class RestClient {
   final String? _userId;
 
   RestClient({required ChatConfig config, Dio? dio})
-      : _dio = dio ?? Dio(),
-        _userId = config.userId {
+    : _dio = dio ?? Dio(),
+      _userId = config.userId {
     _dio.options.baseUrl = config.baseUrl;
     _dio.options.connectTimeout = config.requestTimeout;
     _dio.options.receiveTimeout = config.requestTimeout;
@@ -25,11 +25,13 @@ class RestClient {
       authInterceptor.bindDio(_dio);
     }
     if (config.retryConfig.enabled) {
-      _dio.interceptors.add(RetryInterceptor(
-        config: config.retryConfig,
-        dio: _dio,
-        registry: CircuitBreakerRegistry(),
-      ));
+      _dio.interceptors.add(
+        RetryInterceptor(
+          config: config.retryConfig,
+          dio: _dio,
+          registry: CircuitBreakerRegistry(),
+        ),
+      );
     }
   }
 
@@ -40,8 +42,12 @@ class RestClient {
     Map<String, dynamic>? queryParams,
     Map<String, String>? headers,
   }) async {
-    final response = await _request('GET', path,
-        queryParams: queryParams, headers: headers);
+    final response = await _request(
+      'GET',
+      path,
+      queryParams: queryParams,
+      headers: headers,
+    );
     return _asMap(response);
   }
 
@@ -50,10 +56,15 @@ class RestClient {
     Map<String, dynamic>? queryParams,
     Map<String, String>? headers,
   }) async {
-    final response = await _request('GET', path,
-        queryParams: queryParams, headers: headers);
-    final totalCount =
-        int.tryParse(response.headers.value('x-total-count') ?? '');
+    final response = await _request(
+      'GET',
+      path,
+      queryParams: queryParams,
+      headers: headers,
+    );
+    final totalCount = int.tryParse(
+      response.headers.value('x-total-count') ?? '',
+    );
     return (_asMap(response), totalCount);
   }
 
@@ -62,8 +73,12 @@ class RestClient {
     Map<String, dynamic>? queryParams,
     Map<String, String>? headers,
   }) async {
-    final response = await _request('GET', path,
-        queryParams: queryParams, headers: headers);
+    final response = await _request(
+      'GET',
+      path,
+      queryParams: queryParams,
+      headers: headers,
+    );
     if (response.data is List) return response.data as List<dynamic>;
     throw ChatApiException(
       statusCode: 0,
@@ -78,8 +93,13 @@ class RestClient {
     Map<String, dynamic>? queryParams,
     Map<String, String>? headers,
   }) async {
-    final response = await _request('POST', path,
-        data: data, queryParams: queryParams, headers: headers);
+    final response = await _request(
+      'POST',
+      path,
+      data: data,
+      queryParams: queryParams,
+      headers: headers,
+    );
     if (response.data == null || response.data == '') {
       return const {};
     }
@@ -92,8 +112,13 @@ class RestClient {
     Map<String, dynamic>? queryParams,
     Map<String, String>? headers,
   }) async {
-    await _request('POST', path,
-        data: data, queryParams: queryParams, headers: headers);
+    await _request(
+      'POST',
+      path,
+      data: data,
+      queryParams: queryParams,
+      headers: headers,
+    );
   }
 
   Future<Map<String, dynamic>> put(
@@ -101,8 +126,7 @@ class RestClient {
     dynamic data,
     Map<String, String>? headers,
   }) async {
-    final response =
-        await _request('PUT', path, data: data, headers: headers);
+    final response = await _request('PUT', path, data: data, headers: headers);
     if (response.data == null || response.data == '') {
       return const {};
     }
@@ -125,8 +149,12 @@ class RestClient {
     dynamic data,
     Map<String, String>? headers,
   }) async {
-    final response =
-        await _request('PATCH', path, data: data, headers: headers);
+    final response = await _request(
+      'PATCH',
+      path,
+      data: data,
+      headers: headers,
+    );
     if (response.data == null || response.data == '') {
       return const {};
     }
@@ -136,10 +164,7 @@ class RestClient {
     return const {};
   }
 
-  Future<void> delete(
-    String path, {
-    Map<String, String>? headers,
-  }) async {
+  Future<void> delete(String path, {Map<String, String>? headers}) async {
     await _request('DELETE', path, headers: headers);
   }
 
@@ -191,9 +216,7 @@ class RestClient {
     try {
       final opts = options ?? Options();
       opts.method = method;
-      final mergedHeaders = <String, String>{
-        ...?headers,
-      };
+      final mergedHeaders = <String, String>{...?headers};
       if (mergedHeaders.isNotEmpty) {
         opts.headers = {...?opts.headers, ...mergedHeaders};
       }
@@ -227,7 +250,10 @@ class RestClient {
     }
     if (statusCode == 401) return const ChatAuthException();
     if (statusCode == 403) {
-      return ChatForbiddenException(body: body, message: e.message ?? 'Forbidden');
+      return ChatForbiddenException(
+        body: body,
+        message: e.message ?? 'Forbidden',
+      );
     }
     if (statusCode == 404) return const ChatNotFoundException();
     if (statusCode == 409) {

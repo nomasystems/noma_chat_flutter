@@ -9,29 +9,33 @@ void main() {
   const admin = ChatUser(id: 'admin', displayName: 'Admin');
   const target = ChatUser(id: 'u2', displayName: 'Target');
 
-  Widget wrap(Widget child) =>
-      MaterialApp(home: Scaffold(body: child));
+  Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
-  testWidgets('admin can pick Remove / Change role / Ban from the menu',
-      (tester) async {
+  testWidgets('admin can pick Remove / Change role / Ban from the menu', (
+    tester,
+  ) async {
     ChatUser? removed;
     ChatUser? rotated;
     RoomRole? newRole;
     ChatUser? banned;
 
-    await tester.pumpWidget(wrap(MemberListView(
-      members: const [
-        MemberEntry(user: admin, role: RoomRole.owner),
-        MemberEntry(user: target, role: RoomRole.member),
-      ],
-      currentUserRole: RoomRole.owner,
-      onRemoveMember: (u) => removed = u,
-      onChangeRole: (u, r) {
-        rotated = u;
-        newRole = r;
-      },
-      onBanMember: (u) => banned = u,
-    )));
+    await tester.pumpWidget(
+      wrap(
+        MemberListView(
+          members: const [
+            MemberEntry(user: admin, role: RoomRole.owner),
+            MemberEntry(user: target, role: RoomRole.member),
+          ],
+          currentUserRole: RoomRole.owner,
+          onRemoveMember: (u) => removed = u,
+          onChangeRole: (u, r) {
+            rotated = u;
+            newRole = r;
+          },
+          onBanMember: (u) => banned = u,
+        ),
+      ),
+    );
 
     // Open the popup for the manageable member.
     final menu = find.byType(PopupMenuButton<String>);
@@ -59,37 +63,46 @@ void main() {
     expect(banned, isNotNull);
   });
 
-  testWidgets('members cannot manage anyone (no popup rendered)',
-      (tester) async {
-    await tester.pumpWidget(wrap(MemberListView(
-      members: const [
-        MemberEntry(user: admin, role: RoomRole.owner),
-        MemberEntry(user: target, role: RoomRole.member),
-      ],
-      currentUserRole: RoomRole.member,
-      onRemoveMember: (_) {},
-      onChangeRole: (_, __) {},
-      onBanMember: (_) {},
-    )));
+  testWidgets('members cannot manage anyone (no popup rendered)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        MemberListView(
+          members: const [
+            MemberEntry(user: admin, role: RoomRole.owner),
+            MemberEntry(user: target, role: RoomRole.member),
+          ],
+          currentUserRole: RoomRole.member,
+          onRemoveMember: (_) {},
+          onChangeRole: (_, __) {},
+          onBanMember: (_) {},
+        ),
+      ),
+    );
 
     expect(find.byType(PopupMenuButton<String>), findsNothing);
   });
 
-  testWidgets('admin promoting an admin downgrades them to member',
-      (tester) async {
+  testWidgets('admin promoting an admin downgrades them to member', (
+    tester,
+  ) async {
     RoomRole? newRole;
 
-    const otherAdmin =
-        ChatUser(id: 'admin2', displayName: 'AdminTwo');
+    const otherAdmin = ChatUser(id: 'admin2', displayName: 'AdminTwo');
 
-    await tester.pumpWidget(wrap(MemberListView(
-      members: const [
-        MemberEntry(user: admin, role: RoomRole.owner),
-        MemberEntry(user: otherAdmin, role: RoomRole.admin),
-      ],
-      currentUserRole: RoomRole.owner,
-      onChangeRole: (u, r) => newRole = r,
-    )));
+    await tester.pumpWidget(
+      wrap(
+        MemberListView(
+          members: const [
+            MemberEntry(user: admin, role: RoomRole.owner),
+            MemberEntry(user: otherAdmin, role: RoomRole.admin),
+          ],
+          currentUserRole: RoomRole.owner,
+          onChangeRole: (u, r) => newRole = r,
+        ),
+      ),
+    );
 
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();

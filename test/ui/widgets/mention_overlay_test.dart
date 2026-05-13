@@ -14,13 +14,7 @@ void main() {
   group('MentionOverlay', () {
     testWidgets('filters users by query', (tester) async {
       await tester.pumpWidget(
-        wrap(
-          MentionOverlay(
-            query: 'ali',
-            users: users,
-            onSelect: (_) {},
-          ),
-        ),
+        wrap(MentionOverlay(query: 'ali', users: users, onSelect: (_) {})),
       );
       expect(find.text('Alice Smith'), findsOneWidget);
       expect(find.text('Bob Jones'), findsNothing);
@@ -45,13 +39,7 @@ void main() {
 
     testWidgets('shows empty when no match', (tester) async {
       await tester.pumpWidget(
-        wrap(
-          MentionOverlay(
-            query: 'zzz',
-            users: users,
-            onSelect: (_) {},
-          ),
-        ),
+        wrap(MentionOverlay(query: 'zzz', users: users, onSelect: (_) {})),
       );
       expect(find.byType(Card), findsNothing);
       expect(find.byType(SizedBox), findsOneWidget);

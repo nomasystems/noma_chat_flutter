@@ -100,7 +100,9 @@ class _FloatingPickerLayout extends StatelessWidget {
               Navigator.of(dialogContext).pop(emoji);
             },
             onExpandTap: () {
-              Navigator.of(dialogContext).pop(FloatingReactionPicker._expandSentinel);
+              Navigator.of(
+                dialogContext,
+              ).pop(FloatingReactionPicker._expandSentinel);
             },
             theme: theme,
           ),

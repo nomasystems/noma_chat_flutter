@@ -16,8 +16,9 @@ void main() {
       expect(find.bySemanticsLabel('Record voice message'), findsOneWidget);
     });
 
-    testWidgets('voiceIconBuilder takes precedence over voiceButtonIcon',
-        (tester) async {
+    testWidgets('voiceIconBuilder takes precedence over voiceButtonIcon', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrap(
           const VoiceRecorderButton(

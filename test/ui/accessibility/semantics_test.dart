@@ -4,8 +4,8 @@ import 'package:noma_chat/noma_chat.dart';
 
 void main() {
   Widget wrap(Widget child) => MaterialApp(
-        home: Scaffold(body: SingleChildScrollView(child: child)),
-      );
+    home: Scaffold(body: SingleChildScrollView(child: child)),
+  );
 
   Finder findSemanticsWithLabel(String label) {
     return find.byWidgetPredicate(
@@ -14,15 +14,13 @@ void main() {
   }
 
   group('Accessibility - Semantic labels', () {
-    testWidgets('ScrollToBottomButton has scroll to bottom semantics',
-        (tester) async {
+    testWidgets('ScrollToBottomButton has scroll to bottom semantics', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ScrollToBottomButton(
-              visible: true,
-              onPressed: () {},
-            ),
+            body: ScrollToBottomButton(visible: true, onPressed: () {}),
           ),
         ),
       );
@@ -31,17 +29,15 @@ void main() {
     });
 
     testWidgets('RoomTile has room name as semantic label', (tester) async {
-      final room = RoomListItem(
-        id: 'r1',
-        name: 'Team Chat',
-      );
+      final room = RoomListItem(id: 'r1', name: 'Team Chat');
 
       await tester.pumpWidget(wrap(RoomTile(room: room)));
       expect(findSemanticsWithLabel('Team Chat'), findsOneWidget);
     });
 
-    testWidgets('RoomTile uses id as semantic label when name is null',
-        (tester) async {
+    testWidgets('RoomTile uses id as semantic label when name is null', (
+      tester,
+    ) async {
       final room = RoomListItem(id: 'room-xyz');
 
       await tester.pumpWidget(wrap(RoomTile(room: room)));
@@ -58,20 +54,14 @@ void main() {
       expect(findSemanticsWithLabel('42 unread'), findsOneWidget);
     });
 
-    testWidgets('VoiceRecorderButton has record voice semantics',
-        (tester) async {
+    testWidgets('VoiceRecorderButton has record voice semantics', (
+      tester,
+    ) async {
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: const VoiceRecorderButton(),
-          ),
-        ),
+        MaterialApp(home: Scaffold(body: const VoiceRecorderButton())),
       );
 
-      expect(
-        findSemanticsWithLabel('Record voice message'),
-        findsOneWidget,
-      );
+      expect(findSemanticsWithLabel('Record voice message'), findsOneWidget);
     });
 
     testWidgets('MessageInput send button has send semantics', (tester) async {
@@ -83,10 +73,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MessageInput(
-              controller: controller,
-              onSendMessage: (_) {},
-            ),
+            body: MessageInput(controller: controller, onSendMessage: (_) {}),
           ),
         ),
       );

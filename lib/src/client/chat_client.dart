@@ -326,12 +326,13 @@ abstract class ChatMessagesApi {
   });
 
   /// Marks all messages in a room as read, optionally up to a specific message.
-  Future<Result<void>> markRoomAsRead(String roomId,
-      {String? lastReadMessageId});
+  Future<Result<void>> markRoomAsRead(
+    String roomId, {
+    String? lastReadMessageId,
+  });
 
   /// Lists read receipts for all members of a room.
-  Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(
-      String roomId);
+  Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(String roomId);
 
   /// Sends a typing indicator (start or stop) to a room.
   Future<Result<void>> sendTyping(
@@ -350,7 +351,10 @@ abstract class ChatMessagesApi {
   ///
   /// Set [forceRefresh] to bypass cache and fetch from server.
   Future<Result<List<AggregatedReaction>>> getReactions(
-      String roomId, String messageId, {bool forceRefresh = false});
+    String roomId,
+    String messageId, {
+    bool forceRefresh = false,
+  });
 
   /// Removes the current user's reaction from a message.
   Future<Result<void>> deleteReaction(String roomId, String messageId);
@@ -375,8 +379,11 @@ abstract class ChatMessagesApi {
   });
 
   /// Reports a message for moderation.
-  Future<Result<void>> report(String roomId, String messageId,
-      {required String reason});
+  Future<Result<void>> report(
+    String roomId,
+    String messageId, {
+    required String reason,
+  });
 
   /// Lists reports filed against messages in a room.
   Future<Result<PaginatedResponse<MessageReport>>> listReports(
@@ -394,7 +401,8 @@ abstract class ChatMessagesApi {
 
   /// Lists scheduled (not yet sent) messages in a room.
   Future<Result<PaginatedResponse<ScheduledMessage>>> listScheduled(
-      String roomId);
+    String roomId,
+  );
 
   /// Cancels a previously scheduled message.
   Future<Result<void>> cancelScheduled(String roomId, String scheduledId);

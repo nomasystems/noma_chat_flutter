@@ -81,29 +81,30 @@ void main() {
         ttl: const Duration(hours: 1),
         policy: CachePolicy.networkFirst,
         fromCache: () async => 'cached',
-        fromNetwork: () async =>
-            const Failure(NetworkFailure('no connection')),
+        fromNetwork: () async => const Failure(NetworkFailure('no connection')),
         saveToCache: (data) async {},
       );
 
       expect(result.dataOrNull, 'cached');
     });
 
-    test('networkFirst returns network error when no cache available',
-        () async {
-      final result = await manager.resolve<String>(
-        key: 'test',
-        ttl: const Duration(hours: 1),
-        policy: CachePolicy.networkFirst,
-        fromCache: () async => null,
-        fromNetwork: () async =>
-            const Failure(NetworkFailure('no connection')),
-        saveToCache: (data) async {},
-      );
+    test(
+      'networkFirst returns network error when no cache available',
+      () async {
+        final result = await manager.resolve<String>(
+          key: 'test',
+          ttl: const Duration(hours: 1),
+          policy: CachePolicy.networkFirst,
+          fromCache: () async => null,
+          fromNetwork: () async =>
+              const Failure(NetworkFailure('no connection')),
+          saveToCache: (data) async {},
+        );
 
-      expect(result.isFailure, isTrue);
-      expect(result.failureOrNull, isA<NetworkFailure>());
-    });
+        expect(result.isFailure, isTrue);
+        expect(result.failureOrNull, isA<NetworkFailure>());
+      },
+    );
 
     test('cacheFirst returns cache when valid', () async {
       var networkCalls = 0;

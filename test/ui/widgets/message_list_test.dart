@@ -15,8 +15,8 @@ void main() {
       );
 
   Widget wrap(Widget child) => MaterialApp(
-        home: Scaffold(body: SizedBox(height: 600, child: child)),
-      );
+    home: Scaffold(body: SizedBox(height: 600, child: child)),
+  );
 
   setUp(() {
     controller = ChatController(
@@ -83,16 +83,17 @@ void main() {
         30,
         (i) => makeMsg('m$i', ts: DateTime(2026, 1, 1, i)),
       );
-      controller = ChatController(
-        initialMessages: msgs,
-        currentUser: user,
-      );
+      controller = ChatController(initialMessages: msgs, currentUser: user);
 
       var loadMoreCalled = false;
-      await tester.pumpWidget(wrap(MessageList(
-        controller: controller,
-        onLoadMore: () => loadMoreCalled = true,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageList(
+            controller: controller,
+            onLoadMore: () => loadMoreCalled = true,
+          ),
+        ),
+      );
 
       final listView = find.byType(ListView);
       expect(listView, findsOneWidget);
@@ -101,10 +102,14 @@ void main() {
 
     testWidgets('passes onMessageLongPress callback', (tester) async {
       ChatMessage? longPressed;
-      await tester.pumpWidget(wrap(MessageList(
-        controller: controller,
-        onMessageLongPress: (msg, rect) => longPressed = msg,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageList(
+            controller: controller,
+            onMessageLongPress: (msg, rect) => longPressed = msg,
+          ),
+        ),
+      );
       expect(find.byType(MessageBubble), findsWidgets);
       expect(longPressed, isNull);
     });
@@ -114,10 +119,14 @@ void main() {
       controller.markFailed('1');
       ChatMessage? retried;
 
-      await tester.pumpWidget(wrap(MessageList(
-        controller: controller,
-        onRetryMessage: (msg) => retried = msg,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageList(
+            controller: controller,
+            onRetryMessage: (msg) => retried = msg,
+          ),
+        ),
+      );
 
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
       expect(retried, isNull);

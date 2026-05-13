@@ -32,18 +32,17 @@ class ChatUser {
     bool? active,
     Map<String, dynamic>? custom,
     UserConfiguration? configuration,
-  }) =>
-      ChatUser(
-        id: id ?? this.id,
-        displayName: displayName ?? this.displayName,
-        avatarUrl: avatarUrl ?? this.avatarUrl,
-        bio: bio ?? this.bio,
-        email: email ?? this.email,
-        role: role ?? this.role,
-        active: active ?? this.active,
-        custom: custom ?? this.custom,
-        configuration: configuration ?? this.configuration,
-      );
+  }) => ChatUser(
+    id: id ?? this.id,
+    displayName: displayName ?? this.displayName,
+    avatarUrl: avatarUrl ?? this.avatarUrl,
+    bio: bio ?? this.bio,
+    email: email ?? this.email,
+    role: role ?? this.role,
+    active: active ?? this.active,
+    custom: custom ?? this.custom,
+    configuration: configuration ?? this.configuration,
+  );
 
   @override
   bool operator ==(Object other) =>

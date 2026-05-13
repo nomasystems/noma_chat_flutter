@@ -14,10 +14,10 @@ class PresenceDto {
   });
 
   factory PresenceDto.fromJson(Map<String, dynamic> json) => PresenceDto(
-        userId: (json['userId'] ?? '') as String,
-        status: (json['status'] ?? 'offline') as String,
-        online: (json['online'] ?? false) as bool,
-        statusText: json['statusText'] as String?,
-        lastSeen: json['lastSeen'] as String?,
-      );
+    userId: (json['userId'] ?? '') as String,
+    status: (json['status'] ?? 'offline') as String,
+    online: (json['online'] ?? false) as bool,
+    statusText: json['statusText'] as String?,
+    lastSeen: json['lastSeen'] as String?,
+  );
 }

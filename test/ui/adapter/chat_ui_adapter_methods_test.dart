@@ -14,12 +14,14 @@ void main() {
 
   setUp(() {
     client = MockChatClient(currentUserId: 'u1');
-    client.seedRoom(const ChatRoom(
-      id: 'r1',
-      name: 'Room1',
-      audience: RoomAudience.contacts,
-      members: ['u1', 'u2'],
-    ));
+    client.seedRoom(
+      const ChatRoom(
+        id: 'r1',
+        name: 'Room1',
+        audience: RoomAudience.contacts,
+        members: ['u1', 'u2'],
+      ),
+    );
     adapter = ChatUiAdapter(client: client, currentUser: currentUser);
   });
 
@@ -56,15 +58,16 @@ void main() {
     expect(controller.messages, isNotEmpty);
   });
 
-  test('markAsRead invokes the SDK with a derived lastReadMessageId',
-      () async {
+  test('markAsRead invokes the SDK with a derived lastReadMessageId', () async {
     final controller = adapter.getChatController('r1');
-    controller.addMessage(ChatMessage(
-      id: 'm-other',
-      from: 'u2',
-      timestamp: DateTime(2026, 1, 1),
-      text: 'incoming',
-    ));
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-other',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'incoming',
+      ),
+    );
 
     final r = await adapter.markAsRead('r1');
     expect(r.isSuccess, true);
@@ -72,13 +75,18 @@ void main() {
 
   test('clearChat clears the local controller + room metadata', () async {
     final controller = adapter.getChatController('r1');
-    controller.addMessage(ChatMessage(
-      id: 'm1', from: 'u1', timestamp: DateTime(2026, 1, 1), text: 'hi',
-    ));
+    controller.addMessage(
+      ChatMessage(
+        id: 'm1',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'hi',
+      ),
+    );
 
-    adapter.roomListController.addRoom(const RoomListItem(
-      id: 'r1', name: 'Room', lastMessage: 'hi',
-    ));
+    adapter.roomListController.addRoom(
+      const RoomListItem(id: 'r1', name: 'Room', lastMessage: 'hi'),
+    );
 
     final r = await adapter.clearChat('r1');
     expect(r.isSuccess, true);
@@ -98,9 +106,7 @@ void main() {
   });
 
   test('hideRoom + unhideRoom toggle the hidden flag', () async {
-    adapter.roomListController.addRoom(const RoomListItem(
-      id: 'r1', name: 'R',
-    ));
+    adapter.roomListController.addRoom(const RoomListItem(id: 'r1', name: 'R'));
 
     await adapter.hideRoom('r1');
     expect(adapter.roomListController.getRoomById('r1')!.hidden, true);
@@ -115,22 +121,22 @@ void main() {
       name: 'Invited',
     );
     final roomId = created.dataOrNull!.id;
-    adapter.roomListController.addRoom(RoomListItem(
-      id: roomId,
-      name: 'Invited',
-      custom: const {'invited': true, 'invitedBy': 'u2'},
-    ));
+    adapter.roomListController.addRoom(
+      RoomListItem(
+        id: roomId,
+        name: 'Invited',
+        custom: const {'invited': true, 'invitedBy': 'u2'},
+      ),
+    );
 
     final r = await adapter.acceptInvitation(roomId);
     expect(r.isSuccess, true);
   });
 
   test('rejectInvitation removes the room', () async {
-    adapter.roomListController.addRoom(const RoomListItem(
-      id: 'invited',
-      name: 'X',
-      custom: {'invited': true},
-    ));
+    adapter.roomListController.addRoom(
+      const RoomListItem(id: 'invited', name: 'X', custom: {'invited': true}),
+    );
 
     final r = await adapter.rejectInvitation('invited');
     expect(r.isSuccess, true);
@@ -138,8 +144,11 @@ void main() {
   });
 
   test('sendReceipt forwards a custom status', () async {
-    final r = await adapter.sendReceipt('r1', 'm1',
-        status: ReceiptStatus.delivered);
+    final r = await adapter.sendReceipt(
+      'r1',
+      'm1',
+      status: ReceiptStatus.delivered,
+    );
     expect(r.isSuccess, true);
   });
 
@@ -154,8 +163,7 @@ void main() {
     expect(adapter.findCachedUser('non-existent'), isNull);
   });
 
-  test('findChatController returns null until getChatController is called',
-      () {
+  test('findChatController returns null until getChatController is called', () {
     expect(adapter.findChatController('r1'), isNull);
     adapter.getChatController('r1');
     expect(adapter.findChatController('r1'), isNotNull);

@@ -15,13 +15,15 @@ void main() {
   late RoomsApi api;
 
   setUpAll(() {
-    registerFallbackValue(const RoomDetail(
-      id: '_',
-      type: RoomType.group,
-      memberCount: 0,
-      userRole: RoomRole.member,
-      config: RoomConfig(),
-    ));
+    registerFallbackValue(
+      const RoomDetail(
+        id: '_',
+        type: RoomType.group,
+        memberCount: 0,
+        userRole: RoomRole.member,
+        config: RoomConfig(),
+      ),
+    );
     registerFallbackValue(<ChatRoom>[]);
     registerFallbackValue(<UnreadRoom>[]);
     registerFallbackValue(<InvitedRoom>[]);
@@ -47,22 +49,20 @@ void main() {
   });
 
   Map<String, dynamic> roomDetailJson(String id) => {
-        'id': id,
-        'name': 'R$id',
-        'type': 'group',
-        'memberCount': 3,
-        'userRole': 'member',
-        'muted': false,
-        'pinned': false,
-        'hidden': false,
-        'allowInvitations': false,
-      };
+    'id': id,
+    'name': 'R$id',
+    'type': 'group',
+    'memberCount': 3,
+    'userRole': 'member',
+    'muted': false,
+    'pinned': false,
+    'hidden': false,
+    'allowInvitations': false,
+  };
 
   group('RoomsApi cache paths', () {
-    test('get() with empty cache fetches network and saves to cache',
-        () async {
-      when(() => rest.get(any())).thenAnswer(
-          (_) async => roomDetailJson('r1'));
+    test('get() with empty cache fetches network and saves to cache', () async {
+      when(() => rest.get(any())).thenAnswer((_) async => roomDetailJson('r1'));
 
       final r = await api.get('r1', cachePolicy: CachePolicy.cacheFirst);
 
@@ -88,8 +88,7 @@ void main() {
       expect(r.dataOrNull!.name, 'From cache');
     });
 
-    test('delete() removes the room + detail from cache on success',
-        () async {
+    test('delete() removes the room + detail from cache on success', () async {
       when(() => rest.delete(any())).thenAnswer((_) async {});
 
       final r = await api.delete('r1');
@@ -110,10 +109,10 @@ void main() {
       verify(() => rest.delete('/rooms/r1/mute')).called(1);
     });
 
-    test('batchMarkAsRead() clears the unread cache for each room',
-        () async {
-      when(() => rest.postVoid(any(), data: any(named: 'data')))
-          .thenAnswer((_) async {});
+    test('batchMarkAsRead() clears the unread cache for each room', () async {
+      when(
+        () => rest.postVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
 
       final r = await api.batchMarkAsRead(['r1', 'r2', 'r3']);
 

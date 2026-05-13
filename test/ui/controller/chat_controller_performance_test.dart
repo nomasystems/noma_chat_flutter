@@ -6,25 +6,19 @@ void main() {
   final user = const ChatUser(id: 'u1', displayName: 'Alice');
 
   ChatMessage makeMsg(String id, {DateTime? timestamp}) => ChatMessage(
-        id: id,
-        from: 'u1',
-        text: 'msg $id',
-        timestamp: timestamp ?? DateTime(2026, 1, 1),
-      );
+    id: id,
+    from: 'u1',
+    text: 'msg $id',
+    timestamp: timestamp ?? DateTime(2026, 1, 1),
+  );
 
   group('bounded message list', () {
     test('trims oldest messages when exceeding maxMessages', () {
-      final controller = ChatController(
-        initialMessages: [],
-        currentUser: user,
-      );
+      final controller = ChatController(initialMessages: [], currentUser: user);
 
       final messages = List.generate(
         ChatController.maxMessages + 50,
-        (i) => makeMsg(
-          'msg-$i',
-          timestamp: DateTime(2026, 1, 1, 0, 0, i),
-        ),
+        (i) => makeMsg('msg-$i', timestamp: DateTime(2026, 1, 1, 0, 0, i)),
       );
       controller.addMessages(messages);
 
@@ -37,17 +31,11 @@ void main() {
     });
 
     test('does not trim when at or below maxMessages', () {
-      final controller = ChatController(
-        initialMessages: [],
-        currentUser: user,
-      );
+      final controller = ChatController(initialMessages: [], currentUser: user);
 
       final messages = List.generate(
         ChatController.maxMessages,
-        (i) => makeMsg(
-          'msg-$i',
-          timestamp: DateTime(2026, 1, 1, 0, 0, i),
-        ),
+        (i) => makeMsg('msg-$i', timestamp: DateTime(2026, 1, 1, 0, 0, i)),
       );
       controller.addMessages(messages);
 
@@ -58,24 +46,17 @@ void main() {
     });
 
     test('trims on addMessage when exceeding maxMessages', () {
-      final controller = ChatController(
-        initialMessages: [],
-        currentUser: user,
-      );
+      final controller = ChatController(initialMessages: [], currentUser: user);
 
       final messages = List.generate(
         ChatController.maxMessages,
-        (i) => makeMsg(
-          'msg-$i',
-          timestamp: DateTime(2026, 1, 1, 0, 0, i),
-        ),
+        (i) => makeMsg('msg-$i', timestamp: DateTime(2026, 1, 1, 0, 0, i)),
       );
       controller.addMessages(messages);
 
-      controller.addMessage(makeMsg(
-        'new-msg',
-        timestamp: DateTime(2026, 1, 1, 1, 0, 0),
-      ));
+      controller.addMessage(
+        makeMsg('new-msg', timestamp: DateTime(2026, 1, 1, 1, 0, 0)),
+      );
 
       expect(controller.messages.length, ChatController.maxMessages);
       expect(controller.hasMoreMessages, true);
@@ -86,19 +67,13 @@ void main() {
     });
 
     test('sets hasMoreMessages to true after trimming', () {
-      final controller = ChatController(
-        initialMessages: [],
-        currentUser: user,
-      );
+      final controller = ChatController(initialMessages: [], currentUser: user);
       controller.setPaginationState(hasMore: false);
       expect(controller.hasMoreMessages, false);
 
       final messages = List.generate(
         ChatController.maxMessages + 10,
-        (i) => makeMsg(
-          'msg-$i',
-          timestamp: DateTime(2026, 1, 1, 0, 0, i),
-        ),
+        (i) => makeMsg('msg-$i', timestamp: DateTime(2026, 1, 1, 0, 0, i)),
       );
       controller.addMessages(messages);
 

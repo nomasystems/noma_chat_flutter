@@ -73,7 +73,8 @@ class ChatController extends ChangeNotifier {
   ChatMessage? get editingMessage => _editingMessage;
   List<String> get typingUserIds => _typingUserIds.toList();
   Map<String, Map<String, int>> get reactions => Map.unmodifiable(_reactions);
-  Map<String, Set<String>> get userReactions => Map.unmodifiable(_userReactions);
+  Map<String, Set<String>> get userReactions =>
+      Map.unmodifiable(_userReactions);
   Map<String, ReceiptStatus> get receiptStatuses =>
       Map.unmodifiable(_receiptStatuses);
   List<MessagePin> get pinnedMessages => List.unmodifiable(_pinnedMessages);
@@ -279,10 +280,7 @@ class ChatController extends ChangeNotifier {
   bool isPending(String messageId) => _pendingMessages[messageId] == true;
   bool isFailed(String messageId) => _pendingMessages[messageId] == false;
   Set<String> get failedMessageIds =>
-      _pendingMessages.entries
-          .where((e) => !e.value)
-          .map((e) => e.key)
-          .toSet();
+      _pendingMessages.entries.where((e) => !e.value).map((e) => e.key).toSet();
 
   void markPending(String tempId) {
     _pendingMessages[tempId] = true;
@@ -352,8 +350,9 @@ class ChatController extends ChangeNotifier {
   }
 
   void addPin(MessagePin pin) {
-    final existing =
-        _pinnedMessages.indexWhere((p) => p.messageId == pin.messageId);
+    final existing = _pinnedMessages.indexWhere(
+      (p) => p.messageId == pin.messageId,
+    );
     if (existing != -1) {
       _pinnedMessages[existing] = pin;
     } else {

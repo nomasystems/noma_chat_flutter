@@ -43,16 +43,15 @@ class _FailableRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
-  }) =>
-      _delegate.create(
-        audience: audience,
-        allowInvitations: allowInvitations,
-        name: name,
-        subject: subject,
-        members: members,
-        avatarUrl: avatarUrl,
-        custom: custom,
-      );
+  }) => _delegate.create(
+    audience: audience,
+    allowInvitations: allowInvitations,
+    name: name,
+    subject: subject,
+    members: members,
+    avatarUrl: avatarUrl,
+    custom: custom,
+  );
 
   @override
   Future<Result<void>> delete(String roomId) => _delegate.delete(roomId);
@@ -61,8 +60,7 @@ class _FailableRoomsApi implements ChatRoomsApi {
   Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
     String query, {
     PaginationParams? pagination,
-  }) =>
-      _delegate.discover(query, pagination: pagination);
+  }) => _delegate.discover(query, pagination: pagination);
 
   @override
   Future<Result<RoomDetail>> get(String roomId, {CachePolicy? cachePolicy}) =>
@@ -73,12 +71,11 @@ class _FailableRoomsApi implements ChatRoomsApi {
     String type = 'all',
     PaginationParams? pagination,
     CachePolicy? cachePolicy,
-  }) =>
-      _delegate.getUserRooms(
-        type: type,
-        pagination: pagination,
-        cachePolicy: cachePolicy,
-      );
+  }) => _delegate.getUserRooms(
+    type: type,
+    pagination: pagination,
+    cachePolicy: cachePolicy,
+  );
 
   @override
   Future<Result<void>> updateConfig(
@@ -87,14 +84,13 @@ class _FailableRoomsApi implements ChatRoomsApi {
     String? subject,
     String? avatarUrl,
     Map<String, dynamic>? custom,
-  }) =>
-      _delegate.updateConfig(
-        roomId,
-        name: name,
-        subject: subject,
-        avatarUrl: avatarUrl,
-        custom: custom,
-      );
+  }) => _delegate.updateConfig(
+    roomId,
+    name: name,
+    subject: subject,
+    avatarUrl: avatarUrl,
+    custom: custom,
+  );
 
   @override
   Future<Result<void>> batchMarkAsRead(List<String> roomIds) =>
@@ -123,20 +119,19 @@ class _FailableRoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
-  }) =>
-      _delegate.updateCachedRoomPreview(
-        roomId,
-        lastMessage: lastMessage,
-        lastMessageTime: lastMessageTime,
-        lastMessageUserId: lastMessageUserId,
-        lastMessageId: lastMessageId,
-        lastMessageType: lastMessageType,
-        lastMessageMimeType: lastMessageMimeType,
-        lastMessageFileName: lastMessageFileName,
-        lastMessageDurationMs: lastMessageDurationMs,
-        lastMessageIsDeleted: lastMessageIsDeleted,
-        lastMessageReactionEmoji: lastMessageReactionEmoji,
-      );
+  }) => _delegate.updateCachedRoomPreview(
+    roomId,
+    lastMessage: lastMessage,
+    lastMessageTime: lastMessageTime,
+    lastMessageUserId: lastMessageUserId,
+    lastMessageId: lastMessageId,
+    lastMessageType: lastMessageType,
+    lastMessageMimeType: lastMessageMimeType,
+    lastMessageFileName: lastMessageFileName,
+    lastMessageDurationMs: lastMessageDurationMs,
+    lastMessageIsDeleted: lastMessageIsDeleted,
+    lastMessageReactionEmoji: lastMessageReactionEmoji,
+  );
 }
 
 class _FailableMessagesApi implements ChatMessagesApi {
@@ -203,13 +198,12 @@ class _FailableMessagesApi implements ChatMessagesApi {
     CursorPaginationParams? pagination,
     bool? unreadOnly,
     CachePolicy? cachePolicy,
-  }) =>
-      _delegate.list(
-        roomId,
-        pagination: pagination,
-        unreadOnly: unreadOnly,
-        cachePolicy: cachePolicy,
-      );
+  }) => _delegate.list(
+    roomId,
+    pagination: pagination,
+    unreadOnly: unreadOnly,
+    cachePolicy: cachePolicy,
+  );
 
   @override
   Future<Result<void>> sendViaWs(
@@ -221,57 +215,51 @@ class _FailableMessagesApi implements ChatMessagesApi {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) =>
-      _delegate.sendViaWs(roomId);
+  }) => _delegate.sendViaWs(roomId);
 
   @override
   Future<Result<void>> sendReceipt(
     String roomId,
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
-  }) =>
-      _delegate.sendReceipt(roomId, messageId, status: status);
+  }) => _delegate.sendReceipt(roomId, messageId, status: status);
 
   @override
-  Future<Result<void>> markRoomAsRead(String roomId,
-          {String? lastReadMessageId}) =>
-      _delegate.markRoomAsRead(roomId, lastReadMessageId: lastReadMessageId);
+  Future<Result<void>> markRoomAsRead(
+    String roomId, {
+    String? lastReadMessageId,
+  }) => _delegate.markRoomAsRead(roomId, lastReadMessageId: lastReadMessageId);
 
   @override
   Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(
-          String roomId) =>
-      _delegate.getRoomReceipts(roomId);
+    String roomId,
+  ) => _delegate.getRoomReceipts(roomId);
 
   @override
   Future<Result<void>> sendTyping(
     String roomId, {
     ChatActivity activity = ChatActivity.startsTyping,
-  }) =>
-      _delegate.sendTyping(roomId, activity: activity);
+  }) => _delegate.sendTyping(roomId, activity: activity);
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> getThread(
     String roomId,
     String messageId, {
     CursorPaginationParams? pagination,
-  }) =>
-      _delegate.getThread(roomId, messageId, pagination: pagination);
+  }) => _delegate.getThread(roomId, messageId, pagination: pagination);
 
   @override
   Future<Result<List<AggregatedReaction>>> getReactions(
     String roomId,
     String messageId, {
     bool forceRefresh = false,
-  }) =>
-      _delegate.getReactions(
-        roomId,
-        messageId,
-        forceRefresh: forceRefresh,
-      );
+  }) => _delegate.getReactions(roomId, messageId, forceRefresh: forceRefresh);
 
   @override
   Future<Result<void>> deleteReaction(String roomId, String messageId) async {
-    if (failDeleteReaction) return const Failure(ServerFailure(statusCode: 500));
+    if (failDeleteReaction) {
+      return const Failure(ServerFailure(statusCode: 500));
+    }
     return _delegate.deleteReaction(roomId, messageId);
   }
 
@@ -291,28 +279,27 @@ class _FailableMessagesApi implements ChatMessagesApi {
   Future<Result<PaginatedResponse<MessagePin>>> listPins(
     String roomId, {
     PaginationParams? pagination,
-  }) =>
-      _delegate.listPins(roomId, pagination: pagination);
+  }) => _delegate.listPins(roomId, pagination: pagination);
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> search(
     String query, {
     required String roomId,
     PaginationParams? pagination,
-  }) =>
-      _delegate.search(query, roomId: roomId, pagination: pagination);
+  }) => _delegate.search(query, roomId: roomId, pagination: pagination);
 
   @override
-  Future<Result<void>> report(String roomId, String messageId,
-          {required String reason}) =>
-      _delegate.report(roomId, messageId, reason: reason);
+  Future<Result<void>> report(
+    String roomId,
+    String messageId, {
+    required String reason,
+  }) => _delegate.report(roomId, messageId, reason: reason);
 
   @override
   Future<Result<PaginatedResponse<MessageReport>>> listReports(
     String roomId, {
     PaginationParams? pagination,
-  }) =>
-      _delegate.listReports(roomId, pagination: pagination);
+  }) => _delegate.listReports(roomId, pagination: pagination);
 
   @override
   Future<Result<ScheduledMessage>> schedule(
@@ -320,13 +307,17 @@ class _FailableMessagesApi implements ChatMessagesApi {
     required DateTime sendAt,
     String? text,
     Map<String, dynamic>? metadata,
-  }) =>
-      _delegate.schedule(roomId, sendAt: sendAt, text: text, metadata: metadata);
+  }) => _delegate.schedule(
+    roomId,
+    sendAt: sendAt,
+    text: text,
+    metadata: metadata,
+  );
 
   @override
   Future<Result<PaginatedResponse<ScheduledMessage>>> listScheduled(
-          String roomId) =>
-      _delegate.listScheduled(roomId);
+    String roomId,
+  ) => _delegate.listScheduled(roomId);
 
   @override
   Future<Result<void>> cancelScheduled(String roomId, String scheduledId) =>
@@ -435,11 +426,7 @@ void main() {
       controller.addMessage(msg);
 
       failableClient.failableMessages.failUpdate = true;
-      final result = await adapter.editMessage(
-        'room1',
-        'msg1',
-        text: 'Edited',
-      );
+      final result = await adapter.editMessage('room1', 'msg1', text: 'Edited');
 
       expect(result.isFailure, true);
       expect(controller.messages.first.text, 'Original');
@@ -449,12 +436,14 @@ void main() {
   group('F3.1 optimistic deleteMessage', () {
     test('removes message locally before SDK response', () async {
       final controller = adapter.getChatController('room1');
-      controller.addMessage(ChatMessage(
-        id: 'msg1',
-        from: 'u1',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'Hello',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Hello',
+        ),
+      );
 
       final future = adapter.deleteMessage('room1', 'msg1');
 
@@ -464,12 +453,14 @@ void main() {
 
     test('re-adds message on SDK failure', () async {
       final controller = adapter.getChatController('room1');
-      controller.addMessage(ChatMessage(
-        id: 'msg1',
-        from: 'u1',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'Hello',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Hello',
+        ),
+      );
 
       failableClient.failableMessages.failDelete = true;
       final result = await adapter.deleteMessage('room1', 'msg1');
@@ -483,12 +474,14 @@ void main() {
   group('F3.1 optimistic sendReaction', () {
     test('adds reaction locally before SDK response', () async {
       final controller = adapter.getChatController('room1');
-      controller.addMessage(ChatMessage(
-        id: 'msg1',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'Hello',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Hello',
+        ),
+      );
 
       final future = adapter.sendReaction(
         'room1',
@@ -502,12 +495,14 @@ void main() {
 
     test('removes reaction on SDK failure', () async {
       final controller = adapter.getChatController('room1');
-      controller.addMessage(ChatMessage(
-        id: 'msg1',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'Hello',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Hello',
+        ),
+      );
 
       failableClient.failableMessages.failSend = true;
       final result = await adapter.sendReaction(
@@ -620,12 +615,14 @@ void main() {
   group('F3.4 retrySend', () {
     test('retries failed message and confirms on success', () async {
       final controller = adapter.getChatController('room1');
-      controller.addMessage(ChatMessage(
-        id: '_pending_99',
-        from: 'u1',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'Retry me',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: '_pending_99',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Retry me',
+        ),
+      );
       controller.markFailed('_pending_99');
       expect(controller.isFailed('_pending_99'), true);
 
@@ -634,10 +631,7 @@ void main() {
       expect(result.isSuccess, true);
       final serverMsg = result.dataOrNull!;
       expect(controller.messages.any((m) => m.id == serverMsg.id), true);
-      expect(
-        controller.messages.any((m) => m.id == '_pending_99'),
-        false,
-      );
+      expect(controller.messages.any((m) => m.id == '_pending_99'), false);
     });
 
     test('returns failure when message not found', () async {
@@ -651,12 +645,14 @@ void main() {
 
     test('marks failed again on retry failure', () async {
       final controller = adapter.getChatController('room1');
-      controller.addMessage(ChatMessage(
-        id: '_pending_99',
-        from: 'u1',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'Retry me',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: '_pending_99',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Retry me',
+        ),
+      );
       controller.markFailed('_pending_99');
 
       failableClient.failableMessages.failSend = true;
@@ -729,12 +725,14 @@ void main() {
 
     test('pinMessage does not duplicate when already pinned', () async {
       final controller = adapter.getChatController('room1');
-      controller.addPin(MessagePin(
-        roomId: 'room1',
-        messageId: 'msg1',
-        pinnedBy: 'someone-else',
-        pinnedAt: DateTime(2026, 1, 1),
-      ));
+      controller.addPin(
+        MessagePin(
+          roomId: 'room1',
+          messageId: 'msg1',
+          pinnedBy: 'someone-else',
+          pinnedAt: DateTime(2026, 1, 1),
+        ),
+      );
 
       await adapter.pinMessage('room1', 'msg1');
 
@@ -746,12 +744,14 @@ void main() {
 
     test('unpinMessage removes pin locally before SDK response', () async {
       final controller = adapter.getChatController('room1');
-      controller.addPin(MessagePin(
-        roomId: 'room1',
-        messageId: 'msg1',
-        pinnedBy: 'u1',
-        pinnedAt: DateTime(2026, 1, 1),
-      ));
+      controller.addPin(
+        MessagePin(
+          roomId: 'room1',
+          messageId: 'msg1',
+          pinnedBy: 'u1',
+          pinnedAt: DateTime(2026, 1, 1),
+        ),
+      );
 
       final future = adapter.unpinMessage('room1', 'msg1');
 

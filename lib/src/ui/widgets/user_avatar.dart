@@ -31,7 +31,10 @@ class UserAvatar extends StatelessWidget {
   String _initials() {
     final name = displayName?.trim() ?? '';
     if (name.isEmpty) return '?';
-    final parts = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '?';
     if (parts.length >= 2) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
@@ -44,14 +47,10 @@ class UserAvatar extends StatelessWidget {
       return switch (presenceStatus!) {
         PresenceStatus.available =>
           theme.presenceAvailableColor ?? Colors.green,
-        PresenceStatus.away =>
-          theme.presenceAwayColor ?? Colors.amber,
-        PresenceStatus.busy =>
-          theme.presenceBusyColor ?? Colors.red,
-        PresenceStatus.dnd =>
-          theme.presenceDndColor ?? Colors.red.shade900,
-        PresenceStatus.offline =>
-          theme.avatarOfflineColor ?? Colors.grey,
+        PresenceStatus.away => theme.presenceAwayColor ?? Colors.amber,
+        PresenceStatus.busy => theme.presenceBusyColor ?? Colors.red,
+        PresenceStatus.dnd => theme.presenceDndColor ?? Colors.red.shade900,
+        PresenceStatus.offline => theme.avatarOfflineColor ?? Colors.grey,
       };
     }
     return isOnline == true
@@ -79,9 +78,7 @@ class UserAvatar extends StatelessWidget {
     final avatar = CircleAvatar(
       radius: size / 2,
       backgroundColor: theme.avatarBackgroundColor ?? Colors.grey.shade300,
-      backgroundImage: hasImage
-          ? CachedNetworkImageProvider(imageUrl!)
-          : null,
+      backgroundImage: hasImage ? CachedNetworkImageProvider(imageUrl!) : null,
       child: !hasImage
           ? Text(
               _initials(),
@@ -134,7 +131,10 @@ class UserAvatar extends StatelessWidget {
                 decoration: BoxDecoration(
                   color: dotColor,
                   shape: BoxShape.circle,
-                  border: Border.all(color: theme.avatarOnlineBorderColor ?? Colors.white, width: 1.5),
+                  border: Border.all(
+                    color: theme.avatarOnlineBorderColor ?? Colors.white,
+                    width: 1.5,
+                  ),
                 ),
               ),
             ),

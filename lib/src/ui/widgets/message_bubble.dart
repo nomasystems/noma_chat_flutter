@@ -93,7 +93,7 @@ class MessageBubble extends StatelessWidget {
   final Widget? avatarWidget;
   final String Function(ChatMessage message)? systemMessageTextResolver;
   final Widget? Function(BuildContext context, ChatMessage message)?
-      systemMessageBuilder;
+  systemMessageBuilder;
 
   /// Users that have read this message — typically derived by `MessageList`
   /// via `readersFor` from the room's read receipts. When non-empty (and the
@@ -152,38 +152,44 @@ class MessageBubble extends StatelessWidget {
 
     final Widget? statusIcon = isOutgoing
         ? (isFailed
-            ? GestureDetector(
-                onTap: onRetry,
-                child: Icon(Icons.error_outline, size: 12,
-                    color: theme.failedMessageIconColor ?? Colors.red),
-              )
-            : isPending
-                ? Icon(Icons.access_time, size: 12,
-                    color: theme.messageStatusColor ?? Colors.grey)
-                : MessageStatusIcon(
-                    status: _effectiveStatus ?? ReceiptStatus.sent,
-                    theme: theme,
+              ? GestureDetector(
+                  onTap: onRetry,
+                  child: Icon(
+                    Icons.error_outline,
                     size: 12,
-                  ))
+                    color: theme.failedMessageIconColor ?? Colors.red,
+                  ),
+                )
+              : isPending
+              ? Icon(
+                  Icons.access_time,
+                  size: 12,
+                  color: theme.messageStatusColor ?? Colors.grey,
+                )
+              : MessageStatusIcon(
+                  status: _effectiveStatus ?? ReceiptStatus.sent,
+                  theme: theme,
+                  size: 12,
+                ))
         : null;
 
     final outgoingStatusWidget = statusIcon == null
         ? null
         : (readReceiptUsers.isEmpty || isFailed || isPending
-            ? statusIcon
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ReadReceiptAvatars(
-                    receipts: readReceipts,
-                    users: readReceiptUsers,
-                    avatarSize: 14,
-                    theme: theme,
-                  ),
-                  const SizedBox(width: 4),
-                  statusIcon,
-                ],
-              ));
+              ? statusIcon
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ReadReceiptAvatars(
+                      receipts: readReceipts,
+                      users: readReceiptUsers,
+                      avatarSize: 14,
+                      theme: theme,
+                    ),
+                    const SizedBox(width: 4),
+                    statusIcon,
+                  ],
+                ));
 
     if (message.messageType == MessageType.audio &&
         message.attachmentUrl != null) {
@@ -292,9 +298,9 @@ class MessageBubble extends StatelessWidget {
         linkPreview = LinkPreviewBubble(
           url:
               meta['linkUrl'] as String? ??
-                  (UrlDetector.extractUrls(text).isNotEmpty
-                      ? UrlDetector.extractUrls(text).first
-                      : ''),
+              (UrlDetector.extractUrls(text).isNotEmpty
+                  ? UrlDetector.extractUrls(text).first
+                  : ''),
           title: meta['linkTitle'] as String?,
           description: meta['linkDescription'] as String?,
           imageUrl: meta['linkImage'] as String?,
@@ -337,23 +343,24 @@ class MessageBubble extends StatelessWidget {
           child: customSystemWidget,
         );
       }
-      final resolvedText = systemMessageTextResolver?.call(message) ??
-          message.text ??
-          '';
+      final resolvedText =
+          systemMessageTextResolver?.call(message) ?? message.text ?? '';
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Center(
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: theme.systemMessageBackgroundColor ??
+              color:
+                  theme.systemMessageBackgroundColor ??
                   theme.dateSeparatorBackgroundColor ??
                   Colors.black12,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
               resolvedText,
-              style: theme.systemMessageTextStyle ??
+              style:
+                  theme.systemMessageTextStyle ??
                   theme.dateSeparatorTextStyle ??
                   const TextStyle(fontSize: 12, color: Colors.black54),
               textAlign: TextAlign.center,
@@ -378,8 +385,8 @@ class MessageBubble extends StatelessWidget {
     final hasAvatar = !isOutgoing && avatarWidget != null;
     final bubbleRadius = isLastInGroup
         ? (isOutgoing
-            ? defaultRadius.copyWith(bottomRight: const Radius.circular(4))
-            : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
+              ? defaultRadius.copyWith(bottomRight: const Radius.circular(4))
+              : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
         : defaultRadius;
 
     final bubble = GestureDetector(
@@ -402,7 +409,8 @@ class MessageBubble extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 2),
                 child: Text(
                   senderName!,
-                  style: theme.senderNameStyle ??
+                  style:
+                      theme.senderNameStyle ??
                       const TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 12,
@@ -457,8 +465,7 @@ class MessageBubble extends StatelessWidget {
     const avatarGap = 8.0;
     const avatarSpace = avatarSize + avatarGap;
 
-    final semanticSender =
-        senderName ?? (isOutgoing ? theme.l10n.you : '');
+    final semanticSender = senderName ?? (isOutgoing ? theme.l10n.you : '');
     final semanticBody = message.isDeleted
         ? theme.l10n.messageDeleted
         : (message.text ?? '');
@@ -499,7 +506,8 @@ class MessageBubble extends StatelessWidget {
               )
             : Padding(
                 padding: EdgeInsets.only(
-                  left: !isOutgoing && avatarWidget == null && senderName != null
+                  left:
+                      !isOutgoing && avatarWidget == null && senderName != null
                       ? avatarSpace
                       : 0,
                 ),

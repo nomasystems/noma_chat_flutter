@@ -25,9 +25,7 @@ void main() {
     });
 
     test('excludes users with null lastReadAt', () {
-      final receipts = [
-        const ReadReceipt(userId: 'bob', lastReadAt: null),
-      ];
+      final receipts = [const ReadReceipt(userId: 'bob', lastReadAt: null)];
       expect(readersFor(message, receipts), isEmpty);
     });
 
@@ -43,20 +41,14 @@ void main() {
 
     test('includes users whose lastReadAt equals the message timestamp', () {
       final receipts = [
-        ReadReceipt(
-          userId: 'bob',
-          lastReadAt: DateTime(2026, 5, 12, 10, 0, 0),
-        ),
+        ReadReceipt(userId: 'bob', lastReadAt: DateTime(2026, 5, 12, 10, 0, 0)),
       ];
       expect(readersFor(message, receipts), ['bob']);
     });
 
     test('includes users whose lastReadAt is after the message timestamp', () {
       final receipts = [
-        ReadReceipt(
-          userId: 'bob',
-          lastReadAt: DateTime(2026, 5, 12, 10, 5, 0),
-        ),
+        ReadReceipt(userId: 'bob', lastReadAt: DateTime(2026, 5, 12, 10, 5, 0)),
         ReadReceipt(
           userId: 'carol',
           lastReadAt: DateTime(2026, 5, 12, 10, 10, 0),

@@ -23,28 +23,25 @@ void main() {
     ChatConnectionState? state,
     Widget Function(BuildContext)? headerBuilder,
     bool readOnly = false,
-  }) =>
-      ChatView(
-        controller: controller,
-        onSendMessage: (_) {},
-        contextMenuActions: actions.toSet(),
-        connectionState: state,
-        headerBuilder: headerBuilder,
-        readOnly: readOnly,
-        enableLinkPreview: false,
-      );
+  }) => ChatView(
+    controller: controller,
+    onSendMessage: (_) {},
+    contextMenuActions: actions.toSet(),
+    connectionState: state,
+    headerBuilder: headerBuilder,
+    readOnly: readOnly,
+    enableLinkPreview: false,
+  );
 
   testWidgets('shows reconnecting banner with custom label', (tester) async {
-    await tester.pumpWidget(wrap(viewWith(
-      state: ChatConnectionState.reconnecting,
-    )));
+    await tester.pumpWidget(
+      wrap(viewWith(state: ChatConnectionState.reconnecting)),
+    );
     expect(find.byType(ConnectionBanner), findsOneWidget);
   });
 
   testWidgets('connectionState=error shows error banner', (tester) async {
-    await tester.pumpWidget(wrap(viewWith(
-      state: ChatConnectionState.error,
-    )));
+    await tester.pumpWidget(wrap(viewWith(state: ChatConnectionState.error)));
     expect(find.byType(ConnectionBanner), findsOneWidget);
   });
 
@@ -53,21 +50,22 @@ void main() {
     expect(find.byType(MessageInput), findsNothing);
   });
 
-  testWidgets('headerBuilder renders above the message list',
-      (tester) async {
-    await tester.pumpWidget(wrap(viewWith(
-      headerBuilder: (_) => const Text('Custom header'),
-    )));
+  testWidgets('headerBuilder renders above the message list', (tester) async {
+    await tester.pumpWidget(
+      wrap(viewWith(headerBuilder: (_) => const Text('Custom header'))),
+    );
     expect(find.text('Custom header'), findsOneWidget);
   });
 
   testWidgets('with messages the input composer is mounted', (tester) async {
-    controller.addMessage(ChatMessage(
-      id: 'm1',
-      from: 'u2',
-      timestamp: DateTime(2026, 1, 1),
-      text: 'incoming hi',
-    ));
+    controller.addMessage(
+      ChatMessage(
+        id: 'm1',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'incoming hi',
+      ),
+    );
     await tester.pumpWidget(wrap(viewWith()));
     await tester.pump();
     expect(find.byType(MessageInput), findsOneWidget);

@@ -108,14 +108,8 @@ void main() {
       controller.confirmSent('tmp-1', serverMsg);
 
       expect(controller.isPending('tmp-1'), false);
-      expect(
-        controller.messages.any((m) => m.id == 'tmp-1'),
-        false,
-      );
-      expect(
-        controller.messages.any((m) => m.id == 'srv-1'),
-        true,
-      );
+      expect(controller.messages.any((m) => m.id == 'tmp-1'), false);
+      expect(controller.messages.any((m) => m.id == 'srv-1'), true);
     });
 
     test('rebuilds index so new ID is findable', () {

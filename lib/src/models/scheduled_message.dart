@@ -20,8 +20,7 @@ class ScheduledMessage {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ScheduledMessage && other.id == id;
+      identical(this, other) || other is ScheduledMessage && other.id == id;
 
   @override
   int get hashCode => id.hashCode;

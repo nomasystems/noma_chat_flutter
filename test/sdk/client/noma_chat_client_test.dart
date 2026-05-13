@@ -27,12 +27,13 @@ void main() {
     eventsController = StreamController<ChatEvent>.broadcast();
     stateController = StreamController<ChatConnectionState>.broadcast();
 
-    when(() => mockTransport.events)
-        .thenAnswer((_) => eventsController.stream);
-    when(() => mockTransport.stateChanges)
-        .thenAnswer((_) => stateController.stream);
-    when(() => mockTransport.state)
-        .thenReturn(ChatConnectionState.disconnected);
+    when(() => mockTransport.events).thenAnswer((_) => eventsController.stream);
+    when(
+      () => mockTransport.stateChanges,
+    ).thenAnswer((_) => stateController.stream);
+    when(
+      () => mockTransport.state,
+    ).thenReturn(ChatConnectionState.disconnected);
     when(() => mockTransport.isWsConnected).thenReturn(false);
     when(() => mockTransport.connect()).thenAnswer((_) async {});
     when(() => mockTransport.disconnect()).thenAnswer((_) async {});
@@ -67,16 +68,18 @@ void main() {
   }
 
   group('NomaChatClient', () {
-    test('constructor without cacheConfig does not subscribe on connect',
-        () async {
-      final client = createClient();
+    test(
+      'constructor without cacheConfig does not subscribe on connect',
+      () async {
+        final client = createClient();
 
-      await client.connect();
-      verify(() => mockTransport.connect()).called(1);
+        await client.connect();
+        verify(() => mockTransport.connect()).called(1);
 
-      eventsController.add(const ConnectedEvent());
-      await Future<void>.delayed(Duration.zero);
-    });
+        eventsController.add(const ConnectedEvent());
+        await Future<void>.delayed(Duration.zero);
+      },
+    );
 
     test('constructor with cacheConfig initializes offline queue', () async {
       final client = createClient(cfg: configWithCache);
@@ -96,15 +99,17 @@ void main() {
       verify(() => mockTransport.connect()).called(1);
     });
 
-    test('disconnect cancels subscription and delegates to transport',
-        () async {
-      final client = createClient();
+    test(
+      'disconnect cancels subscription and delegates to transport',
+      () async {
+        final client = createClient();
 
-      await client.connect();
-      await client.disconnect();
+        await client.connect();
+        await client.disconnect();
 
-      verify(() => mockTransport.disconnect()).called(1);
-    });
+        verify(() => mockTransport.disconnect()).called(1);
+      },
+    );
 
     test('dispose cancels subscription and disposes transport', () async {
       final client = createClient();
@@ -129,10 +134,8 @@ void main() {
     });
 
     test('connectionState reads through to the transport', () {
-      when(() => mockTransport.state)
-          .thenReturn(ChatConnectionState.connected);
-      expect(createClient().connectionState,
-          ChatConnectionState.connected);
+      when(() => mockTransport.state).thenReturn(ChatConnectionState.connected);
+      expect(createClient().connectionState, ChatConnectionState.connected);
     });
 
     test('stateChanges stream comes from transport', () async {
@@ -142,14 +145,15 @@ void main() {
       stateController.add(ChatConnectionState.connecting);
       stateController.add(ChatConnectionState.connected);
       await Future<void>.delayed(Duration.zero);
-      expect(out,
-          [ChatConnectionState.connecting, ChatConnectionState.connected]);
+      expect(out, [
+        ChatConnectionState.connecting,
+        ChatConnectionState.connected,
+      ]);
       await sub.cancel();
     });
 
     test('notifyTokenRotated delegates to the transport', () async {
-      when(() => mockTransport.notifyTokenRotated())
-          .thenAnswer((_) async {});
+      when(() => mockTransport.notifyTokenRotated()).thenAnswer((_) async {});
 
       final client = createClient();
       await client.notifyTokenRotated();
@@ -157,15 +161,17 @@ void main() {
       verify(() => mockTransport.notifyTokenRotated()).called(1);
     });
 
-    test('logout calls disconnect and (with cache) clears the queue + cache',
-        () async {
-      final client = createClient(cfg: configWithCache);
-      await client.connect();
+    test(
+      'logout calls disconnect and (with cache) clears the queue + cache',
+      () async {
+        final client = createClient(cfg: configWithCache);
+        await client.connect();
 
-      await client.logout();
+        await client.logout();
 
-      verify(() => mockTransport.disconnect()).called(1);
-    });
+        verify(() => mockTransport.disconnect()).called(1);
+      },
+    );
 
     test('DisconnectedEvent updates lastDisconnectedAt', () async {
       final client = createClient();
@@ -175,8 +181,7 @@ void main() {
       expect(client.lastDisconnectedAt, isNotNull);
     });
 
-    test('ConnectedEvent (first) does not set lastDisconnectedAt',
-        () async {
+    test('ConnectedEvent (first) does not set lastDisconnectedAt', () async {
       final client = createClient();
       await client.connect();
       eventsController.add(const ConnectedEvent());
@@ -184,8 +189,7 @@ void main() {
       expect(client.lastDisconnectedAt, isNull);
     });
 
-    test('ConnectedEvent after disconnect clears lastDisconnectedAt',
-        () async {
+    test('ConnectedEvent after disconnect clears lastDisconnectedAt', () async {
       final client = createClient();
       await client.connect();
       eventsController.add(const DisconnectedEvent());
@@ -197,16 +201,18 @@ void main() {
       expect(client.lastDisconnectedAt, isNull);
     });
 
-    test('configWithCache: ConnectedEvent triggers offline queue processing',
-        () async {
-      final client = createClient(cfg: configWithCache);
-      await client.connect();
-      // First ConnectedEvent just primes _hasConnectedOnce; second triggers
-      // the queue path. Both should leave the client functional.
-      eventsController.add(const ConnectedEvent());
-      eventsController.add(const DisconnectedEvent());
-      eventsController.add(const ConnectedEvent());
-      await Future<void>.delayed(Duration.zero);
-    });
+    test(
+      'configWithCache: ConnectedEvent triggers offline queue processing',
+      () async {
+        final client = createClient(cfg: configWithCache);
+        await client.connect();
+        // First ConnectedEvent just primes _hasConnectedOnce; second triggers
+        // the queue path. Both should leave the client functional.
+        eventsController.add(const ConnectedEvent());
+        eventsController.add(const DisconnectedEvent());
+        eventsController.add(const ConnectedEvent());
+        await Future<void>.delayed(Duration.zero);
+      },
+    );
   });
 }

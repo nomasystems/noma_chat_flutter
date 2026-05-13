@@ -5,9 +5,7 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   final currentUser = const ChatUser(id: 'me', displayName: 'Me', active: true);
 
-  ChatController makeController({
-    List<ChatUser> otherUsers = const [],
-  }) =>
+  ChatController makeController({List<ChatUser> otherUsers = const []}) =>
       ChatController(
         initialMessages: [],
         currentUser: currentUser,
@@ -24,9 +22,11 @@ void main() {
     });
 
     testWidgets('shows single user typing with resolved name', (tester) async {
-      final controller = makeController(otherUsers: [
-        const ChatUser(id: 'alice', displayName: 'Alice', active: true),
-      ]);
+      final controller = makeController(
+        otherUsers: [
+          const ChatUser(id: 'alice', displayName: 'Alice', active: true),
+        ],
+      );
       controller.setTyping('alice', true);
 
       await tester.pumpWidget(wrap(TypingStatusText(controller: controller)));
@@ -35,10 +35,12 @@ void main() {
     });
 
     testWidgets('shows two users typing', (tester) async {
-      final controller = makeController(otherUsers: [
-        const ChatUser(id: 'alice', displayName: 'Alice', active: true),
-        const ChatUser(id: 'bob', displayName: 'Bob', active: true),
-      ]);
+      final controller = makeController(
+        otherUsers: [
+          const ChatUser(id: 'alice', displayName: 'Alice', active: true),
+          const ChatUser(id: 'bob', displayName: 'Bob', active: true),
+        ],
+      );
       controller.setTyping('alice', true);
       controller.setTyping('bob', true);
 
@@ -48,11 +50,13 @@ void main() {
     });
 
     testWidgets('shows count for 3+ users typing', (tester) async {
-      final controller = makeController(otherUsers: [
-        const ChatUser(id: 'alice', displayName: 'Alice', active: true),
-        const ChatUser(id: 'bob', displayName: 'Bob', active: true),
-        const ChatUser(id: 'carol', displayName: 'Carol', active: true),
-      ]);
+      final controller = makeController(
+        otherUsers: [
+          const ChatUser(id: 'alice', displayName: 'Alice', active: true),
+          const ChatUser(id: 'bob', displayName: 'Bob', active: true),
+          const ChatUser(id: 'carol', displayName: 'Carol', active: true),
+        ],
+      );
       controller.setTyping('alice', true);
       controller.setTyping('bob', true);
       controller.setTyping('carol', true);
@@ -62,7 +66,9 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('falls back to userId when user not in otherUsers', (tester) async {
+    testWidgets('falls back to userId when user not in otherUsers', (
+      tester,
+    ) async {
       final controller = makeController();
       controller.setTyping('unknown-id', true);
 
@@ -72,23 +78,27 @@ void main() {
     });
 
     testWidgets('uses Spanish localization', (tester) async {
-      final controller = makeController(otherUsers: [
-        const ChatUser(id: 'alice', displayName: 'Alice', active: true),
-      ]);
+      final controller = makeController(
+        otherUsers: [
+          const ChatUser(id: 'alice', displayName: 'Alice', active: true),
+        ],
+      );
       controller.setTyping('alice', true);
 
       final theme = ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es);
-      await tester.pumpWidget(wrap(
-        TypingStatusText(controller: controller, theme: theme),
-      ));
+      await tester.pumpWidget(
+        wrap(TypingStatusText(controller: controller, theme: theme)),
+      );
       expect(find.textContaining('Alice est'), findsOneWidget);
       controller.dispose();
     });
 
     testWidgets('disappears when user stops typing', (tester) async {
-      final controller = makeController(otherUsers: [
-        const ChatUser(id: 'alice', displayName: 'Alice', active: true),
-      ]);
+      final controller = makeController(
+        otherUsers: [
+          const ChatUser(id: 'alice', displayName: 'Alice', active: true),
+        ],
+      );
       controller.setTyping('alice', true);
 
       await tester.pumpWidget(wrap(TypingStatusText(controller: controller)));

@@ -42,7 +42,9 @@ class RoomListHeader extends StatelessWidget {
             const SizedBox(width: 12),
             Text(
               '$selectedCount',
-              style: theme.roomListHeaderSelectedStyle ?? const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              style:
+                  theme.roomListHeaderSelectedStyle ??
+                  const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
           ] else ...[
             Expanded(

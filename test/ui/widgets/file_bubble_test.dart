@@ -7,9 +7,7 @@ void main() {
 
   group('FileBubble', () {
     testWidgets('shows file name', (tester) async {
-      await tester.pumpWidget(
-        wrap(const FileBubble(fileName: 'report.pdf')),
-      );
+      await tester.pumpWidget(wrap(const FileBubble(fileName: 'report.pdf')));
       expect(find.text('report.pdf'), findsOneWidget);
     });
 
@@ -21,9 +19,7 @@ void main() {
     });
 
     testWidgets('has Semantics label with file name', (tester) async {
-      await tester.pumpWidget(
-        wrap(const FileBubble(fileName: 'report.pdf')),
-      );
+      await tester.pumpWidget(wrap(const FileBubble(fileName: 'report.pdf')));
       final finder = find.byWidgetPredicate(
         (w) => w is Semantics && w.properties.label == 'report.pdf',
       );

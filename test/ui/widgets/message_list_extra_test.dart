@@ -13,18 +13,21 @@ void main() {
   const u2 = ChatUser(id: 'u2', displayName: 'Bob');
   const u3 = ChatUser(id: 'u3', displayName: 'Eve');
 
-  ChatMessage msg(String id,
-          {String from = 'u2', String text = 'msg', DateTime? ts}) =>
-      ChatMessage(
-        id: id,
-        from: from,
-        text: text,
-        timestamp: ts ?? DateTime(2026, 1, 1, 12),
-      );
+  ChatMessage msg(
+    String id, {
+    String from = 'u2',
+    String text = 'msg',
+    DateTime? ts,
+  }) => ChatMessage(
+    id: id,
+    from: from,
+    text: text,
+    timestamp: ts ?? DateTime(2026, 1, 1, 12),
+  );
 
   Widget wrap(Widget child) => MaterialApp(
-        home: Scaffold(body: SizedBox(height: 500, width: 400, child: child)),
-      );
+    home: Scaffold(body: SizedBox(height: 500, width: 400, child: child)),
+  );
 
   testWidgets('didUpdateWidget swaps controller cleanly', (tester) async {
     final c1 = ChatController(initialMessages: [msg('a')], currentUser: me);
@@ -42,19 +45,21 @@ void main() {
     c2.dispose();
   });
 
-  testWidgets('initialMessageId triggers a scroll attempt when loaded',
-      (tester) async {
+  testWidgets('initialMessageId triggers a scroll attempt when loaded', (
+    tester,
+  ) async {
     final messages = List<ChatMessage>.generate(
       20,
       (i) => msg('m$i', text: 'msg $i', ts: DateTime(2026, 1, 1, i)),
     );
-    final controller =
-        ChatController(initialMessages: messages, currentUser: me);
+    final controller = ChatController(
+      initialMessages: messages,
+      currentUser: me,
+    );
 
-    await tester.pumpWidget(wrap(MessageList(
-      controller: controller,
-      initialMessageId: 'm5',
-    )));
+    await tester.pumpWidget(
+      wrap(MessageList(controller: controller, initialMessageId: 'm5')),
+    );
     // Drive the post-frame callback that pumps `_tryScrollToPending`.
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 350));
@@ -63,33 +68,35 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('switching initialMessageId on rebuild re-registers listener',
-      (tester) async {
+  testWidgets('switching initialMessageId on rebuild re-registers listener', (
+    tester,
+  ) async {
     final messages = List<ChatMessage>.generate(
       10,
       (i) => msg('m$i', ts: DateTime(2026, 1, 1, i)),
     );
-    final controller =
-        ChatController(initialMessages: messages, currentUser: me);
+    final controller = ChatController(
+      initialMessages: messages,
+      currentUser: me,
+    );
 
-    await tester.pumpWidget(wrap(MessageList(
-      controller: controller,
-      initialMessageId: 'm3',
-    )));
+    await tester.pumpWidget(
+      wrap(MessageList(controller: controller, initialMessageId: 'm3')),
+    );
     await tester.pump();
 
-    await tester.pumpWidget(wrap(MessageList(
-      controller: controller,
-      initialMessageId: 'm7',
-    )));
+    await tester.pumpWidget(
+      wrap(MessageList(controller: controller, initialMessageId: 'm7')),
+    );
     await tester.pump();
 
     expect(find.byType(MessageList), findsOneWidget);
     controller.dispose();
   });
 
-  testWidgets('group typing with multiple users renders the typing header',
-      (tester) async {
+  testWidgets('group typing with multiple users renders the typing header', (
+    tester,
+  ) async {
     final controller = ChatController(
       initialMessages: [msg('m1')],
       currentUser: me,
@@ -105,8 +112,9 @@ void main() {
     controller.dispose();
   });
 
-  testWidgets('avatarBuilder is invoked for typing indicator when set',
-      (tester) async {
+  testWidgets('avatarBuilder is invoked for typing indicator when set', (
+    tester,
+  ) async {
     final controller = ChatController(
       initialMessages: [msg('m1')],
       currentUser: me,
@@ -115,21 +123,26 @@ void main() {
     controller.setTyping('u2', true);
 
     var builderCalled = false;
-    await tester.pumpWidget(wrap(MessageList(
-      controller: controller,
-      avatarBuilder: (ctx, uid) {
-        builderCalled = true;
-        return const SizedBox.shrink();
-      },
-    )));
+    await tester.pumpWidget(
+      wrap(
+        MessageList(
+          controller: controller,
+          avatarBuilder: (ctx, uid) {
+            builderCalled = true;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(builderCalled, isTrue);
     controller.dispose();
   });
 
-  testWidgets('referencedMessages prop is honoured by the bubbles',
-      (tester) async {
+  testWidgets('referencedMessages prop is honoured by the bubbles', (
+    tester,
+  ) async {
     final ref = msg('parent', text: 'original');
     final reply = ChatMessage(
       id: 'reply',
@@ -139,14 +152,21 @@ void main() {
       referencedMessageId: 'parent',
     );
 
-    final controller =
-        ChatController(initialMessages: [ref, reply], currentUser: me);
+    final controller = ChatController(
+      initialMessages: [ref, reply],
+      currentUser: me,
+    );
 
-    await tester.pumpWidget(wrap(MessageList(
-      controller: controller,
-      referencedMessages: const {'parent': null} // pass-through smoke
-          .map((k, v) => MapEntry(k, ref)),
-    )));
+    await tester.pumpWidget(
+      wrap(
+        MessageList(
+          controller: controller,
+          referencedMessages:
+              const {'parent': null} // pass-through smoke
+                  .map((k, v) => MapEntry(k, ref)),
+        ),
+      ),
+    );
     await tester.pump();
 
     expect(find.byType(MessageBubble), findsWidgets);

@@ -19,18 +19,20 @@ class RetryInterceptor extends Interceptor {
     CircuitBreaker? circuitBreaker,
     CircuitBreakerRegistry? registry,
     Random? random,
-  })  : _config = config,
-        _dio = dio,
-        _circuitBreaker = circuitBreaker,
-        _registry = registry,
-        _random = random ?? Random();
+  }) : _config = config,
+       _dio = dio,
+       _circuitBreaker = circuitBreaker,
+       _registry = registry,
+       _random = random ?? Random();
 
   CircuitBreaker? _breakerFor(RequestOptions options) =>
       _registry?.forPath(options.path) ?? _circuitBreaker;
 
   @override
   Future<void> onError(
-      DioException err, ErrorInterceptorHandler handler) async {
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
     if (!_config.enabled) return handler.next(err);
     final breaker = _breakerFor(err.requestOptions);
     if (!_shouldRetry(err)) {
@@ -63,7 +65,9 @@ class RetryInterceptor extends Interceptor {
 
   @override
   void onResponse(
-      Response<dynamic> response, ResponseInterceptorHandler handler) {
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
     _breakerFor(response.requestOptions)?.recordSuccess();
     handler.next(response);
   }

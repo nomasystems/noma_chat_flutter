@@ -108,8 +108,8 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
           final lastBatchOldest = data.items.isEmpty
               ? null
               : data.items
-                  .map((m) => m.timestamp)
-                  .reduce((a, b) => a.isBefore(b) ? a : b);
+                    .map((m) => m.timestamp)
+                    .reduce((a, b) => a.isBefore(b) ? a : b);
           // Stop when no more pages, the page is empty, or the cursor stops
           // moving (defensive against backend bugs).
           if (!data.hasMore ||
@@ -180,34 +180,34 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _errorMessage != null
-              ? EmptyState(
-                  icon: Icons.error_outline,
-                  title: l10n.connectionError,
-                  subtitle: _errorMessage,
+          ? EmptyState(
+              icon: Icons.error_outline,
+              title: l10n.connectionError,
+              subtitle: _errorMessage,
+              theme: widget.theme,
+            )
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                MediaGalleryView(
+                  items: _media,
                   theme: widget.theme,
-                )
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    MediaGalleryView(
-                      items: _media,
-                      theme: widget.theme,
-                      onTapItem: widget.onTapMedia,
-                      includeAudioFiles: widget.includeAudioFiles,
-                    ),
-                    _DocsTab(
-                      items: _docs,
-                      theme: widget.theme,
-                      onTap: widget.onTapDoc,
-                      includeAudioFiles: widget.includeAudioFiles,
-                    ),
-                    _LinksTab(
-                      messages: widget.linkSourceMessages,
-                      theme: widget.theme,
-                      onTap: widget.onTapLink,
-                    ),
-                  ],
+                  onTapItem: widget.onTapMedia,
+                  includeAudioFiles: widget.includeAudioFiles,
                 ),
+                _DocsTab(
+                  items: _docs,
+                  theme: widget.theme,
+                  onTap: widget.onTapDoc,
+                  includeAudioFiles: widget.includeAudioFiles,
+                ),
+                _LinksTab(
+                  messages: widget.linkSourceMessages,
+                  theme: widget.theme,
+                  onTap: widget.onTapLink,
+                ),
+              ],
+            ),
     );
   }
 }
@@ -244,11 +244,7 @@ class _DocsTab extends StatelessWidget {
 }
 
 class _LinksTab extends StatelessWidget {
-  const _LinksTab({
-    required this.messages,
-    required this.theme,
-    this.onTap,
-  });
+  const _LinksTab({required this.messages, required this.theme, this.onTap});
 
   final List<ChatMessage> messages;
   final ChatTheme theme;

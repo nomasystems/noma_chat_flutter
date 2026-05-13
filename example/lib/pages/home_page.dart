@@ -15,9 +15,11 @@ class HomePage extends StatelessWidget {
       body: RoomListView(
         controller: chat.roomListController,
         onTapRoom: (item) {
-          Navigator.of(context).push(MaterialPageRoute<void>(
-            builder: (_) => ChatRoomPage(roomId: item.id, title: item.name),
-          ));
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ChatRoomPage(roomId: item.id, title: item.name),
+            ),
+          );
         },
       ),
     );

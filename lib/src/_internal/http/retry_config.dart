@@ -16,9 +16,9 @@ class RetryConfig {
 
   /// Disables retries entirely.
   const RetryConfig.disabled()
-      : maxRetries = 0,
-        baseDelay = Duration.zero,
-        maxDelay = Duration.zero,
-        retryableStatusCodes = const {},
-        enabled = false;
+    : maxRetries = 0,
+      baseDelay = Duration.zero,
+      maxDelay = Duration.zero,
+      retryableStatusCodes = const {},
+      enabled = false;
 }

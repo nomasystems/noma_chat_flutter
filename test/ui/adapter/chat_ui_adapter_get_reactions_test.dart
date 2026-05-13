@@ -18,10 +18,13 @@ void main() {
   });
 
   group('getReactions', () {
-    test('delegates to client.messages.getReactions and returns result', () async {
-      final result = await adapter.getReactions('room1', 'msg1');
-      expect(result.isSuccess, true);
-      expect(result.dataOrNull, isEmpty);
-    });
+    test(
+      'delegates to client.messages.getReactions and returns result',
+      () async {
+        final result = await adapter.getReactions('room1', 'msg1');
+        expect(result.isSuccess, true);
+        expect(result.dataOrNull, isEmpty);
+      },
+    );
   });
 }

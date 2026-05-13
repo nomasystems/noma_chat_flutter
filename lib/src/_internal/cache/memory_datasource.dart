@@ -39,8 +39,12 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   }
 
   @override
-  Future<List<ChatMessage>> getMessages(String roomId,
-      {int? limit, String? before, String? after}) async {
+  Future<List<ChatMessage>> getMessages(
+    String roomId, {
+    int? limit,
+    String? before,
+    String? after,
+  }) async {
     final messages = _messages[roomId] ?? [];
     var filtered = messages;
     if (before != null) {
@@ -216,14 +220,19 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   // Reactions
   @override
   Future<void> saveReactions(
-      String roomId, String messageId, List<AggregatedReaction> reactions) async {
+    String roomId,
+    String messageId,
+    List<AggregatedReaction> reactions,
+  ) async {
     _reactions.putIfAbsent(roomId, () => {});
     _reactions[roomId]![messageId] = List.of(reactions);
   }
 
   @override
   Future<List<AggregatedReaction>> getReactions(
-      String roomId, String messageId) async {
+    String roomId,
+    String messageId,
+  ) async {
     return _reactions[roomId]?[messageId] ?? [];
   }
 

@@ -26,8 +26,9 @@ class _MessageSearchPageState extends State<MessageSearchPage> {
     if (_bound) return;
     _bound = true;
     _chat = ChatProvider.of(context);
-    _controller =
-        MessageSearchController(searchFn: _chat.adapter.searchMessages);
+    _controller = MessageSearchController(
+      searchFn: _chat.adapter.searchMessages,
+    );
   }
 
   @override
@@ -43,8 +44,7 @@ class _MessageSearchPageState extends State<MessageSearchPage> {
       body: MessageSearchView(
         controller: _controller,
         roomId: widget.roomId,
-        onMessageTap: (_, messageId) =>
-            Navigator.of(context).pop(messageId),
+        onMessageTap: (_, messageId) => Navigator.of(context).pop(messageId),
       ),
     );
   }

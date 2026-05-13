@@ -16,7 +16,11 @@ class DateSeparator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: DateFormatter.formatSeparator(date, todayLabel: theme.l10n.today, yesterdayLabel: theme.l10n.yesterday),
+      label: DateFormatter.formatSeparator(
+        date,
+        todayLabel: theme.l10n.today,
+        yesterdayLabel: theme.l10n.yesterday,
+      ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
         child: Center(

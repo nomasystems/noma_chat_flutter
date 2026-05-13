@@ -7,11 +7,15 @@ void main() {
 
   group('AttachmentPickerSheet', () {
     testWidgets('shows camera, gallery, and file options', (tester) async {
-      await tester.pumpWidget(wrap(AttachmentPickerSheet(
-        onPickCamera: () {},
-        onPickGallery: () {},
-        onPickFile: () {},
-      )));
+      await tester.pumpWidget(
+        wrap(
+          AttachmentPickerSheet(
+            onPickCamera: () {},
+            onPickGallery: () {},
+            onPickFile: () {},
+          ),
+        ),
+      );
 
       expect(find.text('Camera'), findsOneWidget);
       expect(find.text('Gallery'), findsOneWidget);
@@ -19,11 +23,15 @@ void main() {
     });
 
     testWidgets('shows correct icons', (tester) async {
-      await tester.pumpWidget(wrap(AttachmentPickerSheet(
-        onPickCamera: () {},
-        onPickGallery: () {},
-        onPickFile: () {},
-      )));
+      await tester.pumpWidget(
+        wrap(
+          AttachmentPickerSheet(
+            onPickCamera: () {},
+            onPickGallery: () {},
+            onPickFile: () {},
+          ),
+        ),
+      );
 
       expect(find.byIcon(Icons.camera_alt), findsOneWidget);
       expect(find.byIcon(Icons.photo_library), findsOneWidget);
@@ -31,11 +39,15 @@ void main() {
     });
 
     testWidgets('uses custom labels', (tester) async {
-      await tester.pumpWidget(wrap(const AttachmentPickerSheet(
-        cameraLabel: 'Take Photo',
-        galleryLabel: 'Choose Photo',
-        fileLabel: 'Document',
-      )));
+      await tester.pumpWidget(
+        wrap(
+          const AttachmentPickerSheet(
+            cameraLabel: 'Take Photo',
+            galleryLabel: 'Choose Photo',
+            fileLabel: 'Document',
+          ),
+        ),
+      );
 
       expect(find.text('Take Photo'), findsOneWidget);
       expect(find.text('Choose Photo'), findsOneWidget);
@@ -44,23 +56,25 @@ void main() {
 
     testWidgets('calls onPickCamera and closes sheet', (tester) async {
       var cameraCalled = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (_) => AttachmentPickerSheet(
-                    onPickCamera: () => cameraCalled = true,
-                  ),
-                );
-              },
-              child: const Text('Open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (_) => AttachmentPickerSheet(
+                      onPickCamera: () => cameraCalled = true,
+                    ),
+                  );
+                },
+                child: const Text('Open'),
+              ),
             ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -73,23 +87,25 @@ void main() {
 
     testWidgets('calls onPickGallery and closes sheet', (tester) async {
       var galleryCalled = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (_) => AttachmentPickerSheet(
-                    onPickGallery: () => galleryCalled = true,
-                  ),
-                );
-              },
-              child: const Text('Open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (_) => AttachmentPickerSheet(
+                      onPickGallery: () => galleryCalled = true,
+                    ),
+                  );
+                },
+                child: const Text('Open'),
+              ),
             ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -102,23 +118,25 @@ void main() {
 
     testWidgets('calls onPickFile and closes sheet', (tester) async {
       var fileCalled = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () {
-                showModalBottomSheet(
-                  context: context,
-                  builder: (_) => AttachmentPickerSheet(
-                    onPickFile: () => fileCalled = true,
-                  ),
-                );
-              },
-              child: const Text('Open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    builder: (_) => AttachmentPickerSheet(
+                      onPickFile: () => fileCalled = true,
+                    ),
+                  );
+                },
+                child: const Text('Open'),
+              ),
             ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -131,21 +149,23 @@ void main() {
 
     testWidgets('static show method displays bottom sheet', (tester) async {
       var cameraCalled = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) => ElevatedButton(
-              onPressed: () {
-                AttachmentPickerSheet.show(
-                  context,
-                  onPickCamera: () => cameraCalled = true,
-                );
-              },
-              child: const Text('Open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  AttachmentPickerSheet.show(
+                    context,
+                    onPickCamera: () => cameraCalled = true,
+                  );
+                },
+                child: const Text('Open'),
+              ),
             ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();

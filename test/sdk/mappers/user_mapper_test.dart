@@ -90,14 +90,15 @@ void main() {
     });
 
     test('contactFromJson maps contact', () {
-      final contact =
-          UserMapper.contactFromJson({'userId': 'c-1'});
+      final contact = UserMapper.contactFromJson({'userId': 'c-1'});
       expect(contact.userId, 'c-1');
     });
 
     test('roomUserFromJson maps room user', () {
-      final roomUser =
-          UserMapper.roomUserFromJson({'userId': 'ru-1', 'role': 'admin'});
+      final roomUser = UserMapper.roomUserFromJson({
+        'userId': 'ru-1',
+        'role': 'admin',
+      });
       expect(roomUser.userId, 'ru-1');
       expect(roomUser.role, RoomRole.admin);
     });

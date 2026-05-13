@@ -33,19 +33,18 @@ List<TextSpan> parseMarkdown(
       case MarkdownStyle.bold:
         return TextSpan(
           text: span.text,
-          style: boldStyle ??
-              baseStyle.copyWith(fontWeight: FontWeight.bold),
+          style: boldStyle ?? baseStyle.copyWith(fontWeight: FontWeight.bold),
         );
       case MarkdownStyle.italic:
         return TextSpan(
           text: span.text,
-          style: italicStyle ??
-              baseStyle.copyWith(fontStyle: FontStyle.italic),
+          style: italicStyle ?? baseStyle.copyWith(fontStyle: FontStyle.italic),
         );
       case MarkdownStyle.code:
         return TextSpan(
           text: span.text,
-          style: codeStyle ??
+          style:
+              codeStyle ??
               baseStyle.copyWith(
                 fontFamily: 'monospace',
                 backgroundColor: Colors.grey.shade200,
@@ -54,36 +53,36 @@ List<TextSpan> parseMarkdown(
       case MarkdownStyle.strikethrough:
         return TextSpan(
           text: span.text,
-          style: strikethroughStyle ??
-              baseStyle.copyWith(
-                decoration: TextDecoration.lineThrough,
-              ),
+          style:
+              strikethroughStyle ??
+              baseStyle.copyWith(decoration: TextDecoration.lineThrough),
         );
       case MarkdownStyle.link:
         return TextSpan(
           text: span.text,
-          style: linkStyle ??
+          style:
+              linkStyle ??
               baseStyle.copyWith(
                 color: Colors.blue,
                 decoration: TextDecoration.underline,
               ),
           recognizer: onTapLink != null
               ? (TapGestureRecognizer()
-                ..onTap = () => onTapLink(span.url ?? span.text))
+                  ..onTap = () => onTapLink(span.url ?? span.text))
               : null,
         );
       case MarkdownStyle.mention:
         return TextSpan(
           text: span.text,
-          style: mentionStyle ??
+          style:
+              mentionStyle ??
               baseStyle.copyWith(
                 color: Colors.blue,
                 fontWeight: FontWeight.bold,
               ),
           recognizer: onTapMention != null
               ? (TapGestureRecognizer()
-                ..onTap =
-                    () => onTapMention(span.mentionUserId ?? span.text))
+                  ..onTap = () => onTapMention(span.mentionUserId ?? span.text))
               : null,
         );
       case MarkdownStyle.plain:
@@ -112,18 +111,14 @@ List<MarkdownSpan> _parse(String text) {
       final end = text.indexOf('`', i + 1);
       if (end != -1) {
         flushPlain();
-        spans.add(
-          MarkdownSpan(text.substring(i + 1, end), MarkdownStyle.code),
-        );
+        spans.add(MarkdownSpan(text.substring(i + 1, end), MarkdownStyle.code));
         i = end + 1;
         continue;
       }
     }
 
     // Bold: **...**
-    if (i + 1 < text.length &&
-        text[i] == '*' &&
-        text[i + 1] == '*') {
+    if (i + 1 < text.length && text[i] == '*' && text[i + 1] == '*') {
       final end = text.indexOf('**', i + 2);
       if (end != -1) {
         flushPlain();
@@ -142,17 +137,12 @@ List<MarkdownSpan> _parse(String text) {
     }
 
     // Strikethrough: ~~...~~
-    if (i + 1 < text.length &&
-        text[i] == '~' &&
-        text[i + 1] == '~') {
+    if (i + 1 < text.length && text[i] == '~' && text[i + 1] == '~') {
       final end = text.indexOf('~~', i + 2);
       if (end != -1) {
         flushPlain();
         spans.add(
-          MarkdownSpan(
-            text.substring(i + 2, end),
-            MarkdownStyle.strikethrough,
-          ),
+          MarkdownSpan(text.substring(i + 2, end), MarkdownStyle.strikethrough),
         );
         i = end + 2;
         continue;
@@ -165,10 +155,7 @@ List<MarkdownSpan> _parse(String text) {
       if (end != -1) {
         flushPlain();
         spans.add(
-          MarkdownSpan(
-            text.substring(i + 1, end),
-            MarkdownStyle.italic,
-          ),
+          MarkdownSpan(text.substring(i + 1, end), MarkdownStyle.italic),
         );
         i = end + 1;
         continue;
@@ -192,11 +179,7 @@ List<MarkdownSpan> _parse(String text) {
       final mentionText = text.substring(i, end);
       final userId = text.substring(i + 1, end);
       spans.add(
-        MarkdownSpan(
-          mentionText,
-          MarkdownStyle.mention,
-          mentionUserId: userId,
-        ),
+        MarkdownSpan(mentionText, MarkdownStyle.mention, mentionUserId: userId),
       );
       i = end;
       continue;

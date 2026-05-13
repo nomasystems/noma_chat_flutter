@@ -28,11 +28,13 @@ void main() {
 
     test('PresenceChangedEvent populates the cache', () async {
       await adapter.connect();
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u2',
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u2',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
       await Future.delayed(Duration.zero);
       final p = adapter.presenceFor('u2');
       expect(p, isNotNull);
@@ -42,17 +44,21 @@ void main() {
 
     test('PresenceChangedEvent overrides previous cached value', () async {
       await adapter.connect();
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u2',
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u2',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
       await Future.delayed(Duration.zero);
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u2',
-        status: PresenceStatus.offline,
-        online: false,
-      ));
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u2',
+          status: PresenceStatus.offline,
+          online: false,
+        ),
+      );
       await Future.delayed(Duration.zero);
       final p = adapter.presenceFor('u2');
       expect(p!.online, isFalse);
@@ -61,16 +67,20 @@ void main() {
 
     test('different users are tracked independently', () async {
       await adapter.connect();
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u2',
-        status: PresenceStatus.available,
-        online: true,
-      ));
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u3',
-        status: PresenceStatus.offline,
-        online: false,
-      ));
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u2',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u3',
+          status: PresenceStatus.offline,
+          online: false,
+        ),
+      );
       await Future.delayed(Duration.zero);
       expect(adapter.presenceFor('u2')!.online, isTrue);
       expect(adapter.presenceFor('u3')!.online, isFalse);
@@ -87,21 +97,27 @@ void main() {
       });
       addTearDown(sub.cancel);
 
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u3',
-        status: PresenceStatus.available,
-        online: true,
-      ));
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u2',
-        status: PresenceStatus.available,
-        online: true,
-      ));
-      mockClient.emitEvent(const ChatEvent.presenceChanged(
-        userId: 'u2',
-        status: PresenceStatus.offline,
-        online: false,
-      ));
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u3',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u2',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
+      mockClient.emitEvent(
+        const ChatEvent.presenceChanged(
+          userId: 'u2',
+          status: PresenceStatus.offline,
+          online: false,
+        ),
+      );
       await Future.delayed(const Duration(milliseconds: 20));
 
       expect(received, [true, false]);
@@ -109,14 +125,15 @@ void main() {
   });
 
   group('reconnect refresh', () {
-    test('ConnectedEvent after a disconnect re-runs presence.getAll',
-        () async {
+    test('ConnectedEvent after a disconnect re-runs presence.getAll', () async {
       // Seed the mock so getAll returns a known contact.
-      mockClient.presence.injectContact(const ChatPresence(
-        userId: 'u2',
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      mockClient.presence.injectContact(
+        const ChatPresence(
+          userId: 'u2',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
 
       await adapter.connect();
       // First connect already triggered a load via the constructor's mock,
@@ -139,11 +156,13 @@ void main() {
     });
 
     test('two ConnectedEvents in a row only refresh once', () async {
-      mockClient.presence.injectContact(const ChatPresence(
-        userId: 'u2',
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      mockClient.presence.injectContact(
+        const ChatPresence(
+          userId: 'u2',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
       await adapter.connect();
       await Future.delayed(Duration.zero);
       mockClient.presence.resetCallCount();

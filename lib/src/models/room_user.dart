@@ -5,9 +5,9 @@ enum RoomRole {
   member;
 
   String toJson() => switch (this) {
-        RoomRole.member => 'user',
-        _ => name,
-      };
+    RoomRole.member => 'user',
+    _ => name,
+  };
 }
 
 /// A member of a room with their assigned role.
@@ -15,10 +15,7 @@ class RoomUser {
   final String userId;
   final RoomRole role;
 
-  const RoomUser({
-    required this.userId,
-    this.role = RoomRole.member,
-  });
+  const RoomUser({required this.userId, this.role = RoomRole.member});
 
   @override
   bool operator ==(Object other) =>

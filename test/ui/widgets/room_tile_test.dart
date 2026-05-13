@@ -82,8 +82,9 @@ void main() {
       expect(find.text('My message'), findsOneWidget);
     });
 
-    testWidgets('no receipt icon when last message is from other user',
-        (tester) async {
+    testWidgets('no receipt icon when last message is from other user', (
+      tester,
+    ) async {
       final otherMsg = RoomListItem(
         id: 'r4',
         name: 'Chat',
@@ -122,8 +123,9 @@ void main() {
       expect(nameText.style?.fontWeight, FontWeight.w600);
     });
 
-    testWidgets('renders WhatsApp-style preview for photo attachments',
-        (tester) async {
+    testWidgets('renders WhatsApp-style preview for photo attachments', (
+      tester,
+    ) async {
       final r = RoomListItem(
         id: 'rp',
         name: 'Chat',
@@ -131,16 +133,20 @@ void main() {
         lastMessageMimeType: 'image/jpeg',
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: r,
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: r,
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.text('📷 Foto'), findsOneWidget);
     });
 
-    testWidgets('renders templated voice preview with m:ss duration', (tester) async {
+    testWidgets('renders templated voice preview with m:ss duration', (
+      tester,
+    ) async {
       final r = RoomListItem(
         id: 'rv',
         name: 'Chat',
@@ -148,17 +154,20 @@ void main() {
         lastMessageDurationMs: 14000,
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: r,
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: r,
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.text('🎤 Mensaje de voz (0:14)'), findsOneWidget);
     });
 
-    testWidgets('prefixes "Tú: " in groups when last message is mine',
-        (tester) async {
+    testWidgets('prefixes "Tú: " in groups when last message is mine', (
+      tester,
+    ) async {
       final r = RoomListItem(
         id: 'rg',
         name: 'Group chat',
@@ -168,13 +177,15 @@ void main() {
         lastMessageUserId: 'me',
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: r,
-        currentUserId: 'me',
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: r,
+            currentUserId: 'me',
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.textContaining('Tú: Hola'), findsOneWidget);
     });
 
@@ -189,35 +200,43 @@ void main() {
         lastMessageReceipt: ReceiptStatus.sent,
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: r,
-        currentUserId: 'me',
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: r,
+            currentUserId: 'me',
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.text('Hola'), findsOneWidget);
       expect(find.textContaining('Tú: '), findsNothing);
     });
 
-    testWidgets('lastMessagePreviewBuilder override takes precedence',
-        (tester) async {
+    testWidgets('lastMessagePreviewBuilder override takes precedence', (
+      tester,
+    ) async {
       final r = RoomListItem(
         id: 'ro',
         name: 'Chat',
         lastMessage: 'plan_proposal_sent',
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: r,
-        lastMessagePreviewBuilder: (_, __) => 'Propuesta de plan',
-      )));
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: r,
+            lastMessagePreviewBuilder: (_, __) => 'Propuesta de plan',
+          ),
+        ),
+      );
       expect(find.text('Propuesta de plan'), findsOneWidget);
       expect(find.text('plan_proposal_sent'), findsNothing);
     });
 
-    testWidgets('default preview kicks in when override returns null',
-        (tester) async {
+    testWidgets('default preview kicks in when override returns null', (
+      tester,
+    ) async {
       final r = RoomListItem(
         id: 'ro2',
         name: 'Chat',
@@ -225,18 +244,21 @@ void main() {
         lastMessageMimeType: 'video/mp4',
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: r,
-        lastMessagePreviewBuilder: (_, __) => null,
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: r,
+            lastMessagePreviewBuilder: (_, __) => null,
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.text('📹 Vídeo'), findsOneWidget);
     });
 
-    testWidgets('deleted preview shows the right side (mine vs other)',
-        (tester) async {
+    testWidgets('deleted preview shows the right side (mine vs other)', (
+      tester,
+    ) async {
       final mine = RoomListItem(
         id: 'rd1',
         name: 'Chat',
@@ -245,13 +267,15 @@ void main() {
         lastMessageIsDeleted: true,
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: mine,
-        currentUserId: 'me',
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: mine,
+            currentUserId: 'me',
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.text('Eliminaste este mensaje'), findsOneWidget);
 
       final other = RoomListItem(
@@ -262,13 +286,15 @@ void main() {
         lastMessageIsDeleted: true,
         lastMessageTime: DateTime(2026, 1, 1),
       );
-      await tester.pumpWidget(wrap(RoomTile(
-        room: other,
-        currentUserId: 'me',
-        theme: ChatTheme.defaults.copyWith(
-          l10n: ChatUiLocalizations.es,
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: other,
+            currentUserId: 'me',
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
         ),
-      )));
+      );
       expect(find.text('Este mensaje fue eliminado'), findsOneWidget);
     });
   });

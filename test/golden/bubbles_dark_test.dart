@@ -44,8 +44,11 @@ void main() {
 
   // See note in bubbles_light_test.dart: skipped due to CachedNetworkImage
   // sqflite/path_provider chain in widget tests.
-  testGoldens('ImageBubble outgoing — dark (skipped)', (tester) async {},
-      skip: true);
+  testGoldens(
+    'ImageBubble outgoing — dark (skipped)',
+    (tester) async {},
+    skip: true,
+  );
 
   testGoldens('VideoBubble outgoing — dark', (tester) async {
     await pumpGoldenSurface(
@@ -114,8 +117,11 @@ void main() {
   });
 
   // See note in bubbles_light_test.dart: skipped due to CachedNetworkImage.
-  testGoldens('LinkPreviewBubble outgoing — dark (skipped)',
-      (tester) async {}, skip: true);
+  testGoldens(
+    'LinkPreviewBubble outgoing — dark (skipped)',
+    (tester) async {},
+    skip: true,
+  );
 
   testGoldens('ForwardedBubble (text inside) — dark', (tester) async {
     await pumpGoldenSurface(

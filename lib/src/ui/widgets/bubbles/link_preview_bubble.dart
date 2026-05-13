@@ -37,73 +37,79 @@ class LinkPreviewBubble extends StatelessWidget {
       link: true,
       label: title ?? _domain,
       child: GestureDetector(
-      onTap: () {
-        try {
-          launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-        } catch (_) {}
-      },
-      child: Container(
-        decoration: BoxDecoration(
-          color: theme.linkPreviewBackgroundColor ?? Colors.grey.shade100,
-          borderRadius:
-              theme.linkPreviewBorderRadius ?? BorderRadius.circular(8),
-          border: Border.all(color: theme.linkPreviewBorderColor ?? Colors.grey.shade300),
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (imageUrl != null)
-              CachedNetworkImage(
-                imageUrl: imageUrl!,
-                height: 120,
-                width: double.infinity,
-                fit: BoxFit.cover,
-                errorWidget: (_, __, ___) => const SizedBox.shrink(),
-              ),
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (title != null)
+        onTap: () {
+          try {
+            launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+          } catch (_) {}
+        },
+        child: Container(
+          decoration: BoxDecoration(
+            color: theme.linkPreviewBackgroundColor ?? Colors.grey.shade100,
+            borderRadius:
+                theme.linkPreviewBorderRadius ?? BorderRadius.circular(8),
+            border: Border.all(
+              color: theme.linkPreviewBorderColor ?? Colors.grey.shade300,
+            ),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (imageUrl != null)
+                CachedNetworkImage(
+                  imageUrl: imageUrl!,
+                  height: 120,
+                  width: double.infinity,
+                  fit: BoxFit.cover,
+                  errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                ),
+              Padding(
+                padding: const EdgeInsets.all(8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (title != null)
+                      Text(
+                        title!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            theme.linkPreviewTitleStyle ??
+                            const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                      ),
+                    if (description != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        description!,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            theme.linkPreviewDescriptionStyle ??
+                            TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
                     Text(
-                      title!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      _domain,
                       style:
-                          theme.linkPreviewTitleStyle ??
-                          const TextStyle(
-                            fontWeight: FontWeight.w600,
-                            fontSize: 13,
-                          ),
-                    ),
-                  if (description != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      description!,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          theme.linkPreviewDescriptionStyle ??
-                          TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                          theme.linkPreviewDomainStyle ??
+                          TextStyle(fontSize: 11, color: Colors.grey.shade500),
                     ),
                   ],
-                  const SizedBox(height: 4),
-                  Text(
-                    _domain,
-                    style: theme.linkPreviewDomainStyle ??
-                        TextStyle(fontSize: 11, color: Colors.grey.shade500),
-                  ),
-                ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
-    ),
     );
   }
 }

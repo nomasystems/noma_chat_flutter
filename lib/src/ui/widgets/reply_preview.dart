@@ -40,10 +40,7 @@ class ReplyPreview extends StatelessWidget {
 
     if (message.messageType == MessageType.attachment) {
       if (mimeType.startsWith('image/')) {
-        return (
-          Icons.image,
-          hasText ? message.text! : theme.l10n.imagePreview,
-        );
+        return (Icons.image, hasText ? message.text! : theme.l10n.imagePreview);
       }
       if (mimeType.startsWith('video/')) {
         return (
@@ -52,10 +49,7 @@ class ReplyPreview extends StatelessWidget {
         );
       }
       final fileName = message.fileName ?? message.text;
-      return (
-        Icons.attach_file,
-        fileName ?? theme.l10n.attachmentPreview,
-      );
+      return (Icons.attach_file, fileName ?? theme.l10n.attachmentPreview);
     }
 
     return (null, message.text ?? '');
@@ -71,11 +65,9 @@ class ReplyPreview extends StatelessWidget {
             senderName!,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: theme.replyPreviewSenderStyle ??
-                const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
-                ),
+            style:
+                theme.replyPreviewSenderStyle ??
+                const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
         Row(
           mainAxisSize: _isCompact ? MainAxisSize.min : MainAxisSize.max,
@@ -101,11 +93,13 @@ class ReplyPreview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final (icon, text) = _resolveContent();
-    final textStyle = theme.replyPreviewTextStyle ??
+    final textStyle =
+        theme.replyPreviewTextStyle ??
         const TextStyle(fontSize: 12, color: Colors.black54);
 
-    final thumbnailUrl =
-        _isImage ? (message.thumbnailUrl ?? message.attachmentUrl) : null;
+    final thumbnailUrl = _isImage
+        ? (message.thumbnailUrl ?? message.attachmentUrl)
+        : null;
 
     Widget content = Container(
       padding: const EdgeInsets.all(8),
@@ -123,12 +117,8 @@ class ReplyPreview extends StatelessWidget {
         mainAxisSize: _isCompact ? MainAxisSize.min : MainAxisSize.max,
         children: [
           _isCompact
-              ? Flexible(
-                  child: _buildTextContent(icon, text, textStyle),
-                )
-              : Expanded(
-                  child: _buildTextContent(icon, text, textStyle),
-                ),
+              ? Flexible(child: _buildTextContent(icon, text, textStyle))
+              : Expanded(child: _buildTextContent(icon, text, textStyle)),
           if (thumbnailUrl != null)
             Padding(
               padding: const EdgeInsets.only(left: 8),
@@ -158,10 +148,7 @@ class ReplyPreview extends StatelessWidget {
     );
 
     if (onTap != null) {
-      content = GestureDetector(
-        onTap: onTap,
-        child: content,
-      );
+      content = GestureDetector(onTap: onTap, child: content);
     }
 
     return content;

@@ -32,88 +32,104 @@ class VideoBubble extends StatelessWidget {
       label: caption ?? 'Video message',
       button: onTap != null,
       child: GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          ClipRRect(
-            borderRadius: theme.videoBorderRadius ?? theme.imageBorderRadius ?? BorderRadius.circular(8),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                if (thumbnailUrl != null)
-                  CachedNetworkImage(
-                    imageUrl: thumbnailUrl!,
-                    fit: BoxFit.cover,
-                    height: theme.videoHeight ?? 180,
-                    width: double.infinity,
-                    placeholder: (_, __) =>
-                        Container(height: theme.videoHeight ?? 180, color: theme.videoPlaceholderColor ?? Colors.black26),
-                    errorWidget: (_, __, ___) => Container(
-                      height: theme.videoHeight ?? 180,
-                      color: theme.videoPlaceholderColor ?? Colors.black26,
-                      child: Icon(Icons.videocam, color: theme.videoPlaceholderIconColor ?? Colors.white54),
-                    ),
-                  )
-                else
-                  Container(
-                    height: theme.videoHeight ?? 180,
-                    width: double.infinity,
-                    color: theme.videoPlaceholderColor ?? Colors.black26,
-                    child: const Icon(
-                      Icons.videocam,
-                      color: Colors.white54,
-                      size: 48,
-                    ),
-                  ),
-                Container(
-                  width: 56,
-                  height: 56,
-                  decoration: BoxDecoration(
-                    color: theme.videoPlayIconBackgroundColor ?? Colors.black54,
-                    shape: BoxShape.circle,
-                  ),
-                  child: Icon(
-                    Icons.play_arrow,
-                    color: theme.videoPlayIconColor ?? Colors.white,
-                    size: 32,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          if (caption != null && caption!.isNotEmpty) ...[
-            const SizedBox(height: 4),
-            Text(caption!, style: theme.imageCaptionStyle ?? const TextStyle(fontSize: 14)),
-          ],
-          if (timestamp != null || statusWidget != null) ...[
-            const SizedBox(height: 2),
-            Align(
-              alignment: Alignment.centerRight,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ClipRRect(
+              borderRadius:
+                  theme.videoBorderRadius ??
+                  theme.imageBorderRadius ??
+                  BorderRadius.circular(8),
+              child: Stack(
+                alignment: Alignment.center,
                 children: [
-                  if (timestamp != null)
-                    Text(
-                      DateFormatter.formatTime(timestamp!),
-                      style: (isOutgoing
-                              ? theme.outgoingTimestampTextStyle
-                              : theme.incomingTimestampTextStyle) ??
-                          theme.timestampTextStyle ??
-                          TextStyle(
-                              fontSize: 11, color: Colors.grey.shade600),
+                  if (thumbnailUrl != null)
+                    CachedNetworkImage(
+                      imageUrl: thumbnailUrl!,
+                      fit: BoxFit.cover,
+                      height: theme.videoHeight ?? 180,
+                      width: double.infinity,
+                      placeholder: (_, __) => Container(
+                        height: theme.videoHeight ?? 180,
+                        color: theme.videoPlaceholderColor ?? Colors.black26,
+                      ),
+                      errorWidget: (_, __, ___) => Container(
+                        height: theme.videoHeight ?? 180,
+                        color: theme.videoPlaceholderColor ?? Colors.black26,
+                        child: Icon(
+                          Icons.videocam,
+                          color:
+                              theme.videoPlaceholderIconColor ?? Colors.white54,
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      height: theme.videoHeight ?? 180,
+                      width: double.infinity,
+                      color: theme.videoPlaceholderColor ?? Colors.black26,
+                      child: const Icon(
+                        Icons.videocam,
+                        color: Colors.white54,
+                        size: 48,
+                      ),
                     ),
-                  if (statusWidget != null) ...[
-                    const SizedBox(width: 4),
-                    statusWidget!,
-                  ],
+                  Container(
+                    width: 56,
+                    height: 56,
+                    decoration: BoxDecoration(
+                      color:
+                          theme.videoPlayIconBackgroundColor ?? Colors.black54,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      Icons.play_arrow,
+                      color: theme.videoPlayIconColor ?? Colors.white,
+                      size: 32,
+                    ),
+                  ),
                 ],
               ),
             ),
+            if (caption != null && caption!.isNotEmpty) ...[
+              const SizedBox(height: 4),
+              Text(
+                caption!,
+                style: theme.imageCaptionStyle ?? const TextStyle(fontSize: 14),
+              ),
+            ],
+            if (timestamp != null || statusWidget != null) ...[
+              const SizedBox(height: 2),
+              Align(
+                alignment: Alignment.centerRight,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (timestamp != null)
+                      Text(
+                        DateFormatter.formatTime(timestamp!),
+                        style:
+                            (isOutgoing
+                                ? theme.outgoingTimestampTextStyle
+                                : theme.incomingTimestampTextStyle) ??
+                            theme.timestampTextStyle ??
+                            TextStyle(
+                              fontSize: 11,
+                              color: Colors.grey.shade600,
+                            ),
+                      ),
+                    if (statusWidget != null) ...[
+                      const SizedBox(width: 4),
+                      statusWidget!,
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
-    ),
     );
   }
 }

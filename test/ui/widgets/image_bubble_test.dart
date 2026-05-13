@@ -9,9 +9,7 @@ void main() {
   group('ImageBubble', () {
     testWidgets('shows CachedNetworkImage with URL', (tester) async {
       await tester.pumpWidget(
-        wrap(
-          const ImageBubble(imageUrl: 'https://example.com/photo.jpg'),
-        ),
+        wrap(const ImageBubble(imageUrl: 'https://example.com/photo.jpg')),
       );
       final image = tester.widget<CachedNetworkImage>(
         find.byType(CachedNetworkImage),

@@ -102,8 +102,8 @@ class _WaveformPainter extends CustomPainter {
 
     final displaySamples = isLive
         ? (samples.length > maxBars
-            ? samples.sublist(samples.length - maxBars)
-            : samples)
+              ? samples.sublist(samples.length - maxBars)
+              : samples)
         : samples;
 
     final barCount = isLive ? displaySamples.length : maxBars;
@@ -112,12 +112,13 @@ class _WaveformPainter extends CustomPainter {
 
     for (var i = 0; i < barCount; i++) {
       final rawIndex = isLive ? i : (i * step).floor();
-      final sampleIndex =
-          rawIndex.clamp(0, displaySamples.length - 1);
+      final sampleIndex = rawIndex.clamp(0, displaySamples.length - 1);
 
       final amplitude = displaySamples[sampleIndex].clamp(0.0, 1.0);
-      final barHeight =
-          (amplitude * maxBarHeight).clamp(minBarHeight, maxBarHeight);
+      final barHeight = (amplitude * maxBarHeight).clamp(
+        minBarHeight,
+        maxBarHeight,
+      );
 
       final x = isLive
           ? size.width - (barCount - i) * totalBarWidth + barSpacing

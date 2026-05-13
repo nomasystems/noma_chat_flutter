@@ -59,8 +59,10 @@ void main() {
 
     test('get messages with cursor (before timestamp)', () async {
       await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = await ds.getMessages('room-1',
-          before: msg3.timestamp.toUtc().toIso8601String());
+      final messages = await ds.getMessages(
+        'room-1',
+        before: msg3.timestamp.toUtc().toIso8601String(),
+      );
       expect(messages.length, 2);
       expect(messages.first.id, 'msg-2');
       expect(messages.last.id, 'msg-1');
@@ -68,16 +70,21 @@ void main() {
 
     test('get messages with cursor and limit', () async {
       await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = await ds.getMessages('room-1',
-          before: msg3.timestamp.toUtc().toIso8601String(), limit: 1);
+      final messages = await ds.getMessages(
+        'room-1',
+        before: msg3.timestamp.toUtc().toIso8601String(),
+        limit: 1,
+      );
       expect(messages.length, 1);
       expect(messages.first.id, 'msg-2');
     });
 
     test('get messages with after cursor', () async {
       await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = await ds.getMessages('room-1',
-          after: msg1.timestamp.toUtc().toIso8601String());
+      final messages = await ds.getMessages(
+        'room-1',
+        after: msg1.timestamp.toUtc().toIso8601String(),
+      );
       expect(messages.length, 2);
       expect(messages.first.id, 'msg-3');
       expect(messages.last.id, 'msg-2');
@@ -85,20 +92,26 @@ void main() {
 
     test('get messages with after and before cursors combined', () async {
       await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = await ds.getMessages('room-1',
-          after: msg1.timestamp.toUtc().toIso8601String(),
-          before: msg3.timestamp.toUtc().toIso8601String());
+      final messages = await ds.getMessages(
+        'room-1',
+        after: msg1.timestamp.toUtc().toIso8601String(),
+        before: msg3.timestamp.toUtc().toIso8601String(),
+      );
       expect(messages.length, 1);
       expect(messages.first.id, 'msg-2');
     });
 
-    test('get messages with after cursor returns empty when none newer',
-        () async {
-      await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = await ds.getMessages('room-1',
-          after: msg3.timestamp.toUtc().toIso8601String());
-      expect(messages, isEmpty);
-    });
+    test(
+      'get messages with after cursor returns empty when none newer',
+      () async {
+        await ds.saveMessages('room-1', [msg1, msg2, msg3]);
+        final messages = await ds.getMessages(
+          'room-1',
+          after: msg3.timestamp.toUtc().toIso8601String(),
+        );
+        expect(messages, isEmpty);
+      },
+    );
 
     test('deduplication on save', () async {
       await ds.saveMessages('room-1', [msg1]);
@@ -145,14 +158,16 @@ void main() {
     test('concurrent access to same room does not throw', () async {
       final futures = <Future>[];
       for (var i = 0; i < 10; i++) {
-        futures.add(ds.saveMessages('room-concurrent', [
-          ChatMessage(
-            id: 'msg-$i',
-            from: 'user-1',
-            timestamp: DateTime.utc(2026, 1, 1, 0, 0, i),
-            text: 'Concurrent $i',
-          ),
-        ]));
+        futures.add(
+          ds.saveMessages('room-concurrent', [
+            ChatMessage(
+              id: 'msg-$i',
+              from: 'user-1',
+              timestamp: DateTime.utc(2026, 1, 1, 0, 0, i),
+              text: 'Concurrent $i',
+            ),
+          ]),
+        );
         futures.add(ds.getMessages('room-concurrent'));
       }
       await Future.wait(futures);
@@ -712,44 +727,53 @@ void main() {
       expect(invited.first.roomId, 'good');
     });
 
-    test('getRooms warns with first error detail and aggregated count', () async {
-      final warnings = <String>[];
-      ds.onWarning = warnings.add;
-      await ds.saveRooms([const ChatRoom(id: 'good')]);
-      final box = await Hive.openBox<Map>('chat_rooms');
-      await box.put('bad-1', {'garbage': true});
-      await box.put('bad-2', {'garbage': true});
-      await ds.getRooms();
-      final corruptionWarnings =
-          warnings.where((w) => w.contains('Skipped')).toList();
-      expect(corruptionWarnings, hasLength(1));
-      expect(corruptionWarnings.first, contains('Skipped 2 corrupted records'));
-      expect(corruptionWarnings.first, contains('in rooms'));
-      expect(corruptionWarnings.first, contains('first error:'));
-    });
+    test(
+      'getRooms warns with first error detail and aggregated count',
+      () async {
+        final warnings = <String>[];
+        ds.onWarning = warnings.add;
+        await ds.saveRooms([const ChatRoom(id: 'good')]);
+        final box = await Hive.openBox<Map>('chat_rooms');
+        await box.put('bad-1', {'garbage': true});
+        await box.put('bad-2', {'garbage': true});
+        await ds.getRooms();
+        final corruptionWarnings = warnings
+            .where((w) => w.contains('Skipped'))
+            .toList();
+        expect(corruptionWarnings, hasLength(1));
+        expect(
+          corruptionWarnings.first,
+          contains('Skipped 2 corrupted records'),
+        );
+        expect(corruptionWarnings.first, contains('in rooms'));
+        expect(corruptionWarnings.first, contains('first error:'));
+      },
+    );
 
-    test('getMessages warns with key and error detail per corrupted record',
-        () async {
-      final warnings = <String>[];
-      ds.onWarning = warnings.add;
-      await ds.saveMessages('room-1', [
-        ChatMessage(
-          id: 'good',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026),
-          text: 'ok',
-        ),
-      ]);
-      final box = await Hive.openBox<Map>('chat_messages_room-1');
-      await box.put('bad-key', {'garbage': true});
-      await ds.getMessages('room-1');
-      final corruptionWarnings = warnings
-          .where((w) => w.contains('Skipped corrupted message'))
-          .toList();
-      expect(corruptionWarnings, hasLength(1));
-      expect(corruptionWarnings.first, contains('"bad-key"'));
-      expect(corruptionWarnings.first, matches(RegExp(r':\s+\S')));
-    });
+    test(
+      'getMessages warns with key and error detail per corrupted record',
+      () async {
+        final warnings = <String>[];
+        ds.onWarning = warnings.add;
+        await ds.saveMessages('room-1', [
+          ChatMessage(
+            id: 'good',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026),
+            text: 'ok',
+          ),
+        ]);
+        final box = await Hive.openBox<Map>('chat_messages_room-1');
+        await box.put('bad-key', {'garbage': true});
+        await ds.getMessages('room-1');
+        final corruptionWarnings = warnings
+            .where((w) => w.contains('Skipped corrupted message'))
+            .toList();
+        expect(corruptionWarnings, hasLength(1));
+        expect(corruptionWarnings.first, contains('"bad-key"'));
+        expect(corruptionWarnings.first, matches(RegExp(r':\s+\S')));
+      },
+    );
   });
 
   group('operations on non-existent IDs', () {
@@ -942,37 +966,42 @@ void main() {
 
     test('before oldest message timestamp returns empty', () async {
       await ds.saveMessages('room-1', messages);
-      final loaded = await ds.getMessages('room-1',
-          before: DateTime.utc(2026, 1, 1).toIso8601String());
+      final loaded = await ds.getMessages(
+        'room-1',
+        before: DateTime.utc(2026, 1, 1).toIso8601String(),
+      );
       expect(loaded, isEmpty);
     });
 
-    test('messages saved out of order are returned sorted by timestamp', () async {
-      await ds.saveMessages('room-1', [
-        ChatMessage(
-          id: 'msg-middle',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026, 1, 2),
-          text: 'middle',
-        ),
-        ChatMessage(
-          id: 'msg-first',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026, 1, 1),
-          text: 'first',
-        ),
-        ChatMessage(
-          id: 'msg-last',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026, 1, 3),
-          text: 'last',
-        ),
-      ]);
-      final loaded = await ds.getMessages('room-1');
-      expect(loaded[0].id, 'msg-last');
-      expect(loaded[1].id, 'msg-middle');
-      expect(loaded[2].id, 'msg-first');
-    });
+    test(
+      'messages saved out of order are returned sorted by timestamp',
+      () async {
+        await ds.saveMessages('room-1', [
+          ChatMessage(
+            id: 'msg-middle',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026, 1, 2),
+            text: 'middle',
+          ),
+          ChatMessage(
+            id: 'msg-first',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026, 1, 1),
+            text: 'first',
+          ),
+          ChatMessage(
+            id: 'msg-last',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026, 1, 3),
+            text: 'last',
+          ),
+        ]);
+        final loaded = await ds.getMessages('room-1');
+        expect(loaded[0].id, 'msg-last');
+        expect(loaded[1].id, 'msg-middle');
+        expect(loaded[2].id, 'msg-first');
+      },
+    );
   });
 
   group('lifecycle', () {
@@ -1001,37 +1030,40 @@ void main() {
       expect(await ds.getUnreads(), isEmpty);
     });
 
-    test('clear after restart removes messages from previous session', () async {
-      await ds.saveMessages('room-a', [
-        ChatMessage(
-          id: 'msg-a',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026),
-          text: 'session 1',
-        ),
-      ]);
-      await ds.saveMessages('room-b', [
-        ChatMessage(
-          id: 'msg-b',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026),
-          text: 'session 1',
-        ),
-      ]);
+    test(
+      'clear after restart removes messages from previous session',
+      () async {
+        await ds.saveMessages('room-a', [
+          ChatMessage(
+            id: 'msg-a',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026),
+            text: 'session 1',
+          ),
+        ]);
+        await ds.saveMessages('room-b', [
+          ChatMessage(
+            id: 'msg-b',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026),
+            text: 'session 1',
+          ),
+        ]);
 
-      await ds.dispose();
-      await Hive.close();
+        await ds.dispose();
+        await Hive.close();
 
-      final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
+        final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
 
-      await ds2.clear();
+        await ds2.clear();
 
-      expect(await ds2.getMessages('room-a'), isEmpty);
-      expect(await ds2.getMessages('room-b'), isEmpty);
+        expect(await ds2.getMessages('room-a'), isEmpty);
+        expect(await ds2.getMessages('room-b'), isEmpty);
 
-      await ds2.dispose();
-      ds = await HiveChatDatasource.create(basePath: tempDir.path);
-    });
+        await ds2.dispose();
+        ds = await HiveChatDatasource.create(basePath: tempDir.path);
+      },
+    );
   });
 
   group('orphaned message boxes', () {
@@ -1158,8 +1190,12 @@ void main() {
       final ds2 = await HiveChatDatasource.create(
         basePath: tempDir.path,
         migrations: {
-          1: () async { migrationsRun.add(1); },
-          2: () async { migrationsRun.add(2); },
+          1: () async {
+            migrationsRun.add(1);
+          },
+          2: () async {
+            migrationsRun.add(2);
+          },
         },
       );
 
@@ -1310,7 +1346,9 @@ void main() {
           'int': 42,
           'bool': true,
           'list': [1, 'two', 3.0],
-          'nested': {'deep': {'key': 'val'}},
+          'nested': {
+            'deep': {'key': 'val'},
+          },
           'null_val': null,
         },
       );
@@ -1412,7 +1450,10 @@ void main() {
         memberCount: 3,
         userRole: RoomRole.owner,
         config: const RoomConfig(allowInvitations: true),
-        custom: {'priority': 'high', 'tags': ['vip', 'active']},
+        custom: {
+          'priority': 'high',
+          'tags': ['vip', 'active'],
+        },
       );
       await ds.saveRoomDetail(detail);
       final loaded = await ds.getRoomDetail('room-custom');
@@ -1631,11 +1672,17 @@ void main() {
         await roDs.deleteUser('user-1');
         await roDs.saveRooms([const ChatRoom(id: 'room-2')]);
         await roDs.deleteRoom('room-1');
-        await roDs.saveUnreads([const UnreadRoom(roomId: 'r', unreadMessages: 1)]);
+        await roDs.saveUnreads([
+          const UnreadRoom(roomId: 'r', unreadMessages: 1),
+        ]);
         await roDs.deleteUnread('r');
         await roDs.saveContacts([const ChatContact(userId: 'c')]);
-        await roDs.saveInvitedRooms([const InvitedRoom(roomId: 'r', invitedBy: 'u')]);
-        await roDs.saveOfflineQueue([{'type': 'test'}]);
+        await roDs.saveInvitedRooms([
+          const InvitedRoom(roomId: 'r', invitedBy: 'u'),
+        ]);
+        await roDs.saveOfflineQueue([
+          {'type': 'test'},
+        ]);
         await roDs.clearOfflineQueue();
       } catch (_) {}
 
@@ -1691,37 +1738,40 @@ void main() {
       ds = await HiveChatDatasource.create(basePath: tempDir.path);
     });
 
-    test('entries with non-timestamp keys are evicted first (sorted before ISO dates)', () async {
-      await ds.dispose();
-      await Hive.close();
-      final limitedDs = await HiveChatDatasource.create(
-        basePath: tempDir.path,
-        maxMessagesPerRoom: 2,
-      );
+    test(
+      'entries with non-timestamp keys are evicted first (sorted before ISO dates)',
+      () async {
+        await ds.dispose();
+        await Hive.close();
+        final limitedDs = await HiveChatDatasource.create(
+          basePath: tempDir.path,
+          maxMessagesPerRoom: 2,
+        );
 
-      await limitedDs.saveMessages('room-bad-ts', [
-        ChatMessage(
-          id: 'msg-good-1',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026, 6, 1),
-          text: 'good 1',
-        ),
-        ChatMessage(
-          id: 'msg-good-2',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026, 6, 2),
-          text: 'good 2',
-        ),
-      ]);
+        await limitedDs.saveMessages('room-bad-ts', [
+          ChatMessage(
+            id: 'msg-good-1',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026, 6, 1),
+            text: 'good 1',
+          ),
+          ChatMessage(
+            id: 'msg-good-2',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026, 6, 2),
+            text: 'good 2',
+          ),
+        ]);
 
-      final stored = await limitedDs.getMessages('room-bad-ts');
-      expect(stored.length, 2);
-      expect(stored.first.id, 'msg-good-2');
-      expect(stored.last.id, 'msg-good-1');
+        final stored = await limitedDs.getMessages('room-bad-ts');
+        expect(stored.length, 2);
+        expect(stored.first.id, 'msg-good-2');
+        expect(stored.last.id, 'msg-good-1');
 
-      await limitedDs.dispose();
-      ds = await HiveChatDatasource.create(basePath: tempDir.path);
-    });
+        await limitedDs.dispose();
+        ds = await HiveChatDatasource.create(basePath: tempDir.path);
+      },
+    );
   });
 
   group('persistence', () {
@@ -1771,7 +1821,11 @@ void main() {
         encryptionCipher: cipher,
       );
       await encDs.saveRooms([
-        const ChatRoom(id: 'enc-room', audience: RoomAudience.contacts, members: []),
+        const ChatRoom(
+          id: 'enc-room',
+          audience: RoomAudience.contacts,
+          members: [],
+        ),
       ]);
       await encDs.dispose();
       await Hive.close();
@@ -1790,7 +1844,9 @@ void main() {
     });
 
     test('data written without cipher works normally', () async {
-      await ds.saveUsers([const ChatUser(id: 'u1', displayName: 'Test', active: true)]);
+      await ds.saveUsers([
+        const ChatUser(id: 'u1', displayName: 'Test', active: true),
+      ]);
       final user = await ds.getUser('u1');
       expect(user, isNotNull);
       expect(user!.displayName, 'Test');
@@ -1807,7 +1863,11 @@ void main() {
         encryptionCipher: cipher,
       );
       await encDs.saveRooms([
-        const ChatRoom(id: 'enc-room', audience: RoomAudience.contacts, members: []),
+        const ChatRoom(
+          id: 'enc-room',
+          audience: RoomAudience.contacts,
+          members: [],
+        ),
       ]);
       await encDs.dispose();
       await Hive.close();
@@ -1828,7 +1888,13 @@ void main() {
 
   group('message TTL', () {
     test('expired messages are purged on startup', () async {
-      await ds.saveRooms([const ChatRoom(id: 'room-ttl', audience: RoomAudience.contacts, members: [])]);
+      await ds.saveRooms([
+        const ChatRoom(
+          id: 'room-ttl',
+          audience: RoomAudience.contacts,
+          members: [],
+        ),
+      ]);
       await ds.saveMessages('room-ttl', [
         ChatMessage(
           id: 'old',
@@ -1856,7 +1922,13 @@ void main() {
     });
 
     test('no TTL means no expiration', () async {
-      await ds.saveRooms([const ChatRoom(id: 'room-ttl2', audience: RoomAudience.contacts, members: [])]);
+      await ds.saveRooms([
+        const ChatRoom(
+          id: 'room-ttl2',
+          audience: RoomAudience.contacts,
+          members: [],
+        ),
+      ]);
       await ds.saveMessages('room-ttl2', [
         ChatMessage(
           id: 'ancient',
@@ -1881,7 +1953,12 @@ void main() {
       // Write raw data with malformed timestamp
       Hive.init(tempDir.path);
       final box = await Hive.openBox<Map>('chat_messages_room_ttl3');
-      await box.put('bad', {'id': 'bad', 'from': 'u', 'timestamp': 'not-a-date', 'messageType': 'regular'});
+      await box.put('bad', {
+        'id': 'bad',
+        'from': 'u',
+        'timestamp': 'not-a-date',
+        'messageType': 'regular',
+      });
       await box.put('good', {
         'id': 'good',
         'from': 'u',
@@ -1891,10 +1968,17 @@ void main() {
       await box.close();
       // Track the room and create a room entry so orphan cleanup doesn't remove it
       final meta = await Hive.openBox<Map>('chat_meta');
-      await meta.put('messageRoomIds', {'ids': ['room_ttl3']});
+      await meta.put('messageRoomIds', {
+        'ids': ['room_ttl3'],
+      });
       await meta.close();
       final roomsBox = await Hive.openBox<Map>('chat_rooms');
-      await roomsBox.put('room_ttl3', {'id': 'room_ttl3', 'audience': 'contacts', 'members': <String>[], 'allowInvitations': false});
+      await roomsBox.put('room_ttl3', {
+        'id': 'room_ttl3',
+        'audience': 'contacts',
+        'members': <String>[],
+        'allowInvitations': false,
+      });
       await roomsBox.close();
       await Hive.close();
 
@@ -1913,10 +1997,7 @@ void main() {
       await ds.dispose();
       await Hive.close();
 
-      ds = await HiveChatDatasource.create(
-        basePath: tempDir.path,
-        maxRooms: 2,
-      );
+      ds = await HiveChatDatasource.create(basePath: tempDir.path, maxRooms: 2);
       await ds.saveRooms([
         const ChatRoom(id: 'r1', audience: RoomAudience.contacts, members: []),
         const ChatRoom(id: 'r2', audience: RoomAudience.contacts, members: []),
@@ -1934,10 +2015,7 @@ void main() {
       await ds.dispose();
       await Hive.close();
 
-      ds = await HiveChatDatasource.create(
-        basePath: tempDir.path,
-        maxUsers: 2,
-      );
+      ds = await HiveChatDatasource.create(basePath: tempDir.path, maxUsers: 2);
       await ds.saveUsers([
         const ChatUser(id: 'u1', displayName: 'A', active: true),
         const ChatUser(id: 'u2', displayName: 'B', active: true),
@@ -1961,10 +2039,7 @@ void main() {
       await ds.dispose();
       await Hive.close();
 
-      ds = await HiveChatDatasource.create(
-        basePath: tempDir.path,
-        maxRooms: 3,
-      );
+      ds = await HiveChatDatasource.create(basePath: tempDir.path, maxRooms: 3);
       await ds.saveRooms([
         const ChatRoom(id: 'r1', audience: RoomAudience.contacts, members: []),
         const ChatRoom(id: 'r2', audience: RoomAudience.contacts, members: []),
@@ -1980,14 +2055,16 @@ void main() {
       await ds.saveRooms([
         const ChatRoom(id: 'room-cascade', name: 'Cascade Test'),
       ]);
-      await ds.saveRoomDetail(const RoomDetail(
-        id: 'room-cascade',
-        name: 'Cascade Detail',
-        type: RoomType.group,
-        memberCount: 3,
-        userRole: RoomRole.admin,
-        config: RoomConfig(allowInvitations: true),
-      ));
+      await ds.saveRoomDetail(
+        const RoomDetail(
+          id: 'room-cascade',
+          name: 'Cascade Detail',
+          type: RoomType.group,
+          memberCount: 3,
+          userRole: RoomRole.admin,
+          config: RoomConfig(allowInvitations: true),
+        ),
+      );
       await ds.saveMessages('room-cascade', [
         ChatMessage(
           id: 'msg-c1',
@@ -2029,20 +2106,24 @@ void main() {
         const ChatRoom(id: 'room-delete', name: 'Delete Me'),
         const ChatRoom(id: 'room-keep', name: 'Keep Me'),
       ]);
-      await ds.saveRoomDetail(const RoomDetail(
-        id: 'room-delete',
-        type: RoomType.group,
-        memberCount: 1,
-        userRole: RoomRole.member,
-        config: RoomConfig(),
-      ));
-      await ds.saveRoomDetail(const RoomDetail(
-        id: 'room-keep',
-        type: RoomType.group,
-        memberCount: 2,
-        userRole: RoomRole.member,
-        config: RoomConfig(),
-      ));
+      await ds.saveRoomDetail(
+        const RoomDetail(
+          id: 'room-delete',
+          type: RoomType.group,
+          memberCount: 1,
+          userRole: RoomRole.member,
+          config: RoomConfig(),
+        ),
+      );
+      await ds.saveRoomDetail(
+        const RoomDetail(
+          id: 'room-keep',
+          type: RoomType.group,
+          memberCount: 2,
+          userRole: RoomRole.member,
+          config: RoomConfig(),
+        ),
+      );
       await ds.saveMessages('room-delete', [
         ChatMessage(
           id: 'msg-d1',
@@ -2077,21 +2158,21 @@ void main() {
         const ChatRoom(id: 'room-1', name: 'Room 1'),
         const ChatRoom(id: 'room-2', name: 'Room 2'),
       ]);
-      await ds.saveRoomDetail(const RoomDetail(
-        id: 'room-1',
-        name: 'Detail 1',
-        type: RoomType.group,
-        memberCount: 3,
-        userRole: RoomRole.admin,
-        config: RoomConfig(allowInvitations: true),
-      ));
+      await ds.saveRoomDetail(
+        const RoomDetail(
+          id: 'room-1',
+          name: 'Detail 1',
+          type: RoomType.group,
+          memberCount: 3,
+          userRole: RoomRole.admin,
+          config: RoomConfig(allowInvitations: true),
+        ),
+      );
       await ds.saveUsers([
         const ChatUser(id: 'user-1', displayName: 'Alice'),
         const ChatUser(id: 'user-2', displayName: 'Bob'),
       ]);
-      await ds.saveContacts([
-        const ChatContact(userId: 'user-1'),
-      ]);
+      await ds.saveContacts([const ChatContact(userId: 'user-1')]);
       await ds.saveUnreads([
         const UnreadRoom(roomId: 'room-1', unreadMessages: 5),
       ]);
@@ -2123,9 +2204,7 @@ void main() {
       await ds.saveRooms([
         const ChatRoom(id: 'room-1', name: 'Test', custom: {'key': 'val'}),
       ]);
-      await ds.saveUsers([
-        const ChatUser(id: 'user-1', displayName: 'Alice'),
-      ]);
+      await ds.saveUsers([const ChatUser(id: 'user-1', displayName: 'Alice')]);
 
       final exported = await ds.exportData();
       final json = jsonEncode(exported);
@@ -2135,23 +2214,19 @@ void main() {
     });
 
     test('importData restores exported data', () async {
-      await ds.saveRooms([
-        const ChatRoom(id: 'room-1', name: 'Room 1'),
-      ]);
-      await ds.saveRoomDetail(const RoomDetail(
-        id: 'room-1',
-        name: 'Detail 1',
-        type: RoomType.group,
-        memberCount: 3,
-        userRole: RoomRole.admin,
-        config: RoomConfig(allowInvitations: true),
-      ));
-      await ds.saveUsers([
-        const ChatUser(id: 'user-1', displayName: 'Alice'),
-      ]);
-      await ds.saveContacts([
-        const ChatContact(userId: 'user-1'),
-      ]);
+      await ds.saveRooms([const ChatRoom(id: 'room-1', name: 'Room 1')]);
+      await ds.saveRoomDetail(
+        const RoomDetail(
+          id: 'room-1',
+          name: 'Detail 1',
+          type: RoomType.group,
+          memberCount: 3,
+          userRole: RoomRole.admin,
+          config: RoomConfig(allowInvitations: true),
+        ),
+      );
+      await ds.saveUsers([const ChatUser(id: 'user-1', displayName: 'Alice')]);
+      await ds.saveContacts([const ChatContact(userId: 'user-1')]);
       await ds.saveUnreads([
         const UnreadRoom(roomId: 'room-1', unreadMessages: 5),
       ]);
@@ -2188,9 +2263,7 @@ void main() {
     });
 
     test('importData replaces existing data', () async {
-      await ds.saveRooms([
-        const ChatRoom(id: 'old-room', name: 'Old'),
-      ]);
+      await ds.saveRooms([const ChatRoom(id: 'old-room', name: 'Old')]);
       await ds.saveUsers([
         const ChatUser(id: 'old-user', displayName: 'OldUser'),
       ]);
@@ -2207,11 +2280,22 @@ void main() {
           'invitedRoomCount': 0,
         },
         'rooms': [
-          {'id': 'new-room', 'name': 'New', 'audience': 'public', 'allowInvitations': false, 'members': <String>[]},
+          {
+            'id': 'new-room',
+            'name': 'New',
+            'audience': 'public',
+            'allowInvitations': false,
+            'members': <String>[],
+          },
         ],
         'roomDetails': <Map<String, dynamic>>[],
         'users': [
-          {'id': 'new-user', 'displayName': 'NewUser', 'role': 'user', 'active': true},
+          {
+            'id': 'new-user',
+            'displayName': 'NewUser',
+            'role': 'user',
+            'active': true,
+          },
         ],
         'contacts': <Map<String, dynamic>>[],
         'unreads': <Map<String, dynamic>>[],
@@ -2239,11 +2323,13 @@ void main() {
 
       expect(
         () => ds.importData(badData),
-        throwsA(isA<ArgumentError>().having(
-          (e) => e.message,
-          'message',
-          contains('Incompatible schema version'),
-        )),
+        throwsA(
+          isA<ArgumentError>().having(
+            (e) => e.message,
+            'message',
+            contains('Incompatible schema version'),
+          ),
+        ),
       );
     });
 
@@ -2253,10 +2339,7 @@ void main() {
         'rooms': <Map<String, dynamic>>[],
       };
 
-      expect(
-        () => ds.importData(badData),
-        throwsA(isA<ArgumentError>()),
-      );
+      expect(() => ds.importData(badData), throwsA(isA<ArgumentError>()));
     });
 
     test('importData with mismatched counts warns', () async {
@@ -2266,11 +2349,7 @@ void main() {
       final data = {
         'version': 2,
         'exportedAt': DateTime.now().toUtc().toIso8601String(),
-        'validation': {
-          'roomCount': 5,
-          'userCount': 10,
-          'contactCount': 3,
-        },
+        'validation': {'roomCount': 5, 'userCount': 10, 'contactCount': 3},
         'rooms': <Map<String, dynamic>>[],
         'roomDetails': <Map<String, dynamic>>[],
         'users': <Map<String, dynamic>>[],
@@ -2302,16 +2381,18 @@ void main() {
           custom: {'theme': 'dark'},
         ),
       ]);
-      await ds.saveRoomDetail(const RoomDetail(
-        id: 'room-json',
-        name: 'JSON Detail',
-        type: RoomType.oneToOne,
-        memberCount: 2,
-        userRole: RoomRole.owner,
-        config: RoomConfig(allowInvitations: true),
-        muted: true,
-        pinned: true,
-      ));
+      await ds.saveRoomDetail(
+        const RoomDetail(
+          id: 'room-json',
+          name: 'JSON Detail',
+          type: RoomType.oneToOne,
+          memberCount: 2,
+          userRole: RoomRole.owner,
+          config: RoomConfig(allowInvitations: true),
+          muted: true,
+          pinned: true,
+        ),
+      );
       await ds.saveUsers([
         const ChatUser(
           id: 'user-1',

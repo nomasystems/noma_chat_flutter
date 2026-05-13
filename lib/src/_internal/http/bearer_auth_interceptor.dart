@@ -78,12 +78,16 @@ class BearerAuthInterceptor extends AuthInterceptor {
       options.headers['Authorization'] = 'Bearer $newToken';
       options.extra['_authRetried'] = true;
 
-      final retryDio = _dio ?? Dio(BaseOptions(
-        baseUrl: options.baseUrl,
-        connectTimeout: options.connectTimeout,
-        receiveTimeout: options.receiveTimeout,
-        sendTimeout: options.sendTimeout,
-      ));
+      final retryDio =
+          _dio ??
+          Dio(
+            BaseOptions(
+              baseUrl: options.baseUrl,
+              connectTimeout: options.connectTimeout,
+              receiveTimeout: options.receiveTimeout,
+              sendTimeout: options.sendTimeout,
+            ),
+          );
       final response = await retryDio.fetch<dynamic>(options);
       handler.resolve(response);
     } on DioException catch (retryErr) {

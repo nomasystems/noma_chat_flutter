@@ -22,7 +22,8 @@ class ReactionPicker extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       elevation: theme.reactionPickerElevation ?? 4,
-      borderRadius: theme.reactionPickerBorderRadius ?? BorderRadius.circular(24),
+      borderRadius:
+          theme.reactionPickerBorderRadius ?? BorderRadius.circular(24),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         child: Row(
@@ -40,7 +41,9 @@ class ReactionPicker extends StatelessWidget {
                     child: Center(
                       child: Text(
                         emoji,
-                        style: TextStyle(fontSize: theme.reactionPickerEmojiSize ?? 24),
+                        style: TextStyle(
+                          fontSize: theme.reactionPickerEmojiSize ?? 24,
+                        ),
                       ),
                     ),
                   ),

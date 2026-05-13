@@ -40,42 +40,62 @@ void main() {
     });
 
     test('Room*Event equality', () {
-      expect(const RoomCreatedEvent(roomId: 'r1'),
-          const RoomCreatedEvent(roomId: 'r1'));
-      expect(const RoomUpdatedEvent(roomId: 'r1'),
-          const RoomUpdatedEvent(roomId: 'r1'));
-      expect(const RoomDeletedEvent(roomId: 'r1'),
-          const RoomDeletedEvent(roomId: 'r1'));
-      expect(const RoomCreatedEvent(roomId: 'r1').hashCode,
-          'r1'.hashCode);
+      expect(
+        const RoomCreatedEvent(roomId: 'r1'),
+        const RoomCreatedEvent(roomId: 'r1'),
+      );
+      expect(
+        const RoomUpdatedEvent(roomId: 'r1'),
+        const RoomUpdatedEvent(roomId: 'r1'),
+      );
+      expect(
+        const RoomDeletedEvent(roomId: 'r1'),
+        const RoomDeletedEvent(roomId: 'r1'),
+      );
+      expect(const RoomCreatedEvent(roomId: 'r1').hashCode, 'r1'.hashCode);
     });
 
     test('UserActivityEvent + DmActivityEvent equality + hashCode', () {
       const a = UserActivityEvent(
-          roomId: 'r1', userId: 'u1', activity: ChatActivity.startsTyping);
+        roomId: 'r1',
+        userId: 'u1',
+        activity: ChatActivity.startsTyping,
+      );
       const b = UserActivityEvent(
-          roomId: 'r1', userId: 'u1', activity: ChatActivity.startsTyping);
+        roomId: 'r1',
+        userId: 'u1',
+        activity: ChatActivity.startsTyping,
+      );
       expect(a, b);
       expect(a.hashCode, b.hashCode);
 
       const c = DmActivityEvent(
-          contactId: 'c1', userId: 'u1', activity: ChatActivity.stopsTyping);
+        contactId: 'c1',
+        userId: 'u1',
+        activity: ChatActivity.stopsTyping,
+      );
       const d = DmActivityEvent(
-          contactId: 'c1', userId: 'u1', activity: ChatActivity.stopsTyping);
+        contactId: 'c1',
+        userId: 'u1',
+        activity: ChatActivity.stopsTyping,
+      );
       expect(c, d);
       expect(c.hashCode, d.hashCode);
     });
 
-    test('PresenceChangedEvent equality (ignores lastSeen + statusText)',
-        () {
+    test('PresenceChangedEvent equality (ignores lastSeen + statusText)', () {
       final a = PresenceChangedEvent(
-          userId: 'u1', status: PresenceStatus.away, online: true);
+        userId: 'u1',
+        status: PresenceStatus.away,
+        online: true,
+      );
       final b = PresenceChangedEvent(
-          userId: 'u1',
-          status: PresenceStatus.away,
-          online: true,
-          lastSeen: DateTime(2026, 1, 1),
-          statusText: 'Brb');
+        userId: 'u1',
+        status: PresenceStatus.away,
+        online: true,
+        lastSeen: DateTime(2026, 1, 1),
+        statusText: 'Brb',
+      );
       // == ignores lastSeen/statusText by design (see chat_event.dart).
       expect(a, b);
       expect(a.hashCode, b.hashCode);
@@ -83,9 +103,17 @@ void main() {
 
     test('ReactionAddedEvent / ReactionDeletedEvent equality', () {
       const a = ReactionAddedEvent(
-          roomId: 'r1', messageId: 'm1', userId: 'u1', reaction: '👍');
+        roomId: 'r1',
+        messageId: 'm1',
+        userId: 'u1',
+        reaction: '👍',
+      );
       const b = ReactionAddedEvent(
-          roomId: 'r1', messageId: 'm1', userId: 'u1', reaction: '👍');
+        roomId: 'r1',
+        messageId: 'm1',
+        userId: 'u1',
+        reaction: '👍',
+      );
       expect(a, b);
       expect(a.hashCode, b.hashCode);
 
@@ -95,58 +123,80 @@ void main() {
     });
 
     test('UnreadUpdatedEvent equality', () {
-      expect(const UnreadUpdatedEvent(roomId: 'r1', count: 3),
-          const UnreadUpdatedEvent(roomId: 'r1', count: 3));
-      expect(const UnreadUpdatedEvent(roomId: 'r1', count: 3),
-          isNot(const UnreadUpdatedEvent(roomId: 'r1', count: 4)));
+      expect(
+        const UnreadUpdatedEvent(roomId: 'r1', count: 3),
+        const UnreadUpdatedEvent(roomId: 'r1', count: 3),
+      );
+      expect(
+        const UnreadUpdatedEvent(roomId: 'r1', count: 3),
+        isNot(const UnreadUpdatedEvent(roomId: 'r1', count: 4)),
+      );
     });
 
     test('UserJoinedEvent / UserLeftEvent equality', () {
-      expect(const UserJoinedEvent(roomId: 'r1', userId: 'u1'),
-          const UserJoinedEvent(roomId: 'r1', userId: 'u1'));
-      expect(const UserLeftEvent(roomId: 'r1', userId: 'u1'),
-          const UserLeftEvent(roomId: 'r1', userId: 'u1'));
+      expect(
+        const UserJoinedEvent(roomId: 'r1', userId: 'u1'),
+        const UserJoinedEvent(roomId: 'r1', userId: 'u1'),
+      );
+      expect(
+        const UserLeftEvent(roomId: 'r1', userId: 'u1'),
+        const UserLeftEvent(roomId: 'r1', userId: 'u1'),
+      );
     });
 
     test('UserRoleChangedEvent equality', () {
       const a = UserRoleChangedEvent(
-          roomId: 'r1', userId: 'u1', role: RoomRole.admin);
+        roomId: 'r1',
+        userId: 'u1',
+        role: RoomRole.admin,
+      );
       const b = UserRoleChangedEvent(
-          roomId: 'r1', userId: 'u1', role: RoomRole.admin);
+        roomId: 'r1',
+        userId: 'u1',
+        role: RoomRole.admin,
+      );
       expect(a, b);
       expect(a.hashCode, b.hashCode);
     });
 
     test('ReceiptUpdatedEvent equality (ignores fromUserId)', () {
       const a = ReceiptUpdatedEvent(
-          roomId: 'r1', messageId: 'm1', status: ReceiptStatus.read);
+        roomId: 'r1',
+        messageId: 'm1',
+        status: ReceiptStatus.read,
+      );
       const b = ReceiptUpdatedEvent(
-          roomId: 'r1',
-          messageId: 'm1',
-          status: ReceiptStatus.read,
-          fromUserId: 'u2');
+        roomId: 'r1',
+        messageId: 'm1',
+        status: ReceiptStatus.read,
+        fromUserId: 'u2',
+      );
       expect(a, b);
     });
 
     test('BroadcastEvent equality', () {
-      expect(const BroadcastEvent(message: 'maintenance at 3am'),
-          const BroadcastEvent(message: 'maintenance at 3am'));
+      expect(
+        const BroadcastEvent(message: 'maintenance at 3am'),
+        const BroadcastEvent(message: 'maintenance at 3am'),
+      );
       expect(const BroadcastEvent(message: 'a').hashCode, 'a'.hashCode);
     });
 
     test('ConnectedEvent equality (singleton-ish)', () {
       expect(const ConnectedEvent(), const ConnectedEvent());
-      expect(const ConnectedEvent().hashCode,
-          const ConnectedEvent().hashCode);
+      expect(const ConnectedEvent().hashCode, const ConnectedEvent().hashCode);
     });
 
     test('DisconnectedEvent equality (with and without reason)', () {
+      expect(const DisconnectedEvent(), const DisconnectedEvent(reason: null));
       expect(
-          const DisconnectedEvent(), const DisconnectedEvent(reason: null));
-      expect(const DisconnectedEvent(reason: 'token_expired'),
-          const DisconnectedEvent(reason: 'token_expired'));
-      expect(const DisconnectedEvent(reason: 'a'),
-          isNot(const DisconnectedEvent(reason: 'b')));
+        const DisconnectedEvent(reason: 'token_expired'),
+        const DisconnectedEvent(reason: 'token_expired'),
+      );
+      expect(
+        const DisconnectedEvent(reason: 'a'),
+        isNot(const DisconnectedEvent(reason: 'b')),
+      );
     });
 
     test('ErrorEvent equality by exception message', () {
@@ -160,11 +210,11 @@ void main() {
 
     test('factory constructors produce the expected subtype', () {
       expect(
-          ChatEvent.newMessage(message: msg, roomId: 'r1'),
-          isA<NewMessageEvent>());
+        ChatEvent.newMessage(message: msg, roomId: 'r1'),
+        isA<NewMessageEvent>(),
+      );
       expect(const ChatEvent.connected(), isA<ConnectedEvent>());
-      expect(const ChatEvent.broadcast(message: 'x'),
-          isA<BroadcastEvent>());
+      expect(const ChatEvent.broadcast(message: 'x'), isA<BroadcastEvent>());
     });
   });
 }

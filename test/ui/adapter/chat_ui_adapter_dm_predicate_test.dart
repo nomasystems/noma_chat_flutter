@@ -21,39 +21,45 @@ class _PredicateRoomsApi implements ChatRoomsApi {
     if (result.isFailure) return result;
     final userRooms = result.dataOrNull!;
     final dmRooms = userRooms.rooms
-        .map((r) => UnreadRoom(
-              roomId: r.roomId,
-              unreadMessages: r.unreadMessages,
-              name: r.name,
-              avatarUrl: r.avatarUrl,
-              type: 'one-to-one',
-              memberCount: r.memberCount,
-            ))
+        .map(
+          (r) => UnreadRoom(
+            roomId: r.roomId,
+            unreadMessages: r.unreadMessages,
+            name: r.name,
+            avatarUrl: r.avatarUrl,
+            type: 'one-to-one',
+            memberCount: r.memberCount,
+          ),
+        )
         .toList();
     return Success(UserRooms(rooms: dmRooms));
   }
 
   @override
-  Future<Result<RoomDetail>> get(String roomId,
-      {CachePolicy? cachePolicy}) async {
+  Future<Result<RoomDetail>> get(
+    String roomId, {
+    CachePolicy? cachePolicy,
+  }) async {
     final base = await _delegate.get(roomId, cachePolicy: cachePolicy);
     if (base.isFailure) return base;
     final raw = base.dataOrNull!;
-    return Success(RoomDetail(
-      id: raw.id,
-      name: raw.name,
-      subject: raw.subject,
-      type: RoomType.oneToOne,
-      memberCount: raw.memberCount,
-      userRole: raw.userRole,
-      config: raw.config,
-      muted: raw.muted,
-      pinned: raw.pinned,
-      hidden: raw.hidden,
-      createdAt: raw.createdAt,
-      avatarUrl: raw.avatarUrl,
-      custom: _customByRoomId[roomId],
-    ));
+    return Success(
+      RoomDetail(
+        id: raw.id,
+        name: raw.name,
+        subject: raw.subject,
+        type: RoomType.oneToOne,
+        memberCount: raw.memberCount,
+        userRole: raw.userRole,
+        config: raw.config,
+        muted: raw.muted,
+        pinned: raw.pinned,
+        hidden: raw.hidden,
+        createdAt: raw.createdAt,
+        avatarUrl: raw.avatarUrl,
+        custom: _customByRoomId[roomId],
+      ),
+    );
   }
 
   @override
@@ -65,36 +71,39 @@ class _PredicateRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
-  }) =>
-      _delegate.create(
-        audience: audience,
-        allowInvitations: allowInvitations,
-        name: name,
-        subject: subject,
-        members: members,
-        avatarUrl: avatarUrl,
-        custom: custom,
-      );
+  }) => _delegate.create(
+    audience: audience,
+    allowInvitations: allowInvitations,
+    name: name,
+    subject: subject,
+    members: members,
+    avatarUrl: avatarUrl,
+    custom: custom,
+  );
 
   @override
   Future<Result<void>> delete(String roomId) => _delegate.delete(roomId);
 
   @override
-  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(String query,
-          {PaginationParams? pagination}) =>
-      _delegate.discover(query, pagination: pagination);
+  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
+    String query, {
+    PaginationParams? pagination,
+  }) => _delegate.discover(query, pagination: pagination);
 
   @override
-  Future<Result<void>> updateConfig(String roomId,
-          {String? name,
-          String? subject,
-          String? avatarUrl,
-          Map<String, dynamic>? custom}) =>
-      _delegate.updateConfig(roomId,
-          name: name,
-          subject: subject,
-          avatarUrl: avatarUrl,
-          custom: custom);
+  Future<Result<void>> updateConfig(
+    String roomId, {
+    String? name,
+    String? subject,
+    String? avatarUrl,
+    Map<String, dynamic>? custom,
+  }) => _delegate.updateConfig(
+    roomId,
+    name: name,
+    subject: subject,
+    avatarUrl: avatarUrl,
+    custom: custom,
+  );
 
   @override
   Future<Result<void>> mute(String roomId) => _delegate.mute(roomId);
@@ -135,25 +144,26 @@ class _PredicateRoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
-  }) =>
-      _delegate.updateCachedRoomPreview(
-        roomId,
-        lastMessage: lastMessage,
-        lastMessageTime: lastMessageTime,
-        lastMessageUserId: lastMessageUserId,
-        lastMessageId: lastMessageId,
-        lastMessageType: lastMessageType,
-        lastMessageMimeType: lastMessageMimeType,
-        lastMessageFileName: lastMessageFileName,
-        lastMessageDurationMs: lastMessageDurationMs,
-        lastMessageIsDeleted: lastMessageIsDeleted,
-        lastMessageReactionEmoji: lastMessageReactionEmoji,
-      );
+  }) => _delegate.updateCachedRoomPreview(
+    roomId,
+    lastMessage: lastMessage,
+    lastMessageTime: lastMessageTime,
+    lastMessageUserId: lastMessageUserId,
+    lastMessageId: lastMessageId,
+    lastMessageType: lastMessageType,
+    lastMessageMimeType: lastMessageMimeType,
+    lastMessageFileName: lastMessageFileName,
+    lastMessageDurationMs: lastMessageDurationMs,
+    lastMessageIsDeleted: lastMessageIsDeleted,
+    lastMessageReactionEmoji: lastMessageReactionEmoji,
+  );
 }
 
 class _PredicateTestClient implements ChatClient {
-  _PredicateTestClient(this._delegate, Map<String, Map<String, dynamic>?> custom)
-      : _rooms = _PredicateRoomsApi(_delegate.rooms, custom);
+  _PredicateTestClient(
+    this._delegate,
+    Map<String, Map<String, dynamic>?> custom,
+  ) : _rooms = _PredicateRoomsApi(_delegate.rooms, custom);
 
   final MockChatClient _delegate;
   final _PredicateRoomsApi _rooms;
@@ -212,89 +222,94 @@ void main() {
   }
 
   group('isDmRoom predicate', () {
-    test('without predicate, oneToOne room enters DM cache (default behaviour)',
-        () async {
-      final s = await setupAdapter(customByRoomId: {});
-      await s.mock.rooms.create(
-        audience: RoomAudience.contacts,
-        name: 'Plain DM',
-        members: ['u2'],
-      );
+    test(
+      'without predicate, oneToOne room enters DM cache (default behaviour)',
+      () async {
+        final s = await setupAdapter(customByRoomId: {});
+        await s.mock.rooms.create(
+          audience: RoomAudience.contacts,
+          name: 'Plain DM',
+          members: ['u2'],
+        );
 
-      final result = await s.adapter.loadRooms();
-      await Future.delayed(const Duration(milliseconds: 50));
+        final result = await s.adapter.loadRooms();
+        await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(result.isSuccess, true);
-      final room = s.adapter.roomListController.allRooms.first;
-      expect(s.adapter.getDmRoomId('u2'), room.id);
+        expect(result.isSuccess, true);
+        final room = s.adapter.roomListController.allRooms.first;
+        expect(s.adapter.getDmRoomId('u2'), room.id);
 
-      await s.adapter.dispose();
-      await s.mock.dispose();
-    });
+        await s.adapter.dispose();
+        await s.mock.dispose();
+      },
+    );
 
     test(
-        'with predicate, oneToOne room with non-dm custom does NOT enter cache',
-        () async {
-      final mock = MockChatClient(currentUserId: 'u1');
-      final created = await mock.rooms.create(
-        audience: RoomAudience.contacts,
-        name: 'Plan room',
-        members: ['u2'],
-      );
-      final roomId = created.dataOrNull!.id;
-      final customByRoomId = <String, Map<String, dynamic>?>{
-        roomId: {'type': 'plan_group'},
-      };
-      final client = _PredicateTestClient(mock, customByRoomId);
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: currentUser,
-        isDmRoom: (d) =>
-            d.type == RoomType.oneToOne && d.custom?['type'] == 'dm',
-      );
+      'with predicate, oneToOne room with non-dm custom does NOT enter cache',
+      () async {
+        final mock = MockChatClient(currentUserId: 'u1');
+        final created = await mock.rooms.create(
+          audience: RoomAudience.contacts,
+          name: 'Plan room',
+          members: ['u2'],
+        );
+        final roomId = created.dataOrNull!.id;
+        final customByRoomId = <String, Map<String, dynamic>?>{
+          roomId: {'type': 'plan_group'},
+        };
+        final client = _PredicateTestClient(mock, customByRoomId);
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: currentUser,
+          isDmRoom: (d) =>
+              d.type == RoomType.oneToOne && d.custom?['type'] == 'dm',
+        );
 
-      final result = await adapter.loadRooms();
-      await Future.delayed(const Duration(milliseconds: 50));
+        final result = await adapter.loadRooms();
+        await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(result.isSuccess, true);
-      expect(adapter.getDmRoomId('u2'), isNull);
-      final room = adapter.roomListController.allRooms.first;
-      expect(room.otherUserId, isNull);
+        expect(result.isSuccess, true);
+        expect(adapter.getDmRoomId('u2'), isNull);
+        final room = adapter.roomListController.allRooms.first;
+        expect(room.otherUserId, isNull);
 
-      await adapter.dispose();
-      await mock.dispose();
-    });
+        await adapter.dispose();
+        await mock.dispose();
+      },
+    );
 
-    test('with predicate, oneToOne room with dm custom DOES enter cache',
-        () async {
-      final mock = MockChatClient(currentUserId: 'u1');
-      final created = await mock.rooms.create(
-        audience: RoomAudience.contacts,
-        name: 'DM room',
-        members: ['u2'],
-      );
-      final roomId = created.dataOrNull!.id;
-      final customByRoomId = <String, Map<String, dynamic>?>{
-        roomId: {'type': 'dm'},
-      };
-      final client = _PredicateTestClient(mock, customByRoomId);
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: currentUser,
-        isDmRoom: (d) =>
-            d.type == RoomType.oneToOne && d.custom?['type'] == 'dm',
-      );
+    test(
+      'with predicate, oneToOne room with dm custom DOES enter cache',
+      () async {
+        final mock = MockChatClient(currentUserId: 'u1');
+        final created = await mock.rooms.create(
+          audience: RoomAudience.contacts,
+          name: 'DM room',
+          members: ['u2'],
+        );
+        final roomId = created.dataOrNull!.id;
+        final customByRoomId = <String, Map<String, dynamic>?>{
+          roomId: {'type': 'dm'},
+        };
+        final client = _PredicateTestClient(mock, customByRoomId);
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: currentUser,
+          isDmRoom: (d) =>
+              d.type == RoomType.oneToOne && d.custom?['type'] == 'dm',
+        );
 
-      final result = await adapter.loadRooms();
-      await Future.delayed(const Duration(milliseconds: 50));
+        final result = await adapter.loadRooms();
+        await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(result.isSuccess, true);
-      expect(adapter.getDmRoomId('u2'), roomId);
-      final room = adapter.roomListController.allRooms.first;
-      expect(room.otherUserId, 'u2');
+        expect(result.isSuccess, true);
+        expect(adapter.getDmRoomId('u2'), roomId);
+        final room = adapter.roomListController.allRooms.first;
+        expect(room.otherUserId, 'u2');
 
-      await adapter.dispose();
-      await mock.dispose();
-    });
+        await adapter.dispose();
+        await mock.dispose();
+      },
+    );
   });
 }

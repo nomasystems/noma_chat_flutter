@@ -6,10 +6,7 @@ import 'package:noma_chat/noma_chat.dart';
 /// `ReadReceipt.lastReadAt` is non-null and not earlier than the message's
 /// timestamp. The author of the message is always excluded (a sender does
 /// not "read" their own message).
-List<String> readersFor(
-  ChatMessage message,
-  List<ReadReceipt> receipts,
-) {
+List<String> readersFor(ChatMessage message, List<ReadReceipt> receipts) {
   final result = <String>[];
   for (final r in receipts) {
     if (r.userId == message.from) continue;

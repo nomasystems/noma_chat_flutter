@@ -7,17 +7,19 @@ void main() {
 
   group('PinnedMessagesBanner', () {
     testWidgets('renders pinned message text', (tester) async {
-      await tester.pumpWidget(wrap(
-        PinnedMessagesBanner(
-          pinnedMessage: MessagePin(
-            roomId: 'r1',
-            messageId: 'msg1',
-            pinnedBy: 'u1',
-            pinnedAt: DateTime(2026, 1, 1),
+      await tester.pumpWidget(
+        wrap(
+          PinnedMessagesBanner(
+            pinnedMessage: MessagePin(
+              roomId: 'r1',
+              messageId: 'msg1',
+              pinnedBy: 'u1',
+              pinnedAt: DateTime(2026, 1, 1),
+            ),
+            pinnedMessageText: 'Check out this important info',
           ),
-          pinnedMessageText: 'Check out this important info',
         ),
-      ));
+      );
 
       expect(find.text('Pinned message'), findsOneWidget);
       expect(find.text('Check out this important info'), findsOneWidget);
@@ -25,9 +27,7 @@ void main() {
     });
 
     testWidgets('renders nothing when pinnedMessage is null', (tester) async {
-      await tester.pumpWidget(wrap(
-        const PinnedMessagesBanner(),
-      ));
+      await tester.pumpWidget(wrap(const PinnedMessagesBanner()));
 
       expect(find.byIcon(Icons.push_pin), findsNothing);
       expect(find.text('Pinned message'), findsNothing);
@@ -35,18 +35,20 @@ void main() {
 
     testWidgets('tap triggers onTap callback', (tester) async {
       var tapped = false;
-      await tester.pumpWidget(wrap(
-        PinnedMessagesBanner(
-          pinnedMessage: MessagePin(
-            roomId: 'r1',
-            messageId: 'msg1',
-            pinnedBy: 'u1',
-            pinnedAt: DateTime(2026, 1, 1),
+      await tester.pumpWidget(
+        wrap(
+          PinnedMessagesBanner(
+            pinnedMessage: MessagePin(
+              roomId: 'r1',
+              messageId: 'msg1',
+              pinnedBy: 'u1',
+              pinnedAt: DateTime(2026, 1, 1),
+            ),
+            pinnedMessageText: 'Pinned text',
+            onTap: () => tapped = true,
           ),
-          pinnedMessageText: 'Pinned text',
-          onTap: () => tapped = true,
         ),
-      ));
+      );
 
       await tester.tap(find.text('Pinned text'));
       expect(tapped, true);
@@ -54,17 +56,19 @@ void main() {
 
     testWidgets('close button triggers onClose', (tester) async {
       var closed = false;
-      await tester.pumpWidget(wrap(
-        PinnedMessagesBanner(
-          pinnedMessage: MessagePin(
-            roomId: 'r1',
-            messageId: 'msg1',
-            pinnedBy: 'u1',
-            pinnedAt: DateTime(2026, 1, 1),
+      await tester.pumpWidget(
+        wrap(
+          PinnedMessagesBanner(
+            pinnedMessage: MessagePin(
+              roomId: 'r1',
+              messageId: 'msg1',
+              pinnedBy: 'u1',
+              pinnedAt: DateTime(2026, 1, 1),
+            ),
+            onClose: () => closed = true,
           ),
-          onClose: () => closed = true,
         ),
-      ));
+      );
 
       await tester.tap(find.byIcon(Icons.close));
       expect(closed, true);

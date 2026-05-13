@@ -23,8 +23,9 @@ class ChatUiAdapter {
     ChatLocalDatasource? cache,
   }) : _cache = cache,
        roomListController = RoomListController(),
-       connectionStateNotifier =
-           ValueNotifier(ChatConnectionState.disconnected),
+       connectionStateNotifier = ValueNotifier(
+         ChatConnectionState.disconnected,
+       ),
        initializedNotifier = ValueNotifier(false);
 
   final ChatClient client;
@@ -83,13 +84,15 @@ class ChatUiAdapter {
     String? userId,
   }) {
     if (result.isFailure && !_operationErrorsController.isClosed) {
-      _operationErrorsController.add(OperationError(
-        kind: kind,
-        failure: result.failureOrNull!,
-        roomId: roomId,
-        messageId: messageId,
-        userId: userId,
-      ));
+      _operationErrorsController.add(
+        OperationError(
+          kind: kind,
+          failure: result.failureOrNull!,
+          roomId: roomId,
+          messageId: messageId,
+          userId: userId,
+        ),
+      );
     }
     return result;
   }
@@ -143,10 +146,9 @@ class ChatUiAdapter {
   /// back without one. The server omits the field for the synchronous POST
   /// response, so without this helper an outgoing bubble would render with no
   /// status icon until a `delivered`/`read` event arrives.
-  ChatMessage _ensureSentReceipt(ChatMessage message) =>
-      message.receipt == null
-          ? message.copyWith(receipt: ReceiptStatus.sent)
-          : message;
+  ChatMessage _ensureSentReceipt(ChatMessage message) => message.receipt == null
+      ? message.copyWith(receipt: ReceiptStatus.sent)
+      : message;
 
   Future<void> _ensureUserCached(String userId) async {
     if (_disposed) return;
@@ -175,8 +177,7 @@ class ChatUiAdapter {
   /// Returns the [ChatController] for [roomId] only if it has already been
   /// created (does NOT create a new one). Useful for read-only lookups such as
   /// resolving member names from the room list.
-  ChatController? findChatController(String roomId) =>
-      _chatControllers[roomId];
+  ChatController? findChatController(String roomId) => _chatControllers[roomId];
 
   /// Associates a contact user ID with its DM room ID for typing indicator routing.
   void registerDmRoom(String contactUserId, String roomId) {
@@ -269,15 +270,18 @@ class ChatUiAdapter {
   Future<Result<void>> loadRooms({String type = 'all'}) {
     if (_loadRoomsCompleter != null) return _loadRoomsCompleter!.future;
     _loadRoomsCompleter = Completer<Result<void>>();
-    _doLoadRooms(type: type).then(
-      (result) => _loadRoomsCompleter!
-          .complete(_emitFailure(result, OperationKind.loadRooms)),
-      onError: (Object e) {
-        final result = Failure<void>(NetworkFailure(e.toString()));
-        _emitFailure(result, OperationKind.loadRooms);
-        _loadRoomsCompleter!.complete(result);
-      },
-    ).whenComplete(() => _loadRoomsCompleter = null);
+    _doLoadRooms(type: type)
+        .then(
+          (result) => _loadRoomsCompleter!.complete(
+            _emitFailure(result, OperationKind.loadRooms),
+          ),
+          onError: (Object e) {
+            final result = Failure<void>(NetworkFailure(e.toString()));
+            _emitFailure(result, OperationKind.loadRooms);
+            _loadRoomsCompleter!.complete(result);
+          },
+        )
+        .whenComplete(() => _loadRoomsCompleter = null);
     return _loadRoomsCompleter!.future;
   }
 
@@ -315,11 +319,9 @@ class ChatUiAdapter {
     UserRooms userRooms, {
     CachePolicy? detailPolicy,
   }) async {
-    final detailFutures = userRooms.rooms
-        .map((unread) => client.rooms.get(
-              unread.roomId,
-              cachePolicy: detailPolicy,
-            ));
+    final detailFutures = userRooms.rooms.map(
+      (unread) => client.rooms.get(unread.roomId, cachePolicy: detailPolicy),
+    );
     final details = await Future.wait(detailFutures);
 
     final items = <RoomListItem>[];
@@ -328,52 +330,56 @@ class ChatUiAdapter {
       final detail = details[i].dataOrNull;
 
       final clearedAt = await client.messages.getClearedAt(unread.roomId);
-      final isCleared = clearedAt != null &&
+      final isCleared =
+          clearedAt != null &&
           unread.lastMessageTime != null &&
           !unread.lastMessageTime!.isAfter(clearedAt);
 
-      items.add(RoomListItem(
-        id: unread.roomId,
-        name: detail?.name,
-        subject: detail?.subject,
-        avatarUrl: detail?.avatarUrl,
-        lastMessage: isCleared ? null : unread.lastMessage,
-        lastMessageTime: isCleared ? null : unread.lastMessageTime,
-        lastMessageUserId: isCleared ? null : unread.lastMessageUserId,
-        lastMessageId: isCleared ? null : unread.lastMessageId,
-        lastMessageReceipt: isCleared ? null
-            : (unread.lastMessageUserId == currentUser.id
-                ? ReceiptStatus.sent
-                : null),
-        lastMessageType: isCleared ? null : unread.lastMessageType,
-        lastMessageMimeType: isCleared ? null : unread.lastMessageMimeType,
-        lastMessageFileName: isCleared ? null : unread.lastMessageFileName,
-        lastMessageDurationMs:
-            isCleared ? null : unread.lastMessageDurationMs,
-        lastMessageIsDeleted:
-            isCleared ? false : unread.lastMessageIsDeleted,
-        lastMessageReactionEmoji:
-            isCleared ? null : unread.lastMessageReactionEmoji,
-        unreadCount: isCleared ? 0 : unread.unreadMessages,
-        muted: detail?.muted ?? false,
-        pinned: detail?.pinned ?? false,
-        hidden: detail?.hidden ?? false,
-        isGroup: detail?.type == RoomType.group ||
-            detail?.type == RoomType.announcement,
-        isAnnouncement: detail?.type == RoomType.announcement,
-        userRole: detail?.userRole,
-        memberCount: detail?.memberCount,
-        otherUserId: null,
-        custom: detail?.custom,
-      ));
+      items.add(
+        RoomListItem(
+          id: unread.roomId,
+          name: detail?.name,
+          subject: detail?.subject,
+          avatarUrl: detail?.avatarUrl,
+          lastMessage: isCleared ? null : unread.lastMessage,
+          lastMessageTime: isCleared ? null : unread.lastMessageTime,
+          lastMessageUserId: isCleared ? null : unread.lastMessageUserId,
+          lastMessageId: isCleared ? null : unread.lastMessageId,
+          lastMessageReceipt: isCleared
+              ? null
+              : (unread.lastMessageUserId == currentUser.id
+                    ? ReceiptStatus.sent
+                    : null),
+          lastMessageType: isCleared ? null : unread.lastMessageType,
+          lastMessageMimeType: isCleared ? null : unread.lastMessageMimeType,
+          lastMessageFileName: isCleared ? null : unread.lastMessageFileName,
+          lastMessageDurationMs: isCleared
+              ? null
+              : unread.lastMessageDurationMs,
+          lastMessageIsDeleted: isCleared ? false : unread.lastMessageIsDeleted,
+          lastMessageReactionEmoji: isCleared
+              ? null
+              : unread.lastMessageReactionEmoji,
+          unreadCount: isCleared ? 0 : unread.unreadMessages,
+          muted: detail?.muted ?? false,
+          pinned: detail?.pinned ?? false,
+          hidden: detail?.hidden ?? false,
+          isGroup:
+              detail?.type == RoomType.group ||
+              detail?.type == RoomType.announcement,
+          isAnnouncement: detail?.type == RoomType.announcement,
+          userRole: detail?.userRole,
+          memberCount: detail?.memberCount,
+          otherUserId: null,
+          custom: detail?.custom,
+        ),
+      );
     }
 
     // Process invited rooms
-    final invitedFutures = userRooms.invitedRooms
-        .map((inv) => client.rooms.get(
-              inv.roomId,
-              cachePolicy: detailPolicy,
-            ));
+    final invitedFutures = userRooms.invitedRooms.map(
+      (inv) => client.rooms.get(inv.roomId, cachePolicy: detailPolicy),
+    );
     final invitedDetails = userRooms.invitedRooms.isNotEmpty
         ? await Future.wait(invitedFutures)
         : <Result<RoomDetail>>[];
@@ -381,17 +387,19 @@ class ChatUiAdapter {
     for (var i = 0; i < userRooms.invitedRooms.length; i++) {
       final inv = userRooms.invitedRooms[i];
       final detail = invitedDetails[i].dataOrNull;
-      items.add(RoomListItem(
-        id: inv.roomId,
-        name: detail?.name,
-        avatarUrl: detail?.avatarUrl,
-        isGroup: detail?.type == RoomType.group,
-        custom: {
-          ...?detail?.custom,
-          'invited': true,
-          'invitedBy': inv.invitedBy,
-        },
-      ));
+      items.add(
+        RoomListItem(
+          id: inv.roomId,
+          name: detail?.name,
+          avatarUrl: detail?.avatarUrl,
+          isGroup: detail?.type == RoomType.group,
+          custom: {
+            ...?detail?.custom,
+            'invited': true,
+            'invitedBy': inv.invitedBy,
+          },
+        ),
+      );
     }
 
     roomListController.setRooms(items);
@@ -436,34 +444,41 @@ class ChatUiAdapter {
   }
 
   void _resolveDmContact(String roomId) {
-    Future.sync(() => client.members.list(roomId)).then((membersResult) {
-      if (_disposed) return;
-      final members = membersResult.dataOrNull?.items ?? [];
-      final other = members
-          .where((m) => m.userId != currentUser.id)
-          .firstOrNull;
-      if (other == null) return;
-      _dmRoomByContact[other.userId] = roomId;
-      final existing = roomListController.getRoomById(roomId);
-      if (existing != null) {
-        final cachedPresence = _presenceCache[other.userId];
-        roomListController.updateRoom(
-          existing.copyWith(
-            otherUserId: other.userId,
-            isOnline: cachedPresence?.online ?? existing.isOnline,
-            presenceStatus:
-                cachedPresence?.status ?? existing.presenceStatus,
-          ),
-        );
-      }
-      onDmContactResolved?.call(roomId, other.userId);
-    }).catchError((Object e) {
-      logger?.call('warn', 'Failed to resolve DM contact for room $roomId: $e');
-    });
+    Future.sync(() => client.members.list(roomId))
+        .then((membersResult) {
+          if (_disposed) return;
+          final members = membersResult.dataOrNull?.items ?? [];
+          final other = members
+              .where((m) => m.userId != currentUser.id)
+              .firstOrNull;
+          if (other == null) return;
+          _dmRoomByContact[other.userId] = roomId;
+          final existing = roomListController.getRoomById(roomId);
+          if (existing != null) {
+            final cachedPresence = _presenceCache[other.userId];
+            roomListController.updateRoom(
+              existing.copyWith(
+                otherUserId: other.userId,
+                isOnline: cachedPresence?.online ?? existing.isOnline,
+                presenceStatus:
+                    cachedPresence?.status ?? existing.presenceStatus,
+              ),
+            );
+          }
+          onDmContactResolved?.call(roomId, other.userId);
+        })
+        .catchError((Object e) {
+          logger?.call(
+            'warn',
+            'Failed to resolve DM contact for room $roomId: $e',
+          );
+        });
   }
 
   void _loadReactionsFromMessages(
-      ChatController controller, List<ChatMessage> messages) {
+    ChatController controller,
+    List<ChatMessage> messages,
+  ) {
     for (final msg in messages) {
       final reactions = msg.metadata?['_reactions'];
       if (reactions is Map) {
@@ -505,7 +520,8 @@ class ChatUiAdapter {
       pagination: pagination,
       cachePolicy: CachePolicy.cacheOnly,
     );
-    final hasCached = cachedResult.isSuccess &&
+    final hasCached =
+        cachedResult.isSuccess &&
         (cachedResult.dataOrNull?.items.isNotEmpty ?? false);
     if (hasCached) {
       final cachedData = cachedResult.dataOrNull!;
@@ -540,8 +556,9 @@ class ChatUiAdapter {
       if (!hasCached) {
         controller.setPaginationState(
           hasMore: networkData.hasMore,
-          cursor:
-              networkData.items.isNotEmpty ? networkData.items.last.id : null,
+          cursor: networkData.items.isNotEmpty
+              ? networkData.items.last.id
+              : null,
         );
       }
       finalResult = Success(networkData.items);
@@ -552,7 +569,11 @@ class ChatUiAdapter {
     }
 
     await _rehydratePendingMessages(roomId, controller);
-    return _emitFailure(finalResult, OperationKind.loadMessages, roomId: roomId);
+    return _emitFailure(
+      finalResult,
+      OperationKind.loadMessages,
+      roomId: roomId,
+    );
   }
 
   Future<void> _rehydratePendingMessages(
@@ -569,26 +590,21 @@ class ChatUiAdapter {
         // an orphan from a lost deletePendingMessage and drop it. Without
         // this, a single failed cache delete would leak a ghost bubble that
         // re-appears on every reload.
-        final superseded = controller.messages.any((m) =>
-            m.id != p.message.id &&
-            m.from == p.message.from &&
-            m.messageType == p.message.messageType &&
-            m.text == p.message.text &&
-            m.timestamp
-                    .difference(p.message.timestamp)
-                    .inSeconds
-                    .abs() <=
-                60);
+        final superseded = controller.messages.any(
+          (m) =>
+              m.id != p.message.id &&
+              m.from == p.message.from &&
+              m.messageType == p.message.messageType &&
+              m.text == p.message.text &&
+              m.timestamp.difference(p.message.timestamp).inSeconds.abs() <= 60,
+        );
         if (superseded) {
           unawaited(
-            cache
-                .deletePendingMessage(roomId, p.message.id)
-                .catchError((_) {}),
+            cache.deletePendingMessage(roomId, p.message.id).catchError((_) {}),
           );
           continue;
         }
-        final exists =
-            controller.messages.any((m) => m.id == p.message.id);
+        final exists = controller.messages.any((m) => m.id == p.message.id);
         if (!exists) controller.addMessage(p.message);
         // Anything that survived to the next load couldn't confirm in the
         // previous session: surface it as failed so the user can retry.
@@ -624,7 +640,8 @@ class ChatUiAdapter {
       pagination: pagination,
       cachePolicy: CachePolicy.cacheOnly,
     );
-    final hasCached = cachedResult.isSuccess &&
+    final hasCached =
+        cachedResult.isSuccess &&
         (cachedResult.dataOrNull?.items.isNotEmpty ?? false);
     if (hasCached) {
       final cachedData = cachedResult.dataOrNull!;
@@ -651,8 +668,7 @@ class ChatUiAdapter {
       _loadReactionsFromMessages(controller, networkData.items);
       controller.setPaginationState(
         hasMore: networkData.hasMore,
-        cursor:
-            networkData.items.isNotEmpty ? networkData.items.last.id : null,
+        cursor: networkData.items.isNotEmpty ? networkData.items.last.id : null,
       );
       return Success(networkData.items);
     }
@@ -715,8 +731,9 @@ class ChatUiAdapter {
       tempId: tempId,
     );
 
-    final confirmed =
-        result.isSuccess ? _ensureSentReceipt(result.dataOrNull!) : null;
+    final confirmed = result.isSuccess
+        ? _ensureSentReceipt(result.dataOrNull!)
+        : null;
     if (controller != null) {
       if (confirmed != null) {
         controller.confirmSent(tempId, confirmed);
@@ -893,10 +910,7 @@ class ChatUiAdapter {
       _typingStopTimers[roomId] = Timer(_typingStopDelay, () {
         _typingStopTimers.remove(roomId);
         _lastTypingSent.remove(roomId);
-        client.messages.sendTyping(
-          roomId,
-          activity: ChatActivity.stopsTyping,
-        );
+        client.messages.sendTyping(roomId, activity: ChatActivity.stopsTyping);
       });
       final last = _lastTypingSent[roomId];
       if (last != null && DateTime.now().difference(last) < _typingThrottle) {
@@ -921,8 +935,10 @@ class ChatUiAdapter {
   /// the id allows the backend to fan out a `receipt_updated` event to the
   /// original sender so the second tick can flip to "read"; legacy callers
   /// that omit it still get the room-level `lastReadAt` persisted as before.
-  Future<Result<void>> markAsRead(String roomId,
-      {String? lastReadMessageId}) async {
+  Future<Result<void>> markAsRead(
+    String roomId, {
+    String? lastReadMessageId,
+  }) async {
     var effectiveId = lastReadMessageId;
     if (effectiveId == null) {
       final controller = _chatControllers[roomId];
@@ -953,20 +969,22 @@ class ChatUiAdapter {
       controller?.clearMessages();
       final existing = roomListController.getRoomById(roomId);
       if (existing != null) {
-        roomListController.updateRoom(existing.copyWith(
-          unreadCount: 0,
-          lastMessage: null,
-          lastMessageTime: null,
-          lastMessageUserId: null,
-          lastMessageId: null,
-          lastMessageReceipt: null,
-          lastMessageType: null,
-          lastMessageMimeType: null,
-          lastMessageFileName: null,
-          lastMessageDurationMs: null,
-          lastMessageIsDeleted: false,
-          lastMessageReactionEmoji: null,
-        ));
+        roomListController.updateRoom(
+          existing.copyWith(
+            unreadCount: 0,
+            lastMessage: null,
+            lastMessageTime: null,
+            lastMessageUserId: null,
+            lastMessageId: null,
+            lastMessageReceipt: null,
+            lastMessageType: null,
+            lastMessageMimeType: null,
+            lastMessageFileName: null,
+            lastMessageDurationMs: null,
+            lastMessageIsDeleted: false,
+            lastMessageReactionEmoji: null,
+          ),
+        );
       }
     }
     return _emitFailure(result, OperationKind.clearChat, roomId: roomId);
@@ -978,8 +996,11 @@ class ChatUiAdapter {
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
   }) async {
-    final result =
-        await client.messages.sendReceipt(roomId, messageId, status: status);
+    final result = await client.messages.sendReceipt(
+      roomId,
+      messageId,
+      status: status,
+    );
     return _emitFailure(
       result,
       OperationKind.sendReceipt,
@@ -1016,8 +1037,11 @@ class ChatUiAdapter {
     String mimeType, {
     void Function(int sent, int total)? onProgress,
   }) async {
-    final result =
-        await client.attachments.upload(data, mimeType, onProgress: onProgress);
+    final result = await client.attachments.upload(
+      data,
+      mimeType,
+      onProgress: onProgress,
+    );
     return _emitFailure(result, OperationKind.uploadAttachment);
   }
 
@@ -1084,8 +1108,10 @@ class ChatUiAdapter {
     );
 
     if (_disposed) {
-      return Failure(uploadResult.failureOrNull ??
-          const NetworkFailure('adapter disposed mid-upload'));
+      return Failure(
+        uploadResult.failureOrNull ??
+            const NetworkFailure('adapter disposed mid-upload'),
+      );
     }
 
     if (uploadResult.isFailure) {
@@ -1124,8 +1150,9 @@ class ChatUiAdapter {
       tempId: tempId,
     );
 
-    final confirmedVoice =
-        sendResult.isSuccess ? _ensureSentReceipt(sendResult.dataOrNull!) : null;
+    final confirmedVoice = sendResult.isSuccess
+        ? _ensureSentReceipt(sendResult.dataOrNull!)
+        : null;
     if (controller != null) {
       if (confirmedVoice != null) {
         controller.confirmSent(tempId, confirmedVoice);
@@ -1385,11 +1412,7 @@ class ChatUiAdapter {
       roomId: roomId,
       pagination: pagination ?? const PaginationParams(limit: 20),
     );
-    return _emitFailure(
-      result,
-      OperationKind.searchMessages,
-      roomId: roomId,
-    );
+    return _emitFailure(result, OperationKind.searchMessages, roomId: roomId);
   }
 
   /// Loads read receipts for a room.
@@ -1426,22 +1449,14 @@ class ChatUiAdapter {
         );
       }
     }
-    return _emitFailure(
-      result,
-      OperationKind.acceptInvitation,
-      roomId: roomId,
-    );
+    return _emitFailure(result, OperationKind.acceptInvitation, roomId: roomId);
   }
 
   /// Rejects a room invitation and removes it from the list.
   Future<Result<void>> rejectInvitation(String roomId) async {
     roomListController.removeRoom(roomId);
     final result = await client.members.leave(roomId);
-    return _emitFailure(
-      result,
-      OperationKind.rejectInvitation,
-      roomId: roomId,
-    );
+    return _emitFailure(result, OperationKind.rejectInvitation, roomId: roomId);
   }
 
   /// Pins a message in a room with optimistic update. Restores on failure.
@@ -1449,12 +1464,14 @@ class ChatUiAdapter {
     final controller = _chatControllers[roomId];
     final wasAlreadyPinned = controller?.isPinned(messageId) ?? false;
     if (controller != null && !wasAlreadyPinned) {
-      controller.addPin(MessagePin(
-        roomId: roomId,
-        messageId: messageId,
-        pinnedBy: currentUser.id,
-        pinnedAt: DateTime.now(),
-      ));
+      controller.addPin(
+        MessagePin(
+          roomId: roomId,
+          messageId: messageId,
+          pinnedBy: currentUser.id,
+          pinnedAt: DateTime.now(),
+        ),
+      );
     }
 
     final result = await client.messages.pinMessage(roomId, messageId);
@@ -1557,7 +1574,9 @@ class ChatUiAdapter {
       case MessageDeletedEvent(:final roomId, :final messageId):
         final controller = _chatControllers[roomId];
         if (controller != null) {
-          final msg = controller.messages.where((m) => m.id == messageId).firstOrNull;
+          final msg = controller.messages
+              .where((m) => m.id == messageId)
+              .firstOrNull;
           if (msg != null) {
             controller.updateMessage(msg.copyWith(isDeleted: true, text: ''));
           }
@@ -1571,11 +1590,13 @@ class ChatUiAdapter {
               lastMessageIsDeleted: true,
             ),
           );
-          unawaited(client.rooms.updateCachedRoomPreview(
-            roomId,
-            lastMessage: l10n.messageDeleted,
-            lastMessageIsDeleted: true,
-          ));
+          unawaited(
+            client.rooms.updateCachedRoomPreview(
+              roomId,
+              lastMessage: l10n.messageDeleted,
+              lastMessageIsDeleted: true,
+            ),
+          );
         }
 
       case UserActivityEvent(:final roomId, :final userId, :final activity):
@@ -1628,11 +1649,7 @@ class ChatUiAdapter {
       case PresenceChangedEvent(:final userId, :final online, :final status):
         _updatePresenceInRoomList(userId, online, status);
 
-      case ReceiptUpdatedEvent(
-        :final roomId,
-        :final messageId,
-        :final status,
-      ):
+      case ReceiptUpdatedEvent(:final roomId, :final messageId, :final status):
         _chatControllers[roomId]?.updateReceipt(messageId, status);
         _updateRoomListReceipt(roomId, messageId, status);
 
@@ -1665,8 +1682,8 @@ class ChatUiAdapter {
         _addSystemMessage(roomId, 'user_role_changed', userId);
 
       case ConnectedEvent():
-        final wasConnected = connectionStateNotifier.value ==
-            ChatConnectionState.connected;
+        final wasConnected =
+            connectionStateNotifier.value == ChatConnectionState.connected;
         connectionStateNotifier.value = ChatConnectionState.connected;
         // Refresh the presence cache after a (re)connection so that contact
         // online states reflect the current server snapshot. CHT does not
@@ -1709,8 +1726,9 @@ class ChatUiAdapter {
         lastMessageTime: message.timestamp,
         lastMessageUserId: message.from,
         lastMessageId: message.id,
-        lastMessageReceipt:
-            message.from == currentUser.id ? ReceiptStatus.sent : null,
+        lastMessageReceipt: message.from == currentUser.id
+            ? ReceiptStatus.sent
+            : null,
         lastMessageType: message.messageType,
         lastMessageMimeType: message.mimeType,
         lastMessageFileName: message.fileName,
@@ -1721,21 +1739,23 @@ class ChatUiAdapter {
             : null,
       ),
     );
-    unawaited(client.rooms.updateCachedRoomPreview(
-      roomId,
-      lastMessage: preview,
-      lastMessageTime: message.timestamp,
-      lastMessageUserId: message.from,
-      lastMessageId: message.id,
-      lastMessageType: message.messageType,
-      lastMessageMimeType: message.mimeType,
-      lastMessageFileName: message.fileName,
-      lastMessageDurationMs: lastDurationMs,
-      lastMessageIsDeleted: message.isDeleted,
-      lastMessageReactionEmoji: message.messageType == MessageType.reaction
-          ? message.reaction
-          : null,
-    ));
+    unawaited(
+      client.rooms.updateCachedRoomPreview(
+        roomId,
+        lastMessage: preview,
+        lastMessageTime: message.timestamp,
+        lastMessageUserId: message.from,
+        lastMessageId: message.id,
+        lastMessageType: message.messageType,
+        lastMessageMimeType: message.mimeType,
+        lastMessageFileName: message.fileName,
+        lastMessageDurationMs: lastDurationMs,
+        lastMessageIsDeleted: message.isDeleted,
+        lastMessageReactionEmoji: message.messageType == MessageType.reaction
+            ? message.reaction
+            : null,
+      ),
+    );
   }
 
   /// Computes a legacy plain-text preview for [message] used as fallback
@@ -1796,15 +1816,17 @@ class ChatUiAdapter {
         lastMessageIsDeleted: false,
       ),
     );
-    unawaited(client.rooms.updateCachedRoomPreview(
-      roomId,
-      lastMessage: preview,
-      lastMessageTime: timestamp,
-      lastMessageUserId: userId,
-      lastMessageType: MessageType.reaction,
-      lastMessageReactionEmoji: emoji,
-      lastMessageIsDeleted: false,
-    ));
+    unawaited(
+      client.rooms.updateCachedRoomPreview(
+        roomId,
+        lastMessage: preview,
+        lastMessageTime: timestamp,
+        lastMessageUserId: userId,
+        lastMessageType: MessageType.reaction,
+        lastMessageReactionEmoji: emoji,
+        lastMessageIsDeleted: false,
+      ),
+    );
   }
 
   void _updateRoomListReceipt(
@@ -1834,7 +1856,11 @@ class ChatUiAdapter {
     return text.length > 30 ? '${text.substring(0, 30)}...' : text;
   }
 
-  String _resolveUserName(ChatController? controller, String userId, String roomId) {
+  String _resolveUserName(
+    ChatController? controller,
+    String userId,
+    String roomId,
+  ) {
     if (controller != null) {
       final user = controller.otherUsers
           .where((u) => u.id == userId)
@@ -1858,28 +1884,30 @@ class ChatUiAdapter {
         if (_disposed) return;
         final match = unreads.where((u) => u.roomId == roomId).firstOrNull;
         if (match != null) {
-          cache.saveUnreads([UnreadRoom(
-            roomId: match.roomId,
-            unreadMessages: count,
-            lastMessage: match.lastMessage,
-            lastMessageTime: match.lastMessageTime,
-            lastMessageUserId: match.lastMessageUserId,
-            lastMessageId: match.lastMessageId,
-            lastMessageType: match.lastMessageType,
-            lastMessageMimeType: match.lastMessageMimeType,
-            lastMessageFileName: match.lastMessageFileName,
-            lastMessageDurationMs: match.lastMessageDurationMs,
-            lastMessageIsDeleted: match.lastMessageIsDeleted,
-            lastMessageReactionEmoji: match.lastMessageReactionEmoji,
-            name: match.name,
-            avatarUrl: match.avatarUrl,
-            type: match.type,
-            memberCount: match.memberCount,
-            userRole: match.userRole,
-            muted: match.muted,
-            pinned: match.pinned,
-            hidden: match.hidden,
-          )]);
+          cache.saveUnreads([
+            UnreadRoom(
+              roomId: match.roomId,
+              unreadMessages: count,
+              lastMessage: match.lastMessage,
+              lastMessageTime: match.lastMessageTime,
+              lastMessageUserId: match.lastMessageUserId,
+              lastMessageId: match.lastMessageId,
+              lastMessageType: match.lastMessageType,
+              lastMessageMimeType: match.lastMessageMimeType,
+              lastMessageFileName: match.lastMessageFileName,
+              lastMessageDurationMs: match.lastMessageDurationMs,
+              lastMessageIsDeleted: match.lastMessageIsDeleted,
+              lastMessageReactionEmoji: match.lastMessageReactionEmoji,
+              name: match.name,
+              avatarUrl: match.avatarUrl,
+              type: match.type,
+              memberCount: match.memberCount,
+              userRole: match.userRole,
+              muted: match.muted,
+              pinned: match.pinned,
+              hidden: match.hidden,
+            ),
+          ]);
         }
       });
     }
@@ -1888,28 +1916,34 @@ class ChatUiAdapter {
   void _refreshReactions(String roomId, String messageId) {
     final controller = _chatControllers[roomId];
     if (controller == null) return;
-    client.messages.getReactions(roomId, messageId, forceRefresh: true).then((result) {
-      if (_disposed) return;
-      final active = _chatControllers[roomId];
-      if (active == null) return;
-      if (result.isFailure) {
-        active.clearReactions(messageId);
-        return;
-      }
-      final aggregated = result.dataOrNull!;
-      final map = <String, int>{};
-      final ownEmojis = <String>{};
-      for (final r in aggregated) {
-        map[r.emoji] = r.count;
-        if (r.users.contains(currentUser.id)) {
-          ownEmojis.add(r.emoji);
-        }
-      }
-      active.setReactions(messageId, map);
-      active.setUserReactions(messageId, ownEmojis);
-    }).catchError((Object e) {
-      logger?.call('warn', 'Failed to refresh reactions for $messageId: $e');
-    });
+    client.messages
+        .getReactions(roomId, messageId, forceRefresh: true)
+        .then((result) {
+          if (_disposed) return;
+          final active = _chatControllers[roomId];
+          if (active == null) return;
+          if (result.isFailure) {
+            active.clearReactions(messageId);
+            return;
+          }
+          final aggregated = result.dataOrNull!;
+          final map = <String, int>{};
+          final ownEmojis = <String>{};
+          for (final r in aggregated) {
+            map[r.emoji] = r.count;
+            if (r.users.contains(currentUser.id)) {
+              ownEmojis.add(r.emoji);
+            }
+          }
+          active.setReactions(messageId, map);
+          active.setUserReactions(messageId, ownEmojis);
+        })
+        .catchError((Object e) {
+          logger?.call(
+            'warn',
+            'Failed to refresh reactions for $messageId: $e',
+          );
+        });
   }
 
   int _systemCounter = 0;
@@ -1923,14 +1957,16 @@ class ChatUiAdapter {
       'user_role_changed' => l10n.userRoleChanged(userId),
       _ => eventType,
     };
-    controller.addMessage(ChatMessage(
-      id: '_system_${_systemCounter++}',
-      from: 'system',
-      timestamp: DateTime.now(),
-      text: text,
-      isSystem: true,
-      metadata: {'event': eventType, 'userId': userId},
-    ));
+    controller.addMessage(
+      ChatMessage(
+        id: '_system_${_systemCounter++}',
+        from: 'system',
+        timestamp: DateTime.now(),
+        text: text,
+        isSystem: true,
+        metadata: {'event': eventType, 'userId': userId},
+      ),
+    );
   }
 
   void _updatePresenceInRoomList(
@@ -1959,16 +1995,19 @@ class ChatUiAdapter {
   /// Stream of presence updates filtered to a single user. Useful for widgets
   /// like the Suggestions list that need to subscribe per-user.
   Stream<ChatPresence> presenceStreamFor(String userId) {
-    return client.events.where((e) => e is PresenceChangedEvent).map((e) {
-      final ev = e as PresenceChangedEvent;
-      return ChatPresence(
-        userId: ev.userId,
-        online: ev.online,
-        status: ev.status,
-        statusText: ev.statusText,
-        lastSeen: ev.lastSeen,
-      );
-    }).where((p) => p.userId == userId);
+    return client.events
+        .where((e) => e is PresenceChangedEvent)
+        .map((e) {
+          final ev = e as PresenceChangedEvent;
+          return ChatPresence(
+            userId: ev.userId,
+            online: ev.online,
+            status: ev.status,
+            statusText: ev.statusText,
+            lastSeen: ev.lastSeen,
+          );
+        })
+        .where((p) => p.userId == userId);
   }
 
   /// Adds a room to the controller AFTER a successful detail fetch.
@@ -1982,51 +2021,54 @@ class ChatUiAdapter {
   /// If the detail fetch fails, the room is not added. The next `loadRooms`
   /// call will pick it up if the server still knows about it.
   void _addRoomFromDetail(String roomId, {ChatMessage? lastMessage}) {
-    client.rooms.get(roomId).then((result) {
-      if (_disposed) return;
-      if (roomListController.getRoomById(roomId) != null) {
-        // Another path (e.g. loadRooms running in parallel) already added
-        // this room; just enrich any missing fields.
-        _applyDetailToExistingRoom(roomId, result.dataOrNull, lastMessage);
-        return;
-      }
-      final detail = result.dataOrNull;
-      if (detail == null) {
-        logger?.call(
-          'warn',
-          'Skipping addRoomFromDetail for $roomId: detail not available',
-        );
-        return;
-      }
-      final isOneToOne = detail.type == RoomType.oneToOne;
-      final item = RoomListItem(
-        id: roomId,
-        name: detail.name,
-        subject: detail.subject,
-        avatarUrl: detail.avatarUrl,
-        muted: detail.muted,
-        pinned: detail.pinned,
-        hidden: detail.hidden,
-        isGroup: !isOneToOne,
-        isAnnouncement: detail.type == RoomType.announcement,
-        userRole: detail.userRole,
-        memberCount: detail.memberCount,
-        custom: detail.custom,
-        lastMessage: lastMessage?.text,
-        lastMessageTime: lastMessage?.timestamp,
-        lastMessageUserId: lastMessage?.from,
-        lastMessageId: lastMessage?.id,
-      );
-      roomListController.addRoom(item);
-      if (_isDmDetail(detail)) {
-        _resolveDmContact(roomId);
-      }
-    }).catchError((Object e) {
-      logger?.call(
-        'warn',
-        'Failed to fetch detail for new room $roomId; not adding: $e',
-      );
-    });
+    client.rooms
+        .get(roomId)
+        .then((result) {
+          if (_disposed) return;
+          if (roomListController.getRoomById(roomId) != null) {
+            // Another path (e.g. loadRooms running in parallel) already added
+            // this room; just enrich any missing fields.
+            _applyDetailToExistingRoom(roomId, result.dataOrNull, lastMessage);
+            return;
+          }
+          final detail = result.dataOrNull;
+          if (detail == null) {
+            logger?.call(
+              'warn',
+              'Skipping addRoomFromDetail for $roomId: detail not available',
+            );
+            return;
+          }
+          final isOneToOne = detail.type == RoomType.oneToOne;
+          final item = RoomListItem(
+            id: roomId,
+            name: detail.name,
+            subject: detail.subject,
+            avatarUrl: detail.avatarUrl,
+            muted: detail.muted,
+            pinned: detail.pinned,
+            hidden: detail.hidden,
+            isGroup: !isOneToOne,
+            isAnnouncement: detail.type == RoomType.announcement,
+            userRole: detail.userRole,
+            memberCount: detail.memberCount,
+            custom: detail.custom,
+            lastMessage: lastMessage?.text,
+            lastMessageTime: lastMessage?.timestamp,
+            lastMessageUserId: lastMessage?.from,
+            lastMessageId: lastMessage?.id,
+          );
+          roomListController.addRoom(item);
+          if (_isDmDetail(detail)) {
+            _resolveDmContact(roomId);
+          }
+        })
+        .catchError((Object e) {
+          logger?.call(
+            'warn',
+            'Failed to fetch detail for new room $roomId; not adding: $e',
+          );
+        });
   }
 
   void _applyDetailToExistingRoom(
@@ -2043,85 +2085,99 @@ class ChatUiAdapter {
       return;
     }
     final isOneToOne = detail.type == RoomType.oneToOne;
-    roomListController.updateRoom(existing.copyWith(
-      name: detail.name,
-      subject: detail.subject,
-      avatarUrl: detail.avatarUrl ?? existing.avatarUrl,
-      isGroup: !isOneToOne,
-      isAnnouncement: detail.type == RoomType.announcement,
-      userRole: detail.userRole,
-      memberCount: detail.memberCount,
-      custom: detail.custom ?? existing.custom,
-    ));
+    roomListController.updateRoom(
+      existing.copyWith(
+        name: detail.name,
+        subject: detail.subject,
+        avatarUrl: detail.avatarUrl ?? existing.avatarUrl,
+        isGroup: !isOneToOne,
+        isAnnouncement: detail.type == RoomType.announcement,
+        userRole: detail.userRole,
+        memberCount: detail.memberCount,
+        custom: detail.custom ?? existing.custom,
+      ),
+    );
     if (lastMessage != null) {
       _updateRoomLastMessage(roomId, lastMessage);
     }
   }
 
   void _enrichRoomFromDetail(String roomId) {
-    client.rooms.get(roomId).then((result) {
-      if (_disposed) return;
-      final detail = result.dataOrNull;
-      if (detail == null) return;
-      final existing = roomListController.getRoomById(roomId);
-      if (existing == null) return;
-      final isOneToOne = detail.type == RoomType.oneToOne;
-      roomListController.updateRoom(
-        existing.copyWith(
-          name: detail.name,
-          subject: detail.subject,
-          avatarUrl: detail.avatarUrl,
-          muted: detail.muted,
-          pinned: detail.pinned,
-          hidden: detail.hidden,
-          isGroup: !isOneToOne,
-          isAnnouncement: detail.type == RoomType.announcement,
-          userRole: detail.userRole,
-          memberCount: detail.memberCount,
-          custom: detail.custom,
-        ),
-      );
-      if (_isDmDetail(detail)) {
-        client.members.list(roomId).then((membersResult) {
+    client.rooms
+        .get(roomId)
+        .then((result) {
           if (_disposed) return;
-          final members = membersResult.dataOrNull?.items ?? [];
-          final other = members
-              .where((m) => m.userId != currentUser.id)
-              .firstOrNull;
-          if (other != null) {
-            _dmRoomByContact[other.userId] = roomId;
-            final current = roomListController.getRoomById(roomId);
-            if (current != null) {
-              roomListController.updateRoom(
-                current.copyWith(otherUserId: other.userId),
-              );
-            }
-            onDmContactResolved?.call(roomId, other.userId);
+          final detail = result.dataOrNull;
+          if (detail == null) return;
+          final existing = roomListController.getRoomById(roomId);
+          if (existing == null) return;
+          final isOneToOne = detail.type == RoomType.oneToOne;
+          roomListController.updateRoom(
+            existing.copyWith(
+              name: detail.name,
+              subject: detail.subject,
+              avatarUrl: detail.avatarUrl,
+              muted: detail.muted,
+              pinned: detail.pinned,
+              hidden: detail.hidden,
+              isGroup: !isOneToOne,
+              isAnnouncement: detail.type == RoomType.announcement,
+              userRole: detail.userRole,
+              memberCount: detail.memberCount,
+              custom: detail.custom,
+            ),
+          );
+          if (_isDmDetail(detail)) {
+            client.members
+                .list(roomId)
+                .then((membersResult) {
+                  if (_disposed) return;
+                  final members = membersResult.dataOrNull?.items ?? [];
+                  final other = members
+                      .where((m) => m.userId != currentUser.id)
+                      .firstOrNull;
+                  if (other != null) {
+                    _dmRoomByContact[other.userId] = roomId;
+                    final current = roomListController.getRoomById(roomId);
+                    if (current != null) {
+                      roomListController.updateRoom(
+                        current.copyWith(otherUserId: other.userId),
+                      );
+                    }
+                    onDmContactResolved?.call(roomId, other.userId);
+                  }
+                })
+                .catchError((Object e) {
+                  logger?.call(
+                    'warn',
+                    'Failed to list members for room $roomId: $e',
+                  );
+                });
           }
-        }).catchError((Object e) {
-          logger?.call('warn', 'Failed to list members for room $roomId: $e');
+        })
+        .catchError((Object e) {
+          logger?.call('warn', 'Failed to enrich room detail for $roomId: $e');
         });
-      }
-    }).catchError((Object e) {
-      logger?.call('warn', 'Failed to enrich room detail for $roomId: $e');
-    });
   }
 
   void _refreshMessage(String roomId, String messageId) {
     final controller = _chatControllers[roomId];
     if (controller == null) return;
-    client.messages.get(roomId, messageId).then((result) {
-      if (_disposed) return;
-      final active = _chatControllers[roomId];
-      if (active == null) return;
-      final updated = result.dataOrNull;
-      if (updated != null) {
-        active.updateMessage(updated);
-        _cache?.updateMessage(roomId, updated);
-      }
-    }).catchError((Object e) {
-      logger?.call('warn', 'Failed to refresh message $messageId: $e');
-    });
+    client.messages
+        .get(roomId, messageId)
+        .then((result) {
+          if (_disposed) return;
+          final active = _chatControllers[roomId];
+          if (active == null) return;
+          final updated = result.dataOrNull;
+          if (updated != null) {
+            active.updateMessage(updated);
+            _cache?.updateMessage(roomId, updated);
+          }
+        })
+        .catchError((Object e) {
+          logger?.call('warn', 'Failed to refresh message $messageId: $e');
+        });
   }
 
   void _handleUserJoined(String roomId, String userId) {
@@ -2136,18 +2192,24 @@ class ChatUiAdapter {
     }
     final controller = _chatControllers[roomId];
     if (controller == null) return;
-    client.users.get(userId).then((result) {
-      if (_disposed) return;
-      final active = _chatControllers[roomId];
-      if (active == null) return;
-      final user = result.dataOrNull;
-      if (user == null) return;
-      final current = active.otherUsers;
-      if (current.any((u) => u.id == userId)) return;
-      active.setOtherUsers([...current, user]);
-    }).catchError((Object e) {
-      logger?.call('warn', 'Failed to fetch user $userId for room $roomId: $e');
-    });
+    client.users
+        .get(userId)
+        .then((result) {
+          if (_disposed) return;
+          final active = _chatControllers[roomId];
+          if (active == null) return;
+          final user = result.dataOrNull;
+          if (user == null) return;
+          final current = active.otherUsers;
+          if (current.any((u) => u.id == userId)) return;
+          active.setOtherUsers([...current, user]);
+        })
+        .catchError((Object e) {
+          logger?.call(
+            'warn',
+            'Failed to fetch user $userId for room $roomId: $e',
+          );
+        });
   }
 
   void _handleUserLeft(String roomId, String userId) {

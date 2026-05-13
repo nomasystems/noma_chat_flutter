@@ -40,24 +40,23 @@ void main() {
       await future;
     });
 
-    test('on success calls confirmSent replacing temp with server message',
-        () async {
-      final controller = adapter.getChatController('room1');
-      final result = await adapter.sendMessage('room1', text: 'Hello');
+    test(
+      'on success calls confirmSent replacing temp with server message',
+      () async {
+        final controller = adapter.getChatController('room1');
+        final result = await adapter.sendMessage('room1', text: 'Hello');
 
-      expect(result.isSuccess, true);
-      final serverMsg = result.dataOrNull!;
+        expect(result.isSuccess, true);
+        final serverMsg = result.dataOrNull!;
 
-      expect(controller.isPending(serverMsg.id), false);
-      expect(
-        controller.messages.any((m) => m.id == serverMsg.id),
-        true,
-      );
-      expect(
-        controller.messages.any((m) => m.id.startsWith('_pending_')),
-        false,
-      );
-    });
+        expect(controller.isPending(serverMsg.id), false);
+        expect(controller.messages.any((m) => m.id == serverMsg.id), true);
+        expect(
+          controller.messages.any((m) => m.id.startsWith('_pending_')),
+          false,
+        );
+      },
+    );
 
     test('on failure marks message as failed', () async {
       final controller = adapter.getChatController('room1');
@@ -66,12 +65,14 @@ void main() {
       // controller-level markFailed path by verifying the happy path
       // already works (tested above) and checking the pending/failed
       // state model directly.
-      controller.addMessage(ChatMessage(
-        id: '_pending_manual',
-        from: 'u1',
-        timestamp: DateTime.now(),
-        text: 'Will fail',
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: '_pending_manual',
+          from: 'u1',
+          timestamp: DateTime.now(),
+          text: 'Will fail',
+        ),
+      );
       controller.markPending('_pending_manual');
       expect(controller.isPending('_pending_manual'), true);
 
@@ -92,9 +93,7 @@ void main() {
       );
       await Future.delayed(Duration.zero);
 
-      final systemMessages = controller.messages.where(
-        (m) => m.isSystem,
-      );
+      final systemMessages = controller.messages.where((m) => m.isSystem);
       expect(systemMessages, hasLength(1));
 
       final sysMsg = systemMessages.first;
@@ -114,9 +113,7 @@ void main() {
       );
       await Future.delayed(Duration.zero);
 
-      final systemMessages = controller.messages.where(
-        (m) => m.isSystem,
-      );
+      final systemMessages = controller.messages.where((m) => m.isSystem);
       expect(systemMessages, hasLength(1));
 
       final sysMsg = systemMessages.first;
@@ -128,8 +125,9 @@ void main() {
   group('_updateRoomLastMessage', () {
     test('uses emoji preview for attachment messages with null text', () async {
       await adapter.connect();
-      adapter.roomListController
-          .addRoom(const RoomListItem(id: 'room1', name: 'Test'));
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Test'),
+      );
 
       final attachmentMsg = ChatMessage(
         id: 'att1',
@@ -151,8 +149,9 @@ void main() {
 
     test('uses emoji preview for audio messages with null text', () async {
       await adapter.connect();
-      adapter.roomListController
-          .addRoom(const RoomListItem(id: 'room1', name: 'Test'));
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Test'),
+      );
 
       final audioMsg = ChatMessage(
         id: 'aud1',
@@ -176,30 +175,36 @@ void main() {
     test('uses _dmRoomByContact for O(1) lookup', () async {
       await adapter.connect();
 
-      adapter.roomListController.addRoom(const RoomListItem(
-        id: 'dm-room-1',
-        name: 'Contact',
-        isGroup: false,
-        otherUserId: 'contact1',
-      ));
+      adapter.roomListController.addRoom(
+        const RoomListItem(
+          id: 'dm-room-1',
+          name: 'Contact',
+          isGroup: false,
+          otherUserId: 'contact1',
+        ),
+      );
       adapter.registerDmRoom('contact1', 'dm-room-1');
 
-      mockClient.emitEvent(ChatEvent.presenceChanged(
-        userId: 'contact1',
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      mockClient.emitEvent(
+        ChatEvent.presenceChanged(
+          userId: 'contact1',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
       await Future.delayed(Duration.zero);
 
       final room = adapter.roomListController.getRoomById('dm-room-1');
       expect(room, isNotNull);
       expect(room!.isOnline, true);
 
-      mockClient.emitEvent(ChatEvent.presenceChanged(
-        userId: 'contact1',
-        status: PresenceStatus.away,
-        online: false,
-      ));
+      mockClient.emitEvent(
+        ChatEvent.presenceChanged(
+          userId: 'contact1',
+          status: PresenceStatus.away,
+          online: false,
+        ),
+      );
       await Future.delayed(Duration.zero);
 
       final updated = adapter.roomListController.getRoomById('dm-room-1');
@@ -209,18 +214,18 @@ void main() {
     test('ignores presence for unknown contacts', () async {
       await adapter.connect();
 
-      adapter.roomListController.addRoom(const RoomListItem(
-        id: 'dm-room-1',
-        name: 'Contact',
-        isGroup: false,
-      ));
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'dm-room-1', name: 'Contact', isGroup: false),
+      );
       // No registerDmRoom call -> userId not in _dmRoomByContact
 
-      mockClient.emitEvent(ChatEvent.presenceChanged(
-        userId: 'unknown-user',
-        status: PresenceStatus.available,
-        online: true,
-      ));
+      mockClient.emitEvent(
+        ChatEvent.presenceChanged(
+          userId: 'unknown-user',
+          status: PresenceStatus.available,
+          online: true,
+        ),
+      );
       await Future.delayed(Duration.zero);
 
       final room = adapter.roomListController.getRoomById('dm-room-1');
@@ -262,11 +267,9 @@ void main() {
 
   group('getRoomById', () {
     test('works via roomListController', () {
-      adapter.roomListController.addRoom(const RoomListItem(
-        id: 'room-abc',
-        name: 'ABC Room',
-        unreadCount: 3,
-      ));
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room-abc', name: 'ABC Room', unreadCount: 3),
+      );
 
       final room = adapter.roomListController.getRoomById('room-abc');
       expect(room, isNotNull);

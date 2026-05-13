@@ -109,26 +109,29 @@ void main() {
       expect(callCount, 2);
     });
 
-    test('does not leak unhandled error when tokenProvider throws and no concurrent caller listens', () async {
-      final unhandled = <Object>[];
-      await runZonedGuarded(() async {
-        final interceptor = BearerAuthInterceptor(
-          tokenProvider: () async {
-            throw StateError('token provider crashed');
-          },
-        );
-        Object? thrownError;
-        try {
-          await interceptor.getAuthHeader();
-        } catch (e) {
-          thrownError = e;
-        }
-        expect(thrownError, isA<StateError>());
-        // Allow microtasks to settle so any unhandled error would surface.
-        await Future<void>.delayed(Duration.zero);
-      }, (e, _) => unhandled.add(e));
-      expect(unhandled, isEmpty);
-    });
+    test(
+      'does not leak unhandled error when tokenProvider throws and no concurrent caller listens',
+      () async {
+        final unhandled = <Object>[];
+        await runZonedGuarded(() async {
+          final interceptor = BearerAuthInterceptor(
+            tokenProvider: () async {
+              throw StateError('token provider crashed');
+            },
+          );
+          Object? thrownError;
+          try {
+            await interceptor.getAuthHeader();
+          } catch (e) {
+            thrownError = e;
+          }
+          expect(thrownError, isA<StateError>());
+          // Allow microtasks to settle so any unhandled error would surface.
+          await Future<void>.delayed(Duration.zero);
+        }, (e, _) => unhandled.add(e));
+        expect(unhandled, isEmpty);
+      },
+    );
 
     test('concurrent caller still receives the refresh error', () async {
       final interceptor = BearerAuthInterceptor(
@@ -205,39 +208,42 @@ void main() {
       expect(handler.nextCalled, isTrue);
     });
 
-    test('logs warning and triggers onAuthFailure on non-Dio retry error',
-        () async {
-      final logs = <String>[];
-      var authFailureCalled = false;
-      final mockDio = _MockDio();
-      when(() => mockDio.fetch<dynamic>(any()))
-          .thenThrow(StateError('retry boom'));
+    test(
+      'logs warning and triggers onAuthFailure on non-Dio retry error',
+      () async {
+        final logs = <String>[];
+        var authFailureCalled = false;
+        final mockDio = _MockDio();
+        when(
+          () => mockDio.fetch<dynamic>(any()),
+        ).thenThrow(StateError('retry boom'));
 
-      final interceptor = BearerAuthInterceptor(
-        tokenProvider: () async => 'token',
-        onAuthFailure: () => authFailureCalled = true,
-        logger: (level, msg) => logs.add('$level: $msg'),
-      );
-      interceptor.bindDio(mockDio);
+        final interceptor = BearerAuthInterceptor(
+          tokenProvider: () async => 'token',
+          onAuthFailure: () => authFailureCalled = true,
+          logger: (level, msg) => logs.add('$level: $msg'),
+        );
+        interceptor.bindDio(mockDio);
 
-      final handler = _TrackingErrorHandler();
-      final opts = _opts();
-      opts.baseUrl = 'https://example.com';
-      final err = DioException(
-        requestOptions: opts,
-        response: Response(statusCode: 401, requestOptions: opts),
-      );
+        final handler = _TrackingErrorHandler();
+        final opts = _opts();
+        opts.baseUrl = 'https://example.com';
+        final err = DioException(
+          requestOptions: opts,
+          response: Response(statusCode: 401, requestOptions: opts),
+        );
 
-      await interceptor.onError(err, handler);
+        await interceptor.onError(err, handler);
 
-      expect(authFailureCalled, isTrue);
-      expect(handler.nextCalled, isTrue);
-      expect(logs, hasLength(1));
-      expect(logs.first, startsWith('warn:'));
-      expect(logs.first, contains('auth.retry'));
-      expect(logs.first, contains('non-Dio error'));
-      expect(logs.first, contains('retry boom'));
-    });
+        expect(authFailureCalled, isTrue);
+        expect(handler.nextCalled, isTrue);
+        expect(logs, hasLength(1));
+        expect(logs.first, startsWith('warn:'));
+        expect(logs.first, contains('auth.retry'));
+        expect(logs.first, contains('non-Dio error'));
+        expect(logs.first, contains('retry boom'));
+      },
+    );
 
     test('does not retry non-401 errors', () async {
       var callCount = 0;

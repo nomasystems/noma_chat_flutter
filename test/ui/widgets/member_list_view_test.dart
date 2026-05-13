@@ -22,9 +22,7 @@ void main() {
 
   group('MemberListView', () {
     testWidgets('renders members with role badges', (tester) async {
-      await tester.pumpWidget(
-        wrap(MemberListView(members: members)),
-      );
+      await tester.pumpWidget(wrap(MemberListView(members: members)));
       expect(find.text('Alice'), findsOneWidget);
       expect(find.text('Bob'), findsOneWidget);
       expect(find.text('Charlie'), findsOneWidget);

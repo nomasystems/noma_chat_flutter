@@ -9,29 +9,24 @@ void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
   setUp(() {
-    controller = ChatController(
-      initialMessages: [],
-      currentUser: user,
-    );
+    controller = ChatController(initialMessages: [], currentUser: user);
   });
 
   tearDown(() => controller.dispose());
 
   group('MessageInput', () {
     testWidgets('renders text field with hint', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
       expect(find.byType(TextField), findsOneWidget);
       expect(find.text('Write a message'), findsOneWidget);
     });
 
     testWidgets('shows send button when text is entered', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
       await tester.enterText(find.byType(TextField), 'Hello');
       await tester.pump();
       expect(find.bySemanticsLabel('Send'), findsOneWidget);
@@ -39,10 +34,14 @@ void main() {
 
     testWidgets('calls onSendMessage and clears text', (tester) async {
       String? sent;
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (text) => sent = text,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (text) => sent = text,
+          ),
+        ),
+      );
       await tester.enterText(find.byType(TextField), 'Hello');
       await tester.pump();
 
@@ -56,10 +55,14 @@ void main() {
 
     testWidgets('does not send empty text', (tester) async {
       var called = false;
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) => called = true,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) => called = true,
+          ),
+        ),
+      );
       await tester.enterText(find.byType(TextField), '   ');
       await tester.pump();
 
@@ -67,10 +70,9 @@ void main() {
     });
 
     testWidgets('shows reply preview when replyingTo is set', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
 
       final msg = ChatMessage(
         id: 'm1',
@@ -85,10 +87,9 @@ void main() {
     });
 
     testWidgets('shows editing bar when editingMessage is set', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
 
       final msg = ChatMessage(
         id: 'm1',
@@ -106,14 +107,18 @@ void main() {
     testWidgets('calls onEditMessage when editing and sending', (tester) async {
       ChatMessage? editedMsg;
       String? newText;
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        onEditMessage: (msg, text) {
-          editedMsg = msg;
-          newText = text;
-        },
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            onEditMessage: (msg, text) {
+              editedMsg = msg;
+              newText = text;
+            },
+          ),
+        ),
+      );
 
       final msg = ChatMessage(
         id: 'm1',
@@ -137,11 +142,15 @@ void main() {
 
     testWidgets('calls onTypingChanged', (tester) async {
       bool? typing;
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        onTypingChanged: (v) => typing = v,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            onTypingChanged: (v) => typing = v,
+          ),
+        ),
+      );
       await tester.enterText(find.byType(TextField), 'h');
       await tester.pump();
       expect(typing, true);
@@ -151,17 +160,24 @@ void main() {
       expect(typing, false);
     });
 
-    testWidgets('hides attach button when showAttachButton is false',
-        (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        showAttachButton: false,
-      )));
+    testWidgets('hides attach button when showAttachButton is false', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            showAttachButton: false,
+          ),
+        ),
+      );
       expect(find.byIcon(Icons.attach_file), findsNothing);
     });
 
-    testWidgets('reply preview has clear button that dismisses', (tester) async {
+    testWidgets('reply preview has clear button that dismisses', (
+      tester,
+    ) async {
       final msg = ChatMessage(
         id: 'm1',
         from: 'u2',
@@ -170,10 +186,9 @@ void main() {
       );
       controller.setReplyTo(msg);
 
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
       await tester.pump();
 
       expect(find.text('Reply target'), findsOneWidget);
@@ -185,11 +200,12 @@ void main() {
       expect(controller.replyingTo, isNull);
     });
 
-    testWidgets('edit mode pre-fills text from editing message', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+    testWidgets('edit mode pre-fills text from editing message', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
 
       final msg = ChatMessage(
         id: 'm1',
@@ -205,10 +221,9 @@ void main() {
     });
 
     testWidgets('edit mode shows edit label', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
 
       final msg = ChatMessage(
         id: 'm1',
@@ -224,10 +239,9 @@ void main() {
     });
 
     testWidgets('edit mode close button clears editing', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
 
       final msg = ChatMessage(
         id: 'm1',
@@ -247,11 +261,15 @@ void main() {
     });
 
     testWidgets('attach button opens attachment picker', (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        showAttachButton: true,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            showAttachButton: true,
+          ),
+        ),
+      );
 
       await tester.tap(find.byIcon(Icons.attach_file));
       await tester.pumpAndSettle();
@@ -261,35 +279,50 @@ void main() {
       expect(find.text('File'), findsOneWidget);
     });
 
-    testWidgets('voice button shown when no text and showVoiceButton is true',
-        (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        showVoiceButton: true,
-      )));
+    testWidgets('voice button shown when no text and showVoiceButton is true', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            showVoiceButton: true,
+          ),
+        ),
+      );
 
       expect(find.byIcon(Icons.mic), findsOneWidget);
     });
 
-    testWidgets('voice button hidden when showVoiceButton is false',
-        (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        showVoiceButton: false,
-      )));
+    testWidgets('voice button hidden when showVoiceButton is false', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            showVoiceButton: false,
+          ),
+        ),
+      );
 
       expect(find.byType(VoiceRecorderButton), findsNothing);
     });
 
-    testWidgets('voice button replaced by send when text entered',
-        (tester) async {
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        showVoiceButton: true,
-      )));
+    testWidgets('voice button replaced by send when text entered', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            showVoiceButton: true,
+          ),
+        ),
+      );
 
       expect(find.byIcon(Icons.mic), findsOneWidget);
 
@@ -308,10 +341,9 @@ void main() {
       );
       controller.setReplyTo(msg);
 
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      );
       await tester.pump();
 
       await tester.enterText(find.byType(TextField), 'Reply');
@@ -322,34 +354,44 @@ void main() {
       expect(controller.replyingTo, isNull);
     });
 
-    testWidgets('attachIconBuilder takes precedence over attachButtonIcon',
-        (tester) async {
+    testWidgets('attachIconBuilder takes precedence over attachButtonIcon', (
+      tester,
+    ) async {
       const customKey = Key('custom-attach');
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        theme: const ChatTheme(
-          attachButtonIcon: Icons.attach_file,
-          attachIconBuilder: _customIcon,
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            theme: const ChatTheme(
+              attachButtonIcon: Icons.attach_file,
+              attachIconBuilder: _customIcon,
+            ),
+          ),
         ),
-      )));
+      );
 
       expect(find.byKey(customKey), findsOneWidget);
       expect(find.byIcon(Icons.attach_file), findsNothing);
     });
 
-    testWidgets('cameraIconBuilder takes precedence over cameraButtonIcon',
-        (tester) async {
+    testWidgets('cameraIconBuilder takes precedence over cameraButtonIcon', (
+      tester,
+    ) async {
       const customKey = Key('custom-camera');
-      await tester.pumpWidget(wrap(MessageInput(
-        controller: controller,
-        onSendMessage: (_) {},
-        onPickCamera: () {},
-        theme: const ChatTheme(
-          cameraButtonIcon: Icons.camera_alt_outlined,
-          cameraIconBuilder: _customCameraIcon,
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessage: (_) {},
+            onPickCamera: () {},
+            theme: const ChatTheme(
+              cameraButtonIcon: Icons.camera_alt_outlined,
+              cameraIconBuilder: _customCameraIcon,
+            ),
+          ),
         ),
-      )));
+      );
 
       expect(find.byKey(customKey), findsOneWidget);
       expect(find.byIcon(Icons.camera_alt_outlined), findsNothing);

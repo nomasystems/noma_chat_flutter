@@ -56,10 +56,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
             width: 7,
             height: 7,
             margin: const EdgeInsets.symmetric(horizontal: 2),
-            decoration: BoxDecoration(
-              color: dotColor,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
           ),
         );
       }),
@@ -80,10 +77,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
 
     final bubble = Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: bubbleColor,
-        borderRadius: bubbleRadius,
-      ),
+      decoration: BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -93,11 +87,9 @@ class _TypingIndicatorState extends State<TypingIndicator>
               padding: const EdgeInsets.only(bottom: 4),
               child: Text(
                 headerLabel,
-                style: theme.senderNameStyle ??
-                    const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 12,
-                    ),
+                style:
+                    theme.senderNameStyle ??
+                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),
           _buildDots(dotColor),

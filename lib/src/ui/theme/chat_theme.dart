@@ -233,7 +233,8 @@ class ChatTheme {
     BuildContext context,
     VoiceRecordingController controller,
     VoidCallback onSend,
-  )? recordingComposerBuilder;
+  )?
+  recordingComposerBuilder;
 
   /// Builder for the floating "slide up to lock" hint that hovers above the
   /// microphone button while recording. When null a default vertical pill
@@ -245,8 +246,12 @@ class ChatTheme {
   /// replaces the default static map image. Useful to render a lightweight
   /// map widget (e.g. `GoogleMap` in lite mode) so the consumer can reuse the
   /// SDK that is already authorized in the host app.
-  final Widget Function(BuildContext context, double latitude, double longitude)?
-      locationMapBuilder;
+  final Widget Function(
+    BuildContext context,
+    double latitude,
+    double longitude,
+  )?
+  locationMapBuilder;
 
   final TextStyle? timestampTextStyle;
   final TextStyle? outgoingTimestampTextStyle;
@@ -461,31 +466,79 @@ class ChatTheme {
     backgroundColor: const Color(0xFF121212),
     sendButtonColor: const Color(0xFF4CAF50),
     timestampTextStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 11),
-    dateSeparatorTextStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 12),
+    dateSeparatorTextStyle: const TextStyle(
+      color: Color(0xFF9E9E9E),
+      fontSize: 12,
+    ),
     roomTileBackgroundColor: const Color(0xFF1E1E1E),
-    roomNameTextStyle: const TextStyle(color: Color(0xFFE0E0E0), fontSize: 16, fontWeight: FontWeight.w600),
-    roomPreviewTextStyle: const TextStyle(color: Color(0xFF9E9E9E), fontSize: 14),
-    roomPreviewUnreadTextStyle: const TextStyle(color: Color(0xFFE0E0E0), fontSize: 14, fontWeight: FontWeight.w600),
+    roomNameTextStyle: const TextStyle(
+      color: Color(0xFFE0E0E0),
+      fontSize: 16,
+      fontWeight: FontWeight.w600,
+    ),
+    roomPreviewTextStyle: const TextStyle(
+      color: Color(0xFF9E9E9E),
+      fontSize: 14,
+    ),
+    roomPreviewUnreadTextStyle: const TextStyle(
+      color: Color(0xFFE0E0E0),
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    ),
     connectionBannerColor: const Color(0xFF37474F),
-    connectionBannerTextStyle: const TextStyle(color: Color(0xFFE0E0E0), fontSize: 13),
+    connectionBannerTextStyle: const TextStyle(
+      color: Color(0xFFE0E0E0),
+      fontSize: 13,
+    ),
   );
 
   static final ChatTheme highContrast = ChatTheme(
     outgoingBubbleColor: const Color(0xFF000000),
     incomingBubbleColor: const Color(0xFFFFFFFF),
-    outgoingTextStyle: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 18, fontWeight: FontWeight.w600),
-    incomingTextStyle: const TextStyle(color: Color(0xFF000000), fontSize: 18, fontWeight: FontWeight.w600),
+    outgoingTextStyle: const TextStyle(
+      color: Color(0xFFFFFFFF),
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+    ),
+    incomingTextStyle: const TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 18,
+      fontWeight: FontWeight.w600,
+    ),
     inputTextStyle: const TextStyle(color: Color(0xFF000000), fontSize: 18),
     inputBackgroundColor: const Color(0xFFFFFFFF),
     backgroundColor: const Color(0xFFF5F5F5),
     sendButtonColor: const Color(0xFF000000),
-    timestampTextStyle: const TextStyle(color: Color(0xFF424242), fontSize: 14, fontWeight: FontWeight.w500),
-    dateSeparatorTextStyle: const TextStyle(color: Color(0xFF212121), fontSize: 16, fontWeight: FontWeight.bold),
-    roomNameTextStyle: const TextStyle(color: Color(0xFF000000), fontSize: 18, fontWeight: FontWeight.bold),
-    roomPreviewTextStyle: const TextStyle(color: Color(0xFF424242), fontSize: 16),
-    roomPreviewUnreadTextStyle: const TextStyle(color: Color(0xFF000000), fontSize: 16, fontWeight: FontWeight.bold),
+    timestampTextStyle: const TextStyle(
+      color: Color(0xFF424242),
+      fontSize: 14,
+      fontWeight: FontWeight.w500,
+    ),
+    dateSeparatorTextStyle: const TextStyle(
+      color: Color(0xFF212121),
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+    ),
+    roomNameTextStyle: const TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 18,
+      fontWeight: FontWeight.bold,
+    ),
+    roomPreviewTextStyle: const TextStyle(
+      color: Color(0xFF424242),
+      fontSize: 16,
+    ),
+    roomPreviewUnreadTextStyle: const TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+    ),
     connectionBannerColor: const Color(0xFFFF0000),
-    connectionBannerTextStyle: const TextStyle(color: Color(0xFFFFFFFF), fontSize: 16, fontWeight: FontWeight.bold),
+    connectionBannerTextStyle: const TextStyle(
+      color: Color(0xFFFFFFFF),
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+    ),
   );
 
   ChatTheme copyWith({
@@ -518,10 +571,11 @@ class ChatTheme {
       BuildContext context,
       VoiceRecordingController controller,
       VoidCallback onSend,
-    )? recordingComposerBuilder,
+    )?
+    recordingComposerBuilder,
     Widget Function(BuildContext context)? lockHintBuilder,
     Widget Function(BuildContext context, double latitude, double longitude)?
-        locationMapBuilder,
+    locationMapBuilder,
     TextStyle? timestampTextStyle,
     TextStyle? outgoingTimestampTextStyle,
     TextStyle? incomingTimestampTextStyle,
@@ -683,134 +737,215 @@ class ChatTheme {
       lockHintBuilder: lockHintBuilder ?? this.lockHintBuilder,
       locationMapBuilder: locationMapBuilder ?? this.locationMapBuilder,
       timestampTextStyle: timestampTextStyle ?? this.timestampTextStyle,
-      outgoingTimestampTextStyle: outgoingTimestampTextStyle ?? this.outgoingTimestampTextStyle,
-      incomingTimestampTextStyle: incomingTimestampTextStyle ?? this.incomingTimestampTextStyle,
-      dateSeparatorTextStyle: dateSeparatorTextStyle ?? this.dateSeparatorTextStyle,
-      systemMessageTextStyle: systemMessageTextStyle ?? this.systemMessageTextStyle,
-      systemMessageBackgroundColor: systemMessageBackgroundColor ?? this.systemMessageBackgroundColor,
-      typingIndicatorDotColor: typingIndicatorDotColor ?? this.typingIndicatorDotColor,
+      outgoingTimestampTextStyle:
+          outgoingTimestampTextStyle ?? this.outgoingTimestampTextStyle,
+      incomingTimestampTextStyle:
+          incomingTimestampTextStyle ?? this.incomingTimestampTextStyle,
+      dateSeparatorTextStyle:
+          dateSeparatorTextStyle ?? this.dateSeparatorTextStyle,
+      systemMessageTextStyle:
+          systemMessageTextStyle ?? this.systemMessageTextStyle,
+      systemMessageBackgroundColor:
+          systemMessageBackgroundColor ?? this.systemMessageBackgroundColor,
+      typingIndicatorDotColor:
+          typingIndicatorDotColor ?? this.typingIndicatorDotColor,
       messageStatusColor: messageStatusColor ?? this.messageStatusColor,
-      messageStatusReadColor: messageStatusReadColor ?? this.messageStatusReadColor,
-      replyPreviewBackgroundColor: replyPreviewBackgroundColor ?? this.replyPreviewBackgroundColor,
+      messageStatusReadColor:
+          messageStatusReadColor ?? this.messageStatusReadColor,
+      replyPreviewBackgroundColor:
+          replyPreviewBackgroundColor ?? this.replyPreviewBackgroundColor,
       replyPreviewBarColor: replyPreviewBarColor ?? this.replyPreviewBarColor,
-      reactionBackgroundColor: reactionBackgroundColor ?? this.reactionBackgroundColor,
-      reactionSelectedColor: reactionSelectedColor ?? this.reactionSelectedColor,
-      reactionSelectedBorderColor: reactionSelectedBorderColor ?? this.reactionSelectedBorderColor,
+      reactionBackgroundColor:
+          reactionBackgroundColor ?? this.reactionBackgroundColor,
+      reactionSelectedColor:
+          reactionSelectedColor ?? this.reactionSelectedColor,
+      reactionSelectedBorderColor:
+          reactionSelectedBorderColor ?? this.reactionSelectedBorderColor,
       reactionTextStyle: reactionTextStyle ?? this.reactionTextStyle,
       audioPlayButtonColor: audioPlayButtonColor ?? this.audioPlayButtonColor,
       audioSeekBarColor: audioSeekBarColor ?? this.audioSeekBarColor,
-      audioSeekBarActiveColor: audioSeekBarActiveColor ?? this.audioSeekBarActiveColor,
-      audioDurationTextStyle: audioDurationTextStyle ?? this.audioDurationTextStyle,
+      audioSeekBarActiveColor:
+          audioSeekBarActiveColor ?? this.audioSeekBarActiveColor,
+      audioDurationTextStyle:
+          audioDurationTextStyle ?? this.audioDurationTextStyle,
       imageBorderRadius: imageBorderRadius ?? this.imageBorderRadius,
       imageMaxHeight: imageMaxHeight ?? this.imageMaxHeight,
       videoPlayIconColor: videoPlayIconColor ?? this.videoPlayIconColor,
-      videoPlayIconBackgroundColor: videoPlayIconBackgroundColor ?? this.videoPlayIconBackgroundColor,
+      videoPlayIconBackgroundColor:
+          videoPlayIconBackgroundColor ?? this.videoPlayIconBackgroundColor,
       fileIconColor: fileIconColor ?? this.fileIconColor,
       fileNameTextStyle: fileNameTextStyle ?? this.fileNameTextStyle,
       fileSizeTextStyle: fileSizeTextStyle ?? this.fileSizeTextStyle,
-      linkPreviewBackgroundColor: linkPreviewBackgroundColor ?? this.linkPreviewBackgroundColor,
-      linkPreviewTitleStyle: linkPreviewTitleStyle ?? this.linkPreviewTitleStyle,
-      linkPreviewDescriptionStyle: linkPreviewDescriptionStyle ?? this.linkPreviewDescriptionStyle,
-      linkPreviewBorderRadius: linkPreviewBorderRadius ?? this.linkPreviewBorderRadius,
-      voiceRecorderActiveColor: voiceRecorderActiveColor ?? this.voiceRecorderActiveColor,
-      voiceRecorderTimerStyle: voiceRecorderTimerStyle ?? this.voiceRecorderTimerStyle,
-      voiceRecorderOverlayColor: voiceRecorderOverlayColor ?? this.voiceRecorderOverlayColor,
-      voiceRecorderCancelColor: voiceRecorderCancelColor ?? this.voiceRecorderCancelColor,
-      voiceRecorderLockIconColor: voiceRecorderLockIconColor ?? this.voiceRecorderLockIconColor,
-      voiceRecorderHintStyle: voiceRecorderHintStyle ?? this.voiceRecorderHintStyle,
+      linkPreviewBackgroundColor:
+          linkPreviewBackgroundColor ?? this.linkPreviewBackgroundColor,
+      linkPreviewTitleStyle:
+          linkPreviewTitleStyle ?? this.linkPreviewTitleStyle,
+      linkPreviewDescriptionStyle:
+          linkPreviewDescriptionStyle ?? this.linkPreviewDescriptionStyle,
+      linkPreviewBorderRadius:
+          linkPreviewBorderRadius ?? this.linkPreviewBorderRadius,
+      voiceRecorderActiveColor:
+          voiceRecorderActiveColor ?? this.voiceRecorderActiveColor,
+      voiceRecorderTimerStyle:
+          voiceRecorderTimerStyle ?? this.voiceRecorderTimerStyle,
+      voiceRecorderOverlayColor:
+          voiceRecorderOverlayColor ?? this.voiceRecorderOverlayColor,
+      voiceRecorderCancelColor:
+          voiceRecorderCancelColor ?? this.voiceRecorderCancelColor,
+      voiceRecorderLockIconColor:
+          voiceRecorderLockIconColor ?? this.voiceRecorderLockIconColor,
+      voiceRecorderHintStyle:
+          voiceRecorderHintStyle ?? this.voiceRecorderHintStyle,
       waveformActiveColor: waveformActiveColor ?? this.waveformActiveColor,
-      waveformInactiveColor: waveformInactiveColor ?? this.waveformInactiveColor,
-      waveformRecordingColor: waveformRecordingColor ?? this.waveformRecordingColor,
-      audioSpeedButtonColor: audioSpeedButtonColor ?? this.audioSpeedButtonColor,
+      waveformInactiveColor:
+          waveformInactiveColor ?? this.waveformInactiveColor,
+      waveformRecordingColor:
+          waveformRecordingColor ?? this.waveformRecordingColor,
+      audioSpeedButtonColor:
+          audioSpeedButtonColor ?? this.audioSpeedButtonColor,
       audioSpeedTextStyle: audioSpeedTextStyle ?? this.audioSpeedTextStyle,
-      audioListenedIconColor: audioListenedIconColor ?? this.audioListenedIconColor,
-      audioUnlistenedIconColor: audioUnlistenedIconColor ?? this.audioUnlistenedIconColor,
+      audioListenedIconColor:
+          audioListenedIconColor ?? this.audioListenedIconColor,
+      audioUnlistenedIconColor:
+          audioUnlistenedIconColor ?? this.audioUnlistenedIconColor,
       backgroundColor: backgroundColor ?? this.backgroundColor,
       backgroundImage: backgroundImage ?? this.backgroundImage,
-      backgroundImageRepeat: backgroundImageRepeat ?? this.backgroundImageRepeat,
-      backgroundImageOpacity: backgroundImageOpacity ?? this.backgroundImageOpacity,
-      backgroundImageColorFilter: backgroundImageColorFilter ?? this.backgroundImageColorFilter,
-      avatarBackgroundColor: avatarBackgroundColor ?? this.avatarBackgroundColor,
-      avatarInitialsTextStyle: avatarInitialsTextStyle ?? this.avatarInitialsTextStyle,
+      backgroundImageRepeat:
+          backgroundImageRepeat ?? this.backgroundImageRepeat,
+      backgroundImageOpacity:
+          backgroundImageOpacity ?? this.backgroundImageOpacity,
+      backgroundImageColorFilter:
+          backgroundImageColorFilter ?? this.backgroundImageColorFilter,
+      avatarBackgroundColor:
+          avatarBackgroundColor ?? this.avatarBackgroundColor,
+      avatarInitialsTextStyle:
+          avatarInitialsTextStyle ?? this.avatarInitialsTextStyle,
       avatarOnlineColor: avatarOnlineColor ?? this.avatarOnlineColor,
       avatarOfflineColor: avatarOfflineColor ?? this.avatarOfflineColor,
-      connectionBannerColor: connectionBannerColor ?? this.connectionBannerColor,
-      connectionBannerTextStyle: connectionBannerTextStyle ?? this.connectionBannerTextStyle,
+      connectionBannerColor:
+          connectionBannerColor ?? this.connectionBannerColor,
+      connectionBannerTextStyle:
+          connectionBannerTextStyle ?? this.connectionBannerTextStyle,
       editedLabelTextStyle: editedLabelTextStyle ?? this.editedLabelTextStyle,
       forwardedLabelColor: forwardedLabelColor ?? this.forwardedLabelColor,
-      forwardedLabelTextStyle: forwardedLabelTextStyle ?? this.forwardedLabelTextStyle,
+      forwardedLabelTextStyle:
+          forwardedLabelTextStyle ?? this.forwardedLabelTextStyle,
       emptyStateIconColor: emptyStateIconColor ?? this.emptyStateIconColor,
       emptyStateTitleStyle: emptyStateTitleStyle ?? this.emptyStateTitleStyle,
-      emptyStateSubtitleStyle: emptyStateSubtitleStyle ?? this.emptyStateSubtitleStyle,
-      roomTileBackgroundColor: roomTileBackgroundColor ?? this.roomTileBackgroundColor,
-      roomTileSelectedColor: roomTileSelectedColor ?? this.roomTileSelectedColor,
+      emptyStateSubtitleStyle:
+          emptyStateSubtitleStyle ?? this.emptyStateSubtitleStyle,
+      roomTileBackgroundColor:
+          roomTileBackgroundColor ?? this.roomTileBackgroundColor,
+      roomTileSelectedColor:
+          roomTileSelectedColor ?? this.roomTileSelectedColor,
       roomNameTextStyle: roomNameTextStyle ?? this.roomNameTextStyle,
       roomPreviewTextStyle: roomPreviewTextStyle ?? this.roomPreviewTextStyle,
-      roomPreviewUnreadTextStyle: roomPreviewUnreadTextStyle ?? this.roomPreviewUnreadTextStyle,
-      roomTimestampTextStyle: roomTimestampTextStyle ?? this.roomTimestampTextStyle,
-      roomTimestampUnreadTextStyle: roomTimestampUnreadTextStyle ?? this.roomTimestampUnreadTextStyle,
+      roomPreviewUnreadTextStyle:
+          roomPreviewUnreadTextStyle ?? this.roomPreviewUnreadTextStyle,
+      roomTimestampTextStyle:
+          roomTimestampTextStyle ?? this.roomTimestampTextStyle,
+      roomTimestampUnreadTextStyle:
+          roomTimestampUnreadTextStyle ?? this.roomTimestampUnreadTextStyle,
       unreadBadgeColor: unreadBadgeColor ?? this.unreadBadgeColor,
       unreadBadgeTextStyle: unreadBadgeTextStyle ?? this.unreadBadgeTextStyle,
       mutedIconColor: mutedIconColor ?? this.mutedIconColor,
       pinnedIconColor: pinnedIconColor ?? this.pinnedIconColor,
-      suggestionsBarTitleStyle: suggestionsBarTitleStyle ?? this.suggestionsBarTitleStyle,
-      suggestionsBarNameStyle: suggestionsBarNameStyle ?? this.suggestionsBarNameStyle,
-      searchBarBackgroundColor: searchBarBackgroundColor ?? this.searchBarBackgroundColor,
+      suggestionsBarTitleStyle:
+          suggestionsBarTitleStyle ?? this.suggestionsBarTitleStyle,
+      suggestionsBarNameStyle:
+          suggestionsBarNameStyle ?? this.suggestionsBarNameStyle,
+      searchBarBackgroundColor:
+          searchBarBackgroundColor ?? this.searchBarBackgroundColor,
       searchBarTextStyle: searchBarTextStyle ?? this.searchBarTextStyle,
-      roomListHeaderTextStyle: roomListHeaderTextStyle ?? this.roomListHeaderTextStyle,
-      editingBackgroundColor: editingBackgroundColor ?? this.editingBackgroundColor,
+      roomListHeaderTextStyle:
+          roomListHeaderTextStyle ?? this.roomListHeaderTextStyle,
+      editingBackgroundColor:
+          editingBackgroundColor ?? this.editingBackgroundColor,
       editingBorderColor: editingBorderColor ?? this.editingBorderColor,
       editingLabelStyle: editingLabelStyle ?? this.editingLabelStyle,
       editingPreviewStyle: editingPreviewStyle ?? this.editingPreviewStyle,
       inputFillColor: inputFillColor ?? this.inputFillColor,
-      sendButtonDisabledColor: sendButtonDisabledColor ?? this.sendButtonDisabledColor,
-      dateSeparatorBackgroundColor: dateSeparatorBackgroundColor ?? this.dateSeparatorBackgroundColor,
-      replyPreviewSenderStyle: replyPreviewSenderStyle ?? this.replyPreviewSenderStyle,
-      replyPreviewTextStyle: replyPreviewTextStyle ?? this.replyPreviewTextStyle,
+      sendButtonDisabledColor:
+          sendButtonDisabledColor ?? this.sendButtonDisabledColor,
+      dateSeparatorBackgroundColor:
+          dateSeparatorBackgroundColor ?? this.dateSeparatorBackgroundColor,
+      replyPreviewSenderStyle:
+          replyPreviewSenderStyle ?? this.replyPreviewSenderStyle,
+      replyPreviewTextStyle:
+          replyPreviewTextStyle ?? this.replyPreviewTextStyle,
       senderNameStyle: senderNameStyle ?? this.senderNameStyle,
-      avatarOnlineBorderColor: avatarOnlineBorderColor ?? this.avatarOnlineBorderColor,
+      avatarOnlineBorderColor:
+          avatarOnlineBorderColor ?? this.avatarOnlineBorderColor,
       imageCaptionStyle: imageCaptionStyle ?? this.imageCaptionStyle,
       imageMaxWidth: imageMaxWidth ?? this.imageMaxWidth,
-      linkPreviewDomainStyle: linkPreviewDomainStyle ?? this.linkPreviewDomainStyle,
+      linkPreviewDomainStyle:
+          linkPreviewDomainStyle ?? this.linkPreviewDomainStyle,
       videoHeight: videoHeight ?? this.videoHeight,
-      videoPlaceholderColor: videoPlaceholderColor ?? this.videoPlaceholderColor,
+      videoPlaceholderColor:
+          videoPlaceholderColor ?? this.videoPlaceholderColor,
       videoBorderRadius: videoBorderRadius ?? this.videoBorderRadius,
-      contextMenuHandleColor: contextMenuHandleColor ?? this.contextMenuHandleColor,
-      contextMenuDestructiveColor: contextMenuDestructiveColor ?? this.contextMenuDestructiveColor,
+      contextMenuHandleColor:
+          contextMenuHandleColor ?? this.contextMenuHandleColor,
+      contextMenuDestructiveColor:
+          contextMenuDestructiveColor ?? this.contextMenuDestructiveColor,
       sendButtonIconColor: sendButtonIconColor ?? this.sendButtonIconColor,
-      scrollToBottomButtonColor: scrollToBottomButtonColor ?? this.scrollToBottomButtonColor,
-      scrollToBottomIconColor: scrollToBottomIconColor ?? this.scrollToBottomIconColor,
-      attachmentPickerCircleColor: attachmentPickerCircleColor ?? this.attachmentPickerCircleColor,
-      attachmentPickerIconColor: attachmentPickerIconColor ?? this.attachmentPickerIconColor,
-      attachmentPickerLabelStyle: attachmentPickerLabelStyle ?? this.attachmentPickerLabelStyle,
-      imageViewerBackgroundColor: imageViewerBackgroundColor ?? this.imageViewerBackgroundColor,
+      scrollToBottomButtonColor:
+          scrollToBottomButtonColor ?? this.scrollToBottomButtonColor,
+      scrollToBottomIconColor:
+          scrollToBottomIconColor ?? this.scrollToBottomIconColor,
+      attachmentPickerCircleColor:
+          attachmentPickerCircleColor ?? this.attachmentPickerCircleColor,
+      attachmentPickerIconColor:
+          attachmentPickerIconColor ?? this.attachmentPickerIconColor,
+      attachmentPickerLabelStyle:
+          attachmentPickerLabelStyle ?? this.attachmentPickerLabelStyle,
+      imageViewerBackgroundColor:
+          imageViewerBackgroundColor ?? this.imageViewerBackgroundColor,
       imageViewerIconColor: imageViewerIconColor ?? this.imageViewerIconColor,
-      linkPreviewBorderColor: linkPreviewBorderColor ?? this.linkPreviewBorderColor,
-      connectionBannerErrorIconColor: connectionBannerErrorIconColor ?? this.connectionBannerErrorIconColor,
-      roomListHeaderSelectedStyle: roomListHeaderSelectedStyle ?? this.roomListHeaderSelectedStyle,
+      linkPreviewBorderColor:
+          linkPreviewBorderColor ?? this.linkPreviewBorderColor,
+      connectionBannerErrorIconColor:
+          connectionBannerErrorIconColor ?? this.connectionBannerErrorIconColor,
+      roomListHeaderSelectedStyle:
+          roomListHeaderSelectedStyle ?? this.roomListHeaderSelectedStyle,
       audioPlayIconColor: audioPlayIconColor ?? this.audioPlayIconColor,
-      voiceButtonIdleIconColor: voiceButtonIdleIconColor ?? this.voiceButtonIdleIconColor,
-      videoPlaceholderIconColor: videoPlaceholderIconColor ?? this.videoPlaceholderIconColor,
-      reactionPickerElevation: reactionPickerElevation ?? this.reactionPickerElevation,
-      reactionPickerBorderRadius: reactionPickerBorderRadius ?? this.reactionPickerBorderRadius,
-      reactionPickerEmojiSize: reactionPickerEmojiSize ?? this.reactionPickerEmojiSize,
-      reactionDetailSheetBackgroundColor: reactionDetailSheetBackgroundColor ?? this.reactionDetailSheetBackgroundColor,
-      reactionDetailUserNameStyle: reactionDetailUserNameStyle ?? this.reactionDetailUserNameStyle,
-      reactionDetailRemoveColor: reactionDetailRemoveColor ?? this.reactionDetailRemoveColor,
-      floatingPickerBackgroundColor: floatingPickerBackgroundColor ?? this.floatingPickerBackgroundColor,
-      fullEmojiPickerBackgroundColor: fullEmojiPickerBackgroundColor ?? this.fullEmojiPickerBackgroundColor,
-      failedMessageIconColor: failedMessageIconColor ?? this.failedMessageIconColor,
-      presenceAvailableColor: presenceAvailableColor ?? this.presenceAvailableColor,
+      voiceButtonIdleIconColor:
+          voiceButtonIdleIconColor ?? this.voiceButtonIdleIconColor,
+      videoPlaceholderIconColor:
+          videoPlaceholderIconColor ?? this.videoPlaceholderIconColor,
+      reactionPickerElevation:
+          reactionPickerElevation ?? this.reactionPickerElevation,
+      reactionPickerBorderRadius:
+          reactionPickerBorderRadius ?? this.reactionPickerBorderRadius,
+      reactionPickerEmojiSize:
+          reactionPickerEmojiSize ?? this.reactionPickerEmojiSize,
+      reactionDetailSheetBackgroundColor:
+          reactionDetailSheetBackgroundColor ??
+          this.reactionDetailSheetBackgroundColor,
+      reactionDetailUserNameStyle:
+          reactionDetailUserNameStyle ?? this.reactionDetailUserNameStyle,
+      reactionDetailRemoveColor:
+          reactionDetailRemoveColor ?? this.reactionDetailRemoveColor,
+      floatingPickerBackgroundColor:
+          floatingPickerBackgroundColor ?? this.floatingPickerBackgroundColor,
+      fullEmojiPickerBackgroundColor:
+          fullEmojiPickerBackgroundColor ?? this.fullEmojiPickerBackgroundColor,
+      failedMessageIconColor:
+          failedMessageIconColor ?? this.failedMessageIconColor,
+      presenceAvailableColor:
+          presenceAvailableColor ?? this.presenceAvailableColor,
       presenceAwayColor: presenceAwayColor ?? this.presenceAwayColor,
       presenceBusyColor: presenceBusyColor ?? this.presenceBusyColor,
       presenceDndColor: presenceDndColor ?? this.presenceDndColor,
       markdownBoldStyle: markdownBoldStyle ?? this.markdownBoldStyle,
       markdownItalicStyle: markdownItalicStyle ?? this.markdownItalicStyle,
       markdownCodeStyle: markdownCodeStyle ?? this.markdownCodeStyle,
-      markdownStrikethroughStyle: markdownStrikethroughStyle ?? this.markdownStrikethroughStyle,
+      markdownStrikethroughStyle:
+          markdownStrikethroughStyle ?? this.markdownStrikethroughStyle,
       markdownLinkStyle: markdownLinkStyle ?? this.markdownLinkStyle,
       markdownMentionStyle: markdownMentionStyle ?? this.markdownMentionStyle,
-      typingStatusTextStyle: typingStatusTextStyle ?? this.typingStatusTextStyle,
+      typingStatusTextStyle:
+          typingStatusTextStyle ?? this.typingStatusTextStyle,
     );
   }
 }

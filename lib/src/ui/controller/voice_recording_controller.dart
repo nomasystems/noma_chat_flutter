@@ -44,9 +44,9 @@ class VoiceRecordingController extends ChangeNotifier {
     @visibleForTesting AudioRecorder? recorder,
     @visibleForTesting AudioPlayer? preListenPlayer,
     @visibleForTesting String? tempDirectoryPath,
-  })  : _recorder = recorder ?? AudioRecorder(),
-        _preListenPlayer = preListenPlayer ?? AudioPlayer(),
-        _tempDirectoryPath = tempDirectoryPath;
+  }) : _recorder = recorder ?? AudioRecorder(),
+       _preListenPlayer = preListenPlayer ?? AudioPlayer(),
+       _tempDirectoryPath = tempDirectoryPath;
 
   final Duration maxDuration;
   final AudioRecorder _recorder;
@@ -69,12 +69,9 @@ class VoiceRecordingController extends ChangeNotifier {
   List<double> get liveWaveform => List.unmodifiable(_liveWaveform);
   bool get isPaused => _isPaused;
   bool get isPreListening =>
-      _state == VoiceRecordingState.preListen &&
-      _preListenPlayer.playing;
-  Duration get preListenPosition =>
-      _preListenPlayer.position;
-  Duration? get preListenDuration =>
-      _preListenPlayer.duration;
+      _state == VoiceRecordingState.preListen && _preListenPlayer.playing;
+  Duration get preListenPosition => _preListenPlayer.position;
+  Duration? get preListenDuration => _preListenPlayer.duration;
 
   bool _permissionDialogShown = false;
 
@@ -87,8 +84,7 @@ class VoiceRecordingController extends ChangeNotifier {
     final hasPermission = await _recorder.hasPermission();
     stopwatch.stop();
 
-    final dialogLikelyShown =
-        stopwatch.elapsed > _kPermissionDialogThreshold;
+    final dialogLikelyShown = stopwatch.elapsed > _kPermissionDialogThreshold;
 
     if (!hasPermission) {
       if (dialogLikelyShown) _permissionDialogShown = true;
@@ -129,34 +125,28 @@ class VoiceRecordingController extends ChangeNotifier {
     _durationTimer?.cancel();
     _amplitudeTimer?.cancel();
 
-    _durationTimer = Timer.periodic(
-      const Duration(seconds: 1),
-      (_) {
-        _currentDuration += const Duration(seconds: 1);
-        if (_currentDuration >= maxDuration) {
-          if (_state == VoiceRecordingState.recording) {
-            lockRecording();
-          } else {
-            _stopTimers();
-            notifyListeners();
-          }
-          return;
-        }
-        notifyListeners();
-      },
-    );
-
-    _amplitudeTimer = Timer.periodic(
-      _kAmplitudeSampleInterval,
-      (_) async {
-        try {
-          final amplitude = await _recorder.getAmplitude();
-          final normalized = _normalizeAmplitude(amplitude.current);
-          _liveWaveform.add(normalized);
+    _durationTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      _currentDuration += const Duration(seconds: 1);
+      if (_currentDuration >= maxDuration) {
+        if (_state == VoiceRecordingState.recording) {
+          lockRecording();
+        } else {
+          _stopTimers();
           notifyListeners();
-        } catch (_) {}
-      },
-    );
+        }
+        return;
+      }
+      notifyListeners();
+    });
+
+    _amplitudeTimer = Timer.periodic(_kAmplitudeSampleInterval, (_) async {
+      try {
+        final amplitude = await _recorder.getAmplitude();
+        final normalized = _normalizeAmplitude(amplitude.current);
+        _liveWaveform.add(normalized);
+        notifyListeners();
+      } catch (_) {}
+    });
   }
 
   void lockRecording() {
@@ -213,8 +203,7 @@ class VoiceRecordingController extends ChangeNotifier {
     // the play button in the pre-listen UI reuses for repeated playbacks.
     if (_state == VoiceRecordingState.preListen) {
       try {
-        if (_preListenPlayer.processingState ==
-            ProcessingState.completed) {
+        if (_preListenPlayer.processingState == ProcessingState.completed) {
           await _preListenPlayer.seek(Duration.zero);
         }
         await _preListenPlayer.play();
@@ -255,7 +244,9 @@ class VoiceRecordingController extends ChangeNotifier {
     _preListenDurationSub = _preListenPlayer.durationStream.listen((_) {
       notifyListeners();
     });
-    _preListenStateSub = _preListenPlayer.playerStateStream.listen((state) async {
+    _preListenStateSub = _preListenPlayer.playerStateStream.listen((
+      state,
+    ) async {
       if (state.processingState == ProcessingState.completed) {
         try {
           await _preListenPlayer.pause();
@@ -329,7 +320,8 @@ class VoiceRecordingController extends ChangeNotifier {
         ? _currentDuration
         : Duration(
             milliseconds:
-                waveform.length * _kAmplitudeSampleInterval.inMilliseconds);
+                waveform.length * _kAmplitudeSampleInterval.inMilliseconds,
+          );
 
     _cleanupFile();
 

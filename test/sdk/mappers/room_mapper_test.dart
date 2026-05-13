@@ -66,8 +66,10 @@ void main() {
       expect(userRooms.rooms.length, 1);
       expect(userRooms.rooms.first.unreadMessages, 5);
       expect(userRooms.rooms.first.lastMessage, 'Hello');
-      expect(userRooms.rooms.first.lastMessageTime,
-          DateTime.utc(2024, 12, 25, 20));
+      expect(
+        userRooms.rooms.first.lastMessageTime,
+        DateTime.utc(2024, 12, 25, 20),
+      );
       expect(userRooms.rooms.first.lastMessageUserId, 'u-1');
       expect(userRooms.invitedRooms.length, 1);
       expect(userRooms.invitedRooms.first.invitedBy, 'u-2');

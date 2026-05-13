@@ -116,7 +116,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
     if (orphans.isNotEmpty) {
       final remaining = trackedRoomIds.difference(orphans);
-      await _safeWrite('cleanOrphans meta', () => _metaBox.put(_messageRoomIdsKey, {'ids': remaining.toList()}));
+      await _safeWrite(
+        'cleanOrphans meta',
+        () => _metaBox.put(_messageRoomIdsKey, {'ids': remaining.toList()}),
+      );
     }
   }
 
@@ -184,12 +187,18 @@ class HiveChatDatasource implements ChatLocalDatasource {
 
   Future<void> _trackMessageRoom(String roomId) async {
     final ids = _getMessageRoomIds()..add(roomId);
-    await _safeWrite('trackMessageRoom', () => _metaBox.put(_messageRoomIdsKey, {'ids': ids.toList()}));
+    await _safeWrite(
+      'trackMessageRoom',
+      () => _metaBox.put(_messageRoomIdsKey, {'ids': ids.toList()}),
+    );
   }
 
   Future<void> _untrackMessageRoom(String roomId) async {
     final ids = _getMessageRoomIds()..remove(roomId);
-    await _safeWrite('untrackMessageRoom', () => _metaBox.put(_messageRoomIdsKey, {'ids': ids.toList()}));
+    await _safeWrite(
+      'untrackMessageRoom',
+      () => _metaBox.put(_messageRoomIdsKey, {'ids': ids.toList()}),
+    );
   }
 
   bool _isDisposed = false;
@@ -211,7 +220,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
 
   Future<Box<Map<dynamic, dynamic>>> _openBoxSafe(String name) async {
     try {
-      final box = await Hive.openBox<Map<dynamic, dynamic>>(name, encryptionCipher: _cipher);
+      final box = await Hive.openBox<Map<dynamic, dynamic>>(
+        name,
+        encryptionCipher: _cipher,
+      );
       _openBoxes[name] = box;
       _pendingOpens.remove(name);
       return box;
@@ -222,10 +234,16 @@ class HiveChatDatasource implements ChatLocalDatasource {
         await Hive.deleteBoxFromDisk(name);
       } catch (deleteErr) {
         onWarning?.call('Failed to delete corrupted box "$name": $deleteErr');
-        onMetric?.call('box_delete_failed', {'box': name, 'error': '$deleteErr'});
+        onMetric?.call('box_delete_failed', {
+          'box': name,
+          'error': '$deleteErr',
+        });
       }
       try {
-        final box = await Hive.openBox<Map<dynamic, dynamic>>(name, encryptionCipher: _cipher);
+        final box = await Hive.openBox<Map<dynamic, dynamic>>(
+          name,
+          encryptionCipher: _cipher,
+        );
         _openBoxes[name] = box;
         _pendingOpens.remove(name);
         _clearMsgIdIndexForBox(name);
@@ -247,7 +265,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
   }
 
-  Future<void> _safeWrite(String operation, Future<void> Function() action) async {
+  Future<void> _safeWrite(
+    String operation,
+    Future<void> Function() action,
+  ) async {
     try {
       await action();
     } catch (e) {
@@ -280,7 +301,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
   void Function(String message)? onWarning;
   void Function(String metric, Map<String, dynamic> data)? onMetric;
 
-  List<T> _safeDeserialize<T>(Iterable<Map<dynamic, dynamic>> values, T Function(Map<String, dynamic>) fromMap, {String? boxName}) {
+  List<T> _safeDeserialize<T>(
+    Iterable<Map<dynamic, dynamic>> values,
+    T Function(Map<String, dynamic>) fromMap, {
+    String? boxName,
+  }) {
     final result = <T>[];
     var skipped = 0;
     Object? firstError;
@@ -294,8 +319,12 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
     if (skipped > 0) {
       final boxSuffix = boxName != null ? ' in $boxName' : '';
-      final errorSuffix = firstError != null ? ' (first error: $firstError)' : '';
-      onWarning?.call('Skipped $skipped corrupted records$boxSuffix$errorSuffix');
+      final errorSuffix = firstError != null
+          ? ' (first error: $firstError)'
+          : '';
+      onWarning?.call(
+        'Skipped $skipped corrupted records$boxSuffix$errorSuffix',
+      );
     }
     return result;
   }
@@ -322,7 +351,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     return idx >= 0 ? key.substring(idx + 1) : null;
   }
 
-  Map<String, String> _getOrBuildIndex(String roomId, Box<Map<dynamic, dynamic>> box) {
+  Map<String, String> _getOrBuildIndex(
+    String roomId,
+    Box<Map<dynamic, dynamic>> box,
+  ) {
     if (_msgIdIndex.containsKey(roomId)) return _msgIdIndex[roomId]!;
     final index = <String, String>{};
     for (final key in box.keys.cast<String>()) {
@@ -333,7 +365,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
     return index;
   }
 
-  String? _findKeyByMessageId(String roomId, Box<Map<dynamic, dynamic>> box, String messageId) {
+  String? _findKeyByMessageId(
+    String roomId,
+    Box<Map<dynamic, dynamic>> box,
+    String messageId,
+  ) {
     return _getOrBuildIndex(roomId, box)[messageId];
   }
 
@@ -360,7 +396,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     await _evictOldMessages(box, roomId: roomId);
   }
 
-  Future<void> _evictOldMessages(Box<Map<dynamic, dynamic>> box, {String? roomId}) async {
+  Future<void> _evictOldMessages(
+    Box<Map<dynamic, dynamic>> box, {
+    String? roomId,
+  }) async {
     if (box.length <= maxMessagesPerRoom) return;
     final keys = box.keys.cast<String>().toList();
     final toRemove = keys.sublist(0, keys.length - maxMessagesPerRoom);
@@ -374,7 +413,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
         }
       }
     }
-    onMetric?.call('cache_eviction', {'entity': 'messages', 'count': toRemove.length});
+    onMetric?.call('cache_eviction', {
+      'entity': 'messages',
+      'count': toRemove.length,
+    });
   }
 
   @override
@@ -425,7 +467,9 @@ class HiveChatDatasource implements ChatLocalDatasource {
       final data = box.get(key);
       if (data == null) continue;
       try {
-        result.add(messageFromMap(Map<String, dynamic>.from(data), onWarning: onWarning));
+        result.add(
+          messageFromMap(Map<String, dynamic>.from(data), onWarning: onWarning),
+        );
       } catch (e) {
         onWarning?.call('Skipped corrupted message at key "$key": $e');
       }
@@ -440,7 +484,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final box = await _box(name);
     final key = _findKeyByMessageId(roomId, box, message.id);
     if (key != null) {
-      await _safeWrite('updateMessage', () => box.put(key, messageToMap(message)));
+      await _safeWrite(
+        'updateMessage',
+        () => box.put(key, messageToMap(message)),
+      );
     }
   }
 
@@ -478,14 +525,8 @@ class HiveChatDatasource implements ChatLocalDatasource {
   }) async {
     _checkNotDisposed();
     final box = await _pendingBox(roomId);
-    final entry = {
-      'message': messageToMap(message),
-      'isFailed': isFailed,
-    };
-    await _safeWrite(
-      'savePendingMessage',
-      () => box.put(message.id, entry),
-    );
+    final entry = {'message': messageToMap(message), 'isFailed': isFailed};
+    await _safeWrite('savePendingMessage', () => box.put(message.id, entry));
   }
 
   @override
@@ -529,10 +570,9 @@ class HiveChatDatasource implements ChatLocalDatasource {
     _checkNotDisposed();
     await _safeWrite(
       'setClearedAt',
-      () => _metaBox.put(
-        'clearedAt_$roomId',
-        {'ts': timestamp.toUtc().toIso8601String()},
-      ),
+      () => _metaBox.put('clearedAt_$roomId', {
+        'ts': timestamp.toUtc().toIso8601String(),
+      }),
     );
   }
 
@@ -564,7 +604,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<List<ChatRoom>> getRooms() async {
     _checkNotDisposed();
     final box = await _box('chat_rooms');
-    return _safeDeserialize(box.values, (m) => roomFromMap(m, onWarning: onWarning), boxName: 'rooms');
+    return _safeDeserialize(
+      box.values,
+      (m) => roomFromMap(m, onWarning: onWarning),
+      boxName: 'rooms',
+    );
   }
 
   @override
@@ -612,7 +656,9 @@ class HiveChatDatasource implements ChatLocalDatasource {
           }
         },
         () async {
-          final reactionsBox = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
+          final reactionsBox = await _box(
+            'chat_reactions_${_sanitizeForBoxName(roomId)}',
+          );
           await reactionsBox.clear();
         },
         () async {
@@ -649,7 +695,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<void> saveRoomDetail(RoomDetail detail) async {
     _checkNotDisposed();
     final box = await _box('chat_room_details');
-    await _safeWrite('saveRoomDetail', () => box.put(detail.id, roomDetailToMap(detail)));
+    await _safeWrite(
+      'saveRoomDetail',
+      () => box.put(detail.id, roomDetailToMap(detail)),
+    );
   }
 
   @override
@@ -659,7 +708,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final data = box.get(roomId);
     if (data == null) return null;
     try {
-      return roomDetailFromMap(Map<String, dynamic>.from(data), onWarning: onWarning);
+      return roomDetailFromMap(
+        Map<String, dynamic>.from(data),
+        onWarning: onWarning,
+      );
     } catch (_) {
       return null;
     }
@@ -690,7 +742,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<List<ChatUser>> getUsers() async {
     _checkNotDisposed();
     final box = await _box('chat_users');
-    return _safeDeserialize(box.values, (m) => userFromMap(m, onWarning: onWarning), boxName: 'users');
+    return _safeDeserialize(
+      box.values,
+      (m) => userFromMap(m, onWarning: onWarning),
+      boxName: 'users',
+    );
   }
 
   @override
@@ -760,7 +816,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<List<UnreadRoom>> getUnreads() async {
     _checkNotDisposed();
     final box = await _box('chat_unreads');
-    return _safeDeserialize(box.values, (m) => unreadRoomFromMap(m, onWarning: onWarning), boxName: 'unreads');
+    return _safeDeserialize(
+      box.values,
+      (m) => unreadRoomFromMap(m, onWarning: onWarning),
+      boxName: 'unreads',
+    );
   }
 
   // Invited rooms
@@ -796,11 +856,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
   // Offline queue
 
   @override
-  Future<void> saveOfflineQueue(
-      List<Map<String, dynamic>> operations) async {
+  Future<void> saveOfflineQueue(List<Map<String, dynamic>> operations) async {
     _checkNotDisposed();
     final box = await _box('chat_offline_queue');
-    final limited = maxOfflineQueueSize != null && operations.length > maxOfflineQueueSize!
+    final limited =
+        maxOfflineQueueSize != null && operations.length > maxOfflineQueueSize!
         ? operations.sublist(operations.length - maxOfflineQueueSize!)
         : operations;
     final entries = <int, Map<dynamic, dynamic>>{};
@@ -808,13 +868,17 @@ class HiveChatDatasource implements ChatLocalDatasource {
       entries[i] = limited[i];
     }
     await _safeWrite('saveOfflineQueue putAll', () => box.putAll(entries));
-    final keysToRemove =
-        box.keys.where((k) => k is int && k >= limited.length).toList();
+    final keysToRemove = box.keys
+        .where((k) => k is int && k >= limited.length)
+        .toList();
     if (keysToRemove.isNotEmpty) {
       await _safeWrite(
-          'saveOfflineQueue trim', () => box.deleteAll(keysToRemove));
+        'saveOfflineQueue trim',
+        () => box.deleteAll(keysToRemove),
+      );
     }
-    if (maxOfflineQueueSize != null && operations.length > maxOfflineQueueSize!) {
+    if (maxOfflineQueueSize != null &&
+        operations.length > maxOfflineQueueSize!) {
       onMetric?.call('cache_eviction', {
         'entity': 'offlineQueue',
         'count': operations.length - maxOfflineQueueSize!,
@@ -826,9 +890,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<List<Map<String, dynamic>>> getOfflineQueue() async {
     _checkNotDisposed();
     final box = await _box('chat_offline_queue');
-    return box.values
-        .map((e) => Map<String, dynamic>.from(e))
-        .toList();
+    return box.values.map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
   @override
@@ -842,23 +904,34 @@ class HiveChatDatasource implements ChatLocalDatasource {
 
   @override
   Future<void> saveReactions(
-      String roomId, String messageId, List<AggregatedReaction> reactions) async {
+    String roomId,
+    String messageId,
+    List<AggregatedReaction> reactions,
+  ) async {
     _checkNotDisposed();
     final box = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
-    await _safeWrite('saveReactions', () => box.put(messageId, {
-          'items': reactions.map(reactionToMap).toList(),
-        }));
+    await _safeWrite(
+      'saveReactions',
+      () =>
+          box.put(messageId, {'items': reactions.map(reactionToMap).toList()}),
+    );
   }
 
   @override
   Future<List<AggregatedReaction>> getReactions(
-      String roomId, String messageId) async {
+    String roomId,
+    String messageId,
+  ) async {
     _checkNotDisposed();
     final box = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
     final raw = box.get(messageId);
     if (raw == null) return [];
     final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    return _safeDeserialize(items, (m) => reactionFromMap(m), boxName: 'reactions');
+    return _safeDeserialize(
+      items,
+      (m) => reactionFromMap(m),
+      boxName: 'reactions',
+    );
   }
 
   @override
@@ -874,9 +947,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<void> savePins(String roomId, List<MessagePin> pins) async {
     _checkNotDisposed();
     final box = await _box('chat_pins');
-    await _safeWrite('savePins', () => box.put(roomId, {
-          'items': pins.map(pinToMap).toList(),
-        }));
+    await _safeWrite(
+      'savePins',
+      () => box.put(roomId, {'items': pins.map(pinToMap).toList()}),
+    );
   }
 
   @override
@@ -896,9 +970,9 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final raw = box.get(roomId);
     if (raw == null) return;
     final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    final filtered = items.where(
-      (m) => Map<String, dynamic>.from(m)['messageId'] != messageId,
-    ).toList();
+    final filtered = items
+        .where((m) => Map<String, dynamic>.from(m)['messageId'] != messageId)
+        .toList();
     await _safeWrite('deletePin', () => box.put(roomId, {'items': filtered}));
   }
 
@@ -908,9 +982,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<void> saveReceipts(String roomId, List<ReadReceipt> receipts) async {
     _checkNotDisposed();
     final box = await _box('chat_receipts');
-    await _safeWrite('saveReceipts', () => box.put(roomId, {
-          'items': receipts.map(receiptToMap).toList(),
-        }));
+    await _safeWrite(
+      'saveReceipts',
+      () => box.put(roomId, {'items': receipts.map(receiptToMap).toList()}),
+    );
   }
 
   @override
@@ -920,13 +995,20 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final raw = box.get(roomId);
     if (raw == null) return [];
     final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    return _safeDeserialize(items, (m) => receiptFromMap(m), boxName: 'receipts');
+    return _safeDeserialize(
+      items,
+      (m) => receiptFromMap(m),
+      boxName: 'receipts',
+    );
   }
 
   // TTL expiration
 
   Future<void> _expireOldMessages() async {
-    final cutoffPrefix = DateTime.now().toUtc().subtract(messageTtl!).toIso8601String();
+    final cutoffPrefix = DateTime.now()
+        .toUtc()
+        .subtract(messageTtl!)
+        .toIso8601String();
     for (final roomId in _getMessageRoomIds()) {
       final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
       final box = await _box(name);
@@ -936,8 +1018,14 @@ class HiveChatDatasource implements ChatLocalDatasource {
           .where((k) => k.compareTo(cutoffPrefix) < 0)
           .toList();
       if (keysToRemove.isNotEmpty) {
-        await _safeWrite('expireOldMessages', () => box.deleteAll(keysToRemove));
-        onMetric?.call('cache_ttl_expired', {'roomId': roomId, 'count': keysToRemove.length});
+        await _safeWrite(
+          'expireOldMessages',
+          () => box.deleteAll(keysToRemove),
+        );
+        onMetric?.call('cache_ttl_expired', {
+          'roomId': roomId,
+          'count': keysToRemove.length,
+        });
       }
     }
   }
@@ -961,11 +1049,16 @@ class HiveChatDatasource implements ChatLocalDatasource {
       await _safeWrite('evictRooms details', () => detailsBox.delete(roomId));
       await _safeWrite('evictRooms unreads', () => unreadsBox.delete(roomId));
       await clearMessages(roomId);
-      final reactionsBox = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
+      final reactionsBox = await _box(
+        'chat_reactions_${_sanitizeForBoxName(roomId)}',
+      );
       await _safeWrite('evictRooms reactions', () => reactionsBox.clear());
       await _safeWrite('evictRooms pins', () => pinsBox.delete(roomId));
       await _safeWrite('evictRooms receipts', () => receiptsBox.delete(roomId));
-      await _safeWrite('evictRooms clearedAt', () => _metaBox.delete('clearedAt_$roomId'));
+      await _safeWrite(
+        'evictRooms clearedAt',
+        () => _metaBox.delete('clearedAt_$roomId'),
+      );
       await clearPendingMessages(roomId);
     }
     // Remove invited entries for evicted rooms
@@ -974,9 +1067,15 @@ class HiveChatDatasource implements ChatLocalDatasource {
       return toRemove.contains(map['roomId']);
     }).toList();
     for (final entry in invitedEntries) {
-      await _safeWrite('evictRooms invited', () => invitedBox.delete(entry.key));
+      await _safeWrite(
+        'evictRooms invited',
+        () => invitedBox.delete(entry.key),
+      );
     }
-    onMetric?.call('cache_eviction', {'entity': 'rooms', 'count': toRemove.length});
+    onMetric?.call('cache_eviction', {
+      'entity': 'rooms',
+      'count': toRemove.length,
+    });
   }
 
   Future<void> _evictUsersIfNeeded() async {
@@ -986,7 +1085,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final keys = box.keys.cast<String>().toList();
     final toRemove = keys.sublist(0, keys.length - maxUsers!);
     await _safeWrite('evictUsers', () => box.deleteAll(toRemove));
-    onMetric?.call('cache_eviction', {'entity': 'users', 'count': toRemove.length});
+    onMetric?.call('cache_eviction', {
+      'entity': 'users',
+      'count': toRemove.length,
+    });
   }
 
   // Backup / restore
@@ -1068,6 +1170,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
           mismatches.add('$key: expected $expected, got $actual');
         }
       }
+
       check('roomCount', rooms.length);
       check('roomDetailCount', roomDetails.length);
       check('userCount', users.length);
@@ -1075,9 +1178,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
       check('unreadCount', unreads.length);
       check('invitedRoomCount', invitedRooms.length);
       if (mismatches.isNotEmpty) {
-        onWarning?.call(
-          'Import validation mismatch: ${mismatches.join(', ')}',
-        );
+        onWarning?.call('Import validation mismatch: ${mismatches.join(', ')}');
       }
     }
 
@@ -1104,8 +1205,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
     for (final detail in roomDetails) {
       final id = detail['id'] as String?;
       if (id != null) {
-        await _safeWrite(
-            'importData detail', () => detailsBox.put(id, detail));
+        await _safeWrite('importData detail', () => detailsBox.put(id, detail));
       }
     }
     for (final user in users) {
@@ -1116,18 +1216,24 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
     for (var i = 0; i < contacts.length; i++) {
       await _safeWrite(
-          'importData contact', () => contactsBox.put(i, contacts[i]));
+        'importData contact',
+        () => contactsBox.put(i, contacts[i]),
+      );
     }
     for (final unread in unreads) {
       final roomId = unread['roomId'] as String?;
       if (roomId != null) {
         await _safeWrite(
-            'importData unread', () => unreadsBox.put(roomId, unread));
+          'importData unread',
+          () => unreadsBox.put(roomId, unread),
+        );
       }
     }
     for (var i = 0; i < invitedRooms.length; i++) {
       await _safeWrite(
-          'importData invited', () => invitedBox.put(i, invitedRooms[i]));
+        'importData invited',
+        () => invitedBox.put(i, invitedRooms[i]),
+      );
     }
   }
 

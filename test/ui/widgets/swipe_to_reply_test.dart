@@ -13,22 +13,24 @@ void main() {
       expect(find.text('Message'), findsOneWidget);
     });
 
-    testWidgets('triggers onSwipe callback after horizontal drag past threshold',
-        (tester) async {
-      var swiped = false;
-      await tester.pumpWidget(
-        wrap(
-          SwipeToReply(
-            onSwipe: () => swiped = true,
-            child: const SizedBox(width: 200, height: 50, child: Text('Msg')),
+    testWidgets(
+      'triggers onSwipe callback after horizontal drag past threshold',
+      (tester) async {
+        var swiped = false;
+        await tester.pumpWidget(
+          wrap(
+            SwipeToReply(
+              onSwipe: () => swiped = true,
+              child: const SizedBox(width: 200, height: 50, child: Text('Msg')),
+            ),
           ),
-        ),
-      );
+        );
 
-      await tester.drag(find.text('Msg'), const Offset(65, 0));
-      await tester.pumpAndSettle();
+        await tester.drag(find.text('Msg'), const Offset(65, 0));
+        await tester.pumpAndSettle();
 
-      expect(swiped, isTrue);
-    });
+        expect(swiped, isTrue);
+      },
+    );
   });
 }

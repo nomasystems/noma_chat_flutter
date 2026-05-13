@@ -37,19 +37,18 @@ class ChatRoom {
     String? publicToken,
     String? avatarUrl,
     Map<String, dynamic>? custom,
-  }) =>
-      ChatRoom(
-        id: id ?? this.id,
-        owner: owner ?? this.owner,
-        name: name ?? this.name,
-        subject: subject ?? this.subject,
-        audience: audience ?? this.audience,
-        allowInvitations: allowInvitations ?? this.allowInvitations,
-        members: members ?? this.members,
-        publicToken: publicToken ?? this.publicToken,
-        avatarUrl: avatarUrl ?? this.avatarUrl,
-        custom: custom ?? this.custom,
-      );
+  }) => ChatRoom(
+    id: id ?? this.id,
+    owner: owner ?? this.owner,
+    name: name ?? this.name,
+    subject: subject ?? this.subject,
+    audience: audience ?? this.audience,
+    allowInvitations: allowInvitations ?? this.allowInvitations,
+    members: members ?? this.members,
+    publicToken: publicToken ?? this.publicToken,
+    avatarUrl: avatarUrl ?? this.avatarUrl,
+    custom: custom ?? this.custom,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -136,7 +135,6 @@ enum RoomAudience { public, contacts, unrestricted }
 /// Conversation shape. `oneToOne` rooms hold exactly two users and never
 /// promote to a group; `announcement` rooms are read-only for non-admins.
 enum RoomType { group, oneToOne, announcement }
-
 
 /// Behavior for [ChatMembersApi.add]: invite without joining, accept/decline
 /// a pending invitation, or invite-and-join atomically.

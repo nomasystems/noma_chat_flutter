@@ -36,24 +36,31 @@ void main() {
         text: 'Hello world',
       );
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: MessageBubble(
-            message: msg,
-            isOutgoing: false,
-            senderName: 'Alice',
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageBubble(
+              message: msg,
+              isOutgoing: false,
+              senderName: 'Alice',
+            ),
           ),
         ),
-      ));
+      );
 
       final semanticsWidget = tester.widget<Semantics>(
-        find.byWidgetPredicate((w) =>
-            w is Semantics && (w.properties.label?.contains('Alice') ?? false)),
+        find.byWidgetPredicate(
+          (w) =>
+              w is Semantics &&
+              (w.properties.label?.contains('Alice') ?? false),
+        ),
       );
       expect(semanticsWidget.properties.label, contains('Hello world'));
     });
 
-    testWidgets('outgoing message uses You as sender in semantics', (tester) async {
+    testWidgets('outgoing message uses You as sender in semantics', (
+      tester,
+    ) async {
       final msg = ChatMessage(
         id: 'msg-2',
         from: 'me',
@@ -61,18 +68,17 @@ void main() {
         text: 'My message',
       );
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: MessageBubble(
-            message: msg,
-            isOutgoing: true,
-          ),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: MessageBubble(message: msg, isOutgoing: true)),
         ),
-      ));
+      );
 
       final semanticsWidget = tester.widget<Semantics>(
-        find.byWidgetPredicate((w) =>
-            w is Semantics && (w.properties.label?.contains('You') ?? false)),
+        find.byWidgetPredicate(
+          (w) =>
+              w is Semantics && (w.properties.label?.contains('You') ?? false),
+        ),
       );
       expect(semanticsWidget.properties.label, contains('My message'));
     });

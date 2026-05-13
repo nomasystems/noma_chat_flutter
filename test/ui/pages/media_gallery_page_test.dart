@@ -19,12 +19,11 @@ void main() {
   });
 
   Future<void> pumpPage(WidgetTester tester) async {
-    await tester.pumpWidget(MaterialApp(
-      home: MediaGalleryPage(
-        client: client,
-        roomId: 'room-1',
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaGalleryPage(client: client, roomId: 'room-1'),
       ),
-    ));
+    );
     // The page runs `_load` in initState; pumpAndSettle drains it.
     await tester.pumpAndSettle();
   }
@@ -37,8 +36,9 @@ void main() {
     expect(find.byType(Tab), findsNWidgets(3));
   });
 
-  testWidgets('settles into empty state when there are no attachments',
-      (tester) async {
+  testWidgets('settles into empty state when there are no attachments', (
+    tester,
+  ) async {
     await pumpPage(tester);
 
     // Loading indicator dismissed and Media tab is empty.
@@ -55,8 +55,9 @@ void main() {
     expect(find.byType(EmptyState), findsWidgets);
   });
 
-  testWidgets('Links tab shows its empty state when no link source messages',
-      (tester) async {
+  testWidgets('Links tab shows its empty state when no link source messages', (
+    tester,
+  ) async {
     await pumpPage(tester);
 
     await tester.tap(find.byType(Tab).at(2));
@@ -75,13 +76,15 @@ void main() {
       ),
     ];
 
-    await tester.pumpWidget(MaterialApp(
-      home: MediaGalleryPage(
-        client: client,
-        roomId: 'room-1',
-        linkSourceMessages: messages,
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaGalleryPage(
+          client: client,
+          roomId: 'room-1',
+          linkSourceMessages: messages,
+        ),
       ),
-    ));
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byType(Tab).at(2));
@@ -90,8 +93,9 @@ void main() {
     expect(find.byType(LinksListView), findsOneWidget);
   });
 
-  testWidgets('dispose releases the TabController without throwing',
-      (tester) async {
+  testWidgets('dispose releases the TabController without throwing', (
+    tester,
+  ) async {
     await pumpPage(tester);
     // Replacing the widget tree forces dispose of the page state.
     await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));

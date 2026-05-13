@@ -46,14 +46,13 @@ class ChatMessage {
 
   /// Extracts forwarding metadata if this is a forwarded message.
   /// Tries metadata keys first, falls back to message-level fields.
-  ForwardInfo? get forwardInfo =>
-      messageType == MessageType.forward
-          ? ForwardInfo.tryFromMessage(
-              from: from,
-              referencedMessageId: referencedMessageId,
-              metadata: metadata,
-            )
-          : null;
+  ForwardInfo? get forwardInfo => messageType == MessageType.forward
+      ? ForwardInfo.tryFromMessage(
+          from: from,
+          referencedMessageId: referencedMessageId,
+          metadata: metadata,
+        )
+      : null;
 
   ChatMessage copyWith({
     String? id,
@@ -75,28 +74,27 @@ class ChatMessage {
     String? fileName,
     String? fileSize,
     String? thumbnailUrl,
-  }) =>
-      ChatMessage(
-        id: id ?? this.id,
-        from: from ?? this.from,
-        timestamp: timestamp ?? this.timestamp,
-        text: text ?? this.text,
-        messageType: messageType ?? this.messageType,
-        attachmentUrl: attachmentUrl ?? this.attachmentUrl,
-        referencedMessageId: referencedMessageId ?? this.referencedMessageId,
-        reaction: reaction ?? this.reaction,
-        reply: reply ?? this.reply,
-        metadata: metadata ?? this.metadata,
-        receipt: receipt ?? this.receipt,
-        isEdited: isEdited ?? this.isEdited,
-        isDeleted: isDeleted ?? this.isDeleted,
-        isForwarded: isForwarded ?? this.isForwarded,
-        isSystem: isSystem ?? this.isSystem,
-        mimeType: mimeType ?? this.mimeType,
-        fileName: fileName ?? this.fileName,
-        fileSize: fileSize ?? this.fileSize,
-        thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
-      );
+  }) => ChatMessage(
+    id: id ?? this.id,
+    from: from ?? this.from,
+    timestamp: timestamp ?? this.timestamp,
+    text: text ?? this.text,
+    messageType: messageType ?? this.messageType,
+    attachmentUrl: attachmentUrl ?? this.attachmentUrl,
+    referencedMessageId: referencedMessageId ?? this.referencedMessageId,
+    reaction: reaction ?? this.reaction,
+    reply: reply ?? this.reply,
+    metadata: metadata ?? this.metadata,
+    receipt: receipt ?? this.receipt,
+    isEdited: isEdited ?? this.isEdited,
+    isDeleted: isDeleted ?? this.isDeleted,
+    isForwarded: isForwarded ?? this.isForwarded,
+    isSystem: isSystem ?? this.isSystem,
+    mimeType: mimeType ?? this.mimeType,
+    fileName: fileName ?? this.fileName,
+    fileSize: fileSize ?? this.fileSize,
+    thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
+  );
 
   @override
   bool operator ==(Object other) =>
@@ -111,7 +109,15 @@ class ChatMessage {
 
 /// Discriminator for a [ChatMessage]'s payload. Bubbles in the UI Kit
 /// branch on this value to pick the right renderer.
-enum MessageType { regular, attachment, reaction, reply, audio, forward, location }
+enum MessageType {
+  regular,
+  attachment,
+  reaction,
+  reply,
+  audio,
+  forward,
+  location,
+}
 
 /// Delivery state of an outgoing message as reported by the backend. Read
 /// receipts can advance from `sent` to `delivered` to `read`.

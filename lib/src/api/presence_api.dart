@@ -15,27 +15,29 @@ class PresenceApi implements ChatPresenceApi {
   PresenceApi({required RestClient rest}) : _rest = rest;
 
   @override
-  Future<Result<ChatPresence>> getOwn() =>
-      safeApiCall(() async {
-        final json = await _rest.get('/presence');
-        final bulk = PresenceMapper.bulkFromJson(json);
-        return bulk.own;
-      });
+  Future<Result<ChatPresence>> getOwn() => safeApiCall(() async {
+    final json = await _rest.get('/presence');
+    final bulk = PresenceMapper.bulkFromJson(json);
+    return bulk.own;
+  });
 
   @override
-  Future<Result<BulkPresenceResponse>> getAll() =>
-      safeApiCall(() async {
-        final json = await _rest.get('/presence');
-        return PresenceMapper.bulkFromJson(json);
-      });
+  Future<Result<BulkPresenceResponse>> getAll() => safeApiCall(() async {
+    final json = await _rest.get('/presence');
+    return PresenceMapper.bulkFromJson(json);
+  });
 
   @override
   Future<Result<void>> update({
     required PresenceStatus status,
     String? statusText,
-  }) =>
-      safeVoidCall(() => _rest.putVoid('/presence', data: {
-            'status': status.toJson(),
-            if (statusText != null) 'statusText': statusText,
-          }));
+  }) => safeVoidCall(
+    () => _rest.putVoid(
+      '/presence',
+      data: {
+        'status': status.toJson(),
+        if (statusText != null) 'statusText': statusText,
+      },
+    ),
+  );
 }

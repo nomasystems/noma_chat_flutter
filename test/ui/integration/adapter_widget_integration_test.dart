@@ -9,8 +9,8 @@ void main() {
   const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   Widget wrap(Widget child) => MaterialApp(
-        home: Scaffold(body: SizedBox(height: 600, child: child)),
-      );
+    home: Scaffold(body: SizedBox(height: 600, child: child)),
+  );
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -49,15 +49,17 @@ void main() {
       adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
 
       for (var i = 0; i < 3; i++) {
-        mockClient.emitEvent(ChatEvent.newMessage(
-          message: ChatMessage(
-            id: 'msg$i',
-            from: 'u2',
-            text: 'Message $i',
-            timestamp: DateTime(2026, 1, 1, 0, i),
+        mockClient.emitEvent(
+          ChatEvent.newMessage(
+            message: ChatMessage(
+              id: 'msg$i',
+              from: 'u2',
+              text: 'Message $i',
+              timestamp: DateTime(2026, 1, 1, 0, i),
+            ),
+            roomId: 'room1',
           ),
-          roomId: 'room1',
-        ));
+        );
       }
 
       await Future.delayed(Duration.zero);
@@ -67,66 +69,72 @@ void main() {
     testWidgets('controller message renders in ChatView', (tester) async {
       final controller = adapter.getChatController('room1');
 
-      controller.addMessage(ChatMessage(
-        id: 'msg1',
-        from: 'u2',
-        text: 'Pre-loaded message',
-        timestamp: DateTime(2026, 1, 1),
-      ));
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u2',
+          text: 'Pre-loaded message',
+          timestamp: DateTime(2026, 1, 1),
+        ),
+      );
 
-      await tester.pumpWidget(wrap(ChatView(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+      );
 
       expect(find.textContaining('Pre-loaded message'), findsOneWidget);
     });
 
-    testWidgets('ChatView shows empty state then shows message after controller update',
-        (tester) async {
-      final controller = adapter.getChatController('room1');
+    testWidgets(
+      'ChatView shows empty state then shows message after controller update',
+      (tester) async {
+        final controller = adapter.getChatController('room1');
 
-      await tester.pumpWidget(wrap(ChatView(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+        await tester.pumpWidget(
+          wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        );
 
-      expect(find.text('No messages yet'), findsOneWidget);
+        expect(find.text('No messages yet'), findsOneWidget);
 
-      controller.addMessage(ChatMessage(
-        id: 'msg1',
-        from: 'u2',
-        text: 'Added after render',
-        timestamp: DateTime(2026, 1, 1),
-      ));
-      await tester.pump();
+        controller.addMessage(
+          ChatMessage(
+            id: 'msg1',
+            from: 'u2',
+            text: 'Added after render',
+            timestamp: DateTime(2026, 1, 1),
+          ),
+        );
+        await tester.pump();
 
-      expect(find.textContaining('Added after render'), findsOneWidget);
-      expect(find.text('No messages yet'), findsNothing);
-    });
+        expect(find.textContaining('Added after render'), findsOneWidget);
+        expect(find.text('No messages yet'), findsNothing);
+      },
+    );
 
-    testWidgets('full pipeline: adapter event -> controller -> widget render',
-        (tester) async {
+    testWidgets('full pipeline: adapter event -> controller -> widget render', (
+      tester,
+    ) async {
       adapter.start();
       final controller = adapter.getChatController('room1');
       adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
 
-      await tester.pumpWidget(wrap(ChatView(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+      );
 
       expect(find.text('No messages yet'), findsOneWidget);
 
-      mockClient.emitEvent(ChatEvent.newMessage(
-        message: ChatMessage(
-          id: 'msg1',
-          from: 'u2',
-          text: 'Full pipeline message',
-          timestamp: DateTime(2026, 1, 1),
+      mockClient.emitEvent(
+        ChatEvent.newMessage(
+          message: ChatMessage(
+            id: 'msg1',
+            from: 'u2',
+            text: 'Full pipeline message',
+            timestamp: DateTime(2026, 1, 1),
+          ),
+          roomId: 'room1',
         ),
-        roomId: 'room1',
-      ));
+      );
 
       await tester.pump();
       await tester.pump();
@@ -134,15 +142,15 @@ void main() {
       expect(find.textContaining('Full pipeline message'), findsOneWidget);
     });
 
-    testWidgets('system message from user joined renders in widget',
-        (tester) async {
+    testWidgets('system message from user joined renders in widget', (
+      tester,
+    ) async {
       adapter.start();
       final controller = adapter.getChatController('room1');
 
-      await tester.pumpWidget(wrap(ChatView(
-        controller: controller,
-        onSendMessage: (_) {},
-      )));
+      await tester.pumpWidget(
+        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+      );
 
       mockClient.emitEvent(
         const ChatEvent.userJoined(roomId: 'room1', userId: 'user42'),
@@ -184,10 +192,7 @@ void main() {
       );
 
       expect(result.isSuccess, true);
-      expect(
-        controller.messages.any((m) => m.text == 'Optimistic msg'),
-        true,
-      );
+      expect(controller.messages.any((m) => m.text == 'Optimistic msg'), true);
     });
 
     test('loadMessages populates controller', () async {

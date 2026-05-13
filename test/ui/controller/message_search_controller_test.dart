@@ -31,9 +31,8 @@ void main() {
 
     test('search updates results', () async {
       final controller = MessageSearchController(
-        searchFn: (q, r, {pagination}) async => Success(
-          PaginatedResponse(items: [msg1, msg2], hasMore: false),
-        ),
+        searchFn: (q, r, {pagination}) async =>
+            Success(PaginatedResponse(items: [msg1, msg2], hasMore: false)),
       );
 
       await controller.search('hello', 'room1');
@@ -46,9 +45,8 @@ void main() {
 
     test('search with empty query clears results', () async {
       final controller = MessageSearchController(
-        searchFn: (q, r, {pagination}) async => Success(
-          PaginatedResponse(items: [msg1], hasMore: false),
-        ),
+        searchFn: (q, r, {pagination}) async =>
+            Success(PaginatedResponse(items: [msg1], hasMore: false)),
       );
 
       await controller.search('hello', 'room1');
@@ -62,9 +60,8 @@ void main() {
 
     test('clear resets all state', () async {
       final controller = MessageSearchController(
-        searchFn: (q, r, {pagination}) async => Success(
-          PaginatedResponse(items: [msg1], hasMore: true),
-        ),
+        searchFn: (q, r, {pagination}) async =>
+            Success(PaginatedResponse(items: [msg1], hasMore: true)),
       );
 
       await controller.search('hello', 'room1');
@@ -82,13 +79,9 @@ void main() {
         searchFn: (q, r, {pagination}) async {
           callCount++;
           if (callCount == 1) {
-            return Success(
-              PaginatedResponse(items: [msg1], hasMore: true),
-            );
+            return Success(PaginatedResponse(items: [msg1], hasMore: true));
           }
-          return Success(
-            PaginatedResponse(items: [msg2], hasMore: false),
-          );
+          return Success(PaginatedResponse(items: [msg2], hasMore: false));
         },
       );
 
@@ -107,9 +100,7 @@ void main() {
       final controller = MessageSearchController(
         searchFn: (q, r, {pagination}) async {
           callCount++;
-          return const Success(
-            PaginatedResponse(items: [], hasMore: false),
-          );
+          return const Success(PaginatedResponse(items: [], hasMore: false));
         },
       );
 

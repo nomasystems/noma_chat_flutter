@@ -3,10 +3,7 @@ class InvitedRoom {
   final String roomId;
   final String invitedBy;
 
-  const InvitedRoom({
-    required this.roomId,
-    required this.invitedBy,
-  });
+  const InvitedRoom({required this.roomId, required this.invitedBy});
 
   @override
   bool operator ==(Object other) =>

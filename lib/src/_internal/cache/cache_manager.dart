@@ -2,7 +2,8 @@ import '../../core/result.dart';
 import 'cache_config.dart';
 import 'cache_policy.dart';
 
-typedef MetricCallback = void Function(String metric, Map<String, dynamic> data);
+typedef MetricCallback =
+    void Function(String metric, Map<String, dynamic> data);
 
 class CacheManager {
   final CacheConfig config;
@@ -59,13 +60,18 @@ class CacheManager {
             return Success(cached);
           }
         }
-        final cacheFirstResult =
-            await _fromNetworkAndCache(key, fromNetwork, saveToCache);
+        final cacheFirstResult = await _fromNetworkAndCache(
+          key,
+          fromNetwork,
+          saveToCache,
+        );
         if (cacheFirstResult.isFailure) {
           final stale = await fromCache();
           if (stale != null) {
-            onMetric?.call(
-                'cache_stale_fallback', {'key': key, 'policy': 'cacheFirst'});
+            onMetric?.call('cache_stale_fallback', {
+              'key': key,
+              'policy': 'cacheFirst',
+            });
             return Success(stale);
           }
         }

@@ -53,35 +53,39 @@ class ConnectionBanner extends StatelessWidget {
       liveRegion: true,
       label: label,
       child: Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      color: theme.connectionBannerColor ?? _defaultColor(),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (state == ChatConnectionState.connecting ||
-              state == ChatConnectionState.reconnecting)
-            const Padding(
-              padding: EdgeInsets.only(right: 8),
-              child: SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        color: theme.connectionBannerColor ?? _defaultColor(),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (state == ChatConnectionState.connecting ||
+                state == ChatConnectionState.reconnecting)
+              const Padding(
+                padding: EdgeInsets.only(right: 8),
+                child: SizedBox(
+                  width: 14,
+                  height: 14,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
               ),
+            if (state == ChatConnectionState.error)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Icon(
+                  Icons.error_outline,
+                  size: 16,
+                  color: theme.connectionBannerErrorIconColor ?? Colors.red,
+                ),
+              ),
+            Text(
+              label,
+              style:
+                  theme.connectionBannerTextStyle ??
+                  const TextStyle(fontSize: 13),
             ),
-          if (state == ChatConnectionState.error)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Icon(Icons.error_outline, size: 16, color: theme.connectionBannerErrorIconColor ?? Colors.red),
-            ),
-          Text(
-            label,
-            style:
-                theme.connectionBannerTextStyle ??
-                const TextStyle(fontSize: 13),
-          ),
-        ],
-      ),
+          ],
+        ),
       ),
     );
   }

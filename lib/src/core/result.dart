@@ -9,36 +9,34 @@ sealed class Result<T> {
   bool get isFailure => this is Failure<T>;
 
   T? get dataOrNull => switch (this) {
-        Success(data: final d) => d,
-        Failure() => null,
-      };
+    Success(data: final d) => d,
+    Failure() => null,
+  };
 
   ChatFailure? get failureOrNull => switch (this) {
-        Success() => null,
-        Failure(failure: final f) => f,
-      };
+    Success() => null,
+    Failure(failure: final f) => f,
+  };
 
   R fold<R>(
     R Function(ChatFailure failure) onFailure,
     R Function(T data) onSuccess,
-  ) =>
-      switch (this) {
-        Success(data: final d) => onSuccess(d),
-        Failure(failure: final f) => onFailure(f),
-      };
+  ) => switch (this) {
+    Success(data: final d) => onSuccess(d),
+    Failure(failure: final f) => onFailure(f),
+  };
 
   Result<R> map<R>(R Function(T data) transform) => switch (this) {
-        Success(data: final d) => Success(transform(d)),
-        Failure(failure: final f) => Failure(f),
-      };
+    Success(data: final d) => Success(transform(d)),
+    Failure(failure: final f) => Failure(f),
+  };
 
   Future<Result<R>> flatMap<R>(
     Future<Result<R>> Function(T data) transform,
-  ) async =>
-      switch (this) {
-        Success(data: final d) => await transform(d),
-        Failure(failure: final f) => Failure(f),
-      };
+  ) async => switch (this) {
+    Success(data: final d) => await transform(d),
+    Failure(failure: final f) => Failure(f),
+  };
 }
 
 /// A successful result containing [data].
@@ -66,8 +64,7 @@ final class Failure<T> extends Result<T> {
 
   @override
   bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is Failure<T> && other.failure == failure;
+      identical(this, other) || other is Failure<T> && other.failure == failure;
 
   @override
   int get hashCode => failure.hashCode;
@@ -112,15 +109,15 @@ final class NotFoundFailure extends ChatFailure {
 final class ValidationFailure extends ChatFailure {
   final Map<String, dynamic>? errors;
 
-  const ValidationFailure({
-    String message = 'Validation failed',
-    this.errors,
-  }) : super(message);
+  const ValidationFailure({String message = 'Validation failed', this.errors})
+    : super(message);
 }
 
 /// Message blocked by a server-side content filter (400).
 final class ContentFilterFailure extends ChatFailure {
-  const ContentFilterFailure([super.message = 'Message blocked by content filter']);
+  const ContentFilterFailure([
+    super.message = 'Message blocked by content filter',
+  ]);
 }
 
 /// Resource already exists or conflicts with current state (409).

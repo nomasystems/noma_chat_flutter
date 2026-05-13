@@ -44,18 +44,16 @@ class ReactionBar extends StatelessWidget {
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 32),
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                 decoration: BoxDecoration(
                   color: isOwn
-                      ? (theme.reactionSelectedColor ??
-                          Colors.blue.shade100)
-                      : (theme.reactionBackgroundColor ??
-                          Colors.grey.shade200),
+                      ? (theme.reactionSelectedColor ?? Colors.blue.shade100)
+                      : (theme.reactionBackgroundColor ?? Colors.grey.shade200),
                   borderRadius: BorderRadius.circular(12),
                   border: isOwn
                       ? Border.all(
-                          color: theme.reactionSelectedBorderColor ??
+                          color:
+                              theme.reactionSelectedBorderColor ??
                               Colors.blue.shade300,
                         )
                       : null,

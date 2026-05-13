@@ -16,30 +16,30 @@ class LinkPreviewFetcher {
     Dio? dio,
     Duration timeout = const Duration(seconds: 5),
     int cacheSize = 64,
-  })  : _dio = dio ?? _defaultDio(timeout),
-        _cacheSize = cacheSize;
+  }) : _dio = dio ?? _defaultDio(timeout),
+       _cacheSize = cacheSize;
 
   static Dio _defaultDio(Duration timeout) => Dio(
-        BaseOptions(
-          connectTimeout: timeout,
-          receiveTimeout: timeout,
-          followRedirects: true,
-          // Accept any status so we can attempt to parse 4xx pages too instead
-          // of throwing and leaving the spinner running.
-          validateStatus: (status) => status != null && status < 500,
-          headers: const {
-            // Use a browser-looking User-Agent. Many CDNs (Cloudflare, etc.)
-            // return 403 for unknown crawlers, leaving the spinner stuck.
-            'User-Agent':
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
-                    'AppleWebKit/537.36 (KHTML, like Gecko) '
-                    'Chrome/120.0.0.0 Safari/537.36',
-            'Accept':
-                'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
-          },
-        ),
-      );
+    BaseOptions(
+      connectTimeout: timeout,
+      receiveTimeout: timeout,
+      followRedirects: true,
+      // Accept any status so we can attempt to parse 4xx pages too instead
+      // of throwing and leaving the spinner running.
+      validateStatus: (status) => status != null && status < 500,
+      headers: const {
+        // Use a browser-looking User-Agent. Many CDNs (Cloudflare, etc.)
+        // return 403 for unknown crawlers, leaving the spinner stuck.
+        'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/120.0.0.0 Safari/537.36',
+        'Accept':
+            'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,es;q=0.8',
+      },
+    ),
+  );
 
   final Dio _dio;
   final int _cacheSize;
@@ -96,13 +96,16 @@ class LinkPreviewFetcher {
       return (value == null || value.isEmpty) ? null : value;
     }
 
-    final title = meta('og:title') ??
+    final title =
+        meta('og:title') ??
         meta('twitter:title', attr: 'name') ??
         document.querySelector('title')?.text.trim();
-    final description = meta('og:description') ??
+    final description =
+        meta('og:description') ??
         meta('twitter:description', attr: 'name') ??
         meta('description', attr: 'name');
-    final image = meta('og:image') ??
+    final image =
+        meta('og:image') ??
         meta('twitter:image', attr: 'name') ??
         meta('twitter:image:src', attr: 'name');
 

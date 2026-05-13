@@ -9,7 +9,8 @@ class MessageSearchController extends ChangeNotifier {
     String query,
     String roomId, {
     PaginationParams? pagination,
-  }) searchFn;
+  })
+  searchFn;
 
   String _query = '';
   String _roomId = '';

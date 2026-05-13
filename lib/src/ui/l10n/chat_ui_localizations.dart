@@ -245,8 +245,10 @@ class ChatUiLocalizations {
   final String readOnlyChannel;
 
   String replies(int count) =>
-      (count == 1 ? replySingleTemplate : repliesTemplate)
-          .replaceAll('{count}', count.toString());
+      (count == 1 ? replySingleTemplate : repliesTemplate).replaceAll(
+        '{count}',
+        count.toString(),
+      );
 
   String userJoined(String userId) =>
       userJoinedTemplate.replaceAll('{user}', userId);
@@ -254,10 +256,10 @@ class ChatUiLocalizations {
       userLeftTemplate.replaceAll('{user}', userId);
   String userRoleChanged(String userId) =>
       userRoleChangedTemplate.replaceAll('{user}', userId);
-  String typingOne(String name) =>
-      typingOneTemplate.replaceAll('{name}', name);
-  String typingTwo(String name1, String name2) =>
-      typingTwoTemplate.replaceAll('{name1}', name1).replaceAll('{name2}', name2);
+  String typingOne(String name) => typingOneTemplate.replaceAll('{name}', name);
+  String typingTwo(String name1, String name2) => typingTwoTemplate
+      .replaceAll('{name1}', name1)
+      .replaceAll('{name2}', name2);
   String typingMany(int count) =>
       typingManyTemplate.replaceAll('{count}', count.toString());
   String relativeMin(int count) =>
@@ -268,14 +270,16 @@ class ChatUiLocalizations {
       relativeDayTemplate.replaceAll('{count}', count.toString());
   String relativeWeek(int count) =>
       relativeWeekTemplate.replaceAll('{count}', count.toString());
-  String relativeMonth(int count) => (count == 1
-          ? relativeMonthTemplate
-          : relativeMonthsTemplate)
-      .replaceAll('{count}', count.toString());
-  String relativeYear(int count) => (count == 1
-          ? relativeYearTemplate
-          : relativeYearsTemplate)
-      .replaceAll('{count}', count.toString());
+  String relativeMonth(int count) =>
+      (count == 1 ? relativeMonthTemplate : relativeMonthsTemplate).replaceAll(
+        '{count}',
+        count.toString(),
+      );
+  String relativeYear(int count) =>
+      (count == 1 ? relativeYearTemplate : relativeYearsTemplate).replaceAll(
+        '{count}',
+        count.toString(),
+      );
 
   String previewVoice(String duration) =>
       previewVoiceTemplate.replaceAll('{duration}', duration);
@@ -451,9 +455,12 @@ class ChatUiLocalizations {
       allReactions: allReactions ?? this.allReactions,
       moreEmojis: moreEmojis ?? this.moreEmojis,
       you: you ?? this.you,
-      reactionPreviewTemplate: reactionPreviewTemplate ?? this.reactionPreviewTemplate,
-      reactionPreviewSelfTemplate: reactionPreviewSelfTemplate ?? this.reactionPreviewSelfTemplate,
-      reactionPreviewOtherTemplate: reactionPreviewOtherTemplate ?? this.reactionPreviewOtherTemplate,
+      reactionPreviewTemplate:
+          reactionPreviewTemplate ?? this.reactionPreviewTemplate,
+      reactionPreviewSelfTemplate:
+          reactionPreviewSelfTemplate ?? this.reactionPreviewSelfTemplate,
+      reactionPreviewOtherTemplate:
+          reactionPreviewOtherTemplate ?? this.reactionPreviewOtherTemplate,
       delete: delete ?? this.delete,
       mute: mute ?? this.mute,
       unmute: unmute ?? this.unmute,
@@ -473,8 +480,7 @@ class ChatUiLocalizations {
       previewVideoCaptionTemplate:
           previewVideoCaptionTemplate ?? this.previewVideoCaptionTemplate,
       previewGif: previewGif ?? this.previewGif,
-      previewVoiceTemplate:
-          previewVoiceTemplate ?? this.previewVoiceTemplate,
+      previewVoiceTemplate: previewVoiceTemplate ?? this.previewVoiceTemplate,
       previewAudioFileTemplate:
           previewAudioFileTemplate ?? this.previewAudioFileTemplate,
       previewDocumentTemplate:
@@ -500,7 +506,8 @@ class ChatUiLocalizations {
       preListenLabel: preListenLabel ?? this.preListenLabel,
       pauseRecording: pauseRecording ?? this.pauseRecording,
       resumeRecording: resumeRecording ?? this.resumeRecording,
-      microphonePermissionDenied: microphonePermissionDenied ?? this.microphonePermissionDenied,
+      microphonePermissionDenied:
+          microphonePermissionDenied ?? this.microphonePermissionDenied,
       speed1x: speed1x ?? this.speed1x,
       speed15x: speed15x ?? this.speed15x,
       speed2x: speed2x ?? this.speed2x,
@@ -527,7 +534,8 @@ class ChatUiLocalizations {
       owner: owner ?? this.owner,
       admin: admin ?? this.admin,
       member: member ?? this.member,
-      userRoleChangedTemplate: userRoleChangedTemplate ?? this.userRoleChangedTemplate,
+      userRoleChangedTemplate:
+          userRoleChangedTemplate ?? this.userRoleChangedTemplate,
       removeMember: removeMember ?? this.removeMember,
       changeRole: changeRole ?? this.changeRole,
       ban: ban ?? this.ban,
@@ -543,10 +551,13 @@ class ChatUiLocalizations {
       relativeHourTemplate: relativeHourTemplate ?? this.relativeHourTemplate,
       relativeDayTemplate: relativeDayTemplate ?? this.relativeDayTemplate,
       relativeWeekTemplate: relativeWeekTemplate ?? this.relativeWeekTemplate,
-      relativeMonthTemplate: relativeMonthTemplate ?? this.relativeMonthTemplate,
-      relativeMonthsTemplate: relativeMonthsTemplate ?? this.relativeMonthsTemplate,
+      relativeMonthTemplate:
+          relativeMonthTemplate ?? this.relativeMonthTemplate,
+      relativeMonthsTemplate:
+          relativeMonthsTemplate ?? this.relativeMonthsTemplate,
       relativeYearTemplate: relativeYearTemplate ?? this.relativeYearTemplate,
-      relativeYearsTemplate: relativeYearsTemplate ?? this.relativeYearsTemplate,
+      relativeYearsTemplate:
+          relativeYearsTemplate ?? this.relativeYearsTemplate,
       readOnlyChannel: readOnlyChannel ?? this.readOnlyChannel,
     );
   }

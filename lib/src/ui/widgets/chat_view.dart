@@ -87,7 +87,7 @@ class ChatView extends StatefulWidget {
   /// of [onSendMessage] and includes any auxiliary metadata it has gathered
   /// (e.g. link previews extracted from the typed text).
   final void Function(String text, Map<String, dynamic>? metadata)?
-      onSendMessageRich;
+  onSendMessageRich;
   final void Function(ChatMessage message, String newText)? onEditMessage;
   final ValueChanged<ChatMessage>? onDeleteMessage;
   final ValueChanged<ChatMessage>? onMessageLongPress;
@@ -132,7 +132,7 @@ class ChatView extends StatefulWidget {
   final Widget Function(BuildContext, ChatMessage, bool)? contextMenuBuilder;
   final Set<MessageAction> contextMenuActions;
   final void Function(ChatMessage message, MessageAction action)?
-      onContextMenuAction;
+  onContextMenuAction;
 
   final Map<String, String> forwardedSourceLabels;
 
@@ -142,7 +142,7 @@ class ChatView extends StatefulWidget {
   final ValueChanged<ChatMessage>? onRetryMessage;
   final UserResolver? userResolver;
   final Future<List<AggregatedReaction>> Function(String messageId)?
-      onFetchReactions;
+  onFetchReactions;
 
   /// Optional presenter for the reaction detail sheet. Lets the host app wrap
   /// the SDK-built sheet content in its own bottom sheet (theme, drag handle,
@@ -155,11 +155,11 @@ class ChatView extends StatefulWidget {
   /// outgoing voice messages still being uploaded. Returning null means there
   /// is no upload in flight for that message id.
   final ValueListenable<double>? Function(String messageId)?
-      audioUploadProgressFor;
+  audioUploadProgressFor;
 
   final String Function(ChatMessage message)? systemMessageTextResolver;
   final Widget? Function(BuildContext context, ChatMessage message)?
-      systemMessageBuilder;
+  systemMessageBuilder;
   final Widget? Function(BuildContext context)? headerBuilder;
   final Widget? backgroundWidget;
   final bool readOnly;
@@ -313,7 +313,8 @@ class _ChatViewState extends State<ChatView> {
                 availableReactions: widget.availableReactions,
                 forwardedSourceLabels: widget.forwardedSourceLabels,
                 onRetryMessage: widget.onRetryMessage,
-                onShowReactionDetail: (widget.userResolver != null &&
+                onShowReactionDetail:
+                    (widget.userResolver != null &&
                         widget.onFetchReactions != null)
                     ? (message) {
                         ReactionDetailSheet.show(
@@ -341,11 +342,12 @@ class _ChatViewState extends State<ChatView> {
             width: double.infinity,
             padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
             decoration: BoxDecoration(
-              color: widget.theme.inputBackgroundColor ??
-                  const Color(0xFFF5F5F5),
+              color:
+                  widget.theme.inputBackgroundColor ?? const Color(0xFFF5F5F5),
               border: Border(
                 top: BorderSide(
-                  color: widget.theme.editingBorderColor ??
+                  color:
+                      widget.theme.editingBorderColor ??
                       const Color(0xFFE0E0E0),
                   width: 0.5,
                 ),
@@ -413,8 +415,9 @@ class _ChatViewState extends State<ChatView> {
               ),
             )
           : null,
-      color:
-          widget.theme.backgroundImage != null ? null : widget.theme.backgroundColor,
+      color: widget.theme.backgroundImage != null
+          ? null
+          : widget.theme.backgroundColor,
       child: body,
     );
   }

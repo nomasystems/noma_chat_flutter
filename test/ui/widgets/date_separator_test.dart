@@ -18,7 +18,8 @@ void main() {
       await tester.pumpWidget(wrap(DateSeparator(date: date)));
 
       final semantics = find.byWidgetPredicate(
-        (widget) => widget is Semantics && widget.properties.label == '15/03/2025',
+        (widget) =>
+            widget is Semantics && widget.properties.label == '15/03/2025',
       );
       expect(semantics, findsOneWidget);
     });

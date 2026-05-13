@@ -35,13 +35,15 @@ void main() {
         currentUser: currentUser,
       );
 
-      await tester.pumpWidget(wrap(
-        ThreadView(
-          parentMessage: parentMessage,
-          controller: controller,
-          currentUserId: 'u1',
+      await tester.pumpWidget(
+        wrap(
+          ThreadView(
+            parentMessage: parentMessage,
+            controller: controller,
+            currentUserId: 'u1',
+          ),
         ),
-      ));
+      );
 
       expect(find.textContaining('Parent message'), findsOneWidget);
       expect(find.textContaining('First reply'), findsOneWidget);
@@ -56,13 +58,15 @@ void main() {
         currentUser: currentUser,
       );
 
-      await tester.pumpWidget(wrap(
-        ThreadView(
-          parentMessage: parentMessage,
-          controller: controller,
-          currentUserId: 'u1',
+      await tester.pumpWidget(
+        wrap(
+          ThreadView(
+            parentMessage: parentMessage,
+            controller: controller,
+            currentUserId: 'u1',
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Thread'), findsOneWidget);
 
@@ -75,14 +79,16 @@ void main() {
         currentUser: currentUser,
       );
 
-      await tester.pumpWidget(wrap(
-        ThreadView(
-          parentMessage: parentMessage,
-          controller: controller,
-          replies: [reply1, reply2],
-          currentUserId: 'u1',
+      await tester.pumpWidget(
+        wrap(
+          ThreadView(
+            parentMessage: parentMessage,
+            controller: controller,
+            replies: [reply1, reply2],
+            currentUserId: 'u1',
+          ),
         ),
-      ));
+      );
 
       expect(find.text('2 replies'), findsOneWidget);
 
@@ -96,19 +102,18 @@ void main() {
         currentUser: currentUser,
       );
 
-      await tester.pumpWidget(wrap(
-        ThreadView(
-          parentMessage: parentMessage,
-          controller: controller,
-          onSendReply: (text) => sentText = text,
-          currentUserId: 'u1',
+      await tester.pumpWidget(
+        wrap(
+          ThreadView(
+            parentMessage: parentMessage,
+            controller: controller,
+            onSendReply: (text) => sentText = text,
+            currentUserId: 'u1',
+          ),
         ),
-      ));
-
-      await tester.enterText(
-        find.byType(TextField),
-        'My reply',
       );
+
+      await tester.enterText(find.byType(TextField), 'My reply');
       await tester.pump();
 
       final sendButton = find.byWidgetPredicate(
@@ -129,14 +134,16 @@ void main() {
         currentUser: currentUser,
       );
 
-      await tester.pumpWidget(wrap(
-        ThreadView(
-          parentMessage: parentMessage,
-          controller: controller,
-          onClose: () => closed = true,
-          currentUserId: 'u1',
+      await tester.pumpWidget(
+        wrap(
+          ThreadView(
+            parentMessage: parentMessage,
+            controller: controller,
+            onClose: () => closed = true,
+            currentUserId: 'u1',
+          ),
         ),
-      ));
+      );
 
       await tester.tap(find.byIcon(Icons.close));
       expect(closed, true);

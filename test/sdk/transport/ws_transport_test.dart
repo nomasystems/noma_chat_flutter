@@ -72,8 +72,7 @@ void main() {
           fakeChannel = _FakeWebSocketChannel();
           // Simulate auth success after a short delay
           Future.microtask(() {
-            fakeChannel.receiveMessage(
-                jsonEncode({'type': 'auth_ok'}));
+            fakeChannel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
           });
           return fakeChannel;
         },
@@ -107,8 +106,7 @@ void main() {
           capturedUri = uri;
           final channel = _FakeWebSocketChannel();
           Future.microtask(() {
-            channel.receiveMessage(
-                jsonEncode({'type': 'auth_ok'}));
+            channel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
           });
           return channel;
         },
@@ -139,8 +137,7 @@ void main() {
           capturedUri = uri;
           final channel = _FakeWebSocketChannel();
           Future.microtask(() {
-            channel.receiveMessage(
-                jsonEncode({'type': 'auth_ok'}));
+            channel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
           });
           return channel;
         },
@@ -172,8 +169,7 @@ void main() {
           capturedUri = uri;
           final channel = _FakeWebSocketChannel();
           Future.microtask(() {
-            channel.receiveMessage(
-                jsonEncode({'type': 'auth_ok'}));
+            channel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
           });
           return channel;
         },
@@ -206,8 +202,7 @@ void main() {
           capturedUri = uri;
           final channel = _FakeWebSocketChannel();
           Future.microtask(() {
-            channel.receiveMessage(
-                jsonEncode({'type': 'auth_ok'}));
+            channel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
           });
           return channel;
         },
@@ -248,19 +243,21 @@ void main() {
           .where((e) => e is NewMessageEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': {
-          'type': 'new_message',
-          'roomId': 'room-1',
-          'message': {
-            'id': 'msg-1',
-            'from': 'user-1',
-            'text': 'Hello',
-            'timestamp': '2026-01-01T00:00:00Z',
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'event',
+          'data': {
+            'type': 'new_message',
+            'roomId': 'room-1',
+            'message': {
+              'id': 'msg-1',
+              'from': 'user-1',
+              'text': 'Hello',
+              'timestamp': '2026-01-01T00:00:00Z',
+            },
           },
-        },
-      }));
+        }),
+      );
 
       await Future.delayed(const Duration(milliseconds: 50));
 
@@ -301,10 +298,9 @@ void main() {
           .where((e) => e is RoomDeletedEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'room_deleted',
-        'roomId': 'room-2',
-      }));
+      fakeChannel.receiveMessage(
+        jsonEncode({'type': 'room_deleted', 'roomId': 'room-2'}),
+      );
 
       await Future.delayed(const Duration(milliseconds: 50));
 
@@ -342,10 +338,7 @@ void main() {
           .where((e) => e is! ConnectedEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': null,
-      }));
+      fakeChannel.receiveMessage(jsonEncode({'type': 'event', 'data': null}));
 
       await Future.delayed(const Duration(milliseconds: 50));
 
@@ -382,10 +375,9 @@ void main() {
           .where((e) => e is! ConnectedEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': 'string_data',
-      }));
+      fakeChannel.receiveMessage(
+        jsonEncode({'type': 'event', 'data': 'string_data'}),
+      );
 
       await Future.delayed(const Duration(milliseconds: 50));
 
@@ -422,13 +414,12 @@ void main() {
           .where((e) => e is! ConnectedEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': {
-          'type': 'totally_unknown',
-          'foo': 'bar',
-        },
-      }));
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'event',
+          'data': {'type': 'totally_unknown', 'foo': 'bar'},
+        }),
+      );
 
       await Future.delayed(const Duration(milliseconds: 50));
 
@@ -465,44 +456,50 @@ void main() {
           .where((e) => e is NewMessageEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': {
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'event',
+          'data': {
+            'type': 'new_message',
+            'roomId': 'room-1',
+            'message': {
+              'id': 'msg-1',
+              'from': 'user-1',
+              'text': 'First',
+              'timestamp': '2026-01-01T00:00:00Z',
+            },
+          },
+        }),
+      );
+
+      fakeChannel.receiveMessage(
+        jsonEncode({
           'type': 'new_message',
           'roomId': 'room-1',
           'message': {
-            'id': 'msg-1',
+            'id': 'msg-2',
             'from': 'user-1',
-            'text': 'First',
-            'timestamp': '2026-01-01T00:00:00Z',
+            'text': 'Second',
+            'timestamp': '2026-01-01T00:00:01Z',
           },
-        },
-      }));
+        }),
+      );
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'new_message',
-        'roomId': 'room-1',
-        'message': {
-          'id': 'msg-2',
-          'from': 'user-1',
-          'text': 'Second',
-          'timestamp': '2026-01-01T00:00:01Z',
-        },
-      }));
-
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': {
-          'type': 'new_message',
-          'roomId': 'room-1',
-          'message': {
-            'id': 'msg-3',
-            'from': 'user-1',
-            'text': 'Third',
-            'timestamp': '2026-01-01T00:00:02Z',
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'event',
+          'data': {
+            'type': 'new_message',
+            'roomId': 'room-1',
+            'message': {
+              'id': 'msg-3',
+              'from': 'user-1',
+              'text': 'Third',
+              'timestamp': '2026-01-01T00:00:02Z',
+            },
           },
-        },
-      }));
+        }),
+      );
 
       await Future.delayed(const Duration(milliseconds: 50));
 
@@ -575,19 +572,21 @@ void main() {
           .where((e) => e is NewMessageEvent)
           .listen(events.add);
 
-      fakeChannel.receiveMessage(jsonEncode({
-        'type': 'event',
-        'data': {
-          'type': 'new_message',
-          'roomId': 'room-1',
-          'message': {
-            'id': 'msg-minimal',
-            'from': 'user-1',
-            'text': 'Minimal message',
-            'timestamp': '2026-01-01T00:00:00Z',
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'event',
+          'data': {
+            'type': 'new_message',
+            'roomId': 'room-1',
+            'message': {
+              'id': 'msg-minimal',
+              'from': 'user-1',
+              'text': 'Minimal message',
+              'timestamp': '2026-01-01T00:00:00Z',
+            },
           },
-        },
-      }));
+        }),
+      );
 
       await Future.delayed(const Duration(milliseconds: 50));
 

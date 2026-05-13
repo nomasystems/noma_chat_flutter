@@ -6,12 +6,16 @@ void main() {
   group('FloatingReactionPicker', () {
     testWidgets('shows predefined emojis near anchor', (tester) async {
       late BuildContext savedContext;
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          savedContext = context;
-          return const Scaffold(body: SizedBox.expand());
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              savedContext = context;
+              return const Scaffold(body: SizedBox.expand());
+            },
+          ),
+        ),
+      );
 
       final future = FloatingReactionPicker.show(
         savedContext,
@@ -34,12 +38,16 @@ void main() {
 
     testWidgets('returns selected emoji on tap', (tester) async {
       late BuildContext savedContext;
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          savedContext = context;
-          return const Scaffold(body: SizedBox.expand());
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              savedContext = context;
+              return const Scaffold(body: SizedBox.expand());
+            },
+          ),
+        ),
+      );
 
       final future = FloatingReactionPicker.show(
         savedContext,
@@ -56,12 +64,16 @@ void main() {
 
     testWidgets('dismiss on barrier tap returns null', (tester) async {
       late BuildContext savedContext;
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          savedContext = context;
-          return const Scaffold(body: SizedBox.expand());
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              savedContext = context;
+              return const Scaffold(body: SizedBox.expand());
+            },
+          ),
+        ),
+      );
 
       final future = FloatingReactionPicker.show(
         savedContext,

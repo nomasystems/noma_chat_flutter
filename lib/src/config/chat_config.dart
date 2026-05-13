@@ -58,10 +58,10 @@ class ChatConfig {
     this.enableReconnectCatchUp = false,
     this.logger,
   }) : authInterceptor = BearerAuthInterceptor(
-          tokenProvider: tokenProvider,
-          onAuthFailure: onAuthFailure,
-          logger: logger,
-        ) {
+         tokenProvider: tokenProvider,
+         onAuthFailure: onAuthFailure,
+         logger: logger,
+       ) {
     _validate(baseUrl, realtimeUrl, sseUrl);
   }
 
@@ -108,8 +108,10 @@ class ChatConfig {
     this.eventBufferSize = 0,
     this.enableReconnectCatchUp = false,
     this.logger,
-  }) : authInterceptor =
-            BasicAuthInterceptor(username: username, password: password) {
+  }) : authInterceptor = BasicAuthInterceptor(
+         username: username,
+         password: password,
+       ) {
     _validate(baseUrl, realtimeUrl, sseUrl);
   }
 
@@ -157,7 +159,7 @@ class ChatConfig {
           value,
           field,
           'must use http or https scheme (transports convert automatically). '
-              'Example: "http://host:8077"',
+          'Example: "http://host:8077"',
         );
       }
 

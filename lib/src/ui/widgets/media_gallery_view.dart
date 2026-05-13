@@ -55,8 +55,8 @@ class MediaGalleryView extends StatelessWidget {
     final visible = includeAudioFiles
         ? items
         : items
-            .where((m) => !(m.mimeType?.startsWith('audio/') ?? false))
-            .toList();
+              .where((m) => !(m.mimeType?.startsWith('audio/') ?? false))
+              .toList();
 
     if (visible.isEmpty) {
       return EmptyState(
@@ -98,7 +98,9 @@ class _MediaCell extends StatelessWidget {
     if (mime.contains('word') || mime.contains('document')) {
       return Icons.description;
     }
-    if (mime.contains('sheet') || mime.contains('excel') || mime.contains('csv')) {
+    if (mime.contains('sheet') ||
+        mime.contains('excel') ||
+        mime.contains('csv')) {
       return Icons.table_chart;
     }
     if (mime.contains('zip') || mime.contains('rar') || mime.contains('tar')) {
@@ -120,7 +122,11 @@ class _MediaCell extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Icon(_fileIcon(item.mimeType), size: 32, color: Colors.grey.shade600),
+                Icon(
+                  _fileIcon(item.mimeType),
+                  size: 32,
+                  color: Colors.grey.shade600,
+                ),
                 const SizedBox(height: 4),
                 Text(
                   item.fileName ?? 'File',

@@ -17,8 +17,7 @@ void main() {
     expect(del.isSuccess, true);
   });
 
-  test('rooms full lifecycle: create + get + getUserRooms + delete',
-      () async {
+  test('rooms full lifecycle: create + get + getUserRooms + delete', () async {
     final created = await c.rooms.create(
       audience: RoomAudience.public,
       name: 'Room',
@@ -41,10 +40,7 @@ void main() {
     expect((await c.rooms.unpin(id)).isSuccess, true);
     expect((await c.rooms.hide(id)).isSuccess, true);
     expect((await c.rooms.unhide(id)).isSuccess, true);
-    expect(
-      (await c.rooms.updateConfig(id, name: 'Renamed')).isSuccess,
-      true,
-    );
+    expect((await c.rooms.updateConfig(id, name: 'Renamed')).isSuccess, true);
   });
 
   test('rooms discover / batchMarkAsRead / batchGetUnread', () async {
@@ -54,12 +50,18 @@ void main() {
   });
 
   test('members lifecycle on a created room', () async {
-    final created = await c.rooms
-        .create(audience: RoomAudience.public, name: 'R', members: ['u2']);
+    final created = await c.rooms.create(
+      audience: RoomAudience.public,
+      name: 'R',
+      members: ['u2'],
+    );
     final id = created.dataOrNull!.id;
     expect(
-      (await c.members.add(id, userIds: ['u3'], mode: RoomUserMode.invite))
-          .isSuccess,
+      (await c.members.add(
+        id,
+        userIds: ['u3'],
+        mode: RoomUserMode.invite,
+      )).isSuccess,
       true,
     );
     expect((await c.members.list(id)).isSuccess, true);
@@ -87,10 +89,7 @@ void main() {
       (await c.messages.update(id, msgId, text: 'edited')).isSuccess,
       true,
     );
-    expect(
-      (await c.messages.sendReceipt(id, msgId)).isSuccess,
-      true,
-    );
+    expect((await c.messages.sendReceipt(id, msgId)).isSuccess, true);
     expect((await c.messages.markRoomAsRead(id)).isSuccess, true);
     expect((await c.messages.getRoomReceipts(id)).isSuccess, true);
     expect((await c.messages.delete(id, msgId)).isSuccess, true);
@@ -110,11 +109,12 @@ void main() {
     expect((await c.messages.unpinMessage(id, msgId)).isSuccess, true);
 
     expect(
-      (await c.messages.send(id,
-              messageType: MessageType.reaction,
-              reaction: '👍',
-              referencedMessageId: msgId))
-          .isSuccess,
+      (await c.messages.send(
+        id,
+        messageType: MessageType.reaction,
+        reaction: '👍',
+        referencedMessageId: msgId,
+      )).isSuccess,
       true,
     );
     expect((await c.messages.getReactions(id, msgId)).isSuccess, true);
@@ -151,8 +151,7 @@ void main() {
     );
   });
 
-  test('messages.sendTyping fires via the transport-less fallback',
-      () async {
+  test('messages.sendTyping fires via the transport-less fallback', () async {
     final created = await c.rooms.create(
       audience: RoomAudience.public,
       name: 'R',
@@ -163,21 +162,23 @@ void main() {
     );
   });
 
-  test('contacts lifecycle: add + remove + presence + DM + block list',
-      () async {
-    expect((await c.contacts.add('alice')).isSuccess, true);
-    expect((await c.contacts.list()).isSuccess, true);
-    expect((await c.contacts.getPresence('alice')).isSuccess, true);
-    expect(
-      (await c.contacts.sendDirectMessage('alice', text: 'hi')).isSuccess,
-      true,
-    );
-    expect((await c.contacts.getDirectMessages('alice')).isSuccess, true);
-    expect((await c.contacts.block('alice')).isSuccess, true);
-    expect((await c.contacts.listBlocked()).isSuccess, true);
-    expect((await c.contacts.unblock('alice')).isSuccess, true);
-    expect((await c.contacts.remove('alice')).isSuccess, true);
-  });
+  test(
+    'contacts lifecycle: add + remove + presence + DM + block list',
+    () async {
+      expect((await c.contacts.add('alice')).isSuccess, true);
+      expect((await c.contacts.list()).isSuccess, true);
+      expect((await c.contacts.getPresence('alice')).isSuccess, true);
+      expect(
+        (await c.contacts.sendDirectMessage('alice', text: 'hi')).isSuccess,
+        true,
+      );
+      expect((await c.contacts.getDirectMessages('alice')).isSuccess, true);
+      expect((await c.contacts.block('alice')).isSuccess, true);
+      expect((await c.contacts.listBlocked()).isSuccess, true);
+      expect((await c.contacts.unblock('alice')).isSuccess, true);
+      expect((await c.contacts.remove('alice')).isSuccess, true);
+    },
+  );
 
   test('contacts.sendTyping via fallback', () async {
     expect((await c.contacts.sendTyping('alice')).isSuccess, true);

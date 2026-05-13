@@ -3,10 +3,7 @@ class HealthStatus {
   final ServiceStatus status;
   final Map<String, String> checks;
 
-  const HealthStatus({
-    required this.status,
-    this.checks = const {},
-  });
+  const HealthStatus({required this.status, this.checks = const {}});
 
   bool get isHealthy => status == ServiceStatus.ok;
 }

@@ -36,10 +36,7 @@ void main() {
       final handler = _TrackingErrorHandler();
       final err = DioException(
         requestOptions: _opts(),
-        response: Response(
-          statusCode: 401,
-          requestOptions: _opts(),
-        ),
+        response: Response(statusCode: 401, requestOptions: _opts()),
       );
 
       await interceptor.onError(err, handler);
@@ -60,10 +57,7 @@ void main() {
       final handler = _TrackingErrorHandler();
       final err = DioException(
         requestOptions: _opts(),
-        response: Response(
-          statusCode: 403,
-          requestOptions: _opts(),
-        ),
+        response: Response(statusCode: 403, requestOptions: _opts()),
       );
 
       await interceptor.onError(err, handler);
@@ -84,11 +78,15 @@ void main() {
       );
 
       final opts = _opts();
-      final successResponse =
-          Response(statusCode: 200, requestOptions: opts, data: {'ok': true});
+      final successResponse = Response(
+        statusCode: 200,
+        requestOptions: opts,
+        data: {'ok': true},
+      );
 
-      when(() => dio.fetch<dynamic>(any()))
-          .thenAnswer((_) async => successResponse);
+      when(
+        () => dio.fetch<dynamic>(any()),
+      ).thenAnswer((_) async => successResponse);
 
       final handler = _TrackingErrorHandler();
       final err = DioException(
@@ -116,7 +114,8 @@ void main() {
 
         final opts = _opts();
         when(() => dio.fetch<dynamic>(any())).thenAnswer(
-            (_) async => Response(statusCode: 200, requestOptions: opts));
+          (_) async => Response(statusCode: 200, requestOptions: opts),
+        );
 
         final handler = _TrackingErrorHandler();
         await interceptor.onError(
@@ -127,8 +126,11 @@ void main() {
           handler,
         );
 
-        expect(handler.resolvedResponse, isNotNull,
-            reason: 'Should retry $code');
+        expect(
+          handler.resolvedResponse,
+          isNotNull,
+          reason: 'Should retry $code',
+        );
         reset(dio);
       }
     });
@@ -148,12 +150,13 @@ void main() {
         statusCode: 429,
         requestOptions: opts,
         headers: Headers.fromMap({
-          'retry-after': ['1']
+          'retry-after': ['1'],
         }),
       );
 
       when(() => dio.fetch<dynamic>(any())).thenAnswer(
-          (_) async => Response(statusCode: 200, requestOptions: opts));
+        (_) async => Response(statusCode: 200, requestOptions: opts),
+      );
 
       final handler = _TrackingErrorHandler();
       final start = DateTime.now();
@@ -219,10 +222,7 @@ void main() {
       await interceptor.onError(
         DioException(
           requestOptions: _opts(),
-          response: Response(
-            statusCode: 503,
-            requestOptions: _opts(),
-          ),
+          response: Response(statusCode: 503, requestOptions: _opts()),
         ),
         handler,
       );

@@ -9,19 +9,24 @@ void main() {
     testWidgets('renders 3 dots', (tester) async {
       await tester.pumpWidget(wrap(const TypingIndicator()));
 
-      final dots = find.byWidgetPredicate((widget) =>
-          widget is Container &&
-          widget.decoration is BoxDecoration &&
-          (widget.decoration as BoxDecoration).shape == BoxShape.circle);
+      final dots = find.byWidgetPredicate(
+        (widget) =>
+            widget is Container &&
+            widget.decoration is BoxDecoration &&
+            (widget.decoration as BoxDecoration).shape == BoxShape.circle,
+      );
       expect(dots, findsNWidgets(3));
     });
 
     testWidgets('has Semantics liveRegion', (tester) async {
       await tester.pumpWidget(wrap(const TypingIndicator()));
 
-      final semantics = tester.widget<Semantics>(find.byWidgetPredicate(
-        (widget) => widget is Semantics && widget.properties.liveRegion == true,
-      ));
+      final semantics = tester.widget<Semantics>(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is Semantics && widget.properties.liveRegion == true,
+        ),
+      );
       expect(semantics.properties.label, 'Typing');
     });
   });

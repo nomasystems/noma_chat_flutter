@@ -33,8 +33,9 @@ void main() {
       expect(find.text('edited'), findsOneWidget);
     });
 
-    testWidgets('uses SelectableText when enableSelection=true',
-        (tester) async {
+    testWidgets('uses SelectableText when enableSelection=true', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrap(
           const TextBubble(

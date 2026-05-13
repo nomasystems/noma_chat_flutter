@@ -36,7 +36,9 @@ final class ChatValidationException extends ChatException {
 }
 
 final class ChatContentFilterException extends ChatException {
-  const ChatContentFilterException([super.message = 'Message blocked by content filter']);
+  const ChatContentFilterException([
+    super.message = 'Message blocked by content filter',
+  ]);
 }
 
 final class ChatConflictException extends ChatException {
@@ -76,5 +78,5 @@ final class ChatWsOperationException extends ChatException {
   final String reason;
 
   const ChatWsOperationException({this.action, required this.reason})
-      : super('WS error: ${action ?? "unknown"} - $reason');
+    : super('WS error: ${action ?? "unknown"} - $reason');
 }

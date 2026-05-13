@@ -17,8 +17,12 @@ import '../../models/user.dart';
 abstract class ChatLocalDatasource {
   // Messages
   Future<void> saveMessages(String roomId, List<ChatMessage> messages);
-  Future<List<ChatMessage>> getMessages(String roomId,
-      {int? limit, String? before, String? after});
+  Future<List<ChatMessage>> getMessages(
+    String roomId, {
+    int? limit,
+    String? before,
+    String? after,
+  });
   Future<void> updateMessage(String roomId, ChatMessage message);
   Future<void> deleteMessage(String roomId, String messageId);
   Future<void> clearMessages(String roomId);
@@ -69,9 +73,14 @@ abstract class ChatLocalDatasource {
 
   // Reactions
   Future<void> saveReactions(
-      String roomId, String messageId, List<AggregatedReaction> reactions);
+    String roomId,
+    String messageId,
+    List<AggregatedReaction> reactions,
+  );
   Future<List<AggregatedReaction>> getReactions(
-      String roomId, String messageId);
+    String roomId,
+    String messageId,
+  );
   Future<void> deleteReactions(String roomId, String messageId);
 
   // Pins

@@ -29,15 +29,17 @@ void main() {
       expect(identical(a, b), isTrue);
     });
 
-    test('defaults to a `_default` group when no informative segment exists',
-        () {
-      final reg = CircuitBreakerRegistry();
-      final a = reg.forPath('/v1');
-      final b = reg.forPath('/internal');
-      final c = reg.forPath('//');
-      expect(identical(a, b), isTrue);
-      expect(identical(a, c), isTrue);
-    });
+    test(
+      'defaults to a `_default` group when no informative segment exists',
+      () {
+        final reg = CircuitBreakerRegistry();
+        final a = reg.forPath('/v1');
+        final b = reg.forPath('/internal');
+        final c = reg.forPath('//');
+        expect(identical(a, b), isTrue);
+        expect(identical(a, c), isTrue);
+      },
+    );
 
     test('propagates the registry-level threshold to created breakers', () {
       final reg = CircuitBreakerRegistry(
@@ -69,8 +71,7 @@ void main() {
         username: 'Aladdin',
         password: 'open sesame',
       );
-      expect(await i.getAuthHeader(),
-          'Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==');
+      expect(await i.getAuthHeader(), 'Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==');
     });
 
     test('handles empty credentials cleanly', () async {

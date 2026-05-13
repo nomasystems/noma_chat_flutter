@@ -35,10 +35,7 @@ void main() {
       );
 
       await chat.connect();
-      expect(
-        chat.connectionState.value,
-        ChatConnectionState.connected,
-      );
+      expect(chat.connectionState.value, ChatConnectionState.connected);
     });
 
     test('disconnect delegates to adapter', () async {
@@ -50,10 +47,7 @@ void main() {
 
       await chat.connect();
       await chat.disconnect();
-      expect(
-        chat.connectionState.value,
-        ChatConnectionState.disconnected,
-      );
+      expect(chat.connectionState.value, ChatConnectionState.disconnected);
     });
 
     test('dispose cleans up adapter', () async {

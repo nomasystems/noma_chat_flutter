@@ -20,10 +20,7 @@ void main() {
     });
 
     test('returns null when forwardedFrom key is missing', () {
-      expect(
-        ForwardInfo.tryFromMetadata({'other': 'data'}),
-        isNull,
-      );
+      expect(ForwardInfo.tryFromMetadata({'other': 'data'}), isNull);
     });
   });
 

@@ -26,9 +26,7 @@ void main() {
       expect(find.byType(EmptyState), findsNothing);
     });
 
-    testWidgets('shows empty state when not loading and empty', (
-      tester,
-    ) async {
+    testWidgets('shows empty state when not loading and empty', (tester) async {
       final controller = RoomListController();
 
       await tester.pumpWidget(
@@ -76,15 +74,17 @@ void main() {
       controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
       controller.addRoom(const RoomListItem(id: 'r2', name: 'Beta'));
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: RoomListView(
-            controller: controller,
-            showHeader: false,
-            showSearch: false,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+            ),
           ),
         ),
-      ));
+      );
 
       expect(find.text('Alpha'), findsOneWidget);
       expect(find.text('Beta'), findsOneWidget);
@@ -96,16 +96,18 @@ void main() {
       controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
       RoomListItem? tapped;
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: RoomListView(
-            controller: controller,
-            showHeader: false,
-            showSearch: false,
-            onTapRoom: (room) => tapped = room,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+              onTapRoom: (room) => tapped = room,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('Alpha'));
       await tester.pumpAndSettle();
@@ -113,18 +115,18 @@ void main() {
       expect(tapped?.id, 'r1');
     });
 
-    testWidgets('renders the search bar when showSearch is true',
-        (tester) async {
+    testWidgets('renders the search bar when showSearch is true', (
+      tester,
+    ) async {
       final controller = RoomListController();
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: RoomListView(
-            controller: controller,
-            showHeader: false,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(controller: controller, showHeader: false),
           ),
         ),
-      ));
+      );
 
       expect(find.byType(RoomSearchBar), findsOneWidget);
     });
@@ -132,15 +134,17 @@ void main() {
     testWidgets('renders the header when showHeader is true', (tester) async {
       final controller = RoomListController();
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: RoomListView(
-            controller: controller,
-            showSearch: false,
-            headerTitle: 'My chats',
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showSearch: false,
+              headerTitle: 'My chats',
+            ),
           ),
         ),
-      ));
+      );
 
       expect(find.text('My chats'), findsOneWidget);
     });
@@ -148,15 +152,17 @@ void main() {
     testWidgets('rebuilds when controller notifies new rooms', (tester) async {
       final controller = RoomListController();
 
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: RoomListView(
-            controller: controller,
-            showHeader: false,
-            showSearch: false,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+            ),
           ),
         ),
-      ));
+      );
       expect(find.byType(EmptyState), findsOneWidget);
 
       controller.addRoom(const RoomListItem(id: 'r1', name: 'Late arrival'));

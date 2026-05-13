@@ -30,7 +30,14 @@ void main() {
     });
 
     test('parseMessageType handles all types including forward', () {
-      for (final type in ['regular', 'attachment', 'reaction', 'reply', 'audio', 'forward']) {
+      for (final type in [
+        'regular',
+        'attachment',
+        'reaction',
+        'reply',
+        'audio',
+        'forward',
+      ]) {
         final msg = MessageMapper.fromJson({
           'id': 'msg-1',
           'from': 'u-1',
@@ -119,7 +126,14 @@ void main() {
       };
       addTearDown(() => MessageMapper.logger = null);
 
-      for (final type in ['regular', 'attachment', 'reaction', 'reply', 'audio', 'forward']) {
+      for (final type in [
+        'regular',
+        'attachment',
+        'reaction',
+        'reply',
+        'audio',
+        'forward',
+      ]) {
         MessageMapper.fromJson({
           'id': 'msg-1',
           'from': 'u-1',
@@ -183,9 +197,7 @@ void main() {
       };
       addTearDown(() => MessageMapper.logger = null);
 
-      MessageMapper.fromJson({
-        'timestamp': '2024-01-01T00:00:00Z',
-      });
+      MessageMapper.fromJson({'timestamp': '2024-01-01T00:00:00Z'});
       expect(warnings, hasLength(1));
       expect(warnings.first, contains('empty id'));
     });
@@ -205,29 +217,35 @@ void main() {
       expect(warnings, isEmpty);
     });
 
-    test('infers reply type when referencedMessageId present without explicit messageType', () {
-      final msg = MessageMapper.fromJson({
-        'id': 'msg-1',
-        'from': 'user-1',
-        'timestamp': '2024-01-01T00:00:00Z',
-        'text': 'Great idea!',
-        'referencedMessageId': 'msg-0',
-      });
-      expect(msg.messageType, MessageType.reply);
-      expect(msg.referencedMessageId, 'msg-0');
-    });
+    test(
+      'infers reply type when referencedMessageId present without explicit messageType',
+      () {
+        final msg = MessageMapper.fromJson({
+          'id': 'msg-1',
+          'from': 'user-1',
+          'timestamp': '2024-01-01T00:00:00Z',
+          'text': 'Great idea!',
+          'referencedMessageId': 'msg-0',
+        });
+        expect(msg.messageType, MessageType.reply);
+        expect(msg.referencedMessageId, 'msg-0');
+      },
+    );
 
-    test('infers reply type when referencedMessageId present with regular messageType', () {
-      final msg = MessageMapper.fromJson({
-        'id': 'msg-1',
-        'from': 'user-1',
-        'timestamp': '2024-01-01T00:00:00Z',
-        'text': 'Great idea!',
-        'messageType': 'regular',
-        'referencedMessageId': 'msg-0',
-      });
-      expect(msg.messageType, MessageType.reply);
-    });
+    test(
+      'infers reply type when referencedMessageId present with regular messageType',
+      () {
+        final msg = MessageMapper.fromJson({
+          'id': 'msg-1',
+          'from': 'user-1',
+          'timestamp': '2024-01-01T00:00:00Z',
+          'text': 'Great idea!',
+          'messageType': 'regular',
+          'referencedMessageId': 'msg-0',
+        });
+        expect(msg.messageType, MessageType.reply);
+      },
+    );
 
     test('does not infer reply type when reaction is present', () {
       final msg = MessageMapper.fromJson({

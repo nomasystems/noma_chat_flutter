@@ -15,27 +15,25 @@ void main() {
           sort: 'createdAt',
           order: SortOrder.desc,
         ).toQueryParams(),
-        {
-          'limit': 20,
-          'offset': 40,
-          'sort': 'createdAt',
-          'order': 'desc',
-        },
+        {'limit': 20, 'offset': 40, 'sort': 'createdAt', 'order': 'desc'},
       );
     });
   });
 
   group('CursorPaginationParams.toQueryParams', () {
     test('omits null fields', () {
-      expect(const CursorPaginationParams().toQueryParams(),
-          <String, dynamic>{});
+      expect(
+        const CursorPaginationParams().toQueryParams(),
+        <String, dynamic>{},
+      );
     });
 
     test('emits only the set ones', () {
       expect(
         const CursorPaginationParams(
-                before: '2026-01-01T00:00:00Z', limit: 50)
-            .toQueryParams(),
+          before: '2026-01-01T00:00:00Z',
+          limit: 50,
+        ).toQueryParams(),
         {'before': '2026-01-01T00:00:00Z', 'limit': 50},
       );
     });
@@ -48,7 +46,10 @@ void main() {
       const c = PaginatedResponse<int>(items: [1, 3], hasMore: true);
       const d = PaginatedResponse<int>(items: [1, 2], hasMore: false);
       const e = PaginatedResponse<int>(
-          items: [1, 2], hasMore: true, totalCount: 99);
+        items: [1, 2],
+        hasMore: true,
+        totalCount: 99,
+      );
 
       expect(a, b);
       expect(a.hashCode, b.hashCode);
@@ -65,7 +66,10 @@ void main() {
 
     test('map() transforms items keeping hasMore + totalCount', () {
       const src = PaginatedResponse<int>(
-          items: [1, 2, 3], hasMore: true, totalCount: 42);
+        items: [1, 2, 3],
+        hasMore: true,
+        totalCount: 42,
+      );
 
       final out = src.map((i) => 'v$i');
 
@@ -76,8 +80,14 @@ void main() {
 
     test('toString includes count, hasMore and totalCount', () {
       const r = PaginatedResponse<int>(
-          items: [1, 2], hasMore: true, totalCount: 5);
-      expect(r.toString(), 'PaginatedResponse(2 items, hasMore: true, totalCount: 5)');
+        items: [1, 2],
+        hasMore: true,
+        totalCount: 5,
+      );
+      expect(
+        r.toString(),
+        'PaginatedResponse(2 items, hasMore: true, totalCount: 5)',
+      );
     });
   });
 }

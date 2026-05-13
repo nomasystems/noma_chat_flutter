@@ -29,9 +29,15 @@ void main() {
 
   test('loadMessages on a seeded room populates the controller', () async {
     client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    client.addMessage('r1', ChatMessage(
-      id: 'm1', from: 'u2', timestamp: DateTime(2026, 1, 1), text: 'hi',
-    ));
+    client.addMessage(
+      'r1',
+      ChatMessage(
+        id: 'm1',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'hi',
+      ),
+    );
     await adapter.loadRooms();
 
     final r = await adapter.loadMessages('r1');
@@ -41,8 +47,7 @@ void main() {
     expect(controller.messages.any((m) => m.id == 'm1'), true);
   });
 
-  test('loadMoreMessages does nothing when there are no more pages',
-      () async {
+  test('loadMoreMessages does nothing when there are no more pages', () async {
     client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
     await adapter.loadRooms();
     await adapter.loadMessages('r1');
@@ -91,11 +96,13 @@ void main() {
     expect(r.isSuccess, true);
   });
 
-  test('searchMessages with an empty room returns empty paginated response',
-      () async {
-    client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    final r = await adapter.searchMessages('hello', 'r1');
-    expect(r.isSuccess, true);
-    expect(r.dataOrNull!.items, isEmpty);
-  });
+  test(
+    'searchMessages with an empty room returns empty paginated response',
+    () async {
+      client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
+      final r = await adapter.searchMessages('hello', 'r1');
+      expect(r.isSuccess, true);
+      expect(r.dataOrNull!.items, isEmpty);
+    },
+  );
 }

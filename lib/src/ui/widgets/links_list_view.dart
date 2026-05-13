@@ -45,8 +45,8 @@ class LinksListView extends StatelessWidget {
     required List<SharedLink> links,
     this.theme = ChatTheme.defaults,
     this.onTapLink,
-  })  : messages = const [],
-        precomputedLinks = links;
+  }) : messages = const [],
+       precomputedLinks = links;
 
   final List<ChatMessage> messages;
   final List<SharedLink>? precomputedLinks;
@@ -63,13 +63,15 @@ class LinksListView extends StatelessWidget {
       final urls = UrlDetector.extractUrls(text);
       for (final url in urls) {
         if (!seen.add(url)) continue;
-        out.add(SharedLink(
-          url: url,
-          messageId: msg.id,
-          timestamp: msg.timestamp,
-          senderId: msg.from,
-          contextSnippet: text,
-        ));
+        out.add(
+          SharedLink(
+            url: url,
+            messageId: msg.id,
+            timestamp: msg.timestamp,
+            senderId: msg.from,
+            contextSnippet: text,
+          ),
+        );
       }
     }
     out.sort((a, b) {
@@ -101,10 +103,9 @@ class LinksListView extends StatelessWidget {
         final link = links[index];
         final subtitleParts = <String>[];
         if (link.timestamp != null) {
-          subtitleParts.add(DateFormatter.formatRelative(
-            link.timestamp!,
-            l10n: theme.l10n,
-          ));
+          subtitleParts.add(
+            DateFormatter.formatRelative(link.timestamp!, l10n: theme.l10n),
+          );
         }
         if (link.senderId != null && link.senderId!.isNotEmpty) {
           subtitleParts.add(link.senderId!);
@@ -115,21 +116,14 @@ class LinksListView extends StatelessWidget {
             foregroundColor: Colors.grey.shade700,
             child: const Icon(Icons.link),
           ),
-          title: Text(
-            link.url,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          title: Text(link.url, maxLines: 1, overflow: TextOverflow.ellipsis),
           subtitle: subtitleParts.isEmpty
               ? null
               : Text(
                   subtitleParts.join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
           onTap: onTapLink != null ? () => onTapLink!(link) : null,
         );

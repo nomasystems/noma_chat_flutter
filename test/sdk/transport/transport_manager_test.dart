@@ -142,10 +142,9 @@ void main() {
     sseEvents.add(const ChatEvent.broadcast(message: 'forwarded'));
     await Future<void>.delayed(Duration.zero);
 
-    expect(
-      collected.whereType<BroadcastEvent>().toList(),
-      [const BroadcastEvent(message: 'forwarded')],
-    );
+    expect(collected.whereType<BroadcastEvent>().toList(), [
+      const BroadcastEvent(message: 'forwarded'),
+    ]);
 
     await sub.cancel();
   });

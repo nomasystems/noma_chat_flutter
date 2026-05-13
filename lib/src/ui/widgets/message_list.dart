@@ -48,7 +48,8 @@ class MessageList extends StatefulWidget {
   final ValueChanged<ChatMessage>? onTapLocation;
   final ValueChanged<String>? onTapLink;
   final ValueChanged<ChatMessage>? onSwipeToReply;
-  final void Function(ChatMessage message, Rect messageRect)? onMessageLongPress;
+  final void Function(ChatMessage message, Rect messageRect)?
+  onMessageLongPress;
   final void Function(ChatMessage message, String emoji)? onReactionTap;
   final void Function(ChatMessage message, String emoji)? onDeleteReaction;
   final ValueChanged<ChatMessage>? onShowReactionDetail;
@@ -66,12 +67,12 @@ class MessageList extends StatefulWidget {
   /// message id of every audio bubble it builds; if the resolver returns a
   /// non-null listenable, the bubble shows an upload progress overlay.
   final ValueListenable<double>? Function(String messageId)?
-      audioUploadProgressFor;
+  audioUploadProgressFor;
 
   final Widget Function(BuildContext, String userId)? avatarBuilder;
   final String Function(ChatMessage message)? systemMessageTextResolver;
   final Widget? Function(BuildContext context, ChatMessage message)?
-      systemMessageBuilder;
+  systemMessageBuilder;
 
   /// Message id to scroll to and highlight once the list is built. If the
   /// message is not yet loaded, the scroll is retried on subsequent controller
@@ -109,8 +110,9 @@ class _MessageListState extends State<MessageList> {
     _pendingScrollToId = widget.initialMessageId;
     if (_pendingScrollToId != null) {
       widget.controller.addListener(_tryScrollToPending);
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _tryScrollToPending());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _tryScrollToPending(),
+      );
     }
   }
 
@@ -133,8 +135,9 @@ class _MessageListState extends State<MessageList> {
         widget.initialMessageId != null) {
       _pendingScrollToId = widget.initialMessageId;
       widget.controller.addListener(_tryScrollToPending);
-      WidgetsBinding.instance
-          .addPostFrameCallback((_) => _tryScrollToPending());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _tryScrollToPending(),
+      );
     }
   }
 
@@ -178,7 +181,11 @@ class _MessageListState extends State<MessageList> {
   void _scrollToBottom() {
     final sc = widget.controller.scrollController;
     if (sc.hasClients) {
-      sc.animateTo(0, duration: const Duration(milliseconds: 300), curve: Curves.easeOut);
+      sc.animateTo(
+        0,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeOut,
+      );
     }
   }
 
@@ -235,7 +242,8 @@ class _MessageListState extends State<MessageList> {
     final maxBubbleWidth = MediaQuery.sizeOf(context).width * 0.75;
 
     final isGroup = widget.controller.otherUsers.length > 1;
-    final showAvatars = widget.showReadReceiptsInGroups &&
+    final showAvatars =
+        widget.showReadReceiptsInGroups &&
         isGroup &&
         widget.roomReceipts.isNotEmpty;
 
@@ -246,7 +254,10 @@ class _MessageListState extends State<MessageList> {
             if (notification is ScrollEndNotification &&
                 widget.controller.scrollController.hasClients &&
                 widget.controller.scrollController.position.pixels >=
-                    widget.controller.scrollController.position
+                    widget
+                            .controller
+                            .scrollController
+                            .position
                             .maxScrollExtent -
                         50) {
               widget.onLoadMore?.call();
@@ -283,8 +294,7 @@ class _MessageListState extends State<MessageList> {
                   if (names.length == 1) {
                     headerLabel = names.first;
                     if (widget.avatarBuilder != null) {
-                      avatar =
-                          widget.avatarBuilder!(context, typingIds.first);
+                      avatar = widget.avatarBuilder!(context, typingIds.first);
                     }
                   } else if (names.length == 2) {
                     headerLabel = '${names[0]}, ${names[1]}';
@@ -300,7 +310,8 @@ class _MessageListState extends State<MessageList> {
                 );
               }
 
-              final index = messages.length -
+              final index =
+                  messages.length -
                   1 -
                   (showTyping ? reverseIndex - 1 : reverseIndex);
               if (index < 0 || index >= messages.length) {
@@ -312,18 +323,23 @@ class _MessageListState extends State<MessageList> {
                 return const SizedBox.shrink();
               }
 
-              final isOutgoing =
-                  msg.from == widget.controller.currentUser.id;
+              final isOutgoing = msg.from == widget.controller.currentUser.id;
               final prevGroupMsg = _prevGroupMessage(messages, index);
-              final isFirstInGroup = prevGroupMsg == null ||
+              final isFirstInGroup =
+                  prevGroupMsg == null ||
                   prevGroupMsg.from != msg.from ||
                   !DateFormatter.isSameDay(
-                      prevGroupMsg.timestamp, msg.timestamp);
+                    prevGroupMsg.timestamp,
+                    msg.timestamp,
+                  );
               final nextGroupMsg = _nextGroupMessage(messages, index);
-              final isLastInGroup = nextGroupMsg == null ||
+              final isLastInGroup =
+                  nextGroupMsg == null ||
                   nextGroupMsg.from != msg.from ||
                   !DateFormatter.isSameDay(
-                      nextGroupMsg.timestamp, msg.timestamp);
+                    nextGroupMsg.timestamp,
+                    msg.timestamp,
+                  );
               final widgetList = <Widget>[];
 
               if (_shouldShowDateSeparator(messages, index)) {
@@ -336,14 +352,18 @@ class _MessageListState extends State<MessageList> {
                   widget.messageReactions[msg.id] ??
                   widget.controller.reactions[msg.id] ??
                   const <String, int>{};
-              final status = widget.messageStatuses[msg.id] ??
+              final status =
+                  widget.messageStatuses[msg.id] ??
                   widget.controller.receiptStatuses[msg.id];
               final referenced = msg.referencedMessageId != null
                   ? (widget.referencedMessages[msg.referencedMessageId] ??
-                      widget.controller.getMessageById(msg.referencedMessageId!))
+                        widget.controller.getMessageById(
+                          msg.referencedMessageId!,
+                        ))
                   : null;
-              final refSenderName =
-                  referenced != null ? _senderName(referenced.from) : null;
+              final refSenderName = referenced != null
+                  ? _senderName(referenced.from)
+                  : null;
 
               _messageKeys.putIfAbsent(msg.id, GlobalKey.new);
               final isHighlighted =
@@ -371,7 +391,8 @@ class _MessageListState extends State<MessageList> {
                   message: msg,
                   isOutgoing: isOutgoing,
                   maxBubbleWidth: maxBubbleWidth,
-                  senderName: isFirstInGroup && widget.controller.otherUsers.length > 1
+                  senderName:
+                      isFirstInGroup && widget.controller.otherUsers.length > 1
                       ? _senderName(msg.from)
                       : null,
                   isFirstInGroup: isFirstInGroup,
@@ -384,7 +405,9 @@ class _MessageListState extends State<MessageList> {
                   readReceipts: readerReceipts,
                   isPending: widget.controller.isPending(msg.id),
                   isFailed: widget.controller.isFailed(msg.id),
-                  onRetry: widget.controller.isFailed(msg.id) && widget.onRetryMessage != null
+                  onRetry:
+                      widget.controller.isFailed(msg.id) &&
+                          widget.onRetryMessage != null
                       ? () => widget.onRetryMessage!(msg)
                       : null,
                   theme: widget.theme,
@@ -427,24 +450,28 @@ class _MessageListState extends State<MessageList> {
                   onShowReactionDetail: widget.onShowReactionDetail != null
                       ? () => widget.onShowReactionDetail!(msg)
                       : null,
-                  userReactions: widget.userReactions[msg.id] ??
+                  userReactions:
+                      widget.userReactions[msg.id] ??
                       widget.controller.userReactions[msg.id] ??
                       const {},
-                  onTapReply: msg.referencedMessageId != null && referenced != null
+                  onTapReply:
+                      msg.referencedMessageId != null && referenced != null
                       ? () => _scrollToMessage(msg.referencedMessageId!)
                       : null,
                   isHighlighted: isHighlighted,
                   audioCoordinator: widget.audioCoordinator,
-                  audioUploadProgress:
-                      widget.audioUploadProgressFor?.call(msg.id),
+                  audioUploadProgress: widget.audioUploadProgressFor?.call(
+                    msg.id,
+                  ),
                   avatarWidget: !isOutgoing && widget.avatarBuilder != null
                       ? widget.avatarBuilder!(context, msg.from)
                       : null,
                   forwardedSourceLabel: msg.metadata?['forwarded'] == true
-                      ? widget.forwardedSourceLabels[
-                          (msg.metadata?['sourceRoomId'] is String
-                              ? msg.metadata!['sourceRoomId'] as String
-                              : '')]
+                      ? widget.forwardedSourceLabels[(msg
+                                    .metadata?['sourceRoomId']
+                                is String
+                            ? msg.metadata!['sourceRoomId'] as String
+                            : '')]
                       : null,
                   systemMessageTextResolver: widget.systemMessageTextResolver,
                   systemMessageBuilder: widget.systemMessageBuilder,

@@ -36,7 +36,7 @@ class MessageInput extends StatefulWidget {
   /// [onSendMessage] and receives any auxiliary metadata the composer has
   /// gathered (e.g. link previews). Falls back to [onSendMessage] when null.
   final void Function(String text, Map<String, dynamic>? metadata)?
-      onSendMessageRich;
+  onSendMessageRich;
   final void Function(ChatMessage message, String newText)? onEditMessage;
   final ChatTheme theme;
   final ValueChanged<bool>? onTypingChanged;
@@ -361,24 +361,27 @@ class _MessageInputState extends State<MessageInput>
   void _showLockHintOverlay() {
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
-    _lockHintEntry = OverlayEntry(builder: (overlayContext) {
-      return Positioned(
-        left: 0,
-        top: 0,
-        child: CompositedTransformFollower(
-          link: _voiceButtonLink,
-          showWhenUnlinked: false,
-          targetAnchor: Alignment.topCenter,
-          followerAnchor: Alignment.bottomCenter,
-          offset: const Offset(0, -12),
-          child: Material(
-            color: Colors.transparent,
-            child: widget.theme.lockHintBuilder?.call(overlayContext) ??
-                _LockHintPill(theme: widget.theme),
+    _lockHintEntry = OverlayEntry(
+      builder: (overlayContext) {
+        return Positioned(
+          left: 0,
+          top: 0,
+          child: CompositedTransformFollower(
+            link: _voiceButtonLink,
+            showWhenUnlinked: false,
+            targetAnchor: Alignment.topCenter,
+            followerAnchor: Alignment.bottomCenter,
+            offset: const Offset(0, -12),
+            child: Material(
+              color: Colors.transparent,
+              child:
+                  widget.theme.lockHintBuilder?.call(overlayContext) ??
+                  _LockHintPill(theme: widget.theme),
+            ),
           ),
-        ),
-      );
-    });
+        );
+      },
+    );
     overlay.insert(_lockHintEntry!);
   }
 
@@ -460,14 +463,9 @@ class _MessageInputState extends State<MessageInput>
         duration: const Duration(milliseconds: 200),
         switchInCurve: Curves.easeOut,
         switchOutCurve: Curves.easeIn,
-        transitionBuilder: (child, animation) => FadeTransition(
-          opacity: animation,
-          child: child,
-        ),
-        child: KeyedSubtree(
-          key: ValueKey(key),
-          child: child,
-        ),
+        transitionBuilder: (child, animation) =>
+            FadeTransition(opacity: animation, child: child),
+        child: KeyedSubtree(key: ValueKey(key), child: child),
       ),
     );
 
@@ -480,10 +478,12 @@ class _MessageInputState extends State<MessageInput>
       inputArea = GestureDetector(
         onLongPressStart: !_isRecordingNew ? (_) => _onLongPressStart() : null,
         onLongPressMoveUpdate: (details) {
-          _onDragUpdate(Offset(
-            details.localOffsetFromOrigin.dx,
-            details.localOffsetFromOrigin.dy,
-          ));
+          _onDragUpdate(
+            Offset(
+              details.localOffsetFromOrigin.dx,
+              details.localOffsetFromOrigin.dy,
+            ),
+          );
         },
         onLongPressEnd: (_) => _onLongPressEnd(),
         behavior: _isRecordingNew
@@ -522,8 +522,8 @@ class _MessageInputState extends State<MessageInput>
         child: SizedBox(
           height: 2,
           child: LinearProgressIndicator(
-            backgroundColor: widget.theme.linkPreviewBackgroundColor ??
-                Colors.grey.shade100,
+            backgroundColor:
+                widget.theme.linkPreviewBackgroundColor ?? Colors.grey.shade100,
           ),
         ),
       );
@@ -575,9 +575,11 @@ class _MessageInputState extends State<MessageInput>
             ),
             child: Row(
               children: [
-                Icon(Icons.edit,
-                    size: 16,
-                    color: widget.theme.editingBorderColor ?? Colors.blue),
+                Icon(
+                  Icons.edit,
+                  size: 16,
+                  color: widget.theme.editingBorderColor ?? Colors.blue,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Column(
@@ -586,7 +588,8 @@ class _MessageInputState extends State<MessageInput>
                     children: [
                       Text(
                         widget.theme.l10n.editing,
-                        style: widget.theme.editingLabelStyle ??
+                        style:
+                            widget.theme.editingLabelStyle ??
                             TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -597,9 +600,12 @@ class _MessageInputState extends State<MessageInput>
                         editing.text ?? '',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: widget.theme.editingPreviewStyle ??
+                        style:
+                            widget.theme.editingPreviewStyle ??
                             const TextStyle(
-                                fontSize: 12, color: Colors.black54),
+                              fontSize: 12,
+                              color: Colors.black54,
+                            ),
                       ),
                     ],
                   ),
@@ -642,8 +648,11 @@ class _MessageInputState extends State<MessageInput>
 
   Widget _buildActiveRecordingRow() {
     final controller = _voiceController!;
-    final custom = widget.theme.recordingComposerBuilder
-        ?.call(context, controller, _sendVoiceMessage);
+    final custom = widget.theme.recordingComposerBuilder?.call(
+      context,
+      controller,
+      _sendVoiceMessage,
+    );
     if (custom != null) return custom;
     return _ActiveRecordingRow(
       controller: controller,
@@ -684,7 +693,9 @@ class _MessageInputState extends State<MessageInput>
                   fillColor:
                       widget.theme.inputFillColor ?? Colors.grey.shade100,
                   contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 11),
+                    horizontal: 16,
+                    vertical: 11,
+                  ),
                   isDense: true,
                 ),
               ),
@@ -730,7 +741,8 @@ class _MessageInputState extends State<MessageInput>
           width: 40,
           height: 40,
           alignment: Alignment.center,
-          child: widget.theme.sendIconBuilder?.call(context, _hasText) ??
+          child:
+              widget.theme.sendIconBuilder?.call(context, _hasText) ??
               _defaultSendCircle(),
         ),
       ),
@@ -766,7 +778,8 @@ class _MessageInputState extends State<MessageInput>
           width: 40,
           height: 40,
           alignment: Alignment.center,
-          child: widget.theme.attachIconBuilder?.call(context) ??
+          child:
+              widget.theme.attachIconBuilder?.call(context) ??
               Icon(
                 widget.theme.attachButtonIcon ?? Icons.attach_file,
                 color: widget.theme.attachButtonColor,
@@ -790,11 +803,13 @@ class _MessageInputState extends State<MessageInput>
             shape: BoxShape.circle,
           ),
           child: Center(
-            child: widget.theme.cameraIconBuilder?.call(context) ??
+            child:
+                widget.theme.cameraIconBuilder?.call(context) ??
                 Icon(
                   widget.theme.cameraButtonIcon ?? Icons.camera_alt_outlined,
                   size: 20,
-                  color: widget.theme.cameraButtonColor ??
+                  color:
+                      widget.theme.cameraButtonColor ??
                       widget.theme.voiceButtonIdleIconColor ??
                       Colors.grey.shade700,
                 ),
@@ -805,9 +820,9 @@ class _MessageInputState extends State<MessageInput>
   }
 
   Widget _buildVoiceButton() => CompositedTransformTarget(
-        link: _voiceButtonLink,
-        child: VoiceRecorderButton(theme: widget.theme),
-      );
+    link: _voiceButtonLink,
+    child: VoiceRecorderButton(theme: widget.theme),
+  );
 }
 
 class _ActiveRecordingRow extends StatelessWidget {
@@ -826,7 +841,8 @@ class _ActiveRecordingRow extends StatelessWidget {
     final activeColor = theme.voiceRecorderActiveColor ?? Colors.red;
     final hintColor =
         theme.voiceRecorderHintStyle?.color ?? Colors.grey.shade700;
-    final hintStyle = theme.voiceRecorderHintStyle ??
+    final hintStyle =
+        theme.voiceRecorderHintStyle ??
         TextStyle(color: hintColor, fontSize: 16);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -966,8 +982,8 @@ class _LockHintPillState extends State<_LockHintPill>
 
   @override
   Widget build(BuildContext context) {
-    final iconColor = widget.theme.voiceRecorderLockIconColor ??
-        Colors.grey.shade700;
+    final iconColor =
+        widget.theme.voiceRecorderLockIconColor ?? Colors.grey.shade700;
     final pillColor = widget.theme.inputBackgroundColor ?? Colors.white;
     return IgnorePointer(
       child: Container(
@@ -995,9 +1011,7 @@ class _LockHintPillState extends State<_LockHintPill>
                 animation: _controller,
                 builder: (_, _) {
                   final t = _controller.value;
-                  final fade = t < 0.5
-                      ? (t * 2)
-                      : 1 - ((t - 0.5) * 2);
+                  final fade = t < 0.5 ? (t * 2) : 1 - ((t - 0.5) * 2);
                   final dy = -8 * t;
                   return Transform.translate(
                     offset: Offset(0, dy),

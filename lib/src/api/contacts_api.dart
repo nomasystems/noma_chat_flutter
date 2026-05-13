@@ -35,12 +35,12 @@ class ContactsApi implements ChatContactsApi {
     CacheManager? cacheManager,
     OfflineQueue? offlineQueue,
     void Function(String level, String message)? logger,
-  })  : _rest = rest,
-        _transport = transport,
-        _cache = cache,
-        _cacheManager = cacheManager,
-        _offlineQueue = offlineQueue,
-        _logger = logger;
+  }) : _rest = rest,
+       _transport = transport,
+       _cache = cache,
+       _cacheManager = cacheManager,
+       _offlineQueue = offlineQueue,
+       _logger = logger;
 
   @override
   Future<Result<PaginatedResponse<ChatContact>>> list({
@@ -58,11 +58,12 @@ class ContactsApi implements ChatContactsApi {
           return PaginatedResponse(items: cached, hasMore: false);
         },
         fromNetwork: () => safeApiCall(() async {
-          final json = await _rest.get('/contacts',
-              queryParams: pagination?.toQueryParams());
+          final json = await _rest.get(
+            '/contacts',
+            queryParams: pagination?.toQueryParams(),
+          );
           final contacts = (json['contacts'] as List? ?? [])
-              .map((e) =>
-                  UserMapper.contactFromJson(e as Map<String, dynamic>))
+              .map((e) => UserMapper.contactFromJson(e as Map<String, dynamic>))
               .toList();
           return PaginatedResponse(
             items: contacts,
@@ -73,11 +74,12 @@ class ContactsApi implements ChatContactsApi {
       );
     }
     return safeApiCall(() async {
-      final (json, totalCount) = await _rest.getWithTotalCount('/contacts',
-          queryParams: pagination?.toQueryParams());
+      final (json, totalCount) = await _rest.getWithTotalCount(
+        '/contacts',
+        queryParams: pagination?.toQueryParams(),
+      );
       final contacts = (json['contacts'] as List? ?? [])
-          .map((e) =>
-              UserMapper.contactFromJson(e as Map<String, dynamic>))
+          .map((e) => UserMapper.contactFromJson(e as Map<String, dynamic>))
           .toList();
       return PaginatedResponse(
         items: contacts,
@@ -90,7 +92,8 @@ class ContactsApi implements ChatContactsApi {
   @override
   Future<Result<void>> add(String contactUserId) async {
     final result = await safeVoidCall(
-        () => _rest.postVoid('/contacts', data: {'userId': contactUserId}));
+      () => _rest.postVoid('/contacts', data: {'userId': contactUserId}),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('contacts');
     }
@@ -99,8 +102,9 @@ class ContactsApi implements ChatContactsApi {
 
   @override
   Future<Result<void>> remove(String contactUserId) async {
-    final result =
-        await safeVoidCall(() => _rest.delete('/contacts/$contactUserId'));
+    final result = await safeVoidCall(
+      () => _rest.delete('/contacts/$contactUserId'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('contacts');
     }
@@ -120,16 +124,18 @@ class ContactsApi implements ChatContactsApi {
     Map<String, dynamic>? metadata,
   }) async {
     final result = await safeApiCall(() async {
-      final json = await _rest
-          .post('/contacts/$contactUserId/messages', data: {
-        if (text != null) 'text': text,
-        'messageType': messageType.name,
-        if (referencedMessageId != null)
-          'referencedMessageId': referencedMessageId,
-        if (reaction != null) 'emoji': reaction,
-        if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
-        if (metadata != null) 'metadata': metadata,
-      });
+      final json = await _rest.post(
+        '/contacts/$contactUserId/messages',
+        data: {
+          if (text != null) 'text': text,
+          'messageType': messageType.name,
+          if (referencedMessageId != null)
+            'referencedMessageId': referencedMessageId,
+          if (reaction != null) 'emoji': reaction,
+          if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+          if (metadata != null) 'metadata': metadata,
+        },
+      );
       return MessageMapper.fromJson(json);
     });
     if (result.isSuccess && _cache != null) {
@@ -138,21 +144,26 @@ class ContactsApi implements ChatContactsApi {
         await _cache.saveMessages(contactUserId, [msg]);
         _cacheManager?.invalidatePrefix('messages:$contactUserId');
       } catch (e) {
-        _logger?.call('warn', 'contacts.sendDirectMessage: cache update failed: $e');
+        _logger?.call(
+          'warn',
+          'contacts.sendDirectMessage: cache update failed: $e',
+        );
       }
     } else if (result.isFailure &&
         result.failureOrNull is NetworkFailure &&
         _offlineQueue != null) {
-      _offlineQueue.enqueue(PendingSendDirectMessage(
-        id: 'pending-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
-        contactUserId: contactUserId,
-        text: text,
-        messageType: messageType,
-        referencedMessageId: referencedMessageId,
-        reaction: reaction,
-        attachmentUrl: attachmentUrl,
-        metadata: metadata,
-      ));
+      _offlineQueue.enqueue(
+        PendingSendDirectMessage(
+          id: 'pending-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
+          contactUserId: contactUserId,
+          text: text,
+          messageType: messageType,
+          referencedMessageId: referencedMessageId,
+          reaction: reaction,
+          attachmentUrl: attachmentUrl,
+          metadata: metadata,
+        ),
+      );
     }
     return result;
   }
@@ -161,42 +172,37 @@ class ContactsApi implements ChatContactsApi {
   Future<Result<PaginatedResponse<ChatMessage>>> getDirectMessages(
     String contactUserId, {
     CursorPaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final json = await _rest.get(
-          '/contacts/$contactUserId/messages',
-          queryParams: pagination?.toQueryParams(),
-        );
-        return PaginatedResponse(
-          items:
-              MessageMapper.fromJsonList(json['messages'] as List? ?? []),
-          hasMore: (json['hasMore'] ?? false) as bool,
-        );
-      });
+  }) => safeApiCall(() async {
+    final json = await _rest.get(
+      '/contacts/$contactUserId/messages',
+      queryParams: pagination?.toQueryParams(),
+    );
+    return PaginatedResponse(
+      items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
+      hasMore: (json['hasMore'] ?? false) as bool,
+    );
+  });
 
   @override
   Future<Result<PaginatedResponse<ChatMessage>>> getConversationMessages(
     String conversationId, {
     CursorPaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount(
-          '/conversations/$conversationId/messages',
-          queryParams: pagination?.toQueryParams(),
-        );
-        return PaginatedResponse(
-          items:
-              MessageMapper.fromJsonList(json['messages'] as List? ?? []),
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/conversations/$conversationId/messages',
+      queryParams: pagination?.toQueryParams(),
+    );
+    return PaginatedResponse(
+      items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   @override
   Future<Result<ChatPresence>> getPresence(String contactUserId) =>
       safeApiCall(() async {
-        final json =
-            await _rest.get('/contacts/$contactUserId/presence');
+        final json = await _rest.get('/contacts/$contactUserId/presence');
         return PresenceMapper.fromJson(json);
       });
 
@@ -211,10 +217,12 @@ class ContactsApi implements ChatContactsApi {
       _transport.sendDmTyping(contactUserId, activity: activity.name);
       return Future.value(const Success(null));
     }
-    return safeVoidCall(() => _rest.postVoid(
-          '/contacts/$contactUserId/activity',
-          data: {'activity': activity.name},
-        ));
+    return safeVoidCall(
+      () => _rest.postVoid(
+        '/contacts/$contactUserId/activity',
+        data: {'activity': activity.name},
+      ),
+    );
   }
 
   // Block
@@ -230,16 +238,16 @@ class ContactsApi implements ChatContactsApi {
   @override
   Future<Result<PaginatedResponse<String>>> listBlocked({
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/blocked',
-            queryParams: pagination?.toQueryParams());
-        final blocked =
-            (json['blockedUsers'] as List? ?? []).cast<String>();
-        return PaginatedResponse(
-          items: blocked,
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/blocked',
+      queryParams: pagination?.toQueryParams(),
+    );
+    final blocked = (json['blockedUsers'] as List? ?? []).cast<String>();
+    return PaginatedResponse(
+      items: blocked,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 }

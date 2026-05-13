@@ -11,18 +11,22 @@ void main() {
         clock: () => now,
       );
 
-      queue.enqueue(PendingSendMessage(
-        id: 'old-op',
-        roomId: 'room-1',
-        text: 'Expired',
-        createdAt: DateTime.utc(2025, 12, 31),
-      ));
-      queue.enqueue(PendingSendMessage(
-        id: 'new-op',
-        roomId: 'room-1',
-        text: 'Fresh',
-        createdAt: DateTime.utc(2026, 1, 1, 23, 0),
-      ));
+      queue.enqueue(
+        PendingSendMessage(
+          id: 'old-op',
+          roomId: 'room-1',
+          text: 'Expired',
+          createdAt: DateTime.utc(2025, 12, 31),
+        ),
+      );
+      queue.enqueue(
+        PendingSendMessage(
+          id: 'new-op',
+          roomId: 'room-1',
+          text: 'Fresh',
+          createdAt: DateTime.utc(2026, 1, 1, 23, 0),
+        ),
+      );
 
       final processed = <String>[];
       final dropped = <(String, String)>[];
@@ -32,18 +36,22 @@ void main() {
         onOperationDropped: (op, reason) => dropped.add((op.id, reason)),
         clock: () => now,
       );
-      queueWithCallbacks.enqueue(PendingSendMessage(
-        id: 'old-op',
-        roomId: 'room-1',
-        text: 'Expired',
-        createdAt: DateTime.utc(2025, 12, 31),
-      ));
-      queueWithCallbacks.enqueue(PendingSendMessage(
-        id: 'new-op',
-        roomId: 'room-1',
-        text: 'Fresh',
-        createdAt: DateTime.utc(2026, 1, 1, 23, 0),
-      ));
+      queueWithCallbacks.enqueue(
+        PendingSendMessage(
+          id: 'old-op',
+          roomId: 'room-1',
+          text: 'Expired',
+          createdAt: DateTime.utc(2025, 12, 31),
+        ),
+      );
+      queueWithCallbacks.enqueue(
+        PendingSendMessage(
+          id: 'new-op',
+          roomId: 'room-1',
+          text: 'Fresh',
+          createdAt: DateTime.utc(2026, 1, 1, 23, 0),
+        ),
+      );
 
       await queueWithCallbacks.processQueue((op) async {
         processed.add(op.id);
@@ -127,23 +135,17 @@ void main() {
       final now = DateTime.now();
       final old = now.subtract(const Duration(hours: 25));
 
-      queue.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'r',
-        text: 'a',
-        createdAt: old,
-      ));
+      queue.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'r', text: 'a', createdAt: old),
+      );
 
       final dropped = <String>[];
       final queueWithDrop = OfflineQueue(
         onOperationDropped: (op, reason) => dropped.add(reason),
       );
-      queueWithDrop.enqueue(PendingSendMessage(
-        id: 'op-1',
-        roomId: 'r',
-        text: 'a',
-        createdAt: old,
-      ));
+      queueWithDrop.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'r', text: 'a', createdAt: old),
+      );
 
       queueWithDrop.processQueue((op) async => true);
     });
@@ -162,10 +164,12 @@ void main() {
       );
       for (var i = 0; i < 100; i++) {
         fullQueue.enqueue(
-            PendingSendMessage(id: 'op-$i', roomId: 'r', text: 'a'));
+          PendingSendMessage(id: 'op-$i', roomId: 'r', text: 'a'),
+        );
       }
       fullQueue.enqueue(
-          PendingSendMessage(id: 'op-overflow', roomId: 'r', text: 'a'));
+        PendingSendMessage(id: 'op-overflow', roomId: 'r', text: 'a'),
+      );
       expect(dropCalled, isTrue);
       expect(fullQueue.length, 100);
     });

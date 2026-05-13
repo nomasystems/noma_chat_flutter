@@ -16,7 +16,8 @@ class FullEmojiPicker {
     return showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: theme.fullEmojiPickerBackgroundColor ??
+      backgroundColor:
+          theme.fullEmojiPickerBackgroundColor ??
           Theme.of(context).colorScheme.surface,
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -31,7 +32,9 @@ class FullEmojiPicker {
             config: Config(
               height: MediaQuery.sizeOf(context).height * 0.45,
               checkPlatformCompatibility: true,
-              bottomActionBarConfig: const BottomActionBarConfig(enabled: false),
+              bottomActionBarConfig: const BottomActionBarConfig(
+                enabled: false,
+              ),
               searchViewConfig: const SearchViewConfig(
                 hintText: 'Search emoji...',
               ),

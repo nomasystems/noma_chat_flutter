@@ -13,9 +13,7 @@ void main() {
 
   group('UserProfileView', () {
     testWidgets('renders name and bio', (tester) async {
-      await tester.pumpWidget(
-        wrap(UserProfileView(user: user)),
-      );
+      await tester.pumpWidget(wrap(UserProfileView(user: user)));
       expect(find.text('Alice Smith'), findsOneWidget);
       expect(find.text('Software engineer'), findsOneWidget);
     });
@@ -47,9 +45,7 @@ void main() {
     });
 
     testWidgets('hides buttons when no callback provided', (tester) async {
-      await tester.pumpWidget(
-        wrap(UserProfileView(user: user)),
-      );
+      await tester.pumpWidget(wrap(UserProfileView(user: user)));
       expect(find.text('Start chat'), findsNothing);
       expect(find.text('Mute'), findsNothing);
       expect(find.text('Block'), findsNothing);

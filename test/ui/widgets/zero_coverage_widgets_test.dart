@@ -44,8 +44,9 @@ void main() {
       expect(find.byType(ListTile), findsNWidgets(3));
     });
 
-    testWidgets('hides audio files by default; shows them when toggled',
-        (tester) async {
+    testWidgets('hides audio files by default; shows them when toggled', (
+      tester,
+    ) async {
       final items = [
         MediaItem(
           url: 'https://x/a.mp3',
@@ -60,9 +61,9 @@ void main() {
       expect(find.byType(EmptyState), findsOneWidget);
 
       // includeAudioFiles=true: audio visible.
-      await tester.pumpWidget(wrap(
-        DocsListView(items: items, includeAudioFiles: true),
-      ));
+      await tester.pumpWidget(
+        wrap(DocsListView(items: items, includeAudioFiles: true)),
+      );
       expect(find.text('song.mp3'), findsOneWidget);
     });
 
@@ -76,10 +77,9 @@ void main() {
         ),
       ];
 
-      await tester.pumpWidget(wrap(DocsListView(
-        items: items,
-        onTapItem: (m) => tapped = m,
-      )));
+      await tester.pumpWidget(
+        wrap(DocsListView(items: items, onTapItem: (m) => tapped = m)),
+      );
       await tester.tap(find.text('doc.pdf'));
       await tester.pump();
 
@@ -99,9 +99,11 @@ void main() {
 
   group('ImageViewer', () {
     testWidgets('renders without hero tag', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: ImageViewer(imageUrl: 'https://example.com/x.jpg'),
-      ));
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ImageViewer(imageUrl: 'https://example.com/x.jpg'),
+        ),
+      );
       await tester.pump(); // single pump to settle the appbar
 
       expect(find.byType(InteractiveViewer), findsOneWidget);
@@ -109,29 +111,36 @@ void main() {
     });
 
     testWidgets('renders with hero tag wrapping the image', (tester) async {
-      await tester.pumpWidget(const MaterialApp(
-        home: ImageViewer(
-          imageUrl: 'https://example.com/x.jpg',
-          heroTag: 'hero-1',
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: ImageViewer(
+            imageUrl: 'https://example.com/x.jpg',
+            heroTag: 'hero-1',
+          ),
         ),
-      ));
+      );
       await tester.pump();
       expect(find.byType(Hero), findsOneWidget);
     });
 
     testWidgets('close button pops the route', (tester) async {
       final navigatorKey = GlobalKey<NavigatorState>();
-      await tester.pumpWidget(MaterialApp(
-        navigatorKey: navigatorKey,
-        home: Builder(
-          builder: (context) => ElevatedButton(
-            onPressed: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const ImageViewer(imageUrl: 'https://example.com/x.jpg'),
-            )),
-            child: const Text('open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          navigatorKey: navigatorKey,
+          home: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const ImageViewer(imageUrl: 'https://example.com/x.jpg'),
+                ),
+              ),
+              child: const Text('open'),
+            ),
           ),
         ),
-      ));
+      );
       await tester.tap(find.text('open'));
       await tester.pump();
       await tester.pump();
@@ -147,13 +156,15 @@ void main() {
 
   group('LinkPreviewBubble', () {
     testWidgets('renders the title + description + domain', (tester) async {
-      await tester.pumpWidget(wrap(
-        const LinkPreviewBubble(
-          url: 'https://flutter.dev/showcase',
-          title: 'Showcase apps',
-          description: 'Built with Flutter.',
+      await tester.pumpWidget(
+        wrap(
+          const LinkPreviewBubble(
+            url: 'https://flutter.dev/showcase',
+            title: 'Showcase apps',
+            description: 'Built with Flutter.',
+          ),
         ),
-      ));
+      );
 
       expect(find.text('Showcase apps'), findsOneWidget);
       expect(find.text('Built with Flutter.'), findsOneWidget);
@@ -161,9 +172,9 @@ void main() {
     });
 
     testWidgets('renders without image (no exception)', (tester) async {
-      await tester.pumpWidget(wrap(
-        const LinkPreviewBubble(url: 'https://example.com/path'),
-      ));
+      await tester.pumpWidget(
+        wrap(const LinkPreviewBubble(url: 'https://example.com/path')),
+      );
       expect(tester.takeException(), isNull);
     });
   });
@@ -172,19 +183,21 @@ void main() {
   // we exercise it just enough to compile the bottom-sheet builder.
   group('FullEmojiPicker', () {
     testWidgets('show opens a modal bottom sheet', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: ElevatedButton(
-              onPressed: () {
-                // Fire-and-forget; the modal closes when the test tears down.
-                FullEmojiPicker.show(context);
-              },
-              child: const Text('open'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: ElevatedButton(
+                onPressed: () {
+                  // Fire-and-forget; the modal closes when the test tears down.
+                  FullEmojiPicker.show(context);
+                },
+                child: const Text('open'),
+              ),
             ),
           ),
         ),
-      ));
+      );
       await tester.tap(find.text('open'));
       // A single pump is enough to schedule the modal; we don't drive it
       // further because the emoji picker package itself loads platform

@@ -68,8 +68,7 @@ void main() {
       );
       final roomId = createResult.dataOrNull!.id;
 
-      final sendResult =
-          await client.messages.send(roomId, text: 'Hello!');
+      final sendResult = await client.messages.send(roomId, text: 'Hello!');
       expect(sendResult.isSuccess, isTrue);
       expect(sendResult.dataOrNull?.text, 'Hello!');
       expect(sendResult.dataOrNull?.from, 'test-user');

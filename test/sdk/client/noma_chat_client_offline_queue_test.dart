@@ -2,14 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
-import 'package:noma_chat/src/_internal/cache/cache_config.dart';
-import 'package:noma_chat/src/_internal/cache/memory_datasource.dart';
-import 'package:noma_chat/src/_internal/cache/offline_queue.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 import 'package:noma_chat/src/_internal/transport/transport_manager.dart';
-import 'package:noma_chat/src/client/noma_chat_client.dart';
-import 'package:noma_chat/src/config/chat_config.dart';
-import 'package:noma_chat/src/events/chat_event.dart';
 import 'package:mocktail/mocktail.dart';
 
 class _MockTransport extends Mock implements TransportManager {}
@@ -40,8 +34,7 @@ void main() {
 
     when(() => transport.events).thenAnswer((_) => events.stream);
     when(() => transport.stateChanges).thenAnswer((_) => states.stream);
-    when(() => transport.state)
-        .thenReturn(ChatConnectionState.disconnected);
+    when(() => transport.state).thenReturn(ChatConnectionState.disconnected);
     when(() => transport.isWsConnected).thenReturn(false);
     when(() => transport.connect()).thenAnswer((_) async {});
     when(() => transport.disconnect()).thenAnswer((_) async {});
@@ -64,10 +57,10 @@ void main() {
   });
 
   NomaChatClient build() => NomaChatClient(
-        config: config,
-        restClient: rest,
-        transportManager: transport,
-      );
+    config: config,
+    restClient: rest,
+    transportManager: transport,
+  );
 
   test('logout clears the local cache + offline queue', () async {
     await store.saveOfflineQueue([
@@ -78,7 +71,7 @@ void main() {
         'attempts': 0,
         'roomId': 'r1',
         'messageId': 'm1',
-      }
+      },
     ]);
     final client = build();
     await client.connect();
@@ -88,8 +81,7 @@ void main() {
     expect(await store.getOfflineQueue(), isEmpty);
   });
 
-  test('restore() picks up persisted operations before connecting',
-      () async {
+  test('restore() picks up persisted operations before connecting', () async {
     // Pre-seed a serialised pending op.
     await store.saveOfflineQueue([
       {
@@ -99,7 +91,7 @@ void main() {
         'attempts': 0,
         'roomId': 'r1',
         'messageId': 'm1',
-      }
+      },
     ]);
 
     // Instantiating the client doesn't restore by itself; calling connect()
@@ -110,8 +102,7 @@ void main() {
     verify(() => transport.connect()).called(1);
   });
 
-  test('configuring without a cache disables the offline queue path',
-      () async {
+  test('configuring without a cache disables the offline queue path', () async {
     final noCacheConfig = ChatConfig(
       baseUrl: 'http://h/v1',
       realtimeUrl: 'http://h',
@@ -126,8 +117,7 @@ void main() {
     await client.logout();
   });
 
-  test('reconnect cycle with empty queue does nothing problematic',
-      () async {
+  test('reconnect cycle with empty queue does nothing problematic', () async {
     final client = build();
     await client.connect();
     events.add(const ConnectedEvent());
@@ -137,21 +127,22 @@ void main() {
     expect(client.lastDisconnectedAt, isNull);
   });
 
-  test('onOfflineMessageSent callback is invocable (no-op when queue empty)',
-      () async {
-    var called = false;
-    final client = build();
-    client.onOfflineMessageSent = (_, __, ___) => called = true;
-    await client.connect();
-    events.add(const ConnectedEvent());
-    events.add(const DisconnectedEvent());
-    events.add(const ConnectedEvent());
-    await Future<void>.delayed(Duration.zero);
-    expect(called, false); // queue was empty
-  });
+  test(
+    'onOfflineMessageSent callback is invocable (no-op when queue empty)',
+    () async {
+      var called = false;
+      final client = build();
+      client.onOfflineMessageSent = (_, __, ___) => called = true;
+      await client.connect();
+      events.add(const ConnectedEvent());
+      events.add(const DisconnectedEvent());
+      events.add(const ConnectedEvent());
+      await Future<void>.delayed(Duration.zero);
+      expect(called, false); // queue was empty
+    },
+  );
 
-  group('offline queue payload coverage (serialised PendingOperation)',
-      () {
+  group('offline queue payload coverage (serialised PendingOperation)', () {
     Future<void> seedAndConnect(Map<String, dynamic> op) async {
       await store.saveOfflineQueue([
         {
@@ -159,7 +150,7 @@ void main() {
           'createdAt': DateTime.now().toIso8601String(),
           'attempts': 0,
           ...op,
-        }
+        },
       ]);
       final client = build();
       await client.connect();

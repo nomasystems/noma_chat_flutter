@@ -48,9 +48,6 @@ class _GlobalErrorBannerState extends State<GlobalErrorBanner> {
 
   @override
   Widget build(BuildContext context) {
-    return ScaffoldMessenger(
-      key: _messengerKey,
-      child: widget.child,
-    );
+    return ScaffoldMessenger(key: _messengerKey, child: widget.child);
   }
 }

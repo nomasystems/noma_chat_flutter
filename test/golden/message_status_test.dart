@@ -13,22 +13,23 @@ void main() {
 
   final ts = DateTime(2026, 5, 12, 10, 30);
 
-  Widget bubbleWithStatus({
-    required Widget statusWidget,
-  }) =>
-      TextBubble(
-        text: 'Outgoing message under test.',
-        isOutgoing: true,
-        timestamp: ts,
-        theme: goldenLightTheme,
-        statusWidget: statusWidget,
-      );
+  Widget bubbleWithStatus({required Widget statusWidget}) => TextBubble(
+    text: 'Outgoing message under test.',
+    isOutgoing: true,
+    timestamp: ts,
+    theme: goldenLightTheme,
+    statusWidget: statusWidget,
+  );
 
   testGoldens('TextBubble outgoing — status sending (spinner)', (tester) async {
     await pumpGoldenSurface(
       tester,
       bubbleWithStatus(
-        statusWidget: const Icon(Icons.access_time, size: 12, color: Colors.grey),
+        statusWidget: const Icon(
+          Icons.access_time,
+          size: 12,
+          color: Colors.grey,
+        ),
       ),
     );
     await screenMatchesGolden(tester, 'status_sending_light');
@@ -38,13 +39,19 @@ void main() {
     await pumpGoldenSurface(
       tester,
       bubbleWithStatus(
-        statusWidget: const Icon(Icons.error_outline, size: 12, color: Colors.red),
+        statusWidget: const Icon(
+          Icons.error_outline,
+          size: 12,
+          color: Colors.red,
+        ),
       ),
     );
     await screenMatchesGolden(tester, 'status_failed_light');
   });
 
-  testGoldens('TextBubble outgoing — status sent (single check)', (tester) async {
+  testGoldens('TextBubble outgoing — status sent (single check)', (
+    tester,
+  ) async {
     await pumpGoldenSurface(
       tester,
       bubbleWithStatus(
@@ -58,8 +65,9 @@ void main() {
     await screenMatchesGolden(tester, 'status_sent_light');
   });
 
-  testGoldens('TextBubble outgoing — status delivered (double grey)',
-      (tester) async {
+  testGoldens('TextBubble outgoing — status delivered (double grey)', (
+    tester,
+  ) async {
     await pumpGoldenSurface(
       tester,
       bubbleWithStatus(
@@ -73,7 +81,9 @@ void main() {
     await screenMatchesGolden(tester, 'status_delivered_light');
   });
 
-  testGoldens('TextBubble outgoing — status read (double blue)', (tester) async {
+  testGoldens('TextBubble outgoing — status read (double blue)', (
+    tester,
+  ) async {
     await pumpGoldenSurface(
       tester,
       bubbleWithStatus(

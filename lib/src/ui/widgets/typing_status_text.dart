@@ -28,7 +28,8 @@ class TypingStatusText extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
           child: Text(
             text,
-            style: theme.typingStatusTextStyle ??
+            style:
+                theme.typingStatusTextStyle ??
                 TextStyle(
                   fontSize: 12,
                   fontStyle: FontStyle.italic,
@@ -54,9 +55,7 @@ class TypingStatusText extends StatelessWidget {
   }
 
   String _resolveName(String userId) {
-    final user = controller.otherUsers
-        .where((u) => u.id == userId)
-        .firstOrNull;
+    final user = controller.otherUsers.where((u) => u.id == userId).firstOrNull;
     return user?.displayName ?? userId;
   }
 }

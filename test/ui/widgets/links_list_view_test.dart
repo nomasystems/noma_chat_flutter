@@ -10,15 +10,14 @@ void main() {
     String from = 'u1',
     bool isDeleted = false,
     bool isSystem = false,
-  }) =>
-      ChatMessage(
-        id: id,
-        from: from,
-        timestamp: timestamp ?? DateTime(2025, 1, 1),
-        text: text,
-        isDeleted: isDeleted,
-        isSystem: isSystem,
-      );
+  }) => ChatMessage(
+    id: id,
+    from: from,
+    timestamp: timestamp ?? DateTime(2025, 1, 1),
+    text: text,
+    isDeleted: isDeleted,
+    isSystem: isSystem,
+  );
 
   group('LinksListView.extract', () {
     test('extracts URLs from messages', () {
@@ -27,11 +26,14 @@ void main() {
         msg('2', text: 'sin links aquí'),
         msg('3', text: 'http://example.com y http://otro.com'),
       ]);
-      expect(links.map((l) => l.url), containsAll([
-        'https://flutter.dev',
-        'http://example.com',
-        'http://otro.com',
-      ]));
+      expect(
+        links.map((l) => l.url),
+        containsAll([
+          'https://flutter.dev',
+          'http://example.com',
+          'http://otro.com',
+        ]),
+      );
     });
 
     test('skips deleted and system messages', () {
@@ -73,35 +75,41 @@ void main() {
 
   group('LinksListView widget', () {
     testWidgets('shows empty state when no links', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: LinksListView(messages: [msg('1', text: 'no links here')]),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LinksListView(messages: [msg('1', text: 'no links here')]),
+          ),
         ),
-      ));
+      );
       expect(find.byType(EmptyState), findsOneWidget);
     });
 
     testWidgets('renders the extracted links', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: LinksListView(
-            messages: [msg('1', text: 'visit https://flutter.dev')],
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LinksListView(
+              messages: [msg('1', text: 'visit https://flutter.dev')],
+            ),
           ),
         ),
-      ));
+      );
       expect(find.text('https://flutter.dev'), findsOneWidget);
     });
 
     testWidgets('invokes onTapLink', (tester) async {
       SharedLink? tapped;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: LinksListView(
-            messages: [msg('1', text: 'https://example.com')],
-            onTapLink: (link) => tapped = link,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: LinksListView(
+              messages: [msg('1', text: 'https://example.com')],
+              onTapLink: (link) => tapped = link,
+            ),
           ),
         ),
-      ));
+      );
       await tester.tap(find.byType(ListTile));
       expect(tapped?.url, 'https://example.com');
     });

@@ -98,7 +98,8 @@ class RoomListView extends StatelessWidget {
         if (rooms.isEmpty && isLoading) {
           list = const Center(child: CircularProgressIndicator());
         } else if (rooms.isEmpty) {
-          list = emptyBuilder?.call(context) ??
+          list =
+              emptyBuilder?.call(context) ??
               EmptyState(
                 icon: emptyIcon,
                 title: emptyTitle ?? theme.l10n.noChatsYet,

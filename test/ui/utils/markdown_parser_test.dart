@@ -6,14 +6,16 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   const base = TextStyle(fontSize: 14);
 
-  List<TextSpan> parse(String text, {
+  List<TextSpan> parse(
+    String text, {
     ValueChanged<String>? onTapLink,
     ValueChanged<String>? onTapMention,
-  }) =>
-      parseMarkdown(text,
-          baseStyle: base,
-          onTapLink: onTapLink,
-          onTapMention: onTapMention);
+  }) => parseMarkdown(
+    text,
+    baseStyle: base,
+    onTapLink: onTapLink,
+    onTapMention: onTapMention,
+  );
 
   group('parseMarkdown', () {
     test('returns empty list for empty input', () {
@@ -57,11 +59,12 @@ void main() {
 
     test('inline URL becomes a link span with tap recognizer', () {
       String? tapped;
-      final spans = parse('see https://example.com today',
-          onTapLink: (u) => tapped = u);
+      final spans = parse(
+        'see https://example.com today',
+        onTapLink: (u) => tapped = u,
+      );
 
-      final link =
-          spans.firstWhere((s) => s.text == 'https://example.com');
+      final link = spans.firstWhere((s) => s.text == 'https://example.com');
       expect(link.style?.decoration, TextDecoration.underline);
       expect(link.style?.color, Colors.blue);
       final recognizer = link.recognizer as TapGestureRecognizer;
@@ -90,28 +93,26 @@ void main() {
       // We do not assert the exact internal layout — just that the text is
       // preserved in order with no characters dropped.
       final spans = parse('use ** safely');
-      final combined =
-          spans.map((s) => s.text).join();
+      final combined = spans.map((s) => s.text).join();
       expect(combined.contains('use '), true);
       expect(combined.contains('safely'), true);
     });
 
     test('combined styles produce the expected sequence', () {
       final spans = parse('a **bold** and *italic* and `code`');
-      expect(spans.map((s) => s.text), containsAllInOrder([
-        'a ',
-        'bold',
-        ' and ',
-        'italic',
-        ' and ',
-        'code',
-      ]));
+      expect(
+        spans.map((s) => s.text),
+        containsAllInOrder(['a ', 'bold', ' and ', 'italic', ' and ', 'code']),
+      );
     });
 
     test('custom styles override the defaults', () {
       const customBold = TextStyle(fontWeight: FontWeight.w900);
-      final spans = parseMarkdown('**heavy**',
-          baseStyle: base, boldStyle: customBold);
+      final spans = parseMarkdown(
+        '**heavy**',
+        baseStyle: base,
+        boldStyle: customBold,
+      );
       expect(spans.first.style, customBold);
     });
   });

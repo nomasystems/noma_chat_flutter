@@ -160,16 +160,19 @@ void main() {
     });
 
     test('reaction_added returns null with missing fields', () {
-      expect(EventParser.parseJson({
-        'type': 'reaction_added',
-        'roomId': 'room-1',
-      }), isNull);
-      expect(EventParser.parseJson({
-        'type': 'reaction_added',
-        'roomId': 'room-1',
-        'messageId': 'msg-1',
-        'userId': 'user-1',
-      }), isNull);
+      expect(
+        EventParser.parseJson({'type': 'reaction_added', 'roomId': 'room-1'}),
+        isNull,
+      );
+      expect(
+        EventParser.parseJson({
+          'type': 'reaction_added',
+          'roomId': 'room-1',
+          'messageId': 'msg-1',
+          'userId': 'user-1',
+        }),
+        isNull,
+      );
     });
 
     test('parses new_message with forward messageType', () {
@@ -340,14 +343,17 @@ void main() {
     });
 
     test('message_updated returns null without required fields', () {
-      expect(EventParser.parseJson({
-        'type': 'message_updated',
-        'roomId': 'room-1',
-      }), isNull);
-      expect(EventParser.parseJson({
-        'type': 'message_updated',
-        'messageId': 'msg-1',
-      }), isNull);
+      expect(
+        EventParser.parseJson({'type': 'message_updated', 'roomId': 'room-1'}),
+        isNull,
+      );
+      expect(
+        EventParser.parseJson({
+          'type': 'message_updated',
+          'messageId': 'msg-1',
+        }),
+        isNull,
+      );
     });
   });
 

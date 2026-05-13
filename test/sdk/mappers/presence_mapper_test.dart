@@ -51,11 +51,7 @@ void main() {
 
     test('bulkFromJson parses own and contacts', () {
       final bulk = PresenceMapper.bulkFromJson({
-        'own': {
-          'userId': 'me',
-          'status': 'available',
-          'online': true,
-        },
+        'own': {'userId': 'me', 'status': 'available', 'online': true},
         'contacts': [
           {'userId': 'c1', 'status': 'away', 'online': false},
           {'userId': 'c2', 'status': 'busy', 'online': true},
@@ -70,11 +66,7 @@ void main() {
 
     test('bulkFromJson with no contacts returns empty list', () {
       final bulk = PresenceMapper.bulkFromJson({
-        'own': {
-          'userId': 'me',
-          'status': 'offline',
-          'online': false,
-        },
+        'own': {'userId': 'me', 'status': 'offline', 'online': false},
       });
       expect(bulk.own.userId, 'me');
       expect(bulk.contacts, isEmpty);

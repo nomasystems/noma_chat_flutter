@@ -22,18 +22,9 @@ void main() {
   group('MediaGalleryView', () {
     testWidgets('renders grid with correct number of items', (tester) async {
       final items = [
-        MediaItem(
-          url: 'https://example.com/1.jpg',
-          type: MediaItemType.image,
-        ),
-        MediaItem(
-          url: 'https://example.com/2.jpg',
-          type: MediaItemType.image,
-        ),
-        MediaItem(
-          url: 'https://example.com/3.mp4',
-          type: MediaItemType.video,
-        ),
+        MediaItem(url: 'https://example.com/1.jpg', type: MediaItemType.image),
+        MediaItem(url: 'https://example.com/2.jpg', type: MediaItemType.image),
+        MediaItem(url: 'https://example.com/3.mp4', type: MediaItemType.video),
       ];
 
       await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
@@ -44,14 +35,8 @@ void main() {
 
     testWidgets('shows play icon for video items', (tester) async {
       final items = [
-        MediaItem(
-          url: 'https://example.com/1.jpg',
-          type: MediaItemType.image,
-        ),
-        MediaItem(
-          url: 'https://example.com/2.mp4',
-          type: MediaItemType.video,
-        ),
+        MediaItem(url: 'https://example.com/1.jpg', type: MediaItemType.image),
+        MediaItem(url: 'https://example.com/2.mp4', type: MediaItemType.video),
       ];
 
       await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
@@ -63,16 +48,17 @@ void main() {
     testWidgets('calls onTapItem when tapped', (tester) async {
       MediaItem? tappedItem;
       final items = [
-        MediaItem(
-          url: 'https://example.com/1.jpg',
-          type: MediaItemType.image,
-        ),
+        MediaItem(url: 'https://example.com/1.jpg', type: MediaItemType.image),
       ];
 
-      await tester.pumpWidget(wrap(MediaGalleryView(
-        items: items,
-        onTapItem: (item) => tappedItem = item,
-      )));
+      await tester.pumpWidget(
+        wrap(
+          MediaGalleryView(
+            items: items,
+            onTapItem: (item) => tappedItem = item,
+          ),
+        ),
+      );
       await tester.pump();
 
       await tester.tap(find.byType(InkWell));
@@ -81,9 +67,7 @@ void main() {
     });
 
     testWidgets('shows empty state when no items', (tester) async {
-      await tester.pumpWidget(wrap(
-        const MediaGalleryView(items: []),
-      ));
+      await tester.pumpWidget(wrap(const MediaGalleryView(items: [])));
 
       expect(find.byType(EmptyState), findsOneWidget);
       expect(find.text('No media'), findsOneWidget);
@@ -108,8 +92,9 @@ void main() {
       expect(find.byType(CachedNetworkImage), findsOneWidget);
     });
 
-    testWidgets('includes audio attachments when includeAudioFiles is true',
-        (tester) async {
+    testWidgets('includes audio attachments when includeAudioFiles is true', (
+      tester,
+    ) async {
       final items = [
         MediaItem(
           url: 'https://example.com/song.mp3',
@@ -118,16 +103,16 @@ void main() {
           fileName: 'song.mp3',
         ),
       ];
-      await tester.pumpWidget(wrap(MediaGalleryView(
-        items: items,
-        includeAudioFiles: true,
-      )));
+      await tester.pumpWidget(
+        wrap(MediaGalleryView(items: items, includeAudioFiles: true)),
+      );
       await tester.pump();
       expect(find.text('song.mp3'), findsOneWidget);
     });
 
-    testWidgets('shows empty state if all items are filtered out',
-        (tester) async {
+    testWidgets('shows empty state if all items are filtered out', (
+      tester,
+    ) async {
       final items = [
         MediaItem(
           url: 'https://example.com/voice.m4a',

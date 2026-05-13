@@ -15,16 +15,19 @@ void main() {
   late MessagesApi api;
 
   setUpAll(() {
-    registerFallbackValue(ChatMessage(
-      id: '_fallback',
-      from: '_',
-      timestamp: DateTime(2026),
-    ));
+    registerFallbackValue(
+      ChatMessage(id: '_fallback', from: '_', timestamp: DateTime(2026)),
+    );
     registerFallbackValue(const ReadReceipt(userId: '_'));
     registerFallbackValue(DateTime(2026));
-    registerFallbackValue(MessagePin(
-      roomId: '_', messageId: '_', pinnedBy: '_', pinnedAt: DateTime(2026),
-    ));
+    registerFallbackValue(
+      MessagePin(
+        roomId: '_',
+        messageId: '_',
+        pinnedBy: '_',
+        pinnedAt: DateTime(2026),
+      ),
+    );
     registerFallbackValue(<ChatMessage>[]);
     registerFallbackValue(<ReadReceipt>[]);
     registerFallbackValue(<MessagePin>[]);
@@ -38,19 +41,22 @@ void main() {
     api = MessagesApi(rest: rest, cache: cache, cacheManager: cacheManager);
 
     // Permissive defaults for cache calls.
-    when(() => cache.getMessages(any(),
-            limit: any(named: 'limit'),
-            before: any(named: 'before'),
-            after: any(named: 'after')))
-        .thenAnswer((_) async => []);
-    when(() => cache.saveMessages(any(), any()))
-        .thenAnswer((_) async {});
+    when(
+      () => cache.getMessages(
+        any(),
+        limit: any(named: 'limit'),
+        before: any(named: 'before'),
+        after: any(named: 'after'),
+      ),
+    ).thenAnswer((_) async => []);
+    when(() => cache.saveMessages(any(), any())).thenAnswer((_) async {});
     when(() => cache.getClearedAt(any())).thenAnswer((_) async => null);
     when(() => cache.getReceipts(any())).thenAnswer((_) async => []);
     when(() => cache.saveReceipts(any(), any())).thenAnswer((_) async {});
     when(() => cache.getReactions(any(), any())).thenAnswer((_) async => []);
-    when(() => cache.saveReactions(any(), any(), any()))
-        .thenAnswer((_) async {});
+    when(
+      () => cache.saveReactions(any(), any(), any()),
+    ).thenAnswer((_) async {});
     when(() => cache.getPins(any())).thenAnswer((_) async => []);
     when(() => cache.savePins(any(), any())).thenAnswer((_) async {});
     when(() => cache.deletePin(any(), any())).thenAnswer((_) async {});
@@ -63,20 +69,23 @@ void main() {
   });
 
   Map<String, dynamic> msgJson(String id) => {
-        'id': id,
-        'from': 'u1',
-        'timestamp': '2026-01-01T00:00:00Z',
-        'text': 't',
-        'messageType': 'regular',
-      };
+    'id': id,
+    'from': 'u1',
+    'timestamp': '2026-01-01T00:00:00Z',
+    'text': 't',
+    'messageType': 'regular',
+  };
 
   group('MessagesApi cache integration', () {
     test('list() with empty cache falls through to network', () async {
-      when(() => rest.get(any(), queryParams: any(named: 'queryParams')))
-          .thenAnswer((_) async => {
-                'messages': [msgJson('m1')],
-                'hasMore': false,
-              });
+      when(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer(
+        (_) async => {
+          'messages': [msgJson('m1')],
+          'hasMore': false,
+        },
+      );
 
       final r = await api.list('r1', cachePolicy: CachePolicy.cacheFirst);
 
@@ -85,18 +94,23 @@ void main() {
     });
 
     test('list() with cache hit returns cached items', () async {
-      when(() => cache.getMessages(any(),
-              limit: any(named: 'limit'),
-              before: any(named: 'before'),
-              after: any(named: 'after')))
-          .thenAnswer((_) async => [
-                ChatMessage(
-                  id: 'c1',
-                  from: 'u1',
-                  timestamp: DateTime(2026, 1, 1),
-                  text: 'cached',
-                )
-              ]);
+      when(
+        () => cache.getMessages(
+          any(),
+          limit: any(named: 'limit'),
+          before: any(named: 'before'),
+          after: any(named: 'after'),
+        ),
+      ).thenAnswer(
+        (_) async => [
+          ChatMessage(
+            id: 'c1',
+            from: 'u1',
+            timestamp: DateTime(2026, 1, 1),
+            text: 'cached',
+          ),
+        ],
+      );
 
       final r = await api.list('r1', cachePolicy: CachePolicy.cacheFirst);
 
@@ -105,28 +119,32 @@ void main() {
     });
 
     test('list() respects clearedAt filtering', () async {
-      when(() => cache.getClearedAt(any()))
-          .thenAnswer((_) async => DateTime(2026, 6, 1));
-      when(() => rest.get(any(), queryParams: any(named: 'queryParams')))
-          .thenAnswer((_) async => {
-                'messages': [
-                  {
-                    'id': 'old',
-                    'from': 'u1',
-                    'timestamp': '2026-01-01T00:00:00Z',
-                    'text': 'old',
-                    'messageType': 'regular',
-                  },
-                  {
-                    'id': 'new',
-                    'from': 'u1',
-                    'timestamp': '2026-12-01T00:00:00Z',
-                    'text': 'new',
-                    'messageType': 'regular',
-                  },
-                ],
-                'hasMore': false,
-              });
+      when(
+        () => cache.getClearedAt(any()),
+      ).thenAnswer((_) async => DateTime(2026, 6, 1));
+      when(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer(
+        (_) async => {
+          'messages': [
+            {
+              'id': 'old',
+              'from': 'u1',
+              'timestamp': '2026-01-01T00:00:00Z',
+              'text': 'old',
+              'messageType': 'regular',
+            },
+            {
+              'id': 'new',
+              'from': 'u1',
+              'timestamp': '2026-12-01T00:00:00Z',
+              'text': 'new',
+              'messageType': 'regular',
+            },
+          ],
+          'hasMore': false,
+        },
+      );
 
       final r = await api.list('r1', cachePolicy: CachePolicy.networkOnly);
 
@@ -135,29 +153,34 @@ void main() {
       expect(r.dataOrNull!.items.map((m) => m.id), ['new']);
     });
 
-    test('send() persists the confirmed message and invalidates cache',
-        () async {
-      when(() => rest.post(any(), data: any(named: 'data')))
-          .thenAnswer((_) async => msgJson('m-sent'));
+    test(
+      'send() persists the confirmed message and invalidates cache',
+      () async {
+        when(
+          () => rest.post(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async => msgJson('m-sent'));
 
-      final r = await api.send('r1', text: 'hi');
+        final r = await api.send('r1', text: 'hi');
 
-      expect(r.isSuccess, true);
-      verify(() => cache.saveMessages('r1', any())).called(1);
-    });
+        expect(r.isSuccess, true);
+        verify(() => cache.saveMessages('r1', any())).called(1);
+      },
+    );
 
-    test('update() walks the cache to refresh the existing entry',
-        () async {
-      when(() => cache.getMessages(any())).thenAnswer((_) async => [
-            ChatMessage(
-              id: 'm-edit',
-              from: 'u1',
-              timestamp: DateTime(2026, 1, 1),
-              text: 'before',
-            ),
-          ]);
-      when(() => rest.putVoid(any(), data: any(named: 'data')))
-          .thenAnswer((_) async {});
+    test('update() walks the cache to refresh the existing entry', () async {
+      when(() => cache.getMessages(any())).thenAnswer(
+        (_) async => [
+          ChatMessage(
+            id: 'm-edit',
+            from: 'u1',
+            timestamp: DateTime(2026, 1, 1),
+            text: 'before',
+          ),
+        ],
+      );
+      when(
+        () => rest.putVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
 
       final r = await api.update('r1', 'm-edit', text: 'after');
 
@@ -172,20 +195,24 @@ void main() {
       verify(() => cache.deleteMessage('r1', 'm1')).called(1);
     });
 
-    test('markRoomAsRead() clears the unread cache + invalidates rooms',
-        () async {
-      when(() => rest.postVoid(any(), data: any(named: 'data')))
-          .thenAnswer((_) async {});
+    test(
+      'markRoomAsRead() clears the unread cache + invalidates rooms',
+      () async {
+        when(
+          () => rest.postVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
 
-      final r = await api.markRoomAsRead('r1', lastReadMessageId: 'm1');
+        final r = await api.markRoomAsRead('r1', lastReadMessageId: 'm1');
 
-      expect(r.isSuccess, true);
-      verify(() => cache.deleteUnread('r1')).called(1);
-    });
+        expect(r.isSuccess, true);
+        verify(() => cache.deleteUnread('r1')).called(1);
+      },
+    );
 
     test('clearChat() sets clearedAt + clears cached messages', () async {
-      when(() => rest.postVoid(any(), data: any(named: 'data')))
-          .thenAnswer((_) async {});
+      when(
+        () => rest.postVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
 
       final r = await api.clearChat('r1');
 
@@ -194,37 +221,48 @@ void main() {
       verify(() => cache.clearMessages('r1')).called(1);
     });
 
-    test('getRoomReceipts() with cache miss hits the network and saves',
-        () async {
-      when(() => rest.getWithTotalCount(any())).thenAnswer((_) async => (
+    test(
+      'getRoomReceipts() with cache miss hits the network and saves',
+      () async {
+        when(() => rest.getWithTotalCount(any())).thenAnswer(
+          (_) async => (
             {
               'receipts': [
-                {'userId': 'u2', 'lastReadAt': '2026-01-02T00:00:00Z'}
+                {'userId': 'u2', 'lastReadAt': '2026-01-02T00:00:00Z'},
               ],
               'hasMore': false,
             },
-            1
-          ));
+            1,
+          ),
+        );
 
-      final r = await api.getRoomReceipts('r1');
+        final r = await api.getRoomReceipts('r1');
 
-      expect(r.isSuccess, true);
-      expect(r.dataOrNull!.items, hasLength(1));
-      verify(() => cache.saveReceipts('r1', any())).called(1);
-    });
+        expect(r.isSuccess, true);
+        expect(r.dataOrNull!.items, hasLength(1));
+        verify(() => cache.saveReceipts('r1', any())).called(1);
+      },
+    );
 
     test('getReactions() with forceRefresh bypasses the cache', () async {
-      when(() => cache.getReactions(any(), any())).thenAnswer((_) async => [
-            const AggregatedReaction(emoji: '👍', count: 1, users: ['u1']),
-          ]);
-      when(() => rest.get(any())).thenAnswer((_) async => {
-            'reactions': [
-              {'emoji': '❤️', 'count': 2, 'userIds': ['u1', 'u2']}
-            ],
-          });
+      when(() => cache.getReactions(any(), any())).thenAnswer(
+        (_) async => [
+          const AggregatedReaction(emoji: '👍', count: 1, users: ['u1']),
+        ],
+      );
+      when(() => rest.get(any())).thenAnswer(
+        (_) async => {
+          'reactions': [
+            {
+              'emoji': '❤️',
+              'count': 2,
+              'userIds': ['u1', 'u2'],
+            },
+          ],
+        },
+      );
 
-      final r =
-          await api.getReactions('r1', 'm1', forceRefresh: true);
+      final r = await api.getReactions('r1', 'm1', forceRefresh: true);
 
       expect(r.isSuccess, true);
       // The forceRefresh path goes to network, so the new emoji takes over.
@@ -245,22 +283,27 @@ void main() {
     });
 
     test('listPins() falls through to network when cache empty', () async {
-      when(() => rest.getWithTotalCount(any(),
-              queryParams: any(named: 'queryParams')))
-          .thenAnswer((_) async => (
-                {
-                  'pins': [
-                    {
-                      'roomId': 'r1',
-                      'messageId': 'm1',
-                      'pinnedBy': 'u1',
-                      'pinnedAt': '2026-01-01T00:00:00Z'
-                    }
-                  ],
-                  'hasMore': false,
-                },
-                1
-              ));
+      when(
+        () => rest.getWithTotalCount(
+          any(),
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          {
+            'pins': [
+              {
+                'roomId': 'r1',
+                'messageId': 'm1',
+                'pinnedBy': 'u1',
+                'pinnedAt': '2026-01-01T00:00:00Z',
+              },
+            ],
+            'hasMore': false,
+          },
+          1,
+        ),
+      );
 
       final r = await api.listPins('r1');
 

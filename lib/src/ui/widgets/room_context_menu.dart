@@ -160,7 +160,9 @@ class RoomContextMenu extends StatelessWidget {
               title: Text(
                 entry.label,
                 style: entry.isDestructive
-                    ? TextStyle(color: theme.contextMenuDestructiveColor ?? Colors.red)
+                    ? TextStyle(
+                        color: theme.contextMenuDestructiveColor ?? Colors.red,
+                      )
                     : null,
               ),
               onTap: () => onAction?.call(entry.action),

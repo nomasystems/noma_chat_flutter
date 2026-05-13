@@ -7,10 +7,7 @@ import '../theme/chat_theme.dart';
 /// delivers the resulting [VoiceMessageData] via its `onVoiceMessageReady`
 /// callback. This widget is purely a circular mic icon with semantics.
 class VoiceRecorderButton extends StatelessWidget {
-  const VoiceRecorderButton({
-    super.key,
-    this.theme = ChatTheme.defaults,
-  });
+  const VoiceRecorderButton({super.key, this.theme = ChatTheme.defaults});
 
   final ChatTheme theme;
 
@@ -27,7 +24,8 @@ class VoiceRecorderButton extends StatelessWidget {
           shape: BoxShape.circle,
         ),
         child: Center(
-          child: theme.voiceIconBuilder?.call(context) ??
+          child:
+              theme.voiceIconBuilder?.call(context) ??
               Icon(
                 theme.voiceButtonIcon ?? Icons.mic,
                 size: 20,

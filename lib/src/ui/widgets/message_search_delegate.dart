@@ -63,8 +63,8 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                 borderSide: BorderSide.none,
               ),
               filled: true,
-              fillColor: widget.theme.searchBarBackgroundColor ??
-                  Colors.grey.shade100,
+              fillColor:
+                  widget.theme.searchBarBackgroundColor ?? Colors.grey.shade100,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
                 vertical: 10,
@@ -92,11 +92,9 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                 return Center(
                   child: Text(
                     widget.theme.l10n.noResults,
-                    style: widget.theme.emptyStateTitleStyle ??
-                        TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey.shade500,
-                        ),
+                    style:
+                        widget.theme.emptyStateTitleStyle ??
+                        TextStyle(fontSize: 16, color: Colors.grey.shade500),
                   ),
                 );
               }
@@ -113,13 +111,13 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                       ? widget.senderNameResolver!(message.from)
                       : message.from;
                   final now = DateTime.now();
-                  final timeStr = DateFormatter.isToday(
-                          message.timestamp,
-                          now: now)
+                  final timeStr =
+                      DateFormatter.isToday(message.timestamp, now: now)
                       ? DateFormatter.formatTime(message.timestamp)
                       : DateFormatter.formatSeparator(
                           message.timestamp,
-                          now: now);
+                          now: now,
+                        );
                   return ListTile(
                     title: Text(
                       senderName,
@@ -156,10 +154,8 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                         color: Colors.grey.shade500,
                       ),
                     ),
-                    onTap: () => widget.onMessageTap?.call(
-                      widget.roomId,
-                      message.id,
-                    ),
+                    onTap: () =>
+                        widget.onMessageTap?.call(widget.roomId, message.id),
                   );
                 },
               );
@@ -191,16 +187,14 @@ List<TextSpan> _highlightSpans(
       break;
     }
     if (matchStart > cursor) {
-      spans.add(TextSpan(
-        text: text.substring(cursor, matchStart),
-        style: baseStyle,
-      ));
+      spans.add(
+        TextSpan(text: text.substring(cursor, matchStart), style: baseStyle),
+      );
     }
     final matchEnd = matchStart + query.length;
-    spans.add(TextSpan(
-      text: text.substring(matchStart, matchEnd),
-      style: matchStyle,
-    ));
+    spans.add(
+      TextSpan(text: text.substring(matchStart, matchEnd), style: matchStyle),
+    );
     cursor = matchEnd;
   }
   return spans;

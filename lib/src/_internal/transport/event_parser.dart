@@ -31,9 +31,9 @@ class EventParser {
       'reaction_deleted' => _parseReactionDeleted(json),
       'broadcast' => _parseBroadcast(json),
       _ => () {
-          logger?.call('warn', 'EventParser: unknown event type "$type"');
-          return null;
-        }(),
+        logger?.call('warn', 'EventParser: unknown event type "$type"');
+        return null;
+      }(),
     };
   }
 
@@ -48,10 +48,7 @@ class EventParser {
       data['type'] ??= _inferTypeFromTopic(topic);
       return parseJson(data);
     } catch (e) {
-      logger?.call(
-        'warn',
-        'EventParser: failed to parse NRTE message: $e',
-      );
+      logger?.call('warn', 'EventParser: failed to parse NRTE message: $e');
       return null;
     }
   }
@@ -93,14 +90,16 @@ class EventParser {
 
   static ChatEvent? _parseRoomCreated(Map<String, dynamic> json) {
     final room = json['room'] as Map<String, dynamic>?;
-    final roomId = (json['roomId'] ?? room?['roomId'] ?? room?['id']) as String?;
+    final roomId =
+        (json['roomId'] ?? room?['roomId'] ?? room?['id']) as String?;
     if (roomId == null) return null;
     return ChatEvent.roomCreated(roomId: roomId);
   }
 
   static ChatEvent? _parseRoomUpdated(Map<String, dynamic> json) {
     final room = json['room'] as Map<String, dynamic>?;
-    final roomId = (json['roomId'] ?? room?['roomId'] ?? room?['id']) as String?;
+    final roomId =
+        (json['roomId'] ?? room?['roomId'] ?? room?['id']) as String?;
     if (roomId == null) return null;
     return ChatEvent.roomUpdated(roomId: roomId);
   }
@@ -115,7 +114,10 @@ class EventParser {
     final userId = (json['userId'] ?? json['from']) as String?;
     if (userId == null) return null;
     final activityStr = _fieldOrDefault(
-      json, 'activity', 'startsTyping', 'typing',
+      json,
+      'activity',
+      'startsTyping',
+      'typing',
     );
     final activity = activityStr == 'stopsTyping'
         ? ChatActivity.stopsTyping
@@ -123,19 +125,28 @@ class EventParser {
     final contactId = json['contactId'] as String?;
     if (contactId != null) {
       return ChatEvent.dmActivity(
-          contactId: contactId, userId: userId, activity: activity);
+        contactId: contactId,
+        userId: userId,
+        activity: activity,
+      );
     }
     final roomId = json['roomId'] as String?;
     if (roomId == null) return null;
     return ChatEvent.userActivity(
-        roomId: roomId, userId: userId, activity: activity);
+      roomId: roomId,
+      userId: userId,
+      activity: activity,
+    );
   }
 
   static ChatEvent? _parsePresenceChanged(Map<String, dynamic> json) {
     final userId = json['userId'] as String?;
     if (userId == null) return null;
     final statusStr = _fieldOrDefault(
-      json, 'status', 'offline', 'presence_changed',
+      json,
+      'status',
+      'offline',
+      'presence_changed',
     );
     final status = _parsePresenceStatus(statusStr);
     return ChatEvent.presenceChanged(
@@ -150,12 +161,12 @@ class EventParser {
   }
 
   static PresenceStatus _parsePresenceStatus(String status) => switch (status) {
-        'available' => PresenceStatus.available,
-        'away' => PresenceStatus.away,
-        'busy' => PresenceStatus.busy,
-        'dnd' => PresenceStatus.dnd,
-        _ => PresenceStatus.offline,
-      };
+    'available' => PresenceStatus.available,
+    'away' => PresenceStatus.away,
+    'busy' => PresenceStatus.busy,
+    'dnd' => PresenceStatus.dnd,
+    _ => PresenceStatus.offline,
+  };
 
   static ChatEvent? _parseUnreadUpdated(Map<String, dynamic> json) {
     final roomId = json['roomId'] as String?;
@@ -185,7 +196,10 @@ class EventParser {
     final userId = json['userId'] as String?;
     if (roomId == null || userId == null) return null;
     final roleStr = _fieldOrDefault(
-      json, 'role', 'member', 'user_role_changed',
+      json,
+      'role',
+      'member',
+      'user_role_changed',
     );
     final role = switch (roleStr) {
       'owner' => RoomRole.owner,
@@ -193,7 +207,10 @@ class EventParser {
       _ => RoomRole.member,
     };
     return ChatEvent.userRoleChanged(
-        roomId: roomId, userId: userId, role: role);
+      roomId: roomId,
+      userId: userId,
+      role: role,
+    );
   }
 
   static ChatEvent? _parseReceiptUpdated(Map<String, dynamic> json) {
@@ -201,16 +218,24 @@ class EventParser {
     final messageId = json['messageId'] as String?;
     if (roomId == null || messageId == null) return null;
     final statusStr = _fieldOrDefault(
-      json, 'status', 'read', 'receipt_updated',
+      json,
+      'status',
+      'read',
+      'receipt_updated',
     );
     final status = switch (statusStr) {
       'sent' => ReceiptStatus.sent,
       'delivered' => ReceiptStatus.delivered,
       _ => ReceiptStatus.read,
     };
-    final fromUserId = json['fromUserId'] as String? ?? json['userId'] as String?;
+    final fromUserId =
+        json['fromUserId'] as String? ?? json['userId'] as String?;
     return ChatEvent.receiptUpdated(
-        roomId: roomId, messageId: messageId, status: status, fromUserId: fromUserId);
+      roomId: roomId,
+      messageId: messageId,
+      status: status,
+      fromUserId: fromUserId,
+    );
   }
 
   static ChatEvent? _parseReactionAddedNative(Map<String, dynamic> json) {
@@ -218,7 +243,10 @@ class EventParser {
     final messageId = json['messageId'] as String?;
     final userId = json['userId'] as String?;
     final reaction = (json['emoji'] ?? json['reaction']) as String?;
-    if (roomId == null || messageId == null || userId == null || reaction == null) {
+    if (roomId == null ||
+        messageId == null ||
+        userId == null ||
+        reaction == null) {
       return null;
     }
     return ChatEvent.reactionAdded(
@@ -260,23 +288,27 @@ class EventParser {
 
   static ChatMessage? _messageFromEvent(Map<String, dynamic> json) {
     final messageData = json['message'] as Map<String, dynamic>? ?? json;
-    final id = (messageData['messageId'] ??
-        messageData['idMessage'] ??
-        messageData['id']) as String?;
-    final from = (messageData['from'] ??
-        messageData['fromJid'] ??
-        messageData['userId'] ??
-        json['userId']) as String?;
+    final id =
+        (messageData['messageId'] ??
+                messageData['idMessage'] ??
+                messageData['id'])
+            as String?;
+    final from =
+        (messageData['from'] ??
+                messageData['fromJid'] ??
+                messageData['userId'] ??
+                json['userId'])
+            as String?;
     if (id == null || from == null) return null;
     return MessageMapper.fromJson({
       ...messageData,
       'id': id,
       'from': from,
       'text': messageData['text'] ?? messageData['body'],
-      'timestamp': messageData['timestamp'] ??
+      'timestamp':
+          messageData['timestamp'] ??
           json['timestamp'] ??
           DateTime.now().toIso8601String(),
     });
   }
-
 }

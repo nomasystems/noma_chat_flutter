@@ -23,28 +23,27 @@ class UsersApi implements ChatUsersApi {
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     void Function(String level, String message)? logger,
-  })  : _rest = rest,
-        _cache = cache,
-        _cacheManager = cacheManager,
-        _logger = logger;
+  }) : _rest = rest,
+       _cache = cache,
+       _cacheManager = cacheManager,
+       _logger = logger;
 
   @override
   Future<Result<PaginatedResponse<ChatUser>>> search(
     String query, {
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/users', queryParams: {
-          'q': query,
-          ...?pagination?.toQueryParams(),
-        });
-        final users = UserMapper.fromJsonList(json['users'] as List? ?? []);
-        return PaginatedResponse(
-          items: users,
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/users',
+      queryParams: {'q': query, ...?pagination?.toQueryParams()},
+    );
+    final users = UserMapper.fromJsonList(json['users'] as List? ?? []);
+    return PaginatedResponse(
+      items: users,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   @override
   Future<Result<ChatUser>> get(String userId, {CachePolicy? cachePolicy}) {
@@ -71,14 +70,16 @@ class UsersApi implements ChatUsersApi {
   Future<Result<ChatUser>> create({
     List<String>? externalIds,
     Map<String, String>? passwords,
-  }) =>
-      safeApiCall(() async {
-        final json = await _rest.post('/users', data: {
-          if (externalIds != null) 'externalIds': externalIds,
-          if (passwords != null) 'passwords': passwords,
-        });
-        return UserMapper.fromJson(json);
-      });
+  }) => safeApiCall(() async {
+    final json = await _rest.post(
+      '/users',
+      data: {
+        if (externalIds != null) 'externalIds': externalIds,
+        if (passwords != null) 'passwords': passwords,
+      },
+    );
+    return UserMapper.fromJson(json);
+  });
 
   @override
   Future<Result<ChatUser>> update(
@@ -115,8 +116,7 @@ class UsersApi implements ChatUsersApi {
 
   @override
   Future<Result<void>> delete(String userId) async {
-    final result =
-        await safeVoidCall(() => _rest.delete('/users/$userId'));
+    final result = await safeVoidCall(() => _rest.delete('/users/$userId'));
     if (result.isSuccess && _cache != null) {
       try {
         await _cache.deleteUser(userId);
@@ -133,50 +133,55 @@ class UsersApi implements ChatUsersApi {
   @override
   Future<Result<ChatUser>> searchManaged({required String externalId}) =>
       safeApiCall(() async {
-        final json = await _rest.get('/managed-users',
-            queryParams: {'externalId': externalId});
+        final json = await _rest.get(
+          '/managed-users',
+          queryParams: {'externalId': externalId},
+        );
         return UserMapper.fromJson(json);
       });
 
   @override
   Future<Result<List<ChatUser>>> createManaged({
     required List<String> externalIds,
-  }) =>
-      safeApiCall(() async {
-        final json = await _rest
-            .post('/managed-users', data: {'externalIds': externalIds});
-        return UserMapper.fromJsonList(json['users'] as List? ?? []);
-      });
+  }) => safeApiCall(() async {
+    final json = await _rest.post(
+      '/managed-users',
+      data: {'externalIds': externalIds},
+    );
+    return UserMapper.fromJsonList(json['users'] as List? ?? []);
+  });
 
   @override
   Future<Result<PaginatedResponse<ChatUser>>> getManaged(
     String userId, {
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/managed-users/$userId',
-            queryParams: pagination?.toQueryParams());
-        return PaginatedResponse(
-          items: UserMapper.fromJsonList(json['users'] as List? ?? []),
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/managed-users/$userId',
+      queryParams: pagination?.toQueryParams(),
+    );
+    return PaginatedResponse(
+      items: UserMapper.fromJsonList(json['users'] as List? ?? []),
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   @override
   Future<Result<void>> deleteManaged(
     String userId, {
     required String fromUserId,
-  }) =>
-      safeVoidCall(() => _rest.delete('/managed-users/$userId',
-          headers: {'X-From-User-Id': fromUserId}));
+  }) => safeVoidCall(
+    () => _rest.delete(
+      '/managed-users/$userId',
+      headers: {'X-From-User-Id': fromUserId},
+    ),
+  );
 
   @override
-  Future<Result<ManagedUserConfiguration>> getManagedConfig(
-          String userId) =>
+  Future<Result<ManagedUserConfiguration>> getManagedConfig(String userId) =>
       safeApiCall(() async {
-        final json =
-            await _rest.get('/managed-users/$userId/configuration');
+        final json = await _rest.get('/managed-users/$userId/configuration');
         return UserMapper.managedConfigFromJson(json);
       });
 
@@ -184,9 +189,10 @@ class UsersApi implements ChatUsersApi {
   Future<Result<void>> updateManagedConfig(
     String userId, {
     required ManagedUserConfiguration configuration,
-  }) =>
-      safeVoidCall(() => _rest.putVoid(
-            '/managed-users/$userId/configuration',
-            data: UserMapper.managedConfigToJson(configuration),
-          ));
+  }) => safeVoidCall(
+    () => _rest.putVoid(
+      '/managed-users/$userId/configuration',
+      data: UserMapper.managedConfigToJson(configuration),
+    ),
+  );
 }

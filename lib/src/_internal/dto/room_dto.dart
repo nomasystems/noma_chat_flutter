@@ -24,17 +24,17 @@ class RoomDto {
   });
 
   factory RoomDto.fromJson(Map<String, dynamic> json) => RoomDto(
-        roomId: (json['roomId'] ?? json['id'] ?? '') as String,
-        owner: json['owner'] as String?,
-        name: json['name'] as String?,
-        subject: json['subject'] as String?,
-        audience: json['audience'] as String?,
-        allowInvitations: json['allowInvitations'] as bool?,
-        members: (json['members'] as List?)?.cast<String>(),
-        publicToken: json['publicToken'] as String?,
-        avatarUrl: json['avatarUrl'] as String?,
-        custom: json['custom'] as Map<String, dynamic>?,
-      );
+    roomId: (json['roomId'] ?? json['id'] ?? '') as String,
+    owner: json['owner'] as String?,
+    name: json['name'] as String?,
+    subject: json['subject'] as String?,
+    audience: json['audience'] as String?,
+    allowInvitations: json['allowInvitations'] as bool?,
+    members: (json['members'] as List?)?.cast<String>(),
+    publicToken: json['publicToken'] as String?,
+    avatarUrl: json['avatarUrl'] as String?,
+    custom: json['custom'] as Map<String, dynamic>?,
+  );
 }
 
 class RoomDetailDto {
@@ -69,20 +69,20 @@ class RoomDetailDto {
   });
 
   factory RoomDetailDto.fromJson(Map<String, dynamic> json) => RoomDetailDto(
-        id: (json['id'] ?? '') as String,
-        name: json['name'] as String?,
-        subject: json['subject'] as String?,
-        type: (json['type'] ?? 'group') as String,
-        memberCount: (json['memberCount'] ?? 0) as int,
-        userRole: (json['userRole'] ?? 'user') as String,
-        config: json['config'] as Map<String, dynamic>?,
-        muted: (json['muted'] ?? false) as bool,
-        pinned: (json['pinned'] ?? false) as bool,
-        hidden: (json['hidden'] ?? false) as bool,
-        createdAt: json['createdAt'] as String?,
-        avatarUrl: json['avatarUrl'] as String?,
-        custom: json['custom'] as Map<String, dynamic>?,
-      );
+    id: (json['id'] ?? '') as String,
+    name: json['name'] as String?,
+    subject: json['subject'] as String?,
+    type: (json['type'] ?? 'group') as String,
+    memberCount: (json['memberCount'] ?? 0) as int,
+    userRole: (json['userRole'] ?? 'user') as String,
+    config: json['config'] as Map<String, dynamic>?,
+    muted: (json['muted'] ?? false) as bool,
+    pinned: (json['pinned'] ?? false) as bool,
+    hidden: (json['hidden'] ?? false) as bool,
+    createdAt: json['createdAt'] as String?,
+    avatarUrl: json['avatarUrl'] as String?,
+    custom: json['custom'] as Map<String, dynamic>?,
+  );
 }
 
 class UserRoomsDto {
@@ -97,12 +97,9 @@ class UserRoomsDto {
   });
 
   factory UserRoomsDto.fromJson(Map<String, dynamic> json) => UserRoomsDto(
-        rooms: (json['rooms'] as List?)
-                ?.cast<Map<String, dynamic>>() ??
-            [],
-        invitedRooms: (json['invitedRooms'] as List?)
-                ?.cast<Map<String, dynamic>>() ??
-            [],
-        hasMore: (json['hasMore'] ?? false) as bool,
-      );
+    rooms: (json['rooms'] as List?)?.cast<Map<String, dynamic>>() ?? [],
+    invitedRooms:
+        (json['invitedRooms'] as List?)?.cast<Map<String, dynamic>>() ?? [],
+    hasMore: (json['hasMore'] ?? false) as bool,
+  );
 }

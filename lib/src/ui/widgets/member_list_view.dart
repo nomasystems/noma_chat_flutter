@@ -75,7 +75,8 @@ class MemberListView extends StatelessWidget {
           ),
           title: Text(
             entry.user.displayName ?? entry.user.id,
-            style: theme.roomNameTextStyle ??
+            style:
+                theme.roomNameTextStyle ??
                 const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           subtitle: Container(
@@ -83,8 +84,7 @@ class MemberListView extends StatelessWidget {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: _roleColor(entry.role).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
@@ -127,10 +127,7 @@ class MemberListView extends StatelessWidget {
                         child: Text(theme.l10n.changeRole),
                       ),
                     if (onBanMember != null)
-                      PopupMenuItem(
-                        value: 'ban',
-                        child: Text(theme.l10n.ban),
-                      ),
+                      PopupMenuItem(value: 'ban', child: Text(theme.l10n.ban)),
                   ],
                 )
               : null,

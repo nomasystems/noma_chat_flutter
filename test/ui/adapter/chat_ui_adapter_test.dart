@@ -98,8 +98,7 @@ void main() {
       expect(controller.messages.first.text, 'Updated');
     });
 
-    test('messageDeleted event marks message as deleted (tombstone)',
-        () async {
+    test('messageDeleted event marks message as deleted (tombstone)', () async {
       await adapter.connect();
       final controller = adapter.getChatController('room1');
       controller.addMessage(
@@ -181,17 +180,17 @@ void main() {
 
     test('roomCreated event adds room AFTER successful detail fetch', () async {
       await adapter.connect();
-      mockClient.seedRoom(ChatRoom(
-        id: 'new-room',
-        owner: 'u1',
-        name: 'Seeded Room',
-        audience: RoomAudience.unrestricted,
-        members: const ['u1', 'u2'],
-      ));
-
-      mockClient.emitEvent(
-        const ChatEvent.roomCreated(roomId: 'new-room'),
+      mockClient.seedRoom(
+        ChatRoom(
+          id: 'new-room',
+          owner: 'u1',
+          name: 'Seeded Room',
+          audience: RoomAudience.unrestricted,
+          members: const ['u1', 'u2'],
+        ),
       );
+
+      mockClient.emitEvent(const ChatEvent.roomCreated(roomId: 'new-room'));
 
       await Future.delayed(const Duration(milliseconds: 50));
       expect(adapter.roomListController.allRooms, hasLength(1));
@@ -200,24 +199,24 @@ void main() {
       expect(adapter.roomListController.allRooms.first.name, 'Seeded Room');
     });
 
-    test('roomCreated event does NOT add a ghost room when detail fails',
-        () async {
-      await adapter.connect();
-      // No seedRoom call: the mock will return Failure(NotFoundFailure()).
+    test(
+      'roomCreated event does NOT add a ghost room when detail fails',
+      () async {
+        await adapter.connect();
+        // No seedRoom call: the mock will return Failure(NotFoundFailure()).
 
-      mockClient.emitEvent(
-        const ChatEvent.roomCreated(roomId: 'ghost-room'),
-      );
+        mockClient.emitEvent(const ChatEvent.roomCreated(roomId: 'ghost-room'));
 
-      await Future.delayed(const Duration(milliseconds: 50));
-      expect(
-        adapter.roomListController.allRooms,
-        isEmpty,
-        reason:
-            'Without a successful detail fetch, no placeholder/ghost row '
-            'should appear in the room list',
-      );
-    });
+        await Future.delayed(const Duration(milliseconds: 50));
+        expect(
+          adapter.roomListController.allRooms,
+          isEmpty,
+          reason:
+              'Without a successful detail fetch, no placeholder/ghost row '
+              'should appear in the room list',
+        );
+      },
+    );
 
     test('newMessage updates room list last message', () async {
       await adapter.connect();

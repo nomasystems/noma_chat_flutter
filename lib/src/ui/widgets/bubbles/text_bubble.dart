@@ -39,7 +39,8 @@ class TextBubble extends StatelessWidget {
         ? (theme.outgoingTextStyle ?? const TextStyle(fontSize: 15))
         : (theme.incomingTextStyle ?? const TextStyle(fontSize: 15));
 
-    final timestampStyle = (isOutgoing
+    final timestampStyle =
+        (isOutgoing
             ? theme.outgoingTimestampTextStyle
             : theme.incomingTimestampTextStyle) ??
         theme.timestampTextStyle ??
@@ -58,7 +59,8 @@ class TextBubble extends StatelessWidget {
               padding: EdgeInsets.only(right: timestamp != null ? 2 : 0),
               child: Text(
                 theme.l10n.edited,
-                style: theme.editedLabelTextStyle ??
+                style:
+                    theme.editedLabelTextStyle ??
                     TextStyle(
                       fontSize: 11,
                       fontStyle: FontStyle.italic,
@@ -141,11 +143,7 @@ class TextBubble extends StatelessWidget {
                       ),
                     ),
               // Timestamp + status positioned at bottom-right
-              Positioned(
-                right: 0,
-                bottom: 0,
-                child: metaRow,
-              ),
+              Positioned(right: 0, bottom: 0, child: metaRow),
             ],
           )
         else if (enableSelection)

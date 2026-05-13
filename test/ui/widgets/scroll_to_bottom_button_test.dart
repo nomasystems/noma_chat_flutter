@@ -8,10 +8,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ScrollToBottomButton(
-              visible: false,
-              onPressed: () {},
-            ),
+            body: ScrollToBottomButton(visible: false, onPressed: () {}),
           ),
         ),
       );
@@ -23,10 +20,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ScrollToBottomButton(
-              visible: true,
-              onPressed: () {},
-            ),
+            body: ScrollToBottomButton(visible: true, onPressed: () {}),
           ),
         ),
       );
@@ -71,10 +65,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ScrollToBottomButton(
-              visible: true,
-              onPressed: () {},
-            ),
+            body: ScrollToBottomButton(visible: true, onPressed: () {}),
           ),
         ),
       );
@@ -86,10 +77,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: ScrollToBottomButton(
-              visible: true,
-              onPressed: () {},
-            ),
+            body: ScrollToBottomButton(visible: true, onPressed: () {}),
           ),
         ),
       );

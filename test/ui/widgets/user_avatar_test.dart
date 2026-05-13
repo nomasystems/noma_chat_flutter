@@ -32,7 +32,9 @@ void main() {
       expect(find.text('?'), findsOneWidget);
     });
 
-    testWidgets('handles name with multiple spaces between words', (tester) async {
+    testWidgets('handles name with multiple spaces between words', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrap(const UserAvatar(displayName: 'John   Doe', size: 40)),
       );

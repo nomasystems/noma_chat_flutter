@@ -29,8 +29,8 @@ class WsTransport {
   WsTransport({
     required ChatConfig config,
     WebSocketChannelFactory? channelFactory,
-  })  : _config = config,
-        _channelFactory = channelFactory ?? _defaultFactory;
+  }) : _config = config,
+       _channelFactory = channelFactory ?? _defaultFactory;
 
   static WebSocketChannel _defaultFactory(Uri uri) =>
       WebSocketChannel.connect(uri);
@@ -60,21 +60,26 @@ class WsTransport {
           ? realtimeUri.path.substring(0, realtimeUri.path.length - 1)
           : realtimeUri.path;
       final uri = realtimeUri.replace(
-          scheme: realtimeUri.scheme == 'wss' || realtimeUri.scheme == 'ws'
-              ? realtimeUri.scheme
-              : wsScheme,
-          path: '$basePath${_config.wsPath}');
+        scheme: realtimeUri.scheme == 'wss' || realtimeUri.scheme == 'ws'
+            ? realtimeUri.scheme
+            : wsScheme,
+        path: '$basePath${_config.wsPath}',
+      );
       _config.log('debug', 'WS connecting to $uri');
       _channel = _channelFactory(uri);
       await _channel!.ready;
       _channelSubscription = _channel!.stream.listen(
-        _onMessage, onError: _onError, onDone: _onDone);
+        _onMessage,
+        onError: _onError,
+        onDone: _onDone,
+      );
       await _authenticate();
     } catch (e) {
       _config.log('error', 'WS connection failed: $e');
       _setState(ChatConnectionState.error);
-      _eventController.add(ChatEvent.error(
-          exception: ChatNetworkException(e.toString())));
+      _eventController.add(
+        ChatEvent.error(exception: ChatNetworkException(e.toString())),
+      );
       _scheduleReconnect();
     }
   }
@@ -148,16 +153,23 @@ class WsTransport {
     if (type == 'auth_error') {
       _config.log('error', 'WS auth failed: ${json['reason'] ?? 'unknown'}');
       _config.authInterceptor.invalidateCache();
-      _eventController
-          .add(const ChatEvent.error(exception: ChatAuthException()));
+      _eventController.add(
+        const ChatEvent.error(exception: ChatAuthException()),
+      );
       return;
     }
     if (type == 'auth_refreshed') {
-      _config.log('debug', 'WS auth refreshed (expiresAt=${json['expiresAt']})');
+      _config.log(
+        'debug',
+        'WS auth refreshed (expiresAt=${json['expiresAt']})',
+      );
       return;
     }
     if (type == 'auth_refresh_error') {
-      _config.log('warn', 'WS auth_refresh_error: ${json['code'] ?? 'unknown'}');
+      _config.log(
+        'warn',
+        'WS auth_refresh_error: ${json['code'] ?? 'unknown'}',
+      );
       _config.authInterceptor.invalidateCache();
       return;
     }
@@ -166,9 +178,11 @@ class WsTransport {
       final reason = json['reason'] as String? ?? 'unknown';
       final action = json['action'] as String?;
       _config.log('warn', 'WS error: action=$action reason=$reason');
-      _eventController.add(ChatEvent.error(
-        exception: ChatWsOperationException(action: action, reason: reason),
-      ));
+      _eventController.add(
+        ChatEvent.error(
+          exception: ChatWsOperationException(action: action, reason: reason),
+        ),
+      );
       return;
     }
     final payload = type == 'event' && json['data'] is Map<String, dynamic>
@@ -185,7 +199,8 @@ class WsTransport {
     _setState(ChatConnectionState.error);
     if (!_eventController.isClosed) {
       _eventController.add(
-          ChatEvent.error(exception: ChatNetworkException(error.toString())));
+        ChatEvent.error(exception: ChatNetworkException(error.toString())),
+      );
     }
     _scheduleReconnect();
   }
@@ -193,8 +208,7 @@ class WsTransport {
   void _onDone() {
     _stopPing();
     final closeCode = _channel?.closeCode;
-    final tokenInvalidated =
-        closeCode == 4003 || closeCode == 4004;
+    final tokenInvalidated = closeCode == 4003 || closeCode == 4004;
     if (tokenInvalidated) {
       _config.log(
         'warn',
@@ -203,11 +217,15 @@ class WsTransport {
       _config.authInterceptor.invalidateCache();
     }
     if (_shouldReconnect) {
-      _config.log('warn', 'WS connection closed (code=$closeCode), will reconnect');
+      _config.log(
+        'warn',
+        'WS connection closed (code=$closeCode), will reconnect',
+      );
       _setState(ChatConnectionState.reconnecting);
       if (!_eventController.isClosed) {
-        _eventController
-            .add(const ChatEvent.disconnected(reason: 'Connection closed'));
+        _eventController.add(
+          const ChatEvent.disconnected(reason: 'Connection closed'),
+        );
       }
       _scheduleReconnect();
     } else {
@@ -237,16 +255,23 @@ class WsTransport {
       _config.log('error', 'WS max reconnect attempts ($maxAttempts) reached');
       _setState(ChatConnectionState.error);
       if (!_eventController.isClosed) {
-        _eventController.add(ChatEvent.error(
+        _eventController.add(
+          ChatEvent.error(
             exception: ChatNetworkException(
-                'Max reconnect attempts ($maxAttempts) reached')));
+              'Max reconnect attempts ($maxAttempts) reached',
+            ),
+          ),
+        );
       }
       _shouldReconnect = false;
       return;
     }
     _reconnectTimer?.cancel();
     final delay = _calculateBackoff();
-    _config.log('debug', 'WS reconnecting in ${delay.inMilliseconds}ms (attempt ${_reconnectAttempts + 1})');
+    _config.log(
+      'debug',
+      'WS reconnecting in ${delay.inMilliseconds}ms (attempt ${_reconnectAttempts + 1})',
+    );
     _reconnectTimer = Timer(delay, () {
       _reconnectAttempts++;
       _doConnect();
@@ -263,7 +288,9 @@ class WsTransport {
   void _startPing() {
     _pingTimer?.cancel();
     _pingTimer = Timer.periodic(
-        const Duration(seconds: 30), (_) => sendRaw({'type': 'ping'}));
+      const Duration(seconds: 30),
+      (_) => sendRaw({'type': 'ping'}),
+    );
   }
 
   void _stopPing() {
@@ -277,14 +304,16 @@ class WsTransport {
   void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
       sendRaw({'type': 'typing', 'contactId': contactId, 'activity': activity});
 
-  void sendReceipt(String roomId, String messageId,
-          {ReceiptStatus status = ReceiptStatus.read}) =>
-      sendRaw({
-        'type': 'receipt',
-        'roomId': roomId,
-        'messageId': messageId,
-        'status': status.name,
-      });
+  void sendReceipt(
+    String roomId,
+    String messageId, {
+    ReceiptStatus status = ReceiptStatus.read,
+  }) => sendRaw({
+    'type': 'receipt',
+    'roomId': roomId,
+    'messageId': messageId,
+    'status': status.name,
+  });
 
   void sendMessage(
     String roomId, {
@@ -295,19 +324,17 @@ class WsTransport {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) =>
-      sendRaw({
-        'type': 'message',
-        'roomId': roomId,
-        if (text != null) 'text': text,
-        'messageType': messageType,
-        if (referencedMessageId != null)
-          'referencedMessageId': referencedMessageId,
-        if (reaction != null) 'emoji': reaction,
-        if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
-        if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
-        if (metadata != null) 'metadata': metadata,
-      });
+  }) => sendRaw({
+    'type': 'message',
+    'roomId': roomId,
+    if (text != null) 'text': text,
+    'messageType': messageType,
+    if (referencedMessageId != null) 'referencedMessageId': referencedMessageId,
+    if (reaction != null) 'emoji': reaction,
+    if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+    if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
+    if (metadata != null) 'metadata': metadata,
+  });
 
   void sendRaw(Map<String, dynamic> data) {
     if (_state != ChatConnectionState.connected || _channel == null) return;

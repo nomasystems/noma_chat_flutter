@@ -47,8 +47,7 @@ class DocsListView extends StatelessWidget {
   Widget build(BuildContext context) {
     final visible = items.where((m) {
       if (m.type != MediaItemType.file) return false;
-      if (!includeAudioFiles &&
-          (m.mimeType?.startsWith('audio/') ?? false)) {
+      if (!includeAudioFiles && (m.mimeType?.startsWith('audio/') ?? false)) {
         return false;
       }
       return true;
@@ -71,10 +70,9 @@ class DocsListView extends StatelessWidget {
         final iconColor = Colors.grey.shade700;
         final subtitleParts = <String>[];
         if (item.timestamp != null) {
-          subtitleParts.add(DateFormatter.formatRelative(
-            item.timestamp!,
-            l10n: theme.l10n,
-          ));
+          subtitleParts.add(
+            DateFormatter.formatRelative(item.timestamp!, l10n: theme.l10n),
+          );
         }
         if (item.senderId != null && item.senderId!.isNotEmpty) {
           subtitleParts.add(item.senderId!);
@@ -96,10 +94,7 @@ class DocsListView extends StatelessWidget {
                   subtitleParts.join(' · '),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey.shade600,
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
                 ),
           onTap: onTapItem != null ? () => onTapItem!(item) : null,
         );

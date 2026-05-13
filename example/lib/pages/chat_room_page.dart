@@ -9,11 +9,7 @@ import 'pinned_messages_page.dart';
 /// delete, react and reply all flow through `chat.adapter` so the SDK's
 /// optimistic UI + operationErrors stream are exercised end-to-end.
 class ChatRoomPage extends StatefulWidget {
-  const ChatRoomPage({
-    super.key,
-    required this.roomId,
-    this.title,
-  });
+  const ChatRoomPage({super.key, required this.roomId, this.title});
 
   final String roomId;
   final String? title;
@@ -58,9 +54,11 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   }
 
   void _openPins() {
-    Navigator.of(context).push<void>(MaterialPageRoute(
-      builder: (_) => PinnedMessagesPage(roomId: widget.roomId),
-    ));
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => PinnedMessagesPage(roomId: widget.roomId),
+      ),
+    );
   }
 
   @override
@@ -86,19 +84,21 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         initialMessageId: _initialMessageId,
         onSendMessage: (text) =>
             _chat.adapter.sendMessage(widget.roomId, text: text),
-        onEditMessage: (message, text) => _chat.adapter
-            .editMessage(widget.roomId, message.id, text: text),
+        onEditMessage: (message, text) =>
+            _chat.adapter.editMessage(widget.roomId, message.id, text: text),
         onDeleteMessage: (message) =>
             _chat.adapter.deleteMessage(widget.roomId, message.id),
-        onReactionSelected: (message, emoji) => _chat.adapter
-            .sendReaction(widget.roomId, messageId: message.id, emoji: emoji),
+        onReactionSelected: (message, emoji) => _chat.adapter.sendReaction(
+          widget.roomId,
+          messageId: message.id,
+          emoji: emoji,
+        ),
         onDeleteReaction: (message, emoji) => _chat.adapter.deleteReaction(
           widget.roomId,
           messageId: message.id,
           emoji: emoji,
         ),
-        onLoadMoreMessages: () =>
-            _chat.adapter.loadMoreMessages(widget.roomId),
+        onLoadMoreMessages: () => _chat.adapter.loadMoreMessages(widget.roomId),
         onTypingChanged: (isTyping) =>
             _chat.adapter.sendTyping(widget.roomId, isTyping: isTyping),
         contextMenuActions: const {

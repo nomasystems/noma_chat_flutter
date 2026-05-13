@@ -38,12 +38,15 @@ void main() {
     when(() => mockRecorder.resume()).thenAnswer((_) async {});
     when(() => mockRecorder.stop()).thenAnswer((_) async => null);
     when(() => mockPlayer.stop()).thenAnswer((_) async {});
-    when(() => mockPlayer.positionStream)
-        .thenAnswer((_) => const Stream<Duration>.empty());
-    when(() => mockPlayer.durationStream)
-        .thenAnswer((_) => const Stream<Duration?>.empty());
-    when(() => mockPlayer.playerStateStream)
-        .thenAnswer((_) => const Stream<PlayerState>.empty());
+    when(
+      () => mockPlayer.positionStream,
+    ).thenAnswer((_) => const Stream<Duration>.empty());
+    when(
+      () => mockPlayer.durationStream,
+    ).thenAnswer((_) => const Stream<Duration?>.empty());
+    when(
+      () => mockPlayer.playerStateStream,
+    ).thenAnswer((_) => const Stream<PlayerState>.empty());
 
     tempDir = await Directory.systemTemp.createTemp('voice_test_');
 
@@ -79,10 +82,12 @@ void main() {
 
   test('startRecording transitions to recording state', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
     final result = await controller.startRecording();
 
@@ -92,10 +97,12 @@ void main() {
 
   test('cancelRecording transitions back to idle', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
     when(() => mockRecorder.stop()).thenAnswer((_) async => '');
 
@@ -109,10 +116,12 @@ void main() {
 
   test('lockRecording transitions from recording to locked', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
     await controller.startRecording();
     controller.lockRecording();
@@ -127,10 +136,12 @@ void main() {
 
   test('stopRecording returns null when too short', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
     when(() => mockRecorder.stop()).thenAnswer((_) async => '');
 
@@ -153,10 +164,12 @@ void main() {
 
   test('liveWaveform is unmodifiable', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
     await controller.startRecording();
     expect(
@@ -184,10 +197,12 @@ void main() {
 
   test('notifies listeners on state changes', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
     var notifyCount = 0;
     controller.addListener(() => notifyCount++);
@@ -201,92 +216,109 @@ void main() {
     expect(controller.state, VoiceRecordingState.idle);
   });
 
-  test('startRecording when already recording returns alreadyRunning',
-      () async {
-    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+  test(
+    'startRecording when already recording returns alreadyRunning',
+    () async {
+      when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+      when(
+        () => mockRecorder.start(any(), path: any(named: 'path')),
+      ).thenAnswer((_) async {});
+      when(
+        () => mockRecorder.getAmplitude(),
+      ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
-    await controller.startRecording();
-    final result = await controller.startRecording();
+      await controller.startRecording();
+      final result = await controller.startRecording();
 
-    expect(result, StartRecordingResult.alreadyRunning);
-    expect(controller.state, VoiceRecordingState.recording);
-  });
+      expect(result, StartRecordingResult.alreadyRunning);
+      expect(controller.state, VoiceRecordingState.recording);
+    },
+  );
 
-  test('startRecording returns permissionJustGranted on first slow grant',
-      () async {
-    var firstCall = true;
-    when(() => mockRecorder.hasPermission()).thenAnswer((_) async {
-      if (firstCall) {
-        firstCall = false;
-        await Future<void>.delayed(const Duration(milliseconds: 350));
-      }
-      return true;
-    });
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+  test(
+    'startRecording returns permissionJustGranted on first slow grant',
+    () async {
+      var firstCall = true;
+      when(() => mockRecorder.hasPermission()).thenAnswer((_) async {
+        if (firstCall) {
+          firstCall = false;
+          await Future<void>.delayed(const Duration(milliseconds: 350));
+        }
+        return true;
+      });
+      when(
+        () => mockRecorder.start(any(), path: any(named: 'path')),
+      ).thenAnswer((_) async {});
+      when(
+        () => mockRecorder.getAmplitude(),
+      ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
-    final first = await controller.startRecording();
-    expect(first, StartRecordingResult.permissionJustGranted);
-    expect(controller.state, VoiceRecordingState.idle);
+      final first = await controller.startRecording();
+      expect(first, StartRecordingResult.permissionJustGranted);
+      expect(controller.state, VoiceRecordingState.idle);
 
-    final second = await controller.startRecording();
-    expect(second, StartRecordingResult.started);
-    expect(controller.state, VoiceRecordingState.recording);
-  });
+      final second = await controller.startRecording();
+      expect(second, StartRecordingResult.started);
+      expect(controller.state, VoiceRecordingState.recording);
+    },
+  );
 
-  test('preListen forwards player position events as listener notifications',
-      () async {
-    final positionController = StreamController<Duration>.broadcast();
-    final durationController = StreamController<Duration?>.broadcast();
-    final stateController = StreamController<PlayerState>.broadcast();
+  test(
+    'preListen forwards player position events as listener notifications',
+    () async {
+      final positionController = StreamController<Duration>.broadcast();
+      final durationController = StreamController<Duration?>.broadcast();
+      final stateController = StreamController<PlayerState>.broadcast();
 
-    when(() => mockPlayer.positionStream)
-        .thenAnswer((_) => positionController.stream);
-    when(() => mockPlayer.durationStream)
-        .thenAnswer((_) => durationController.stream);
-    when(() => mockPlayer.playerStateStream)
-        .thenAnswer((_) => stateController.stream);
-    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
-    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
-    when(() => mockRecorder.stop()).thenAnswer((_) async => '');
-    when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);
-    when(() => mockPlayer.play()).thenAnswer((_) async {});
-    when(() => mockPlayer.pause()).thenAnswer((_) async {});
-    when(() => mockPlayer.seek(any())).thenAnswer((_) async {});
+      when(
+        () => mockPlayer.positionStream,
+      ).thenAnswer((_) => positionController.stream);
+      when(
+        () => mockPlayer.durationStream,
+      ).thenAnswer((_) => durationController.stream);
+      when(
+        () => mockPlayer.playerStateStream,
+      ).thenAnswer((_) => stateController.stream);
+      when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+      when(
+        () => mockRecorder.start(any(), path: any(named: 'path')),
+      ).thenAnswer((_) async {});
+      when(
+        () => mockRecorder.getAmplitude(),
+      ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+      when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+      when(() => mockRecorder.stop()).thenAnswer((_) async => '');
+      when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);
+      when(() => mockPlayer.play()).thenAnswer((_) async {});
+      when(() => mockPlayer.pause()).thenAnswer((_) async {});
+      when(() => mockPlayer.seek(any())).thenAnswer((_) async {});
 
-    var notifications = 0;
-    controller.addListener(() => notifications++);
+      var notifications = 0;
+      controller.addListener(() => notifications++);
 
-    await controller.startRecording();
-    controller.lockRecording();
-    await controller.startPreListen();
+      await controller.startRecording();
+      controller.lockRecording();
+      await controller.startPreListen();
 
-    final baseline = notifications;
-    positionController.add(const Duration(milliseconds: 500));
-    await Future<void>.delayed(Duration.zero);
-    expect(notifications, greaterThan(baseline));
+      final baseline = notifications;
+      positionController.add(const Duration(milliseconds: 500));
+      await Future<void>.delayed(Duration.zero);
+      expect(notifications, greaterThan(baseline));
 
-    await positionController.close();
-    await durationController.close();
-    await stateController.close();
-  });
+      await positionController.close();
+      await durationController.close();
+      await stateController.close();
+    },
+  );
 
   test('cancelRecording in preListen stops player and resets', () async {
     when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
-    when(() => mockRecorder.start(any(), path: any(named: 'path')))
-        .thenAnswer((_) async {});
-    when(() => mockRecorder.getAmplitude())
-        .thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
     when(() => mockRecorder.stop()).thenAnswer((_) async => '');
     when(() => mockPlayer.setFilePath(any())).thenAnswer((_) async => null);

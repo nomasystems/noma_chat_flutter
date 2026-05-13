@@ -132,7 +132,11 @@ void main() {
     test('default values + equality', () {
       const a = UnreadRoom(roomId: 'r1', unreadMessages: 3);
       const b = UnreadRoom(
-          roomId: 'r1', unreadMessages: 7, lastMessage: 'x', muted: true);
+        roomId: 'r1',
+        unreadMessages: 7,
+        lastMessage: 'x',
+        muted: true,
+      );
       const c = UnreadRoom(roomId: 'r2', unreadMessages: 3);
       expect(a, equals(b));
       expect(a == c, isFalse);
@@ -239,8 +243,7 @@ void main() {
 
   group('AttachmentUploadResult', () {
     test('toString includes id', () {
-      const r =
-          AttachmentUploadResult(attachmentId: 'a1', url: 'u', raw: {});
+      const r = AttachmentUploadResult(attachmentId: 'a1', url: 'u', raw: {});
       expect(r.toString(), contains('a1'));
       expect(r.attachmentId, 'a1');
     });
@@ -257,7 +260,10 @@ void main() {
   group('ReadReceipt', () {
     test('fields', () {
       final rr = ReadReceipt(
-          userId: 'u1', lastReadMessageId: 'm1', lastReadAt: DateTime(2026));
+        userId: 'u1',
+        lastReadMessageId: 'm1',
+        lastReadAt: DateTime(2026),
+      );
       expect(rr.userId, 'u1');
       expect(rr.lastReadMessageId, 'm1');
     });
@@ -266,8 +272,10 @@ void main() {
   group('HealthStatus', () {
     test('isHealthy', () {
       const ok = HealthStatus(status: ServiceStatus.ok);
-      const degraded =
-          HealthStatus(status: ServiceStatus.degraded, checks: {'db': 'down'});
+      const degraded = HealthStatus(
+        status: ServiceStatus.degraded,
+        checks: {'db': 'down'},
+      );
       expect(ok.isHealthy, isTrue);
       expect(degraded.isHealthy, isFalse);
       expect(degraded.checks['db'], 'down');
@@ -284,28 +292,37 @@ void main() {
       });
       expect(info.forwardedFrom, 'u1');
       expect(info.toString(), contains('u1'));
-      expect(info,
-          equals(const ForwardInfo(
-              forwardedFrom: 'u1',
-              forwardedFromRoom: 'r1',
-              forwardedMessageId: 'm1')));
+      expect(
+        info,
+        equals(
+          const ForwardInfo(
+            forwardedFrom: 'u1',
+            forwardedFromRoom: 'r1',
+            forwardedMessageId: 'm1',
+          ),
+        ),
+      );
       expect(info.hashCode, isA<int>());
 
       expect(ForwardInfo.tryFromMetadata(null), isNull);
       expect(ForwardInfo.tryFromMetadata(const {'other': 'x'}), isNull);
       expect(
-          ForwardInfo.tryFromMetadata(const {
-            'forwardedFrom': 'u1',
-            'forwardedFromRoom': 'r1',
-            'forwardedMessageId': 'm1',
-          }),
-          isNotNull);
+        ForwardInfo.tryFromMetadata(const {
+          'forwardedFrom': 'u1',
+          'forwardedFromRoom': 'r1',
+          'forwardedMessageId': 'm1',
+        }),
+        isNotNull,
+      );
 
       // Malformed metadata → silent null.
       expect(
-          ForwardInfo.tryFromMetadata(
-              const {'forwardedFrom': 123, 'forwardedFromRoom': 'r1'}),
-          isNull);
+        ForwardInfo.tryFromMetadata(const {
+          'forwardedFrom': 123,
+          'forwardedFromRoom': 'r1',
+        }),
+        isNull,
+      );
 
       // Fallback path: no metadata → builds from message-level fields.
       final fallback = ForwardInfo.tryFromMessage(
@@ -318,8 +335,9 @@ void main() {
 
       // No `from` at all → null.
       expect(
-          ForwardInfo.tryFromMessage(from: null, referencedMessageId: 'x'),
-          isNull);
+        ForwardInfo.tryFromMessage(from: null, referencedMessageId: 'x'),
+        isNull,
+      );
 
       // Metadata wins over fallback.
       final preferMetadata = ForwardInfo.tryFromMessage(

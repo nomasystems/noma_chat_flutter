@@ -5,21 +5,13 @@ import 'package:noma_chat/noma_chat.dart';
 /// Drives every branch of `_presenceDotColor` + `_presenceText` in
 /// `UserProfileView` by rendering the widget once per `PresenceStatus`.
 void main() {
-  Widget wrap(Widget child) =>
-      MaterialApp(home: Scaffold(body: child));
+  Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
-  const user = ChatUser(
-    id: 'u1',
-    displayName: 'Alice',
-    bio: 'hello',
-  );
+  const user = ChatUser(id: 'u1', displayName: 'Alice', bio: 'hello');
 
   for (final p in PresenceStatus.values) {
     testWidgets('renders the presence row for $p', (tester) async {
-      await tester.pumpWidget(wrap(UserProfileView(
-        user: user,
-        presence: p,
-      )));
+      await tester.pumpWidget(wrap(UserProfileView(user: user, presence: p)));
 
       // Each status renders its own label.
       final expected = switch (p) {
@@ -33,8 +25,7 @@ void main() {
     });
   }
 
-  testWidgets('hides the presence row when presence is null',
-      (tester) async {
+  testWidgets('hides the presence row when presence is null', (tester) async {
     await tester.pumpWidget(wrap(const UserProfileView(user: user)));
     expect(find.text('Available'), findsNothing);
     expect(find.text('Offline'), findsNothing);

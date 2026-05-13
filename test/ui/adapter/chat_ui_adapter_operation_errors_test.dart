@@ -5,7 +5,7 @@ import 'package:noma_chat/noma_chat.dart';
 /// `pinMessage` always fails. The rest delegates to the mock unchanged.
 class _PinFailingClient implements ChatClient {
   _PinFailingClient(this._delegate)
-      : _failingMessages = _PinFailingMessagesApi(_delegate.messages);
+    : _failingMessages = _PinFailingMessagesApi(_delegate.messages);
 
   final ChatClient _delegate;
   final _PinFailingMessagesApi _failingMessages;
@@ -79,8 +79,10 @@ void main() {
 
   group('operationErrors stream', () {
     test('does not emit on success', () async {
-      final adapter =
-          ChatUiAdapter(client: mockClient, currentUser: currentUser);
+      final adapter = ChatUiAdapter(
+        client: mockClient,
+        currentUser: currentUser,
+      );
       addTearDown(adapter.dispose);
 
       final events = <OperationError>[];
@@ -97,8 +99,7 @@ void main() {
 
     test('emits once when a single op fails, with full context', () async {
       final failing = _PinFailingClient(mockClient);
-      final adapter =
-          ChatUiAdapter(client: failing, currentUser: currentUser);
+      final adapter = ChatUiAdapter(client: failing, currentUser: currentUser);
       addTearDown(adapter.dispose);
 
       final events = <OperationError>[];
@@ -120,8 +121,7 @@ void main() {
 
     test('broadcasts to multiple subscribers', () async {
       final failing = _PinFailingClient(mockClient);
-      final adapter =
-          ChatUiAdapter(client: failing, currentUser: currentUser);
+      final adapter = ChatUiAdapter(client: failing, currentUser: currentUser);
       addTearDown(adapter.dispose);
 
       final a = <OperationError>[];
@@ -142,8 +142,10 @@ void main() {
     });
 
     test('stream closes on adapter dispose', () async {
-      final adapter =
-          ChatUiAdapter(client: mockClient, currentUser: currentUser);
+      final adapter = ChatUiAdapter(
+        client: mockClient,
+        currentUser: currentUser,
+      );
 
       bool done = false;
       final sub = adapter.operationErrors.listen(

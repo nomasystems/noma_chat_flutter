@@ -10,11 +10,8 @@ sealed class PendingOperation {
   int attempts;
   DateTime? nextRetryAt;
 
-  PendingOperation({
-    required this.id,
-    DateTime? createdAt,
-    this.attempts = 0,
-  }) : createdAt = createdAt ?? DateTime.now();
+  PendingOperation({required this.id, DateTime? createdAt, this.attempts = 0})
+    : createdAt = createdAt ?? DateTime.now();
 }
 
 final class PendingSendMessage extends PendingOperation {
@@ -197,9 +194,9 @@ class OfflineQueue {
     ChatLocalDatasource? store,
     DateTime Function()? clock,
     Random? random,
-  })  : _store = store,
-        _clock = clock ?? (() => DateTime.now()),
-        _random = random ?? Random();
+  }) : _store = store,
+       _clock = clock ?? (() => DateTime.now()),
+       _random = random ?? Random();
 
   int get length => _queue.length;
   bool get isEmpty => _queue.isEmpty;
@@ -225,7 +222,8 @@ class OfflineQueue {
   }
 
   Future<void> processQueue(
-      Future<bool> Function(PendingOperation op) executor) async {
+    Future<bool> Function(PendingOperation op) executor,
+  ) async {
     if (_processing) return;
     _processing = true;
 
@@ -285,8 +283,7 @@ class OfflineQueue {
     if (_queue.isEmpty) {
       await _store.clearOfflineQueue();
     } else {
-      await _store
-          .saveOfflineQueue(_queue.map(_serializeOperation).toList());
+      await _store.saveOfflineQueue(_queue.map(_serializeOperation).toList());
     }
   }
 
@@ -388,13 +385,13 @@ class OfflineQueue {
   }
 
   static MessageType _parseMessageType(String? type) => switch (type) {
-        'attachment' => MessageType.attachment,
-        'reaction' => MessageType.reaction,
-        'reply' => MessageType.reply,
-        'audio' => MessageType.audio,
-        'forward' => MessageType.forward,
-        _ => MessageType.regular,
-      };
+    'attachment' => MessageType.attachment,
+    'reaction' => MessageType.reaction,
+    'reply' => MessageType.reply,
+    'audio' => MessageType.audio,
+    'forward' => MessageType.forward,
+    _ => MessageType.regular,
+  };
 
   PendingOperation? _deserializeOperation(Map<String, dynamic> map) {
     try {

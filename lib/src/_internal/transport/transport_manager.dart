@@ -26,9 +26,9 @@ class TransportManager {
     required WsTransport ws,
     required SseTransport sse,
     int eventBufferSize = 0,
-  })  : _ws = ws,
-        _sse = sse,
-        _bufferSize = eventBufferSize;
+  }) : _ws = ws,
+       _sse = sse,
+       _bufferSize = eventBufferSize;
 
   Stream<ChatEvent> get events {
     if (_bufferSize <= 0) return _eventController.stream;
@@ -137,9 +137,11 @@ class TransportManager {
   void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
       _ws.sendDmTyping(contactId, activity: activity);
 
-  void sendReceipt(String roomId, String messageId,
-          {ReceiptStatus status = ReceiptStatus.read}) =>
-      _ws.sendReceipt(roomId, messageId, status: status);
+  void sendReceipt(
+    String roomId,
+    String messageId, {
+    ReceiptStatus status = ReceiptStatus.read,
+  }) => _ws.sendReceipt(roomId, messageId, status: status);
 
   Future<void> notifyTokenRotated() => _ws.sendAuthRefresh();
 
@@ -152,17 +154,16 @@ class TransportManager {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) =>
-      _ws.sendMessage(
-        roomId,
-        text: text,
-        messageType: messageType,
-        referencedMessageId: referencedMessageId,
-        reaction: reaction,
-        attachmentUrl: attachmentUrl,
-        sourceRoomId: sourceRoomId,
-        metadata: metadata,
-      );
+  }) => _ws.sendMessage(
+    roomId,
+    text: text,
+    messageType: messageType,
+    referencedMessageId: referencedMessageId,
+    reaction: reaction,
+    attachmentUrl: attachmentUrl,
+    sourceRoomId: sourceRoomId,
+    metadata: metadata,
+  );
 
   Future<void> disconnect() async {
     await _wsEventSub?.cancel();

@@ -18,22 +18,26 @@ void main() {
   group('ReactionDetailSheet', () {
     testWidgets('shows loading indicator initially', (tester) async {
       final completer = Completer<List<AggregatedReaction>>();
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          return Scaffold(
-            body: ElevatedButton(
-              onPressed: () => ReactionDetailSheet.show(
-                context,
-                fetchReactions: () => completer.future,
-                currentUserId: 'u1',
-                userResolver: resolver,
-                onRemoveReaction: (_) {},
-              ),
-              child: const Text('Open'),
-            ),
-          );
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () => completer.future,
+                    currentUserId: 'u1',
+                    userResolver: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pump();
@@ -45,22 +49,26 @@ void main() {
     });
 
     testWidgets('shows tabs and users after loading', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          return Scaffold(
-            body: ElevatedButton(
-              onPressed: () => ReactionDetailSheet.show(
-                context,
-                fetchReactions: () async => reactions,
-                currentUserId: 'u1',
-                userResolver: resolver,
-                onRemoveReaction: (_) {},
-              ),
-              child: const Text('Open'),
-            ),
-          );
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userResolver: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -75,22 +83,26 @@ void main() {
     });
 
     testWidgets('shows You for current user', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          return Scaffold(
-            body: ElevatedButton(
-              onPressed: () => ReactionDetailSheet.show(
-                context,
-                fetchReactions: () async => reactions,
-                currentUserId: 'u1',
-                userResolver: resolver,
-                onRemoveReaction: (_) {},
-              ),
-              child: const Text('Open'),
-            ),
-          );
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userResolver: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -99,22 +111,26 @@ void main() {
     });
 
     testWidgets('shows remove button for own reaction', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          return Scaffold(
-            body: ElevatedButton(
-              onPressed: () => ReactionDetailSheet.show(
-                context,
-                fetchReactions: () async => reactions,
-                currentUserId: 'u1',
-                userResolver: resolver,
-                onRemoveReaction: (_) {},
-              ),
-              child: const Text('Open'),
-            ),
-          );
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userResolver: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -124,24 +140,32 @@ void main() {
 
     testWidgets('calls onRemoveReaction and closes sheet', (tester) async {
       String? removedEmoji;
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          return Scaffold(
-            body: ElevatedButton(
-              onPressed: () => ReactionDetailSheet.show(
-                context,
-                fetchReactions: () async => [
-                  const AggregatedReaction(emoji: '👍', count: 1, users: ['u1']),
-                ],
-                currentUserId: 'u1',
-                userResolver: resolver,
-                onRemoveReaction: (emoji) => removedEmoji = emoji,
-              ),
-              child: const Text('Open'),
-            ),
-          );
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => [
+                      const AggregatedReaction(
+                        emoji: '👍',
+                        count: 1,
+                        users: ['u1'],
+                      ),
+                    ],
+                    currentUserId: 'u1',
+                    userResolver: resolver,
+                    onRemoveReaction: (emoji) => removedEmoji = emoji,
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -153,22 +177,26 @@ void main() {
     });
 
     testWidgets('shows error state on fetch failure', (tester) async {
-      await tester.pumpWidget(MaterialApp(
-        home: Builder(builder: (context) {
-          return Scaffold(
-            body: ElevatedButton(
-              onPressed: () => ReactionDetailSheet.show(
-                context,
-                fetchReactions: () async => throw Exception('fail'),
-                currentUserId: 'u1',
-                userResolver: resolver,
-                onRemoveReaction: (_) {},
-              ),
-              child: const Text('Open'),
-            ),
-          );
-        }),
-      ));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => throw Exception('fail'),
+                    currentUserId: 'u1',
+                    userResolver: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
@@ -178,34 +206,42 @@ void main() {
   });
 
   group('ReactionBar onShowDetail', () {
-    testWidgets('calls onShowDetail instead of add/remove when provided', (tester) async {
+    testWidgets('calls onShowDetail instead of add/remove when provided', (
+      tester,
+    ) async {
       bool detailOpened = false;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: ReactionBar(
-            reactions: const {'👍': 3},
-            userReactions: const {'👍'},
-            onDeleteReaction: (_) => fail('should not be called'),
-            onShowDetail: () => detailOpened = true,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReactionBar(
+              reactions: const {'👍': 3},
+              userReactions: const {'👍'},
+              onDeleteReaction: (_) => fail('should not be called'),
+              onShowDetail: () => detailOpened = true,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('👍 3'));
       expect(detailOpened, true);
     });
 
-    testWidgets('falls back to legacy behavior when onShowDetail is null', (tester) async {
+    testWidgets('falls back to legacy behavior when onShowDetail is null', (
+      tester,
+    ) async {
       String? deleted;
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: ReactionBar(
-            reactions: const {'👍': 3},
-            userReactions: const {'👍'},
-            onDeleteReaction: (emoji) => deleted = emoji,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReactionBar(
+              reactions: const {'👍': 3},
+              userReactions: const {'👍'},
+              onDeleteReaction: (emoji) => deleted = emoji,
+            ),
           ),
         ),
-      ));
+      );
 
       await tester.tap(find.text('👍 3'));
       expect(deleted, '👍');

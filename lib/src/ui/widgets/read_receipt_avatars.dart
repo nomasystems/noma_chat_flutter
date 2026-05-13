@@ -22,8 +22,10 @@ class ReadReceiptAvatars extends StatelessWidget {
     final user = users.where((u) => u.id == userId).firstOrNull;
     final name = user?.displayName?.trim() ?? '';
     if (name.isEmpty) return '?';
-    final parts =
-        name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    final parts = name
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.isEmpty) return '?';
     if (parts.length >= 2) {
       return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
@@ -39,8 +41,9 @@ class ReadReceiptAvatars extends StatelessWidget {
   Widget build(BuildContext context) {
     if (receipts.isEmpty) return const SizedBox.shrink();
 
-    final displayCount =
-        receipts.length > maxAvatars ? maxAvatars : receipts.length;
+    final displayCount = receipts.length > maxAvatars
+        ? maxAvatars
+        : receipts.length;
     final overflow = receipts.length - maxAvatars;
 
     return Row(
@@ -70,10 +73,8 @@ class ReadReceiptAvatars extends StatelessWidget {
     final avatarUrl = _avatarUrlFor(userId);
     return CircleAvatar(
       radius: avatarSize / 2,
-      backgroundColor:
-          theme.avatarBackgroundColor ?? Colors.grey.shade300,
-      backgroundImage:
-          avatarUrl != null ? NetworkImage(avatarUrl) : null,
+      backgroundColor: theme.avatarBackgroundColor ?? Colors.grey.shade300,
+      backgroundImage: avatarUrl != null ? NetworkImage(avatarUrl) : null,
       child: avatarUrl == null
           ? Text(
               _initialsFor(userId),

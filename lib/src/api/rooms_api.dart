@@ -25,10 +25,10 @@ class RoomsApi implements ChatRoomsApi {
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     void Function(String level, String message)? logger,
-  })  : _rest = rest,
-        _cache = cache,
-        _cacheManager = cacheManager,
-        _logger = logger;
+  }) : _rest = rest,
+       _cache = cache,
+       _cacheManager = cacheManager,
+       _logger = logger;
 
   @override
   Future<Result<ChatRoom>> create({
@@ -41,15 +41,18 @@ class RoomsApi implements ChatRoomsApi {
     Map<String, dynamic>? custom,
   }) async {
     final result = await safeApiCall(() async {
-      final json = await _rest.post('/rooms', data: {
-        'audience': audience.name,
-        'allowInvitations': allowInvitations,
-        if (name != null) 'name': name,
-        if (subject != null) 'subject': subject,
-        if (members != null) 'members': members,
-        if (avatarUrl != null) 'avatarUrl': avatarUrl,
-        if (custom != null) 'custom': custom,
-      });
+      final json = await _rest.post(
+        '/rooms',
+        data: {
+          'audience': audience.name,
+          'allowInvitations': allowInvitations,
+          if (name != null) 'name': name,
+          if (subject != null) 'subject': subject,
+          if (members != null) 'members': members,
+          if (avatarUrl != null) 'avatarUrl': avatarUrl,
+          if (custom != null) 'custom': custom,
+        },
+      );
       return RoomMapper.fromJson(json);
     });
     if (result.isSuccess && _cache != null) {
@@ -81,16 +84,13 @@ class RoomsApi implements ChatRoomsApi {
           final invitedRooms = await _cache.getInvitedRooms();
           // hasMore defaults to false from cache — pagination state is not
           // cached, so the consumer should refetch from network to paginate.
-          return UserRooms(
-            rooms: unreads,
-            invitedRooms: invitedRooms,
-          );
+          return UserRooms(rooms: unreads, invitedRooms: invitedRooms);
         },
         fromNetwork: () => safeApiCall(() async {
-          final json = await _rest.get('/rooms', queryParams: {
-            'type': type,
-            ...?pagination?.toQueryParams(),
-          });
+          final json = await _rest.get(
+            '/rooms',
+            queryParams: {'type': type, ...?pagination?.toQueryParams()},
+          );
           return RoomMapper.userRoomsFromJson(json);
         }),
         saveToCache: (data) async {
@@ -100,10 +100,10 @@ class RoomsApi implements ChatRoomsApi {
       );
     }
     return safeApiCall(() async {
-      final json = await _rest.get('/rooms', queryParams: {
-        'type': type,
-        ...?pagination?.toQueryParams(),
-      });
+      final json = await _rest.get(
+        '/rooms',
+        queryParams: {'type': type, ...?pagination?.toQueryParams()},
+      );
       return RoomMapper.userRoomsFromJson(json);
     });
   }
@@ -112,22 +112,20 @@ class RoomsApi implements ChatRoomsApi {
   Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
     String query, {
     PaginationParams? pagination,
-  }) =>
-      safeApiCall(() async {
-        final (json, totalCount) = await _rest.getWithTotalCount('/rooms/discover', queryParams: {
-          'q': query,
-          ...?pagination?.toQueryParams(),
-        });
-        final rooms = (json['rooms'] as List? ?? [])
-            .map((e) =>
-                RoomMapper.discoveredFromJson(e as Map<String, dynamic>))
-            .toList();
-        return PaginatedResponse(
-          items: rooms,
-          hasMore: (json['hasMore'] ?? false) as bool,
-          totalCount: totalCount,
-        );
-      });
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await _rest.getWithTotalCount(
+      '/rooms/discover',
+      queryParams: {'q': query, ...?pagination?.toQueryParams()},
+    );
+    final rooms = (json['rooms'] as List? ?? [])
+        .map((e) => RoomMapper.discoveredFromJson(e as Map<String, dynamic>))
+        .toList();
+    return PaginatedResponse(
+      items: rooms,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
 
   @override
   Future<Result<RoomDetail>> get(String roomId, {CachePolicy? cachePolicy}) {
@@ -176,12 +174,16 @@ class RoomsApi implements ChatRoomsApi {
     Map<String, dynamic>? custom,
   }) async {
     final result = await safeVoidCall(
-        () => _rest.putVoid('/rooms/$roomId/config', data: {
-              if (name != null) 'name': name,
-              if (subject != null) 'subject': subject,
-              if (avatarUrl != null) 'avatarUrl': avatarUrl,
-              if (custom != null) 'custom': custom,
-            }));
+      () => _rest.putVoid(
+        '/rooms/$roomId/config',
+        data: {
+          if (name != null) 'name': name,
+          if (subject != null) 'subject': subject,
+          if (avatarUrl != null) 'avatarUrl': avatarUrl,
+          if (custom != null) 'custom': custom,
+        },
+      ),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -192,8 +194,9 @@ class RoomsApi implements ChatRoomsApi {
 
   @override
   Future<Result<void>> mute(String roomId) async {
-    final result =
-        await safeVoidCall(() => _rest.putVoid('/rooms/$roomId/mute'));
+    final result = await safeVoidCall(
+      () => _rest.putVoid('/rooms/$roomId/mute'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -202,8 +205,9 @@ class RoomsApi implements ChatRoomsApi {
 
   @override
   Future<Result<void>> unmute(String roomId) async {
-    final result =
-        await safeVoidCall(() => _rest.delete('/rooms/$roomId/mute'));
+    final result = await safeVoidCall(
+      () => _rest.delete('/rooms/$roomId/mute'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -212,8 +216,9 @@ class RoomsApi implements ChatRoomsApi {
 
   @override
   Future<Result<void>> pin(String roomId) async {
-    final result =
-        await safeVoidCall(() => _rest.putVoid('/rooms/$roomId/pin'));
+    final result = await safeVoidCall(
+      () => _rest.putVoid('/rooms/$roomId/pin'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -222,8 +227,7 @@ class RoomsApi implements ChatRoomsApi {
 
   @override
   Future<Result<void>> unpin(String roomId) async {
-    final result =
-        await safeVoidCall(() => _rest.delete('/rooms/$roomId/pin'));
+    final result = await safeVoidCall(() => _rest.delete('/rooms/$roomId/pin'));
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -232,8 +236,9 @@ class RoomsApi implements ChatRoomsApi {
 
   @override
   Future<Result<void>> hide(String roomId) async {
-    final result =
-        await safeVoidCall(() => _rest.putVoid('/rooms/$roomId/hidden'));
+    final result = await safeVoidCall(
+      () => _rest.putVoid('/rooms/$roomId/hidden'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -242,8 +247,9 @@ class RoomsApi implements ChatRoomsApi {
 
   @override
   Future<Result<void>> unhide(String roomId) async {
-    final result =
-        await safeVoidCall(() => _rest.delete('/rooms/$roomId/hidden'));
+    final result = await safeVoidCall(
+      () => _rest.delete('/rooms/$roomId/hidden'),
+    );
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
     }
@@ -255,7 +261,8 @@ class RoomsApi implements ChatRoomsApi {
   @override
   Future<Result<void>> batchMarkAsRead(List<String> roomIds) async {
     final result = await safeVoidCall(
-        () => _rest.postVoid('/rooms/batch/read', data: {'roomIds': roomIds}));
+      () => _rest.postVoid('/rooms/batch/read', data: {'roomIds': roomIds}),
+    );
     if (result.isSuccess && _cache != null) {
       try {
         for (final roomId in roomIds) {
@@ -271,11 +278,12 @@ class RoomsApi implements ChatRoomsApi {
   }
 
   @override
-  Future<Result<List<UnreadRoom>>> batchGetUnread(
-          List<String> roomIds) =>
+  Future<Result<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       safeApiCall(() async {
-        final json = await _rest
-            .post('/rooms/batch/unread', data: {'roomIds': roomIds});
+        final json = await _rest.post(
+          '/rooms/batch/unread',
+          data: {'roomIds': roomIds},
+        );
         return (json['rooms'] as List? ?? [])
             .cast<Map<String, dynamic>>()
             .map(RoomMapper.unreadRoomFromJson)
@@ -329,7 +337,10 @@ class RoomsApi implements ChatRoomsApi {
       );
       await _cache.saveUnreads([updated]);
     } catch (e) {
-      _logger?.call('warn', 'rooms.updateCachedRoomPreview: cache update failed: $e');
+      _logger?.call(
+        'warn',
+        'rooms.updateCachedRoomPreview: cache update failed: $e',
+      );
     }
   }
 }

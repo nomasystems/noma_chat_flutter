@@ -7,10 +7,7 @@ void main() {
     await tester.pumpWidget(
       const MaterialApp(
         home: Scaffold(
-          body: WaveformDisplay(
-            samples: [0.5, 0.8, 0.3, 0.9, 0.1],
-            height: 40,
-          ),
+          body: WaveformDisplay(samples: [0.5, 0.8, 0.3, 0.9, 0.1], height: 40),
         ),
       ),
     );
@@ -22,9 +19,7 @@ void main() {
   testWidgets('renders with empty samples', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: WaveformDisplay(samples: []),
-        ),
+        home: Scaffold(body: WaveformDisplay(samples: [])),
       ),
     );
 
@@ -84,11 +79,7 @@ void main() {
   testWidgets('does not add GestureDetector without onSeek', (tester) async {
     await tester.pumpWidget(
       const MaterialApp(
-        home: Scaffold(
-          body: WaveformDisplay(
-            samples: [0.5, 0.8],
-          ),
-        ),
+        home: Scaffold(body: WaveformDisplay(samples: [0.5, 0.8])),
       ),
     );
 

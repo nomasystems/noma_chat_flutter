@@ -44,8 +44,11 @@ void main() {
   // widget test is not worth extra dev dependencies; visual regressions on
   // the image bubble are partially caught by VideoBubble (same image
   // pipeline, simpler placeholder). Follow-up if needed.
-  testGoldens('ImageBubble outgoing — light (skipped)', (tester) async {},
-      skip: true);
+  testGoldens(
+    'ImageBubble outgoing — light (skipped)',
+    (tester) async {},
+    skip: true,
+  );
 
   testGoldens('VideoBubble outgoing — light', (tester) async {
     await pumpGoldenSurface(
@@ -111,8 +114,11 @@ void main() {
 
   // LinkPreviewBubble also pulls in CachedNetworkImage (for the OG image
   // preview), same skip rationale as ImageBubble.
-  testGoldens('LinkPreviewBubble outgoing — light (skipped)',
-      (tester) async {}, skip: true);
+  testGoldens(
+    'LinkPreviewBubble outgoing — light (skipped)',
+    (tester) async {},
+    skip: true,
+  );
 
   testGoldens('ForwardedBubble (text inside) — light', (tester) async {
     await pumpGoldenSurface(
