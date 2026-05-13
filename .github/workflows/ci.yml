@@ -14,7 +14,8 @@ concurrency:
 jobs:
   analyze-and-test:
     name: Analyze + test (Flutter ${{ matrix.flutter }})
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted-linux]
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -53,7 +54,8 @@ jobs:
 
   pana:
     name: pub.dev score (pana)
-    runs-on: [self-hosted, linux]
+    runs-on: [self-hosted-linux]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
