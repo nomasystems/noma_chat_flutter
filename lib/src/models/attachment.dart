@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// Result of an attachment upload containing the server-assigned ID and optional URL.
+@immutable
 class AttachmentUploadResult {
   final String attachmentId;
   final String? url;

@@ -1,6 +1,8 @@
 import 'package:noma_chat/noma_chat.dart';
+import 'package:flutter/foundation.dart';
 
 /// View model for a room in the room list, combining room metadata with unread/presence state.
+@immutable
 class RoomListItem {
   final String id;
   final String? name;

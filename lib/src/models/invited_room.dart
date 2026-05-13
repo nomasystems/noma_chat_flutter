@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A pending room invitation showing who invited the current user.
+@immutable
 class InvitedRoom {
   final String roomId;
   final String invitedBy;

@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A contact in the user's contact list, identified by user ID.
+@immutable
 class ChatContact {
   final String userId;
 

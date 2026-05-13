@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// Server health status with individual service check results.
+@immutable
 class HealthStatus {
   final ServiceStatus status;
   final Map<String, String> checks;

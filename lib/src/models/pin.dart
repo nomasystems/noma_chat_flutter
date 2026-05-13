@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A pinned message reference with who pinned it and when.
+@immutable
 class MessagePin {
   final String roomId;
   final String messageId;

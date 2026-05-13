@@ -1,6 +1,8 @@
 import 'room_user.dart';
+import 'package:flutter/foundation.dart';
 
 /// A chat room with its basic metadata and member list.
+@immutable
 class ChatRoom {
   final String id;
   final String? owner;
@@ -62,6 +64,7 @@ class ChatRoom {
 }
 
 /// Detailed room information including the current user's role and room configuration.
+@immutable
 class RoomDetail {
   final String id;
   final String? name;
@@ -98,6 +101,7 @@ class RoomDetail {
 }
 
 /// Room-level configuration flags.
+@immutable
 class RoomConfig {
   final bool allowInvitations;
 
@@ -105,6 +109,7 @@ class RoomConfig {
 }
 
 /// A public room found via discovery search.
+@immutable
 class DiscoveredRoom {
   final String id;
   final String? name;

@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// Metadata about a forwarded message: original sender, room, and message ID.
+@immutable
 class ForwardInfo {
   final String forwardedFrom;
   final String forwardedFromRoom;

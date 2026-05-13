@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 /// Room-level role. The backend wire format uses "user" for [member].
 enum RoomRole {
   owner,
@@ -11,6 +13,7 @@ enum RoomRole {
 }
 
 /// A member of a room with their assigned role.
+@immutable
 class RoomUser {
   final String userId;
   final RoomRole role;

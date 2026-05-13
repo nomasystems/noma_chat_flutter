@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A message scheduled to be sent at a future time.
+@immutable
 class ScheduledMessage {
   final String id;
   final String userId;

@@ -1,7 +1,9 @@
 import 'message.dart';
 import 'room_user.dart';
+import 'package:flutter/foundation.dart';
 
 /// A room with its unread count and last message preview.
+@immutable
 class UnreadRoom {
   final String roomId;
   final int unreadMessages;

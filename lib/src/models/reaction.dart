@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// An emoji reaction with its count and the list of users who reacted.
+@immutable
 class AggregatedReaction {
   final String emoji;
   final int count;

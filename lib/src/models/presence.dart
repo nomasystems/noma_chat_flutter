@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A user's online presence with status and last-seen timestamp.
+@immutable
 class ChatPresence {
   final String userId;
   final PresenceStatus status;
@@ -30,6 +33,7 @@ class ChatPresence {
 }
 
 /// Response from a bulk presence query containing the user's own presence and contacts.
+@immutable
 class BulkPresenceResponse {
   final ChatPresence own;
   final List<ChatPresence> contacts;

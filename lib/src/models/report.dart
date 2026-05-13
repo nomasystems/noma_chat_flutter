@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A moderation report filed against a message.
+@immutable
 class MessageReport {
   final String reporterId;
   final String messageId;

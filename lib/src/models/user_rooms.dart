@@ -1,7 +1,9 @@
 import 'unread_room.dart';
 import 'invited_room.dart';
+import 'package:flutter/foundation.dart';
 
 /// The current user's rooms and pending invitations.
+@immutable
 class UserRooms {
   final List<UnreadRoom> rooms;
   final List<InvitedRoom> invitedRooms;

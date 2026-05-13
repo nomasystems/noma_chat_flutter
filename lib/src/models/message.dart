@@ -1,6 +1,8 @@
 import 'forward_info.dart';
+import 'package:flutter/foundation.dart';
 
 /// A chat message with text, attachments, reactions, and metadata.
+@immutable
 class ChatMessage {
   final String id;
   final String from;
@@ -126,6 +128,7 @@ enum ReceiptStatus { sent, delivered, read }
 /// A locally-persisted outgoing message that has not been confirmed by the
 /// server. [isFailed] is `true` when the last send attempt returned an error;
 /// when `false`, the message is still pending (in flight or queued).
+@immutable
 class PendingChatMessage {
   final ChatMessage message;
   final bool isFailed;

@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
+
 /// Open Graph / oEmbed-like metadata extracted from a URL. The chat composer
 /// fetches it on the fly while the user types and embeds it in the outgoing
 /// message so the receiver renders the same preview without re-fetching.
+@immutable
 class LinkPreviewMetadata {
   const LinkPreviewMetadata({
     required this.url,

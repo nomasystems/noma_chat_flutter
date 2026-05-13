@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 /// A chat platform user with profile information and role.
+@immutable
 class ChatUser {
   final String id;
   final String? displayName;
@@ -56,6 +59,7 @@ class ChatUser {
 }
 
 /// User-level configuration including webhook settings and custom metadata.
+@immutable
 class UserConfiguration {
   final Map<String, dynamic>? metadata;
   final WebhookConfig? webhook;
@@ -64,6 +68,7 @@ class UserConfiguration {
 }
 
 /// Webhook configuration for server-to-server notifications.
+@immutable
 class WebhookConfig {
   final String url;
   final WebhookAuthType authType;
