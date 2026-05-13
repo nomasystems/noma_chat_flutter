@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/) from `0.2.0`
 onwards. Until `1.0.0`, **breaking changes may land in any minor release**.
 
+## [0.2.1] - 2026-05-13
+
+Post-publish polish driven by the pub.dev scoring report. No behavioural
+changes; consumers on `^0.2.0` pick this up automatically.
+
+### Fixed
+
+- **Static analysis**: 17 stale `*.freezed.dart` files were left behind from
+  an earlier migration of plain models off Freezed. `dart analyze` ignored
+  them locally (excluded via `analysis_options.yaml`) but pana ran a
+  separate analysis that surfaced 1 176 errors against them. The files are
+  now deleted; the remaining `admin_models.freezed.dart` is genuinely
+  generated and stays.
+- **`hive_ce` lower bound**: bumped from `^2.7.0` to `^2.19.0`. Older
+  versions did not yet expose `package:hive_ce/hive_ce.dart`, so a
+  consumer with `dart pub downgrade` would fail to compile.
+- **`just_audio` constraint**: bumped from `^0.9.42` to `^0.10.0` so the
+  package tracks the current stable line.
+
+### Changed
+
+- `pubspec.yaml` now declares `platforms:` explicitly. Supported targets
+  are **android, ios, macos, web**. Windows and Linux are excluded because
+  `just_audio` (transitive, used for voice playback) does not support them.
+- README has a new **Platform support** section documenting which
+  platforms are production-tested vs best-effort vs unsupported, with the
+  exact transitive-dep blocker for Windows/Linux.
+
 ## [0.2.0] - 2026-05-13
 
 First public release. The SDK has been used internally for several months and

@@ -2,7 +2,7 @@ name: noma_chat
 description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and a ready-to-use UI Kit for the Noma chat backend.
-version: 0.2.0
+version: 0.2.1
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
@@ -16,6 +16,12 @@ topics:
   - flutter
   - ui-kit
 
+platforms:
+  android:
+  ios:
+  macos:
+  web:
+
 environment:
   sdk: ^3.8.0
   flutter: ">=3.0.0"
@@ -27,10 +33,10 @@ dependencies:
   web_socket_channel: ^3.0.0
   freezed_annotation: ^3.0.0
   json_annotation: ^4.8.0
-  hive_ce: ^2.7.0
+  hive_ce: ^2.19.0
   cached_network_image: ^3.4.1
   emoji_picker_flutter: ^4.3.0
-  just_audio: ^0.9.42
+  just_audio: ^0.10.0
   path_provider: ^2.1.5
   record: ^6.0.0
   url_launcher: ^6.3.1

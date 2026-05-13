@@ -82,6 +82,26 @@ parameter is omitted, the legacy behaviour is preserved
 (`detail.type == RoomType.oneToOne` is enough). The predicate is also
 accepted by `NomaChat.fromClient` and by `ChatUiAdapter` directly.
 
+## Platform support
+
+`pubspec.yaml` lists `android`, `ios`, `macos`, `web` as supported
+platforms. These are the targets the package is meant to work on; not
+every feature has been validated on every platform. The breakdown:
+
+| Platform | Status            | Notes                                                                                                                              |
+| -------- | ----------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Android  | **Production**    | Primary target. Exercised end-to-end in a shipping app (chat, attachments, voice, presence, offline cache).                        |
+| iOS      | **Production**    | Primary target. Exercised end-to-end in a shipping app.                                                                            |
+| macOS    | **Best effort**   | No production usage on record. The SDK and UI Kit should work; please report any breakage.                                         |
+| Web      | **Best effort**   | The Hive cache works on web (IndexedDB backend). Voice recording uses MediaRecorder; not all browsers expose the same MIME types.  |
+| Windows  | **Unsupported**   | `just_audio` (transitive dep, used for voice playback) does not support Windows. The rest of the SDK would otherwise work.         |
+| Linux    | **Unsupported**   | Same reason as Windows. Listed as transitive blocker, not as an active no-go for the SDK itself.                                   |
+
+If you need Windows or Linux support, the only blocker is the audio
+playback transitive dependency — open an issue and we'll explore
+alternatives (`audioplayers`, conditional imports, or making voice
+playback an opt-in extension).
+
 ## Example
 
 See the [example app](example/) for a working demo with `MockChatClient`.
