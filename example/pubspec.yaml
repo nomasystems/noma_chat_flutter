@@ -1,0 +1,13 @@
+name: noma_chat_example
+description: Example app for noma_chat
+publish_to: none
+
+environment:
+  sdk: ^3.8.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  noma_chat:
+    path: ../
