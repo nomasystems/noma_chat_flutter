@@ -1,17 +1,17 @@
 import 'dart:async';
-// `dart:io` is unavailable on the Web platform. The controller still
-// imports it because every other platform uses `File`/`Directory` to
-// stage temporary recordings; the `startRecording()` entry point short-
-// circuits with `permissionDenied` on Web before any of those types are
-// touched, so the import is safe to keep at the top level.
-import 'dart:io';
 
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
 import '../models/voice_message_data.dart';
+// `dart:io` and `path_provider` live behind this conditional import so the
+// package keeps a WASM-compatible import graph (pana penalises Web targets
+// that transitively reach `dart:io`). The Web stub throws; the controller's
+// `startRecording` short-circuits with `permissionDenied` before any of
+// the helpers can be called on Web.
+import '_voice_recorder_io.dart'
+    if (dart.library.js_interop) '_voice_recorder_io_web.dart';
 
 /// Finite state machine of the voice recorder.
 ///
@@ -117,8 +117,8 @@ class VoiceRecordingController extends ChangeNotifier {
     }
     _permissionDialogShown = true;
 
-    final dirPath = _tempDirectoryPath ?? (await getTemporaryDirectory()).path;
-    _cleanupResidualFiles(dirPath);
+    final dirPath = _tempDirectoryPath ?? await voiceRecorderTempPath();
+    voiceRecorderCleanupResidualFiles(dirPath);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     _recordingPath = '$dirPath/voice_$timestamp.m4a';
 
@@ -324,13 +324,9 @@ class VoiceRecordingController extends ChangeNotifier {
   Future<VoiceMessageData?> _buildVoiceMessageData() async {
     if (_recordingPath == null) return null;
 
-    final file = File(_recordingPath!);
-    final Uint8List bytes;
-    try {
-      bytes = await file.readAsBytes();
-    } on FileSystemException {
-      return null;
-    }
+    final bytes = await voiceRecorderReadBytes(_recordingPath!);
+    if (bytes == null) return null;
+
     final waveform = _subsampleWaveform();
     final duration = _currentDuration.inMilliseconds > 0
         ? _currentDuration
@@ -385,26 +381,9 @@ class VoiceRecordingController extends ChangeNotifier {
     _amplitudeTimer = null;
   }
 
-  void _cleanupResidualFiles(String dirPath) {
-    try {
-      final dir = Directory(dirPath);
-      if (!dir.existsSync()) return;
-      for (final entity in dir.listSync()) {
-        if (entity is File &&
-            entity.path.contains('voice_') &&
-            entity.path.endsWith('.m4a')) {
-          entity.deleteSync();
-        }
-      }
-    } catch (_) {}
-  }
-
   void _cleanupFile() {
     if (_recordingPath != null) {
-      final file = File(_recordingPath!);
-      if (file.existsSync()) {
-        file.deleteSync();
-      }
+      voiceRecorderDeleteFile(_recordingPath!);
       _recordingPath = null;
     }
   }
