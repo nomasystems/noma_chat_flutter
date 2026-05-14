@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/) from `0.2.0`
 onwards. Until `1.0.0`, **breaking changes may land in any minor release**.
 
+## [0.3.1] - 2026-05-14
+
+Pana-score patch. No public API or behaviour change; consumers on
+`^0.3.0` pick this up automatically.
+
+### Fixed
+
+- **Pana static analysis (40/50 → 50/50)**: the four `chat_ui_adapter_*`
+  part files introduced by the 0.3.0 SRP refactor had drifted from the
+  Dart formatter. `dart format --set-exit-if-changed` failed on pana's
+  side, dropping the static-analysis score by 10 points. Now formatted.
+- **Stale dartdoc reference**: `ChatUiAdapter.presenceFor` referenced
+  the private `_bootstrapPresence` symbol that was relocated to
+  `_PresenceManager.bootstrap` in 0.3.0; the comment now describes the
+  bootstrap source without naming an internal symbol.
+
+### Changed
+
+- **`VoiceRecordingController` no longer imports `dart:io` or
+  `path_provider` directly.** The filesystem helpers
+  (`getTemporaryDirectory()`, `File`, `Directory`, `FileSystemException`)
+  live in `_voice_recorder_io.dart` with a Web stub in
+  `_voice_recorder_io_web.dart`; the controller picks them up via a
+  conditional import (`if (dart.library.js_interop)`).
+
+  This is a step towards full WASM compatibility but does **not** move
+  the pana platform-support score by itself (the remaining WASM
+  blocker is in `audioplayers` → `path_provider`). A future
+  WASM-compatible audio backend would now drop the package straight to
+  160/160 with no further changes on our side.
+
+### Notes
+
+- Pana on pub.dev for the (still-published) 0.3.0 reports 140/160 —
+  this 0.3.1 lifts it to 150/160 once published, matching the local
+  measurement.
+
 ## [0.3.0] - 2026-05-13
 
 Quality + architecture release. No public API breaking changes; the audio
