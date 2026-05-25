@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
@@ -83,6 +85,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -100,6 +103,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -129,6 +133,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -146,6 +151,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -162,6 +168,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -177,6 +184,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -193,6 +201,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -208,6 +217,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -229,6 +239,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -247,6 +258,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -292,6 +304,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -337,6 +350,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -360,6 +374,7 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
@@ -375,12 +390,139 @@ void main() {
           data: any(named: 'data'),
           queryParameters: any(named: 'queryParameters'),
           options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
           onSendProgress: any(named: 'onSendProgress'),
           onReceiveProgress: any(named: 'onReceiveProgress'),
         ),
       ).thenAnswer((_) async => resp(data: {'oops': true}));
 
       expect(() => rest.getList('/foo'), throwsA(isA<ChatApiException>()));
+    });
+  });
+
+  group('cancelPending', () {
+    test(
+      'cancels a single in-flight request — caller surfaces an error',
+      () async {
+        final captured = <CancelToken>[];
+        final completer = Completer<Response<dynamic>>();
+        when(
+          () => dio.request(
+            any(),
+            data: any(named: 'data'),
+            queryParameters: any(named: 'queryParameters'),
+            options: any(named: 'options'),
+            cancelToken: any(named: 'cancelToken'),
+            onSendProgress: any(named: 'onSendProgress'),
+            onReceiveProgress: any(named: 'onReceiveProgress'),
+          ),
+        ).thenAnswer((inv) {
+          final token = inv.namedArguments[#cancelToken] as CancelToken;
+          captured.add(token);
+          token.whenCancel.then((_) {
+            completer.completeError(
+              DioException(
+                requestOptions: RequestOptions(path: ''),
+                type: DioExceptionType.cancel,
+                error: token.cancelError,
+              ),
+            );
+          });
+          return completer.future;
+        });
+
+        final future = rest.get('/foo');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(captured, hasLength(1));
+        expect(captured.single.isCancelled, isFalse);
+
+        rest.cancelPending('logout');
+        expect(captured.single.isCancelled, isTrue);
+
+        await expectLater(future, throwsA(isA<ChatException>()));
+      },
+    );
+
+    test('cancels every in-flight request with a single call', () async {
+      final captured = <CancelToken>[];
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((inv) {
+        final token = inv.namedArguments[#cancelToken] as CancelToken;
+        captured.add(token);
+        final c = Completer<Response<dynamic>>();
+        token.whenCancel.then((_) {
+          c.completeError(
+            DioException(
+              requestOptions: RequestOptions(path: ''),
+              type: DioExceptionType.cancel,
+              error: token.cancelError,
+            ),
+          );
+        });
+        return c.future;
+      });
+
+      final f1 = rest.get('/a');
+      final f2 = rest.get('/b');
+      final f3 = rest.get('/c');
+
+      await Future<void>.delayed(Duration.zero);
+      expect(captured, hasLength(3));
+      expect(captured.every((t) => !t.isCancelled), isTrue);
+
+      rest.cancelPending();
+      expect(captured.every((t) => t.isCancelled), isTrue);
+
+      await expectLater(f1, throwsA(isA<ChatException>()));
+      await expectLater(f2, throwsA(isA<ChatException>()));
+      await expectLater(f3, throwsA(isA<ChatException>()));
+    });
+
+    test(
+      'completed requests are removed from the pending set automatically',
+      () async {
+        final captured = <CancelToken>[];
+        when(
+          () => dio.request(
+            any(),
+            data: any(named: 'data'),
+            queryParameters: any(named: 'queryParameters'),
+            options: any(named: 'options'),
+            cancelToken: any(named: 'cancelToken'),
+            onSendProgress: any(named: 'onSendProgress'),
+            onReceiveProgress: any(named: 'onReceiveProgress'),
+          ),
+        ).thenAnswer((inv) async {
+          final token = inv.namedArguments[#cancelToken] as CancelToken;
+          captured.add(token);
+          return resp(data: {'ok': true});
+        });
+
+        await rest.get('/foo');
+        await rest.get('/bar');
+
+        // Cancel after both completed — must be a no-op.
+        rest.cancelPending();
+
+        expect(captured, hasLength(2));
+        // Tokens were finalized normally; cancel after completion does not
+        // throw and does not cancel them.
+        expect(captured.every((t) => !t.isCancelled), isTrue);
+      },
+    );
+
+    test('cancelPending is safe to call when nothing is in flight', () {
+      expect(() => rest.cancelPending(), returnsNormally);
     });
   });
 }

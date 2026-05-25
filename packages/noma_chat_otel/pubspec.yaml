@@ -1,0 +1,37 @@
+name: noma_chat_otel
+description: >-
+  OpenTelemetry adapter for noma_chat. Wires ChatConfig.metricCallback into
+  OTel spans so every SDK event (WebSocket, HTTP, cache) lands in your
+  distributed trace with zero boilerplate.
+version: 0.1.0
+
+homepage: https://github.com/nomasystems/noma_chat_flutter
+repository: https://github.com/nomasystems/noma_chat_flutter
+
+topics:
+  - chat
+  - opentelemetry
+  - observability
+  - flutter
+
+platforms:
+  android:
+  ios:
+  macos:
+  linux:
+  windows:
+  web:
+
+environment:
+  sdk: ^3.4.0
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  noma_chat: ^0.6.0
+  opentelemetry: ^0.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter

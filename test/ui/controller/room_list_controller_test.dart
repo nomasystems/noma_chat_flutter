@@ -108,8 +108,8 @@ void main() {
 
     test('filters rooms by last message', () {
       controller.setRooms([
-        RoomListItem(id: 'a', name: 'Room A', lastMessage: 'hello world'),
-        RoomListItem(id: 'b', name: 'Room B', lastMessage: 'goodbye'),
+        const RoomListItem(id: 'a', name: 'Room A', lastMessage: 'hello world'),
+        const RoomListItem(id: 'b', name: 'Room B', lastMessage: 'goodbye'),
       ]);
       controller.setFilter('hello');
       expect(controller.rooms, hasLength(1));

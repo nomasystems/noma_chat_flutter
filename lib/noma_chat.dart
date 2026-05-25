@@ -73,32 +73,40 @@ export 'src/models/forward_info.dart';
 // === SDK: Events ===
 export 'src/events/chat_event.dart';
 
-// === SDK: Auth interceptors (for custom auth) ===
-export 'src/_internal/http/auth_interceptor.dart';
-export 'src/_internal/http/bearer_auth_interceptor.dart';
-export 'src/_internal/http/basic_auth_interceptor.dart';
-
-// === SDK: Advanced configuration ===
-export 'src/_internal/cache/cache_config.dart';
-export 'src/_internal/cache/cache_policy.dart';
-export 'src/_internal/cache/local_datasource.dart';
-export 'src/_internal/cache/memory_datasource.dart';
-export 'src/_internal/http/retry_config.dart';
-
-// === SDK: Mock ===
-export 'src/mock/mock_chat_client.dart';
+// === SDK: Public surface types from internals ===
+//
+// These appear in public method signatures (`messages.getReactions`,
+// `NomaChat.create(localDatasource:)`, etc.) so they have to live in
+// the primary barrel. Everything else from `_internal/` (custom auth
+// interceptors, cache tuning, retry config) is opt-in under
+// `package:noma_chat/noma_chat_advanced.dart`.
+export 'src/cache/cache_policy.dart';
+export 'src/cache/local_datasource.dart';
 
 // === Cache: Hive implementation ===
 export 'src/cache/hive_chat_datasource.dart';
 
+// === SDK: Avatar storage (pluggable upload backend) ===
+export 'src/storage/avatar_storage.dart';
+
+// === SDK: Utils ===
+export 'src/utils/stable_user_id.dart';
+
 // === UI: Models ===
 export 'src/ui/models/reaction_user.dart';
 export 'src/ui/models/room_list_item.dart';
+export 'src/ui/models/attachment_policy.dart';
+export 'src/ui/models/send_message_request.dart';
 export 'src/ui/models/suggested_contact.dart';
 export 'src/ui/models/voice_message_data.dart';
 
 // === UI: Adapter ===
+// chat_ui_adapter.dart exports the api/*_controller.dart files as `part of`,
+// so re-exporting it here makes ChatMessagesController, ChatRoomsController,
+// ChatContactsController, ChatDmController and ChatProfileController all
+// reachable through `package:noma_chat/noma_chat.dart`.
 export 'src/ui/adapter/chat_ui_adapter.dart';
+export 'src/ui/adapter/room_title_resolver.dart';
 export 'src/ui/adapter/operation_error.dart';
 
 // === UI: Controllers ===
@@ -106,23 +114,55 @@ export 'src/ui/controller/audio_playback_coordinator.dart';
 export 'src/ui/controller/chat_controller.dart';
 export 'src/ui/controller/room_list_controller.dart';
 export 'src/ui/controller/message_search_controller.dart';
+export 'src/ui/controller/suggestion_bar_controller.dart';
 export 'src/ui/controller/voice_recording_controller.dart';
+export 'src/ui/widgets/_voice_recorder_gesture.dart'
+    show MessageInputVoiceController, VoiceGestureThresholds;
 
 // === UI: Theme ===
 export 'src/ui/theme/chat_theme.dart';
+export 'src/ui/theme/bubble_theme.dart';
+export 'src/ui/theme/input_theme.dart';
+export 'src/ui/theme/room_list_theme.dart';
+export 'src/ui/theme/markdown_theme.dart';
+export 'src/ui/theme/default_palette.dart';
 
 // === UI: Localization ===
 export 'src/ui/l10n/chat_ui_localizations.dart';
 
 // === UI: Utils ===
 export 'src/ui/utils/date_formatter.dart';
+export 'src/ui/utils/initials.dart';
 export 'src/ui/utils/last_message_preview.dart';
 export 'src/ui/utils/url_detector.dart';
 export 'src/ui/utils/markdown_parser.dart';
+export 'src/ui/utils/mime_classifier.dart';
 export 'src/ui/utils/read_receipts_helper.dart';
 
+// === UI: Dialogs ===
+export 'src/ui/widgets/chat_room_options_menu.dart';
+export 'src/ui/widgets/blocked_users_view.dart';
+export 'src/ui/widgets/member_picker_sheet.dart';
+export 'src/ui/widgets/group_members_view.dart';
+export 'src/ui/widgets/group_info_page.dart';
+export 'src/ui/widgets/user_info_page.dart';
+export 'src/ui/widgets/group_setup_page.dart';
+export 'src/ui/widgets/profile_settings_page.dart';
+export 'src/ui/widgets/avatar_picker_sheet.dart';
+export 'src/ui/widgets/avatar_picker_field.dart';
+export 'src/ui/widgets/avatar_crop_page.dart';
+export 'src/ui/widgets/message_forward_sheet.dart';
+export 'src/ui/widgets/unread_divider.dart';
+export 'src/ui/widgets/blocked_chat_banner.dart';
+export 'src/ui/widgets/not_participating_banner.dart';
+export 'src/ui/room_defaults.dart';
+
 // === UI: Chat view widgets ===
+export 'src/ui/widgets/chat_room_app_bar.dart';
+export 'src/ui/widgets/quick_replies_bar.dart';
 export 'src/ui/widgets/chat_view.dart';
+export 'src/ui/widgets/chat_view_config.dart';
+export 'src/ui/widgets/operation_feedback_listener.dart';
 export 'src/ui/widgets/message_list.dart';
 export 'src/ui/widgets/message_input.dart';
 export 'src/ui/widgets/message_bubble.dart';
@@ -134,6 +174,7 @@ export 'src/ui/widgets/bubbles/file_bubble.dart';
 export 'src/ui/widgets/bubbles/location_bubble.dart';
 export 'src/ui/models/link_preview_metadata.dart';
 export 'src/ui/services/link_preview_fetcher.dart';
+export 'src/ui/services/attachment_pickers.dart';
 export 'src/ui/widgets/bubbles/link_preview_bubble.dart';
 export 'src/ui/widgets/bubbles/forwarded_bubble.dart';
 export 'src/ui/widgets/message_status_icon.dart';

@@ -82,33 +82,37 @@ void main() {
     expect(find.byType(WaveformDisplay), findsNothing);
   });
 
-  testWidgets('shows speed button when coordinator provided', (tester) async {
-    final coordinator = AudioPlaybackCoordinator();
-    addTearDown(() => coordinator.dispose());
-
-    await tester.pumpWidget(
-      wrap(
-        AudioBubble(
-          audioUrl: 'https://example.com/audio.m4a',
-          coordinator: coordinator,
-          messageId: 'msg1',
-        ),
-      ),
-    );
-
-    expect(find.text('1x'), findsOneWidget);
-  });
-
   testWidgets(
-    'shows speed button even without coordinator (per-bubble speed)',
+    'speed pill is absent before first interaction (avatar slot design)',
     (tester) async {
+      final coordinator = AudioPlaybackCoordinator();
+      addTearDown(() => coordinator.dispose());
+
       await tester.pumpWidget(
-        wrap(const AudioBubble(audioUrl: 'https://example.com/audio.m4a')),
+        wrap(
+          AudioBubble(
+            audioUrl: 'https://example.com/audio.m4a',
+            coordinator: coordinator,
+            messageId: 'msg1',
+          ),
+        ),
       );
 
-      expect(find.text('1x'), findsOneWidget);
+      // Speed pill replaces the sender avatar only after the user has started
+      // playback; it must not be present on first render.
+      expect(find.text('1x'), findsNothing);
     },
   );
+
+  testWidgets('speed pill is absent in idle state even without coordinator', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(const AudioBubble(audioUrl: 'https://example.com/audio.m4a')),
+    );
+
+    expect(find.text('1x'), findsNothing);
+  });
 
   testWidgets('shows timestamp when provided', (tester) async {
     await tester.pumpWidget(

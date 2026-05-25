@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:typed_data';
 
+import 'package:meta/meta.dart' show experimental;
+
 import '../_internal/http/exception_mapper.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/message_mapper.dart';
@@ -13,13 +15,14 @@ import '../client/chat_client.dart';
 
 /// REST implementation of [ChatAttachmentsApi] for uploading and downloading
 /// files plus listing per-room attachments.
+@experimental
 class AttachmentsApi implements ChatAttachmentsApi {
   final RestClient _rest;
 
   AttachmentsApi({required RestClient rest}) : _rest = rest;
 
   @override
-  Future<Result<AttachmentUploadResult>> upload(
+  Future<ChatResult<AttachmentUploadResult>> upload(
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
@@ -44,7 +47,7 @@ class AttachmentsApi implements ChatAttachmentsApi {
   });
 
   @override
-  Future<Result<Uint8List>> download(
+  Future<ChatResult<Uint8List>> download(
     String attachmentId, {
     String? metadata,
     void Function(int received, int total)? onProgress,
@@ -57,21 +60,21 @@ class AttachmentsApi implements ChatAttachmentsApi {
   );
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> listInRoom(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> listInRoom(
     String roomId, {
-    CursorPaginationParams? pagination,
+    ChatCursorPaginationParams? pagination,
   }) => safeApiCall(() async {
     final json = await _rest.get(
       '/rooms/$roomId/attachments',
       queryParams: pagination?.toQueryParams(),
     );
-    return PaginatedResponse(
+    return ChatPaginatedResponse(
       items: MessageMapper.fromJsonList(json['attachments'] as List? ?? []),
       hasMore: (json['hasMore'] ?? false) as bool,
     );
   });
 
   @override
-  Future<Result<void>> deleteInRoom(String roomId, String messageId) =>
+  Future<ChatResult<void>> deleteInRoom(String roomId, String messageId) =>
       safeVoidCall(() => _rest.delete('/rooms/$roomId/attachments/$messageId'));
 }

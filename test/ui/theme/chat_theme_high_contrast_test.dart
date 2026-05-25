@@ -5,23 +5,23 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   group('ChatTheme.highContrast', () {
     test('has distinct outgoing/incoming colors', () {
-      final hc = ChatTheme.highContrast;
-      expect(hc.outgoingBubbleColor, isNotNull);
-      expect(hc.incomingBubbleColor, isNotNull);
-      expect(hc.outgoingBubbleColor, isNot(equals(hc.incomingBubbleColor)));
+      final hc = ChatTheme.highContrast();
+      expect(hc.bubble.outgoingColor, isNotNull);
+      expect(hc.bubble.incomingColor, isNotNull);
+      expect(hc.bubble.outgoingColor, isNot(equals(hc.bubble.incomingColor)));
     });
 
     test('text styles have explicit colors and minimum 16px size', () {
-      final hc = ChatTheme.highContrast;
-      expect(hc.outgoingTextStyle!.fontSize, greaterThanOrEqualTo(16));
-      expect(hc.incomingTextStyle!.fontSize, greaterThanOrEqualTo(16));
-      expect(hc.inputTextStyle!.fontSize, greaterThanOrEqualTo(16));
-      expect(hc.outgoingTextStyle!.color, isNotNull);
-      expect(hc.incomingTextStyle!.color, isNotNull);
+      final hc = ChatTheme.highContrast();
+      expect(hc.bubble.outgoingTextStyle!.fontSize, greaterThanOrEqualTo(16));
+      expect(hc.bubble.incomingTextStyle!.fontSize, greaterThanOrEqualTo(16));
+      expect(hc.input.textStyle!.fontSize, greaterThanOrEqualTo(16));
+      expect(hc.bubble.outgoingTextStyle!.color, isNotNull);
+      expect(hc.bubble.incomingTextStyle!.color, isNotNull);
     });
 
     test('is a valid ChatTheme usable with widgets', () {
-      final hc = ChatTheme.highContrast;
+      final hc = ChatTheme.highContrast();
       expect(hc.l10n, isNotNull);
       expect(hc.backgroundColor, isNotNull);
     });

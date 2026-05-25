@@ -1,21 +1,23 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'presence.freezed.dart';
 
 /// A user's online presence with status and last-seen timestamp.
-@immutable
-class ChatPresence {
-  final String userId;
-  final PresenceStatus status;
-  final bool online;
-  final String? statusText;
-  final DateTime? lastSeen;
+///
+/// Equality and hash use the "stable" subset (userId, status, online) so
+/// emitting the same presence with an updated `lastSeen` does not trigger
+/// an extra rebuild on every heartbeat.
+@Freezed(equal: false)
+abstract class ChatPresence with _$ChatPresence {
+  const ChatPresence._();
 
-  const ChatPresence({
-    required this.userId,
-    required this.status,
-    required this.online,
-    this.statusText,
-    this.lastSeen,
-  });
+  const factory ChatPresence({
+    required String userId,
+    required PresenceStatus status,
+    required bool online,
+    String? statusText,
+    DateTime? lastSeen,
+  }) = _ChatPresence;
 
   @override
   bool operator ==(Object other) =>
@@ -27,18 +29,22 @@ class ChatPresence {
 
   @override
   int get hashCode => Object.hash(userId, status, online);
-
-  @override
-  String toString() => 'ChatPresence($userId, $status, online: $online)';
 }
 
-/// Response from a bulk presence query containing the user's own presence and contacts.
-@immutable
-class BulkPresenceResponse {
-  final ChatPresence own;
-  final List<ChatPresence> contacts;
+/// Response from a bulk presence query containing the user's own presence
+/// and contacts.
+///
+/// Equality intentionally ignores [contacts] (compared via reference on
+/// [own]) so the receiving side can short-circuit "did own presence
+/// change?" without scanning the full contacts list.
+@Freezed(equal: false)
+abstract class BulkPresenceResponse with _$BulkPresenceResponse {
+  const BulkPresenceResponse._();
 
-  const BulkPresenceResponse({required this.own, required this.contacts});
+  const factory BulkPresenceResponse({
+    required ChatPresence own,
+    required List<ChatPresence> contacts,
+  }) = _BulkPresenceResponse;
 
   @override
   bool operator ==(Object other) =>
@@ -47,10 +53,6 @@ class BulkPresenceResponse {
 
   @override
   int get hashCode => own.hashCode;
-
-  @override
-  String toString() =>
-      'BulkPresenceResponse(own: $own, contacts: ${contacts.length})';
 }
 
 /// Per-user presence states reported by the backend. The UI Kit only

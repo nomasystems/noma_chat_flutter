@@ -27,13 +27,13 @@ class ForwardedBubble extends StatelessWidget {
             Icon(
               Icons.forward,
               size: 14,
-              color: theme.forwardedLabelColor ?? Colors.grey.shade600,
+              color: theme.bubble.forwardedLabelColor ?? Colors.grey.shade600,
             ),
             const SizedBox(width: 4),
             Text(
               sourceLabel ?? theme.l10n.forwarded,
               style:
-                  theme.forwardedLabelTextStyle ??
+                  theme.bubble.forwardedLabelStyle ??
                   TextStyle(
                     fontSize: 12,
                     fontStyle: FontStyle.italic,

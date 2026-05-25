@@ -5,7 +5,7 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   final parentMessage = ChatMessage(
     id: 'parent1',

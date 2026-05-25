@@ -1,4 +1,5 @@
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -25,20 +26,23 @@ void main() {
 
       test('save and get messages', () async {
         await ds.saveMessages('room-1', [msg1, msg2]);
-        final messages = await ds.getMessages('room-1');
+        final messages = (await ds.getMessages('room-1')).dataOrNull!;
         expect(messages.length, 2);
         expect(messages.first.id, 'msg-2');
       });
 
       test('get with limit', () async {
         await ds.saveMessages('room-1', [msg1, msg2]);
-        final messages = await ds.getMessages('room-1', limit: 1);
+        final messages = (await ds.getMessages('room-1', limit: 1)).dataOrNull!;
         expect(messages.length, 1);
       });
 
       test('get with before cursor', () async {
         await ds.saveMessages('room-1', [msg1, msg2]);
-        final messages = await ds.getMessages('room-1', before: 'msg-2');
+        final messages = (await ds.getMessages(
+          'room-1',
+          before: 'msg-2',
+        )).dataOrNull!;
         expect(messages.length, 1);
         expect(messages.first.id, 'msg-1');
       });
@@ -46,14 +50,14 @@ void main() {
       test('delete message', () async {
         await ds.saveMessages('room-1', [msg1, msg2]);
         await ds.deleteMessage('room-1', 'msg-1');
-        final messages = await ds.getMessages('room-1');
+        final messages = (await ds.getMessages('room-1')).dataOrNull!;
         expect(messages.length, 1);
       });
 
       test('clear messages', () async {
         await ds.saveMessages('room-1', [msg1]);
         await ds.clearMessages('room-1');
-        final messages = await ds.getMessages('room-1');
+        final messages = (await ds.getMessages('room-1')).dataOrNull!;
         expect(messages, isEmpty);
       });
 
@@ -66,7 +70,7 @@ void main() {
           text: 'Updated',
         );
         await ds.saveMessages('room-1', [msg1Updated]);
-        final messages = await ds.getMessages('room-1');
+        final messages = (await ds.getMessages('room-1')).dataOrNull!;
         expect(messages.length, 1);
         expect(messages.first.text, 'Updated');
       });
@@ -77,25 +81,25 @@ void main() {
 
       test('save and get rooms', () async {
         await ds.saveRooms([room]);
-        final rooms = await ds.getRooms();
+        final rooms = (await ds.getRooms()).dataOrNull!;
         expect(rooms.length, 1);
       });
 
       test('get room by id', () async {
         await ds.saveRooms([room]);
-        final result = await ds.getRoom('room-1');
+        final result = (await ds.getRoom('room-1')).dataOrNull;
         expect(result?.id, 'room-1');
       });
 
       test('get nonexistent room returns null', () async {
-        final result = await ds.getRoom('nonexistent');
+        final result = (await ds.getRoom('nonexistent')).dataOrNull;
         expect(result, isNull);
       });
 
       test('delete room', () async {
         await ds.saveRooms([room]);
         await ds.deleteRoom('room-1');
-        expect(await ds.getRoom('room-1'), isNull);
+        expect((await ds.getRoom('room-1')).dataOrNull, isNull);
       });
     });
 
@@ -104,12 +108,12 @@ void main() {
 
       test('save and get user', () async {
         await ds.saveUsers([user]);
-        final result = await ds.getUser('u-1');
+        final result = (await ds.getUser('u-1')).dataOrNull;
         expect(result?.displayName, 'Test');
       });
 
       test('get nonexistent user returns null', () async {
-        expect(await ds.getUser('nonexistent'), isNull);
+        expect((await ds.getUser('nonexistent')).dataOrNull, isNull);
       });
     });
 
@@ -118,13 +122,13 @@ void main() {
 
       test('save and get contacts', () async {
         await ds.saveContacts([contact1]);
-        final contacts = await ds.getContacts();
+        final contacts = (await ds.getContacts()).dataOrNull!;
         expect(contacts.length, 1);
         expect(contacts.first.userId, 'c-1');
       });
 
       test('getContacts returns empty before save', () async {
-        expect(await ds.getContacts(), isEmpty);
+        expect((await ds.getContacts()).dataOrNull, isEmpty);
       });
     });
 
@@ -133,7 +137,7 @@ void main() {
         await ds.saveUnreads([
           const UnreadRoom(roomId: 'r-1', unreadMessages: 5),
         ]);
-        final unreads = await ds.getUnreads();
+        final unreads = (await ds.getUnreads()).dataOrNull!;
         expect(unreads.length, 1);
         expect(unreads.first.unreadMessages, 5);
       });
@@ -157,11 +161,11 @@ void main() {
 
       await ds.clear();
 
-      expect(await ds.getMessages('room-1'), isEmpty);
-      expect(await ds.getRooms(), isEmpty);
-      expect(await ds.getUser('u-1'), isNull);
-      expect(await ds.getContacts(), isEmpty);
-      expect(await ds.getUnreads(), isEmpty);
+      expect((await ds.getMessages('room-1')).dataOrNull, isEmpty);
+      expect((await ds.getRooms()).dataOrNull, isEmpty);
+      expect((await ds.getUser('u-1')).dataOrNull, isNull);
+      expect((await ds.getContacts()).dataOrNull, isEmpty);
+      expect((await ds.getUnreads()).dataOrNull, isEmpty);
     });
   });
 }

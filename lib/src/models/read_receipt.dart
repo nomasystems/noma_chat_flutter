@@ -1,15 +1,13 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'read_receipt.freezed.dart';
 
 /// A read receipt indicating the last message read by a user.
-@immutable
-class ReadReceipt {
-  final String userId;
-  final String? lastReadMessageId;
-  final DateTime? lastReadAt;
-
-  const ReadReceipt({
-    required this.userId,
-    this.lastReadMessageId,
-    this.lastReadAt,
-  });
+@freezed
+abstract class ReadReceipt with _$ReadReceipt {
+  const factory ReadReceipt({
+    required String userId,
+    String? lastReadMessageId,
+    DateTime? lastReadAt,
+  }) = _ReadReceipt;
 }

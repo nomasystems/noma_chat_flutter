@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 import '../chat_provider.dart';
+import '../locale_provider.dart';
 
 /// Shows the room's pinned messages and lets the user unpin any of them.
 /// Backed by `ChatController.pinnedMessages` so updates from
@@ -27,35 +28,50 @@ class _PinnedMessagesPageState extends State<PinnedMessagesPage> {
     _bound = true;
     _chat = ChatProvider.of(context);
     _controller = _chat.adapter.getChatController(widget.roomId);
-    _chat.adapter.loadPins(widget.roomId);
+    _chat.adapter.messages.loadPins(widget.roomId);
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = LocaleProvider.of(context).l10n;
     return Scaffold(
-      appBar: AppBar(title: const Text('Pinned messages')),
+      appBar: AppBar(title: Text(l10n.pinnedMessages)),
       body: ListenableBuilder(
         listenable: _controller,
         builder: (context, _) {
           final pins = _controller.pinnedMessages;
           if (pins.isEmpty) {
-            return const Center(child: Text('No pinned messages'));
+            return Center(child: Text(l10n.noPinnedMessages));
           }
           return ListView.separated(
             itemCount: pins.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) {
               final pin = pins[i];
               final message = _controller.getMessageById(pin.messageId);
+              // `displayNameFor` handles the self / cached / raw-id
+              // fallback chain in the SDK so every consumer (this
+              // example, WB/mobile, future apps) renders pinners the
+              // same way. Never shows a UUID when a friendlier label
+              // exists locally.
+              final pinnedByName = _chat.adapter.displayNameFor(pin.pinnedBy);
               return ListTile(
                 leading: const Icon(Icons.push_pin),
-                title: Text(message?.text ?? '(message not loaded)'),
-                subtitle: Text('Pinned by ${pin.pinnedBy}'),
+                title: Text(message?.text ?? '…'),
+                subtitle: Text(l10n.pinnedBy(pinnedByName)),
+                // Tap = jump to the source message in the chat view.
+                // Same UX as a search-result tap: we pop with the
+                // messageId, the caller (chat_room_page) catches it
+                // and feeds `ChatView.initialMessageId` which triggers
+                // `_tryScrollToPending` → scroll + 3-second highlight.
+                onTap: () => Navigator.of(context).pop(pin.messageId),
                 trailing: IconButton(
                   icon: const Icon(Icons.close),
-                  tooltip: 'Unpin',
-                  onPressed: () =>
-                      _chat.adapter.unpinMessage(widget.roomId, pin.messageId),
+                  tooltip: l10n.unpin,
+                  onPressed: () => _chat.adapter.messages.unpin(
+                    widget.roomId,
+                    pin.messageId,
+                  ),
                 ),
               );
             },

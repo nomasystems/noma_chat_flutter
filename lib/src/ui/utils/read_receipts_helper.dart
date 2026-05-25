@@ -1,4 +1,5 @@
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../../models/read_receipt.dart';
 
 /// Returns the ids of users (from [receipts]) who have read [message].
 ///

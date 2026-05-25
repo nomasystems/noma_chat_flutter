@@ -78,6 +78,7 @@ class MediaGalleryView extends StatelessWidget {
         final item = visible[index];
         return _MediaCell(
           item: item,
+          theme: theme,
           onTap: onTapItem != null ? () => onTapItem!(item) : null,
         );
       },
@@ -86,9 +87,10 @@ class MediaGalleryView extends StatelessWidget {
 }
 
 class _MediaCell extends StatelessWidget {
-  const _MediaCell({required this.item, this.onTap});
+  const _MediaCell({required this.item, required this.theme, this.onTap});
 
   final MediaItem item;
+  final ChatTheme theme;
   final VoidCallback? onTap;
 
   static IconData _fileIcon(String? mimeType) {
@@ -144,29 +146,35 @@ class _MediaCell extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
-      child: InkWell(
-        onTap: onTap,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            CachedNetworkImage(
-              imageUrl: item.url,
-              fit: BoxFit.cover,
-              placeholder: (_, __) => Container(color: Colors.grey.shade200),
-              errorWidget: (_, __, ___) => Container(
-                color: Colors.grey.shade200,
-                child: const Icon(Icons.broken_image, color: Colors.grey),
-              ),
-            ),
-            if (item.type == MediaItemType.video)
-              const Center(
-                child: Icon(
-                  Icons.play_circle_filled,
-                  color: Colors.white,
-                  size: 40,
+      child: Semantics(
+        label: item.type == MediaItemType.video
+            ? theme.l10n.videoPreview
+            : theme.l10n.imagePreview,
+        button: onTap != null,
+        child: InkWell(
+          onTap: onTap,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              CachedNetworkImage(
+                imageUrl: item.url,
+                fit: BoxFit.cover,
+                placeholder: (_, __) => Container(color: Colors.grey.shade200),
+                errorWidget: (_, __, ___) => Container(
+                  color: Colors.grey.shade200,
+                  child: const Icon(Icons.broken_image, color: Colors.grey),
                 ),
               ),
-          ],
+              if (item.type == MediaItemType.video)
+                const Center(
+                  child: Icon(
+                    Icons.play_circle_filled,
+                    color: Colors.white,
+                    size: 40,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

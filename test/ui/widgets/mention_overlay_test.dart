@@ -6,9 +6,9 @@ void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
   final users = [
-    ChatUser(id: 'u1', displayName: 'Alice Smith'),
-    ChatUser(id: 'u2', displayName: 'Bob Jones'),
-    ChatUser(id: 'u3', displayName: 'Charlie Brown'),
+    const ChatUser(id: 'u1', displayName: 'Alice Smith'),
+    const ChatUser(id: 'u2', displayName: 'Bob Jones'),
+    const ChatUser(id: 'u3', displayName: 'Charlie Brown'),
   ];
 
   group('MentionOverlay', () {

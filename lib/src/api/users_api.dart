@@ -1,6 +1,6 @@
 import '../_internal/cache/cache_manager.dart';
-import '../_internal/cache/cache_policy.dart';
-import '../_internal/cache/local_datasource.dart';
+import '../cache/cache_policy.dart';
+import '../cache/local_datasource.dart';
 import '../_internal/http/exception_mapper.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/user_mapper.dart';
@@ -29,16 +29,16 @@ class UsersApi implements ChatUsersApi {
        _logger = logger;
 
   @override
-  Future<Result<PaginatedResponse<ChatUser>>> search(
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> search(
     String query, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => safeApiCall(() async {
     final (json, totalCount) = await _rest.getWithTotalCount(
       '/users',
       queryParams: {'q': query, ...?pagination?.toQueryParams()},
     );
     final users = UserMapper.fromJsonList(json['users'] as List? ?? []);
-    return PaginatedResponse(
+    return ChatPaginatedResponse(
       items: users,
       hasMore: (json['hasMore'] ?? false) as bool,
       totalCount: totalCount,
@@ -46,46 +46,75 @@ class UsersApi implements ChatUsersApi {
   });
 
   @override
-  Future<Result<ChatUser>> get(String userId, {CachePolicy? cachePolicy}) {
+  Future<ChatResult<ChatUser>> get(String userId, {CachePolicy? cachePolicy}) {
     if (_cacheManager != null && _cache != null) {
       return _cacheManager.resolve<ChatUser>(
         key: 'user:$userId',
         ttl: _cacheManager.config.ttlUsers,
         policy: cachePolicy,
-        fromCache: () => _cache.getUser(userId),
+        fromCache: () async {
+          final r = await _cache.getUser(userId);
+          return r.dataOrNull;
+        },
         fromNetwork: () => safeApiCall(() async {
           final json = await _rest.get('/users/$userId');
-          return UserMapper.fromJson(json);
+          return UserMapper.fromJson(_unwrapUser(json));
         }),
         saveToCache: (user) => _cache.saveUsers([user]),
       );
     }
     return safeApiCall(() async {
       final json = await _rest.get('/users/$userId');
-      return UserMapper.fromJson(json);
+      return UserMapper.fromJson(_unwrapUser(json));
     });
   }
 
+  /// Unwraps the `{"user": {...}}` envelope used by `GET /v1/users/:userId`.
+  ///
+  /// Without this step, `UserMapper.fromJson` was reading the outer map and
+  /// falling back to `id: ''` because the real fields lived under `user`.
+  /// `users.search` and `members.list` already return the inner shape
+  /// directly, so they were not affected; only the single-resource `get`
+  /// suffered from the wrapping. Defensive fallback: if a future backend
+  /// stops wrapping, the outer map is parsed directly (still produces a
+  /// correct ChatUser when `id`/`displayName` exist at the top level).
+  Map<String, dynamic> _unwrapUser(Map<String, dynamic> json) {
+    final inner = json['user'];
+    if (inner is Map<String, dynamic>) return inner;
+    return json;
+  }
+
   @override
-  Future<Result<ChatUser>> create({
+  Future<ChatResult<ChatUser>> create({
     List<String>? externalIds,
     Map<String, String>? passwords,
+    String? displayName,
+    String? avatarUrl,
+    String? bio,
+    String? email,
+    Map<String, dynamic>? custom,
   }) => safeApiCall(() async {
     final json = await _rest.post(
       '/users',
       data: {
         if (externalIds != null) 'externalIds': externalIds,
         if (passwords != null) 'passwords': passwords,
+        if (displayName != null) 'displayName': displayName,
+        if (avatarUrl != null) 'avatarUrl': avatarUrl,
+        if (bio != null) 'bio': bio,
+        if (email != null) 'email': email,
+        if (custom != null) 'custom': custom,
       },
     );
-    return UserMapper.fromJson(json);
+    return UserMapper.fromJson(_unwrapUser(json));
   });
 
   @override
-  Future<Result<ChatUser>> update(
+  Future<ChatResult<ChatUser>> update(
     String userId, {
     String? displayName,
     String? avatarUrl,
+    bool clearAvatar = false,
     String? bio,
     String? email,
     Map<String, dynamic>? custom,
@@ -94,7 +123,18 @@ class UsersApi implements ChatUsersApi {
     final result = await safeApiCall(() async {
       final data = <String, dynamic>{
         if (displayName != null) 'displayName': displayName,
-        if (avatarUrl != null) 'avatarUrl': avatarUrl,
+        // `clearAvatar: true` sends an empty string instead of a JSON null
+        // because the backend validator (user_client_cb_users) strips
+        // explicit nulls before the field selection — sending null left
+        // the body empty and the handler answered 400 "Empty body". The
+        // empty string is accepted as a binary, lands in the DB as "" and
+        // the SDK's `UserAvatar` treats empty/null equivalently (falls
+        // back to initials). Mutually exclusive with a non-null
+        // `avatarUrl`.
+        if (clearAvatar)
+          'avatarUrl': ''
+        else if (avatarUrl != null)
+          'avatarUrl': avatarUrl,
         if (bio != null) 'bio': bio,
         if (email != null) 'email': email,
         if (custom != null) 'custom': custom,
@@ -105,7 +145,7 @@ class UsersApi implements ChatUsersApi {
     });
     if (result.isSuccess && _cache != null) {
       try {
-        await _cache.saveUsers([result.dataOrNull!]);
+        await _cache.saveUsers([result.dataOrThrow]);
         _cacheManager?.invalidate('user:$userId');
       } catch (e) {
         _logger?.call('warn', 'users.update: cache update failed: $e');
@@ -115,7 +155,7 @@ class UsersApi implements ChatUsersApi {
   }
 
   @override
-  Future<Result<void>> delete(String userId) async {
+  Future<ChatResult<void>> delete(String userId) async {
     final result = await safeVoidCall(() => _rest.delete('/users/$userId'));
     if (result.isSuccess && _cache != null) {
       try {
@@ -131,7 +171,7 @@ class UsersApi implements ChatUsersApi {
   // Managed users
 
   @override
-  Future<Result<ChatUser>> searchManaged({required String externalId}) =>
+  Future<ChatResult<ChatUser>> searchManaged({required String externalId}) =>
       safeApiCall(() async {
         final json = await _rest.get(
           '/managed-users',
@@ -141,7 +181,7 @@ class UsersApi implements ChatUsersApi {
       });
 
   @override
-  Future<Result<List<ChatUser>>> createManaged({
+  Future<ChatResult<List<ChatUser>>> createManaged({
     required List<String> externalIds,
   }) => safeApiCall(() async {
     final json = await _rest.post(
@@ -152,15 +192,15 @@ class UsersApi implements ChatUsersApi {
   });
 
   @override
-  Future<Result<PaginatedResponse<ChatUser>>> getManaged(
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManaged(
     String userId, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => safeApiCall(() async {
     final (json, totalCount) = await _rest.getWithTotalCount(
       '/managed-users/$userId',
       queryParams: pagination?.toQueryParams(),
     );
-    return PaginatedResponse(
+    return ChatPaginatedResponse(
       items: UserMapper.fromJsonList(json['users'] as List? ?? []),
       hasMore: (json['hasMore'] ?? false) as bool,
       totalCount: totalCount,
@@ -168,7 +208,7 @@ class UsersApi implements ChatUsersApi {
   });
 
   @override
-  Future<Result<void>> deleteManaged(
+  Future<ChatResult<void>> deleteManaged(
     String userId, {
     required String fromUserId,
   }) => safeVoidCall(
@@ -179,14 +219,15 @@ class UsersApi implements ChatUsersApi {
   );
 
   @override
-  Future<Result<ManagedUserConfiguration>> getManagedConfig(String userId) =>
-      safeApiCall(() async {
-        final json = await _rest.get('/managed-users/$userId/configuration');
-        return UserMapper.managedConfigFromJson(json);
-      });
+  Future<ChatResult<ManagedUserConfiguration>> getManagedConfig(
+    String userId,
+  ) => safeApiCall(() async {
+    final json = await _rest.get('/managed-users/$userId/configuration');
+    return UserMapper.managedConfigFromJson(json);
+  });
 
   @override
-  Future<Result<void>> updateManagedConfig(
+  Future<ChatResult<void>> updateManagedConfig(
     String userId, {
     required ManagedUserConfiguration configuration,
   }) => safeVoidCall(

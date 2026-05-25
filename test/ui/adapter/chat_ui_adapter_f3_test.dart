@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 class _FailableRoomsApi implements ChatRoomsApi {
   final ChatRoomsApi _delegate;
@@ -11,31 +12,37 @@ class _FailableRoomsApi implements ChatRoomsApi {
   bool failUnpin = false;
 
   @override
-  Future<Result<void>> mute(String roomId) async {
-    if (failMute) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> mute(String roomId) async {
+    if (failMute) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.mute(roomId);
   }
 
   @override
-  Future<Result<void>> unmute(String roomId) async {
-    if (failUnmute) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> unmute(String roomId) async {
+    if (failUnmute) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.unmute(roomId);
   }
 
   @override
-  Future<Result<void>> pin(String roomId) async {
-    if (failPin) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> pin(String roomId) async {
+    if (failPin) return const ChatFailureResult(ServerFailure(statusCode: 500));
     return _delegate.pin(roomId);
   }
 
   @override
-  Future<Result<void>> unpin(String roomId) async {
-    if (failUnpin) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> unpin(String roomId) async {
+    if (failUnpin) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.unpin(roomId);
   }
 
   @override
-  Future<Result<ChatRoom>> create({
+  Future<ChatResult<ChatRoom>> create({
     required RoomAudience audience,
     bool allowInvitations = false,
     String? name,
@@ -54,22 +61,24 @@ class _FailableRoomsApi implements ChatRoomsApi {
   );
 
   @override
-  Future<Result<void>> delete(String roomId) => _delegate.delete(roomId);
+  Future<ChatResult<void>> delete(String roomId) => _delegate.delete(roomId);
 
   @override
-  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
+  Future<ChatResult<ChatPaginatedResponse<DiscoveredRoom>>> discover(
     String query, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => _delegate.discover(query, pagination: pagination);
 
   @override
-  Future<Result<RoomDetail>> get(String roomId, {CachePolicy? cachePolicy}) =>
-      _delegate.get(roomId, cachePolicy: cachePolicy);
+  Future<ChatResult<RoomDetail>> get(
+    String roomId, {
+    CachePolicy? cachePolicy,
+  }) => _delegate.get(roomId, cachePolicy: cachePolicy);
 
   @override
-  Future<Result<UserRooms>> getUserRooms({
+  Future<ChatResult<UserRooms>> getUserRooms({
     String type = 'all',
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
     CachePolicy? cachePolicy,
   }) => _delegate.getUserRooms(
     type: type,
@@ -78,33 +87,35 @@ class _FailableRoomsApi implements ChatRoomsApi {
   );
 
   @override
-  Future<Result<void>> updateConfig(
+  Future<ChatResult<void>> updateConfig(
     String roomId, {
     String? name,
     String? subject,
     String? avatarUrl,
+    bool clearAvatar = false,
     Map<String, dynamic>? custom,
   }) => _delegate.updateConfig(
     roomId,
     name: name,
     subject: subject,
     avatarUrl: avatarUrl,
+    clearAvatar: clearAvatar,
     custom: custom,
   );
 
   @override
-  Future<Result<void>> batchMarkAsRead(List<String> roomIds) =>
+  Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) =>
       _delegate.batchMarkAsRead(roomIds);
 
   @override
-  Future<Result<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
+  Future<ChatResult<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       _delegate.batchGetUnread(roomIds);
 
   @override
-  Future<Result<void>> hide(String roomId) => _delegate.hide(roomId);
+  Future<ChatResult<void>> hide(String roomId) => _delegate.hide(roomId);
 
   @override
-  Future<Result<void>> unhide(String roomId) => _delegate.unhide(roomId);
+  Future<ChatResult<void>> unhide(String roomId) => _delegate.unhide(roomId);
 
   @override
   Future<void> updateCachedRoomPreview(
@@ -146,28 +157,32 @@ class _FailableMessagesApi implements ChatMessagesApi {
   bool failUnpinMessage = false;
 
   @override
-  Future<Result<ChatMessage>> get(String roomId, String messageId) =>
+  Future<ChatResult<ChatMessage>> get(String roomId, String messageId) =>
       _delegate.get(roomId, messageId);
 
   @override
-  Future<Result<void>> update(
+  Future<ChatResult<void>> update(
     String roomId,
     String messageId, {
     required String text,
     Map<String, dynamic>? metadata,
   }) async {
-    if (failUpdate) return const Failure(ServerFailure(statusCode: 500));
+    if (failUpdate) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.update(roomId, messageId, text: text, metadata: metadata);
   }
 
   @override
-  Future<Result<void>> delete(String roomId, String messageId) async {
-    if (failDelete) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> delete(String roomId, String messageId) async {
+    if (failDelete) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.delete(roomId, messageId);
   }
 
   @override
-  Future<Result<ChatMessage>> send(
+  Future<ChatResult<ChatMessage>> send(
     String roomId, {
     String? text,
     MessageType messageType = MessageType.regular,
@@ -178,7 +193,9 @@ class _FailableMessagesApi implements ChatMessagesApi {
     String? tempId,
     Map<String, dynamic>? metadata,
   }) async {
-    if (failSend) return const Failure(ServerFailure(statusCode: 500));
+    if (failSend) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.send(
       roomId,
       text: text,
@@ -193,9 +210,9 @@ class _FailableMessagesApi implements ChatMessagesApi {
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> list(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> list(
     String roomId, {
-    CursorPaginationParams? pagination,
+    ChatCursorPaginationParams? pagination,
     bool? unreadOnly,
     CachePolicy? cachePolicy,
   }) => _delegate.list(
@@ -206,7 +223,7 @@ class _FailableMessagesApi implements ChatMessagesApi {
   );
 
   @override
-  Future<Result<void>> sendViaWs(
+  Future<ChatResult<ChatMessage>> sendViaWs(
     String roomId, {
     String? text,
     MessageType messageType = MessageType.regular,
@@ -218,91 +235,105 @@ class _FailableMessagesApi implements ChatMessagesApi {
   }) => _delegate.sendViaWs(roomId);
 
   @override
-  Future<Result<void>> sendReceipt(
+  Future<ChatResult<void>> sendReceipt(
     String roomId,
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
   }) => _delegate.sendReceipt(roomId, messageId, status: status);
 
   @override
-  Future<Result<void>> markRoomAsRead(
+  Future<ChatResult<void>> markRoomAsRead(
     String roomId, {
     String? lastReadMessageId,
   }) => _delegate.markRoomAsRead(roomId, lastReadMessageId: lastReadMessageId);
 
   @override
-  Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(
+  Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,
   ) => _delegate.getRoomReceipts(roomId);
 
   @override
-  Future<Result<void>> sendTyping(
+  Future<ChatResult<void>> sendTyping(
     String roomId, {
     ChatActivity activity = ChatActivity.startsTyping,
   }) => _delegate.sendTyping(roomId, activity: activity);
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> getThread(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> getThread(
     String roomId,
     String messageId, {
-    CursorPaginationParams? pagination,
+    ChatCursorPaginationParams? pagination,
   }) => _delegate.getThread(roomId, messageId, pagination: pagination);
 
   @override
-  Future<Result<List<AggregatedReaction>>> getReactions(
+  Future<ChatResult<List<AggregatedReaction>>> getReactions(
     String roomId,
     String messageId, {
     bool forceRefresh = false,
-  }) => _delegate.getReactions(roomId, messageId, forceRefresh: forceRefresh);
+    CachePolicy? cachePolicy,
+  }) => _delegate.getReactions(
+    roomId,
+    messageId,
+    // ignore: deprecated_member_use_from_same_package
+    forceRefresh: forceRefresh,
+    cachePolicy: cachePolicy,
+  );
 
   @override
-  Future<Result<void>> deleteReaction(String roomId, String messageId) async {
+  Future<ChatResult<void>> deleteReaction(
+    String roomId,
+    String messageId,
+  ) async {
     if (failDeleteReaction) {
-      return const Failure(ServerFailure(statusCode: 500));
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
     }
     return _delegate.deleteReaction(roomId, messageId);
   }
 
   @override
-  Future<Result<void>> pinMessage(String roomId, String messageId) async {
-    if (failPinMessage) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> pinMessage(String roomId, String messageId) async {
+    if (failPinMessage) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.pinMessage(roomId, messageId);
   }
 
   @override
-  Future<Result<void>> unpinMessage(String roomId, String messageId) async {
-    if (failUnpinMessage) return const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> unpinMessage(String roomId, String messageId) async {
+    if (failUnpinMessage) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
     return _delegate.unpinMessage(roomId, messageId);
   }
 
   @override
-  Future<Result<PaginatedResponse<MessagePin>>> listPins(
+  Future<ChatResult<ChatPaginatedResponse<MessagePin>>> listPins(
     String roomId, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => _delegate.listPins(roomId, pagination: pagination);
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> search(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> search(
     String query, {
     required String roomId,
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => _delegate.search(query, roomId: roomId, pagination: pagination);
 
   @override
-  Future<Result<void>> report(
+  Future<ChatResult<void>> report(
     String roomId,
     String messageId, {
     required String reason,
   }) => _delegate.report(roomId, messageId, reason: reason);
 
   @override
-  Future<Result<PaginatedResponse<MessageReport>>> listReports(
+  Future<ChatResult<ChatPaginatedResponse<MessageReport>>> listReports(
     String roomId, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => _delegate.listReports(roomId, pagination: pagination);
 
   @override
-  Future<Result<ScheduledMessage>> schedule(
+  Future<ChatResult<ScheduledMessage>> schedule(
     String roomId, {
     required DateTime sendAt,
     String? text,
@@ -315,19 +346,20 @@ class _FailableMessagesApi implements ChatMessagesApi {
   );
 
   @override
-  Future<Result<PaginatedResponse<ScheduledMessage>>> listScheduled(
+  Future<ChatResult<ChatPaginatedResponse<ScheduledMessage>>> listScheduled(
     String roomId,
   ) => _delegate.listScheduled(roomId);
 
   @override
-  Future<Result<void>> cancelScheduled(String roomId, String scheduledId) =>
+  Future<ChatResult<void>> cancelScheduled(String roomId, String scheduledId) =>
       _delegate.cancelScheduled(roomId, scheduledId);
 
   @override
-  Future<Result<void>> clearChat(String roomId) => _delegate.clearChat(roomId);
+  Future<ChatResult<void>> clearChat(String roomId) =>
+      _delegate.clearChat(roomId);
 
   @override
-  Future<DateTime?> getClearedAt(String roomId) =>
+  Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>
       _delegate.getClearedAt(roomId);
 }
 
@@ -379,6 +411,13 @@ class _FailableChatClient implements ChatClient {
   @override
   Future<void> notifyTokenRotated() => _delegate.notifyTokenRotated();
   @override
+  Future<void> refresh() => _delegate.refresh();
+  @override
+  Future<void> refreshRoom(String roomId) => _delegate.refreshRoom(roomId);
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) =>
+      _delegate.cancelPendingRequests(reason);
+  @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _delegate.onOfflineMessageSent = value;
@@ -389,7 +428,7 @@ void main() {
   late _FailableChatClient failableClient;
   late ChatUiAdapter adapter;
 
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -413,7 +452,7 @@ void main() {
       );
       controller.addMessage(msg);
 
-      final future = adapter.editMessage('room1', 'msg1', text: 'Edited');
+      final future = adapter.messages.edit('room1', 'msg1', text: 'Edited');
 
       expect(controller.messages.first.text, 'Edited');
       await future;
@@ -430,7 +469,11 @@ void main() {
       controller.addMessage(msg);
 
       failableClient.failableMessages.failUpdate = true;
-      final result = await adapter.editMessage('room1', 'msg1', text: 'Edited');
+      final result = await adapter.messages.edit(
+        'room1',
+        'msg1',
+        text: 'Edited',
+      );
 
       expect(result.isFailure, true);
       expect(controller.messages.first.text, 'Original');
@@ -438,7 +481,11 @@ void main() {
   });
 
   group('F3.1 optimistic deleteMessage', () {
-    test('removes message locally before SDK response', () async {
+    // WhatsApp-style soft-delete: the deleter's own client keeps the
+    // message row but flips it to a tombstone (isDeleted: true, text
+    // wiped). Recipients render the same tombstone via the
+    // `message_deleted` WS event, so the local view stays consistent.
+    test('marks message as deleted locally before SDK response', () async {
       final controller = adapter.getChatController('room1');
       controller.addMessage(
         ChatMessage(
@@ -449,13 +496,15 @@ void main() {
         ),
       );
 
-      final future = adapter.deleteMessage('room1', 'msg1');
+      final future = adapter.messages.delete('room1', 'msg1');
 
-      expect(controller.messages, isEmpty);
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.first.isDeleted, true);
+      expect(controller.messages.first.text, isEmpty);
       await future;
     });
 
-    test('re-adds message on SDK failure', () async {
+    test('restores original message on SDK failure', () async {
       final controller = adapter.getChatController('room1');
       controller.addMessage(
         ChatMessage(
@@ -467,10 +516,11 @@ void main() {
       );
 
       failableClient.failableMessages.failDelete = true;
-      final result = await adapter.deleteMessage('room1', 'msg1');
+      final result = await adapter.messages.delete('room1', 'msg1');
 
       expect(result.isFailure, true);
       expect(controller.messages, hasLength(1));
+      expect(controller.messages.first.isDeleted, false);
       expect(controller.messages.first.text, 'Hello');
     });
   });
@@ -487,7 +537,7 @@ void main() {
         ),
       );
 
-      final future = adapter.sendReaction(
+      final future = adapter.messages.sendReaction(
         'room1',
         messageId: 'msg1',
         emoji: '👍',
@@ -509,7 +559,7 @@ void main() {
       );
 
       failableClient.failableMessages.failSend = true;
-      final result = await adapter.sendReaction(
+      final result = await adapter.messages.sendReaction(
         'room1',
         messageId: 'msg1',
         emoji: '👍',
@@ -526,7 +576,7 @@ void main() {
         const RoomListItem(id: 'room1', name: 'Test', muted: false),
       );
 
-      final future = adapter.muteRoom('room1');
+      final future = adapter.rooms.mute('room1');
 
       expect(adapter.roomListController.getRoomById('room1')!.muted, true);
       await future;
@@ -538,7 +588,7 @@ void main() {
       );
 
       failableClient.failableRooms.failMute = true;
-      final result = await adapter.muteRoom('room1');
+      final result = await adapter.rooms.mute('room1');
 
       expect(result.isFailure, true);
       expect(adapter.roomListController.getRoomById('room1')!.muted, false);
@@ -549,7 +599,7 @@ void main() {
         const RoomListItem(id: 'room1', name: 'Test', muted: true),
       );
 
-      final future = adapter.unmuteRoom('room1');
+      final future = adapter.rooms.unmute('room1');
 
       expect(adapter.roomListController.getRoomById('room1')!.muted, false);
       await future;
@@ -561,7 +611,7 @@ void main() {
       );
 
       failableClient.failableRooms.failUnmute = true;
-      final result = await adapter.unmuteRoom('room1');
+      final result = await adapter.rooms.unmute('room1');
 
       expect(result.isFailure, true);
       expect(adapter.roomListController.getRoomById('room1')!.muted, true);
@@ -574,7 +624,7 @@ void main() {
         const RoomListItem(id: 'room1', name: 'Test', pinned: false),
       );
 
-      final future = adapter.pinRoom('room1');
+      final future = adapter.rooms.pin('room1');
 
       expect(adapter.roomListController.getRoomById('room1')!.pinned, true);
       await future;
@@ -586,7 +636,7 @@ void main() {
       );
 
       failableClient.failableRooms.failPin = true;
-      final result = await adapter.pinRoom('room1');
+      final result = await adapter.rooms.pin('room1');
 
       expect(result.isFailure, true);
       expect(adapter.roomListController.getRoomById('room1')!.pinned, false);
@@ -597,7 +647,7 @@ void main() {
         const RoomListItem(id: 'room1', name: 'Test', pinned: true),
       );
 
-      final future = adapter.unpinRoom('room1');
+      final future = adapter.rooms.unpin('room1');
 
       expect(adapter.roomListController.getRoomById('room1')!.pinned, false);
       await future;
@@ -609,7 +659,7 @@ void main() {
       );
 
       failableClient.failableRooms.failUnpin = true;
-      final result = await adapter.unpinRoom('room1');
+      final result = await adapter.rooms.unpin('room1');
 
       expect(result.isFailure, true);
       expect(adapter.roomListController.getRoomById('room1')!.pinned, true);
@@ -630,7 +680,7 @@ void main() {
       controller.markFailed('_pending_99');
       expect(controller.isFailed('_pending_99'), true);
 
-      final result = await adapter.retrySend('room1', '_pending_99');
+      final result = await adapter.messages.retrySend('room1', '_pending_99');
 
       expect(result.isSuccess, true);
       final serverMsg = result.dataOrNull!;
@@ -641,7 +691,7 @@ void main() {
     test('returns failure when message not found', () async {
       adapter.getChatController('room1');
 
-      final result = await adapter.retrySend('room1', 'non-existent');
+      final result = await adapter.messages.retrySend('room1', 'non-existent');
 
       expect(result.isFailure, true);
       expect(result.failureOrNull, isA<NotFoundFailure>());
@@ -660,14 +710,14 @@ void main() {
       controller.markFailed('_pending_99');
 
       failableClient.failableMessages.failSend = true;
-      final result = await adapter.retrySend('room1', '_pending_99');
+      final result = await adapter.messages.retrySend('room1', '_pending_99');
 
       expect(result.isFailure, true);
       expect(controller.isFailed('_pending_99'), true);
     });
 
     test('returns failure when controller not found', () async {
-      final result = await adapter.retrySend('no-room', 'msg1');
+      final result = await adapter.messages.retrySend('no-room', 'msg1');
 
       expect(result.isFailure, true);
       expect(result.failureOrNull, isA<NotFoundFailure>());
@@ -680,7 +730,7 @@ void main() {
       controller.addOwnReaction('msg1', '👍');
       expect(controller.userReactions['msg1']?.contains('👍'), true);
 
-      final future = adapter.deleteReaction(
+      final future = adapter.messages.deleteReaction(
         'room1',
         messageId: 'msg1',
         emoji: '👍',
@@ -695,7 +745,7 @@ void main() {
       controller.addOwnReaction('msg1', '👍');
 
       failableClient.failableMessages.failDeleteReaction = true;
-      final result = await adapter.deleteReaction(
+      final result = await adapter.messages.deleteReaction(
         'room1',
         messageId: 'msg1',
         emoji: '👍',
@@ -711,7 +761,7 @@ void main() {
       final controller = adapter.getChatController('room1');
       expect(controller.isPinned('msg1'), false);
 
-      final future = adapter.pinMessage('room1', 'msg1');
+      final future = adapter.messages.pin('room1', 'msg1');
 
       expect(controller.isPinned('msg1'), true);
       await future;
@@ -721,7 +771,7 @@ void main() {
       final controller = adapter.getChatController('room1');
       failableClient.failableMessages.failPinMessage = true;
 
-      final result = await adapter.pinMessage('room1', 'msg1');
+      final result = await adapter.messages.pin('room1', 'msg1');
 
       expect(result.isFailure, true);
       expect(controller.isPinned('msg1'), false);
@@ -738,7 +788,7 @@ void main() {
         ),
       );
 
-      await adapter.pinMessage('room1', 'msg1');
+      await adapter.messages.pin('room1', 'msg1');
 
       expect(
         controller.pinnedMessages.where((p) => p.messageId == 'msg1').length,
@@ -757,7 +807,7 @@ void main() {
         ),
       );
 
-      final future = adapter.unpinMessage('room1', 'msg1');
+      final future = adapter.messages.unpin('room1', 'msg1');
 
       expect(controller.isPinned('msg1'), false);
       await future;
@@ -774,7 +824,7 @@ void main() {
       controller.addPin(pin);
 
       failableClient.failableMessages.failUnpinMessage = true;
-      final result = await adapter.unpinMessage('room1', 'msg1');
+      final result = await adapter.messages.unpin('room1', 'msg1');
 
       expect(result.isFailure, true);
       expect(controller.isPinned('msg1'), true);
@@ -784,7 +834,7 @@ void main() {
       final controller = adapter.getChatController('room1');
       expect(controller.pinnedMessages, isEmpty);
 
-      await adapter.loadPins('room1');
+      await adapter.messages.loadPins('room1');
 
       expect(controller.pinnedMessages, isA<List<MessagePin>>());
     });

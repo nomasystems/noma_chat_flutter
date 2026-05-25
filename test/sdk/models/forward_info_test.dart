@@ -88,7 +88,7 @@ void main() {
         timestamp: DateTime(2026, 1, 1),
         messageType: MessageType.forward,
         referencedMessageId: 'orig-msg',
-        metadata: {'sourceRoomId': 'orig-room'},
+        metadata: const {'sourceRoomId': 'orig-room'},
       );
       final info = msg.forwardInfo;
       expect(info, isNotNull);
@@ -103,7 +103,7 @@ void main() {
         from: 'user1',
         timestamp: DateTime(2026, 1, 1),
         messageType: MessageType.forward,
-        metadata: {
+        metadata: const {
           'forwardedFrom': 'orig-user',
           'forwardedFromRoom': 'orig-room',
           'forwardedMessageId': 'orig-msg',

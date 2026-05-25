@@ -1,15 +1,13 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'reaction.freezed.dart';
 
 /// An emoji reaction with its count and the list of users who reacted.
-@immutable
-class AggregatedReaction {
-  final String emoji;
-  final int count;
-  final List<String> users;
-
-  const AggregatedReaction({
-    required this.emoji,
-    required this.count,
-    this.users = const [],
-  });
+@freezed
+abstract class AggregatedReaction with _$AggregatedReaction {
+  const factory AggregatedReaction({
+    required String emoji,
+    required int count,
+    @Default(<String>[]) List<String> users,
+  }) = _AggregatedReaction;
 }

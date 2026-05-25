@@ -27,6 +27,33 @@ flutter pub get
 flutter run
 ```
 
+## API & code conventions
+
+The patterns the SDK follows for naming, return types, theme/L10n
+integration, breaking-change policy and state management live in
+[CONVENTIONS.md](./CONVENTIONS.md). Skim it once before adding a new
+public surface — most review feedback boils down to "this should be a
+`*Fetcher`, not a `*Resolver`" or "use `RoomDefaults.X` instead of a
+magic number".
+
+When you add:
+
+- **A new public widget** — accept `theme: ChatTheme = ChatTheme.defaults`,
+  read every visual property through it, hardcoded colours go through
+  `DefaultPalette`. Provide a `show()` static if the widget is a
+  sheet/page; return `Future<X?>` when it produces a value, else
+  `Future<void>`.
+- **A new adapter method** — return `Future<Result<T>>` and emit
+  `OperationKind.X` on failure. Clear any new state field in **both**
+  `disconnect()` and `signOut()`.
+- **A new L10n key** — translate it for `en` (canonical) and `es`
+  (first-class) at minimum. Other locales accept best-effort
+  translations in the same change; missing overrides fall back to `en`.
+- **A new default** (duration, length, size) — add it to `RoomDefaults`.
+- **A breaking rename** — pre-1.0 lands as a hard break with a
+  `[Unreleased]/Changed` or `Removed` entry in `CHANGELOG.md` plus a
+  search-and-replace snippet for consumers.
+
 ## Reporting bugs
 
 Open an issue at

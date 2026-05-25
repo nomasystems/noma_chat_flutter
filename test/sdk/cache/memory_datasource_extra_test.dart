@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 
 /// Round-trip coverage of every CRUD-like method on
 /// `MemoryChatLocalDatasource`. The existing
@@ -16,11 +17,14 @@ void main() {
     const r1 = ChatRoom(id: 'r1', name: 'Alpha');
     const r2 = ChatRoom(id: 'r2', name: 'Beta');
     await ds.saveRooms([r1, r2]);
-    expect((await ds.getRooms()).map((r) => r.id), containsAll(['r1', 'r2']));
-    expect((await ds.getRoom('r1'))!.name, 'Alpha');
+    expect(
+      (await ds.getRooms()).dataOrNull!.map((r) => r.id),
+      containsAll(['r1', 'r2']),
+    );
+    expect((await ds.getRoom('r1')).dataOrNull!.name, 'Alpha');
 
     await ds.deleteRoom('r1');
-    expect(await ds.getRoom('r1'), isNull);
+    expect((await ds.getRoom('r1')).dataOrNull, isNull);
   });
 
   test('saveRoomDetail + getRoomDetail + deleteRoomDetail', () async {
@@ -33,9 +37,9 @@ void main() {
       config: RoomConfig(),
     );
     await ds.saveRoomDetail(detail);
-    expect((await ds.getRoomDetail('r1'))!.name, 'Alpha');
+    expect((await ds.getRoomDetail('r1')).dataOrNull!.name, 'Alpha');
     await ds.deleteRoomDetail('r1');
-    expect(await ds.getRoomDetail('r1'), isNull);
+    expect((await ds.getRoomDetail('r1')).dataOrNull, isNull);
   });
 
   // ---- Users -----------------------------------------------------------
@@ -43,11 +47,11 @@ void main() {
     const a = ChatUser(id: 'u1', displayName: 'Alice');
     const b = ChatUser(id: 'u2', displayName: 'Bob');
     await ds.saveUsers([a, b]);
-    expect((await ds.getUsers()).length, 2);
-    expect((await ds.getUser('u1'))!.displayName, 'Alice');
+    expect((await ds.getUsers()).dataOrNull!.length, 2);
+    expect((await ds.getUser('u1')).dataOrNull!.displayName, 'Alice');
 
     await ds.deleteUser('u2');
-    expect(await ds.getUser('u2'), isNull);
+    expect((await ds.getUser('u2')).dataOrNull, isNull);
   });
 
   // ---- Contacts --------------------------------------------------------
@@ -57,10 +61,10 @@ void main() {
       const c1 = ChatContact(userId: 'u1');
       const c2 = ChatContact(userId: 'u2');
       await ds.saveContacts([c1, c2]);
-      expect((await ds.getContacts()).length, 2);
+      expect((await ds.getContacts()).dataOrNull!.length, 2);
 
       await ds.saveContacts([c1]);
-      expect((await ds.getContacts()).single.userId, 'u1');
+      expect((await ds.getContacts()).dataOrNull!.single.userId, 'u1');
     },
   );
 
@@ -72,25 +76,25 @@ void main() {
       lastMessageTime: DateTime.now(),
     );
     await ds.saveUnreads([u1]);
-    expect((await ds.getUnreads()).single.roomId, 'r1');
+    expect((await ds.getUnreads()).dataOrNull!.single.roomId, 'r1');
 
     await ds.deleteUnread('r1');
-    expect(await ds.getUnreads(), isEmpty);
+    expect((await ds.getUnreads()).dataOrNull, isEmpty);
   });
 
   test('saveInvitedRooms + getInvitedRooms', () async {
     const i1 = InvitedRoom(roomId: 'r1', invitedBy: 'u2');
     await ds.saveInvitedRooms([i1]);
-    expect((await ds.getInvitedRooms()).single.roomId, 'r1');
+    expect((await ds.getInvitedRooms()).dataOrNull!.single.roomId, 'r1');
   });
 
   // ---- Reactions / Pins / Receipts ------------------------------------
   test('reactions round trip + deleteReactions', () async {
     const ar = AggregatedReaction(emoji: '👍', count: 1, users: ['u1']);
     await ds.saveReactions('r1', 'm1', [ar]);
-    expect((await ds.getReactions('r1', 'm1')).single.emoji, '👍');
+    expect((await ds.getReactions('r1', 'm1')).dataOrNull!.single.emoji, '👍');
     await ds.deleteReactions('r1', 'm1');
-    expect(await ds.getReactions('r1', 'm1'), isEmpty);
+    expect((await ds.getReactions('r1', 'm1')).dataOrNull, isEmpty);
   });
 
   test('pins round trip + deletePin', () async {
@@ -101,9 +105,9 @@ void main() {
       pinnedAt: DateTime(2026, 1, 1),
     );
     await ds.savePins('r1', [pin]);
-    expect((await ds.getPins('r1')).single.messageId, 'm1');
+    expect((await ds.getPins('r1')).dataOrNull!.single.messageId, 'm1');
     await ds.deletePin('r1', 'm1');
-    expect(await ds.getPins('r1'), isEmpty);
+    expect((await ds.getPins('r1')).dataOrNull, isEmpty);
   });
 
   test('receipts round trip', () async {
@@ -113,7 +117,7 @@ void main() {
       lastReadMessageId: 'm1',
     );
     await ds.saveReceipts('r1', [r]);
-    expect((await ds.getReceipts('r1')).single.userId, 'u2');
+    expect((await ds.getReceipts('r1')).dataOrNull!.single.userId, 'u2');
   });
 
   // ---- Pending messages -----------------------------------------------
@@ -126,14 +130,17 @@ void main() {
       text: 'hi',
     );
     await ds.savePendingMessage('r1', msg);
-    expect((await ds.getPendingMessages('r1')).single.message.id, 'tmp-1');
+    expect(
+      (await ds.getPendingMessages('r1')).dataOrNull!.single.message.id,
+      'tmp-1',
+    );
 
     await ds.deletePendingMessage('r1', 'tmp-1');
-    expect(await ds.getPendingMessages('r1'), isEmpty);
+    expect((await ds.getPendingMessages('r1')).dataOrNull, isEmpty);
 
     await ds.savePendingMessage('r1', msg, isFailed: true);
     await ds.clearPendingMessages('r1');
-    expect(await ds.getPendingMessages('r1'), isEmpty);
+    expect((await ds.getPendingMessages('r1')).dataOrNull, isEmpty);
   });
 
   test(
@@ -148,7 +155,7 @@ void main() {
       await ds.savePendingMessage('r1', msg);
       await ds.savePendingMessage('r1', msg, isFailed: true);
 
-      final pending = await ds.getPendingMessages('r1');
+      final pending = (await ds.getPendingMessages('r1')).dataOrNull!;
       expect(pending, hasLength(1));
       expect(pending.single.isFailed, true);
     },
@@ -158,16 +165,16 @@ void main() {
   test('setClearedAt + getClearedAt', () async {
     final t = DateTime(2026, 5, 1, 12);
     await ds.setClearedAt('r1', t);
-    expect(await ds.getClearedAt('r1'), t);
+    expect((await ds.getClearedAt('r1')).dataOrNull, t);
   });
 
   test('offline queue round trip + clearOfflineQueue', () async {
     await ds.saveOfflineQueue([
       {'id': 'op-1', 'type': 'noop'},
     ]);
-    expect((await ds.getOfflineQueue()).single['id'], 'op-1');
+    expect((await ds.getOfflineQueue()).dataOrNull!.single['id'], 'op-1');
     await ds.clearOfflineQueue();
-    expect(await ds.getOfflineQueue(), isEmpty);
+    expect((await ds.getOfflineQueue()).dataOrNull, isEmpty);
   });
 
   test('clear() wipes every map; dispose() is equivalent', () async {
@@ -181,8 +188,8 @@ void main() {
 
     await ds.clear();
 
-    expect(await ds.getRooms(), isEmpty);
-    expect(await ds.getUsers(), isEmpty);
+    expect((await ds.getRooms()).dataOrNull, isEmpty);
+    expect((await ds.getUsers()).dataOrNull, isEmpty);
     // Note: `clear()` does not currently wipe pending messages (see
     // memory_datasource.dart). That's a known quirk; the in-memory
     // implementation is for tests/dev only, so we don't fix it here. We

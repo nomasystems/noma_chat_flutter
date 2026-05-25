@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// Empty-flow tests for [MediaGalleryPage]. The mock client returns an
 /// empty page, so the widget settles into the empty state for every tab —

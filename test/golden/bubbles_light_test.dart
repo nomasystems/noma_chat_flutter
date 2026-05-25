@@ -1,3 +1,6 @@
+@Tags(['golden', 'slow'])
+library;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:golden_toolkit/golden_toolkit.dart';
@@ -39,11 +42,14 @@ void main() {
     await screenMatchesGolden(tester, 'bubble_text_incoming_light');
   });
 
-  // ImageBubble uses CachedNetworkImage, which transitively requires sqflite
-  // + path_provider via flutter_cache_manager. Stubbing the full chain in a
-  // widget test is not worth extra dev dependencies; visual regressions on
-  // the image bubble are partially caught by VideoBubble (same image
-  // pipeline, simpler placeholder). Follow-up if needed.
+  // ImageBubble is gated on CachedNetworkImage → flutter_cache_manager
+  // → sqflite. sqflite_common requires `databaseFactory` (FFI) to be
+  // wired before any DB op; method-channel stubs are insufficient
+  // because the package short-circuits inside `databaseFactory`. Pulling
+  // `sqflite_common_ffi` in just to render a placeholder isn't worth
+  // it — see ISSUES.md ("Golden tests for ImageBubble"). VideoBubble
+  // exercises the same image pipeline with a nullable thumbnail, so
+  // visual coverage isn't lost.
   testGoldens(
     'ImageBubble outgoing — light (skipped)',
     (tester) async {},
@@ -112,13 +118,25 @@ void main() {
     await screenMatchesGolden(tester, 'bubble_location_incoming_light');
   });
 
-  // LinkPreviewBubble also pulls in CachedNetworkImage (for the OG image
-  // preview), same skip rationale as ImageBubble.
-  testGoldens(
-    'LinkPreviewBubble outgoing — light (skipped)',
-    (tester) async {},
-    skip: true,
-  );
+  // LinkPreviewBubble with `imageUrl: null`: skips the CachedNetworkImage
+  // branch entirely so the OG card renders without needing sqflite. The
+  // title/description/domain text layout is the regression target.
+  testGoldens('LinkPreviewBubble outgoing (no OG image) — light', (
+    tester,
+  ) async {
+    await pumpGoldenSurface(
+      tester,
+      const LinkPreviewBubble(
+        url: 'https://example.com/article',
+        title: 'A meaningful headline',
+        description: 'A short OpenGraph description used as preview text.',
+        isOutgoing: true,
+        theme: goldenLightTheme,
+      ),
+      size: const Size(360, 120),
+    );
+    await screenMatchesGolden(tester, 'bubble_link_preview_outgoing_light');
+  });
 
   testGoldens('ForwardedBubble (text inside) — light', (tester) async {
     await pumpGoldenSurface(

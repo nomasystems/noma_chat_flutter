@@ -230,6 +230,287 @@ void main() {
       expect(handler.nextCalled, isTrue);
       verifyNever(() => dio.fetch<dynamic>(any()));
     });
+
+    group('idempotency', () {
+      test('POST with connectionError is NOT retried (safe default)', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 3,
+            baseDelay: Duration(milliseconds: 1),
+          ),
+          dio: dio,
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'POST');
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.connectionError,
+          ),
+          handler,
+        );
+
+        expect(handler.nextCalled, isTrue);
+        verifyNever(() => dio.fetch<dynamic>(any()));
+      });
+
+      test('POST with sendTimeout is NOT retried', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 3,
+            baseDelay: Duration(milliseconds: 1),
+          ),
+          dio: dio,
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'POST');
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.sendTimeout,
+          ),
+          handler,
+        );
+
+        expect(handler.nextCalled, isTrue);
+        verifyNever(() => dio.fetch<dynamic>(any()));
+      });
+
+      test('POST with connectionTimeout is NOT retried', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 3,
+            baseDelay: Duration(milliseconds: 1),
+          ),
+          dio: dio,
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'POST');
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.connectionTimeout,
+          ),
+          handler,
+        );
+
+        expect(handler.nextCalled, isTrue);
+        verifyNever(() => dio.fetch<dynamic>(any()));
+      });
+
+      test('PATCH with connectionError is NOT retried', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 3,
+            baseDelay: Duration(milliseconds: 1),
+          ),
+          dio: dio,
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'PATCH');
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.connectionError,
+          ),
+          handler,
+        );
+
+        expect(handler.nextCalled, isTrue);
+        verifyNever(() => dio.fetch<dynamic>(any()));
+      });
+
+      test(
+        'POST with receiveTimeout IS retried (request reached the server)',
+        () async {
+          final interceptor = RetryInterceptor(
+            config: const RetryConfig(
+              maxRetries: 1,
+              baseDelay: Duration(milliseconds: 1),
+              maxDelay: Duration(milliseconds: 5),
+            ),
+            dio: dio,
+            random: _FixedRandom(),
+          );
+
+          final opts = RequestOptions(path: '/test', method: 'POST');
+          when(() => dio.fetch<dynamic>(any())).thenAnswer(
+            (_) async => Response(statusCode: 200, requestOptions: opts),
+          );
+
+          final handler = _TrackingErrorHandler();
+          await interceptor.onError(
+            DioException(
+              requestOptions: opts,
+              type: DioExceptionType.receiveTimeout,
+            ),
+            handler,
+          );
+
+          expect(handler.resolvedResponse, isNotNull);
+          verify(() => dio.fetch<dynamic>(any())).called(1);
+        },
+      );
+
+      test(
+        'POST with extra[idempotent]=true IS retried on connectionError',
+        () async {
+          final interceptor = RetryInterceptor(
+            config: const RetryConfig(
+              maxRetries: 1,
+              baseDelay: Duration(milliseconds: 1),
+              maxDelay: Duration(milliseconds: 5),
+            ),
+            dio: dio,
+            random: _FixedRandom(),
+          );
+
+          final opts = RequestOptions(
+            path: '/test',
+            method: 'POST',
+            extra: {'idempotent': true},
+          );
+          when(() => dio.fetch<dynamic>(any())).thenAnswer(
+            (_) async => Response(statusCode: 200, requestOptions: opts),
+          );
+
+          final handler = _TrackingErrorHandler();
+          await interceptor.onError(
+            DioException(
+              requestOptions: opts,
+              type: DioExceptionType.connectionError,
+            ),
+            handler,
+          );
+
+          expect(handler.resolvedResponse, isNotNull);
+          verify(() => dio.fetch<dynamic>(any())).called(1);
+        },
+      );
+
+      test('GET with connectionError IS retried (idempotent)', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 1,
+            baseDelay: Duration(milliseconds: 1),
+            maxDelay: Duration(milliseconds: 5),
+          ),
+          dio: dio,
+          random: _FixedRandom(),
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'GET');
+        when(() => dio.fetch<dynamic>(any())).thenAnswer(
+          (_) async => Response(statusCode: 200, requestOptions: opts),
+        );
+
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.connectionError,
+          ),
+          handler,
+        );
+
+        expect(handler.resolvedResponse, isNotNull);
+        verify(() => dio.fetch<dynamic>(any())).called(1);
+      });
+
+      test('PUT with connectionError IS retried (idempotent)', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 1,
+            baseDelay: Duration(milliseconds: 1),
+            maxDelay: Duration(milliseconds: 5),
+          ),
+          dio: dio,
+          random: _FixedRandom(),
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'PUT');
+        when(() => dio.fetch<dynamic>(any())).thenAnswer(
+          (_) async => Response(statusCode: 200, requestOptions: opts),
+        );
+
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.connectionError,
+          ),
+          handler,
+        );
+
+        expect(handler.resolvedResponse, isNotNull);
+        verify(() => dio.fetch<dynamic>(any())).called(1);
+      });
+
+      test('DELETE with connectionError IS retried (idempotent)', () async {
+        final interceptor = RetryInterceptor(
+          config: const RetryConfig(
+            maxRetries: 1,
+            baseDelay: Duration(milliseconds: 1),
+            maxDelay: Duration(milliseconds: 5),
+          ),
+          dio: dio,
+          random: _FixedRandom(),
+        );
+
+        final opts = RequestOptions(path: '/test', method: 'DELETE');
+        when(() => dio.fetch<dynamic>(any())).thenAnswer(
+          (_) async => Response(statusCode: 200, requestOptions: opts),
+        );
+
+        final handler = _TrackingErrorHandler();
+        await interceptor.onError(
+          DioException(
+            requestOptions: opts,
+            type: DioExceptionType.connectionError,
+          ),
+          handler,
+        );
+
+        expect(handler.resolvedResponse, isNotNull);
+        verify(() => dio.fetch<dynamic>(any())).called(1);
+      });
+
+      test(
+        'POST with 503 IS retried (server-side error, not pre-response)',
+        () async {
+          final interceptor = RetryInterceptor(
+            config: const RetryConfig(
+              maxRetries: 1,
+              baseDelay: Duration(milliseconds: 1),
+              maxDelay: Duration(milliseconds: 5),
+            ),
+            dio: dio,
+            random: _FixedRandom(),
+          );
+
+          final opts = RequestOptions(path: '/test', method: 'POST');
+          when(() => dio.fetch<dynamic>(any())).thenAnswer(
+            (_) async => Response(statusCode: 200, requestOptions: opts),
+          );
+
+          final handler = _TrackingErrorHandler();
+          await interceptor.onError(
+            DioException(
+              requestOptions: opts,
+              response: Response(statusCode: 503, requestOptions: opts),
+            ),
+            handler,
+          );
+
+          expect(handler.resolvedResponse, isNotNull);
+          verify(() => dio.fetch<dynamic>(any())).called(1);
+        },
+      );
+    });
   });
 }
 

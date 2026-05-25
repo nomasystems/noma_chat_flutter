@@ -1,251 +1,107 @@
-import 'package:noma_chat/noma_chat.dart';
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-/// View model for a room in the room list, combining room metadata with unread/presence state.
-@immutable
-class RoomListItem {
-  final String id;
-  final String? name;
-  final String? subject;
-  final String? avatarUrl;
-  final String? lastMessage;
-  final DateTime? lastMessageTime;
-  final String? lastMessageUserId;
-  final String? lastMessageId;
-  final ReceiptStatus? lastMessageReceipt;
-  final MessageType? lastMessageType;
-  final String? lastMessageMimeType;
-  final String? lastMessageFileName;
-  final int? lastMessageDurationMs;
-  final bool lastMessageIsDeleted;
-  final String? lastMessageReactionEmoji;
-  final int unreadCount;
-  final bool muted;
-  final bool pinned;
-  final bool hidden;
-  final bool isGroup;
-  final bool isAnnouncement;
-  final bool? isOnline;
-  final PresenceStatus? presenceStatus;
-  final String? otherUserId;
-  final RoomRole? userRole;
-  final int? memberCount;
-  final Map<String, dynamic>? custom;
-  final Set<String> typingUserIds;
+import '../../models/message.dart';
+import '../../models/presence.dart';
+import '../../models/room_user.dart';
 
-  /// User-facing label for the room.
-  ///
-  /// Returns [name] when it is non-empty, falling back to [id] otherwise so
-  /// the UI always has something to render. Consumers can override the
-  /// label by mutating [name] (e.g. via a metadata resolver) — this getter
-  /// will pick up that override automatically.
+part 'room_list_item.freezed.dart';
+
+/// View model for a row in the room list, combining server-side room
+/// metadata with client-side state (unread, presence, typing, etc.).
+///
+/// Value-typed: every field participates in equality so a
+/// `ListenableBuilder` listening to a `roomListController.value` rebuilds
+/// when any visible attribute changes (badge, preview, presence dot...).
+@freezed
+abstract class RoomListItem with _$RoomListItem {
+  const RoomListItem._();
+
+  const factory RoomListItem({
+    required String id,
+    String? name,
+    String? subject,
+    String? avatarUrl,
+    String? lastMessage,
+    DateTime? lastMessageTime,
+    String? lastMessageUserId,
+
+    /// Display name of [lastMessageUserId], resolved by the adapter from
+    /// its user cache when available. Lets the chat list show the WhatsApp
+    /// "Alice: hola" prefix in groups without the consumer wiring its own
+    /// name resolver. `null` when the sender is the current user, when
+    /// `lastMessageUserId` is null, or when the user has not been fetched
+    /// yet — in that last case the adapter refreshes the row as soon as
+    /// the user lands in the cache (typically within a few hundred ms of
+    /// the first room load).
+    String? lastMessageSenderName,
+    String? lastMessageId,
+    ReceiptStatus? lastMessageReceipt,
+    MessageType? lastMessageType,
+    String? lastMessageMimeType,
+    String? lastMessageFileName,
+    int? lastMessageDurationMs,
+    @Default(false) bool lastMessageIsDeleted,
+    String? lastMessageReactionEmoji,
+    @Default(0) int unreadCount,
+    @Default(false) bool muted,
+    @Default(false) bool pinned,
+    @Default(false) bool hidden,
+
+    /// Moderation mute: an admin/owner silenced the current user in this
+    /// room (distinct from [muted] = the user's own notification
+    /// preference). Drives the read-only composer via [isReadOnly].
+    @Default(false) bool selfMuted,
+    @Default(false) bool isGroup,
+    @Default(false) bool isAnnouncement,
+    bool? isOnline,
+    PresenceStatus? presenceStatus,
+    String? otherUserId,
+    RoomRole? userRole,
+    int? memberCount,
+    Map<String, dynamic>? custom,
+    @Default(<String>{}) Set<String> typingUserIds,
+
+    /// Title computed by the adapter via the configured `RoomTitleResolver` or
+    /// the SDK's DM-aware default (for one-to-one rooms, the other member's
+    /// `displayName`). Kept separate from [name] so the server-provided room
+    /// name remains intact and consumers can fall back to it (e.g. in tests or
+    /// during enrichment races where the other member has not been resolved
+    /// yet). `null` means the SDK has not produced an effective title for this
+    /// row.
+    String? effectiveDisplayName,
+
+    /// `false` when the local user has been removed from this room by
+    /// an admin kick — WhatsApp-parity. The chat stays in the list
+    /// with full history, but the composer is swapped for the
+    /// "You are no longer a participant" banner (see
+    /// `ChatView.isParticipating`). Set to `false` by the event router
+    /// when a `user_left` event arrives with `actorUserId != userId &&
+    /// userId == me`, and flipped back to `true` when the admin
+    /// re-adds the user via `user_joined`.
+    @Default(true) bool isParticipating,
+  }) = _RoomListItem;
+
+  /// User-facing label for the row. Resolves in this order:
+  /// 1. [effectiveDisplayName] (set by the adapter — custom resolver result
+  ///    or DM-aware default).
+  /// 2. [name] when non-empty.
+  /// 3. Empty string. We deliberately do NOT fall back to [id] (a UUID)
+  ///    because exposing an opaque server identifier as a chat title is
+  ///    actively worse than blank space (it confuses users and looks like
+  ///    a bug). Consumers that want a placeholder should render their own
+  ///    fallback string when [displayName] is empty.
   String get displayName {
+    final eff = effectiveDisplayName?.trim();
+    if (eff != null && eff.isNotEmpty) return eff;
     final n = name?.trim();
     if (n != null && n.isNotEmpty) return n;
-    return id;
+    return '';
   }
-
-  const RoomListItem({
-    required this.id,
-    this.name,
-    this.subject,
-    this.avatarUrl,
-    this.lastMessage,
-    this.lastMessageTime,
-    this.lastMessageUserId,
-    this.lastMessageId,
-    this.lastMessageReceipt,
-    this.lastMessageType,
-    this.lastMessageMimeType,
-    this.lastMessageFileName,
-    this.lastMessageDurationMs,
-    this.lastMessageIsDeleted = false,
-    this.lastMessageReactionEmoji,
-    this.unreadCount = 0,
-    this.muted = false,
-    this.pinned = false,
-    this.hidden = false,
-    this.isGroup = false,
-    this.isAnnouncement = false,
-    this.isOnline,
-    this.presenceStatus,
-    this.otherUserId,
-    this.userRole,
-    this.memberCount,
-    this.custom,
-    this.typingUserIds = const {},
-  });
 
   bool get isInvitation => custom?['invited'] == true;
 
-  bool get isReadOnly => isAnnouncement && userRole != RoomRole.owner;
-
-  static const _absent = Object();
-
-  RoomListItem copyWith({
-    Object? name = _absent,
-    Object? subject = _absent,
-    Object? avatarUrl = _absent,
-    Object? lastMessage = _absent,
-    Object? lastMessageTime = _absent,
-    Object? lastMessageUserId = _absent,
-    Object? lastMessageId = _absent,
-    Object? lastMessageReceipt = _absent,
-    Object? lastMessageType = _absent,
-    Object? lastMessageMimeType = _absent,
-    Object? lastMessageFileName = _absent,
-    Object? lastMessageDurationMs = _absent,
-    bool? lastMessageIsDeleted,
-    Object? lastMessageReactionEmoji = _absent,
-    int? unreadCount,
-    bool? muted,
-    bool? pinned,
-    bool? hidden,
-    bool? isGroup,
-    bool? isAnnouncement,
-    Object? isOnline = _absent,
-    Object? presenceStatus = _absent,
-    Object? otherUserId = _absent,
-    Object? userRole = _absent,
-    int? memberCount,
-    Object? custom = _absent,
-    Set<String>? typingUserIds,
-  }) {
-    return RoomListItem(
-      id: id,
-      name: identical(name, _absent) ? this.name : name as String?,
-      subject: identical(subject, _absent) ? this.subject : subject as String?,
-      avatarUrl: identical(avatarUrl, _absent)
-          ? this.avatarUrl
-          : avatarUrl as String?,
-      lastMessage: identical(lastMessage, _absent)
-          ? this.lastMessage
-          : lastMessage as String?,
-      lastMessageTime: identical(lastMessageTime, _absent)
-          ? this.lastMessageTime
-          : lastMessageTime as DateTime?,
-      lastMessageUserId: identical(lastMessageUserId, _absent)
-          ? this.lastMessageUserId
-          : lastMessageUserId as String?,
-      lastMessageId: identical(lastMessageId, _absent)
-          ? this.lastMessageId
-          : lastMessageId as String?,
-      lastMessageReceipt: identical(lastMessageReceipt, _absent)
-          ? this.lastMessageReceipt
-          : lastMessageReceipt as ReceiptStatus?,
-      lastMessageType: identical(lastMessageType, _absent)
-          ? this.lastMessageType
-          : lastMessageType as MessageType?,
-      lastMessageMimeType: identical(lastMessageMimeType, _absent)
-          ? this.lastMessageMimeType
-          : lastMessageMimeType as String?,
-      lastMessageFileName: identical(lastMessageFileName, _absent)
-          ? this.lastMessageFileName
-          : lastMessageFileName as String?,
-      lastMessageDurationMs: identical(lastMessageDurationMs, _absent)
-          ? this.lastMessageDurationMs
-          : lastMessageDurationMs as int?,
-      lastMessageIsDeleted: lastMessageIsDeleted ?? this.lastMessageIsDeleted,
-      lastMessageReactionEmoji: identical(lastMessageReactionEmoji, _absent)
-          ? this.lastMessageReactionEmoji
-          : lastMessageReactionEmoji as String?,
-      unreadCount: unreadCount ?? this.unreadCount,
-      muted: muted ?? this.muted,
-      pinned: pinned ?? this.pinned,
-      hidden: hidden ?? this.hidden,
-      isGroup: isGroup ?? this.isGroup,
-      isAnnouncement: isAnnouncement ?? this.isAnnouncement,
-      isOnline: identical(isOnline, _absent)
-          ? this.isOnline
-          : isOnline as bool?,
-      presenceStatus: identical(presenceStatus, _absent)
-          ? this.presenceStatus
-          : presenceStatus as PresenceStatus?,
-      otherUserId: identical(otherUserId, _absent)
-          ? this.otherUserId
-          : otherUserId as String?,
-      userRole: identical(userRole, _absent)
-          ? this.userRole
-          : userRole as RoomRole?,
-      memberCount: memberCount ?? this.memberCount,
-      custom: identical(custom, _absent)
-          ? this.custom
-          : custom as Map<String, dynamic>?,
-      typingUserIds: typingUserIds ?? this.typingUserIds,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is RoomListItem &&
-          other.id == id &&
-          other.name == name &&
-          other.subject == subject &&
-          other.avatarUrl == avatarUrl &&
-          other.lastMessage == lastMessage &&
-          other.lastMessageTime == lastMessageTime &&
-          other.lastMessageUserId == lastMessageUserId &&
-          other.lastMessageId == lastMessageId &&
-          other.lastMessageReceipt == lastMessageReceipt &&
-          other.lastMessageType == lastMessageType &&
-          other.lastMessageMimeType == lastMessageMimeType &&
-          other.lastMessageFileName == lastMessageFileName &&
-          other.lastMessageDurationMs == lastMessageDurationMs &&
-          other.lastMessageIsDeleted == lastMessageIsDeleted &&
-          other.lastMessageReactionEmoji == lastMessageReactionEmoji &&
-          other.unreadCount == unreadCount &&
-          other.muted == muted &&
-          other.pinned == pinned &&
-          other.hidden == hidden &&
-          other.isGroup == isGroup &&
-          other.isAnnouncement == isAnnouncement &&
-          other.isOnline == isOnline &&
-          other.presenceStatus == presenceStatus &&
-          other.otherUserId == otherUserId &&
-          other.userRole == userRole &&
-          other.memberCount == memberCount &&
-          identical(custom, other.custom) &&
-          _setEquals(other.typingUserIds, typingUserIds);
-
-  @override
-  int get hashCode => Object.hashAll([
-    id,
-    name,
-    subject,
-    avatarUrl,
-    lastMessage,
-    lastMessageTime,
-    lastMessageUserId,
-    lastMessageId,
-    lastMessageReceipt,
-    lastMessageType,
-    lastMessageMimeType,
-    lastMessageFileName,
-    lastMessageDurationMs,
-    lastMessageIsDeleted,
-    lastMessageReactionEmoji,
-    unreadCount,
-    muted,
-    pinned,
-    hidden,
-    isGroup,
-    isAnnouncement,
-    isOnline,
-    presenceStatus,
-    otherUserId,
-    userRole,
-    memberCount,
-    Object.hashAllUnordered(typingUserIds),
-  ]);
-
-  @override
-  String toString() =>
-      'RoomListItem(id: $id, name: $name, unread: $unreadCount)';
-}
-
-bool _setEquals(Set<String> a, Set<String> b) {
-  if (identical(a, b)) return true;
-  if (a.length != b.length) return false;
-  return a.containsAll(b);
+  /// Composer must be read-only when this is an announcement channel the
+  /// user doesn't own, OR the user has been moderation-muted here.
+  bool get isReadOnly =>
+      (isAnnouncement && userRole != RoomRole.owner) || selfMuted;
 }

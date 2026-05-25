@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// One-call smoke for every public adapter method that is not already
 /// covered in detail elsewhere. The goal is coverage of happy paths so the
@@ -31,12 +32,12 @@ void main() {
   });
 
   test('sendDirectMessage delegates to client', () async {
-    final r = await adapter.sendDirectMessage('u2', text: 'hello dm');
+    final r = await adapter.messages.sendDirect('u2', text: 'hello dm');
     expect(r.isSuccess, true);
   });
 
   test('uploadAttachment delegates to client', () async {
-    final r = await adapter.uploadAttachment(
+    final r = await adapter.messages.uploadAttachment(
       Uint8List.fromList([1, 2, 3]),
       'image/png',
     );
@@ -46,7 +47,7 @@ void main() {
   test('sendVoiceMessage happy path adds bubble + confirms', () async {
     final controller = adapter.getChatController('r1');
 
-    final r = await adapter.sendVoiceMessage(
+    final r = await adapter.messages.sendVoice(
       'r1',
       audioBytes: Uint8List.fromList([1, 2, 3]),
       mimeType: 'audio/mp4',
@@ -69,8 +70,25 @@ void main() {
       ),
     );
 
-    final r = await adapter.markAsRead('r1');
+    final r = await adapter.messages.markAsRead('r1');
     expect(r.isSuccess, true);
+  });
+
+  test('markAsRead coalesces concurrent calls per room', () async {
+    adapter.getChatController('r1');
+    // Three near-simultaneous calls. Without coalescing they would each
+    // hit the SDK and fan into three HTTP requests; the coalescer keeps
+    // a single request in flight per room and folds the rest into it.
+    final f1 = adapter.messages.markAsRead('r1', lastReadMessageId: 'm1');
+    final f2 = adapter.messages.markAsRead('r1', lastReadMessageId: 'm2');
+    final f3 = adapter.messages.markAsRead('r1', lastReadMessageId: 'm3');
+
+    final results = await Future.wait([f1, f2, f3]);
+    // All callers receive a result (success — same underlying call).
+    expect(results.every((r) => r.isSuccess), true);
+    // Identity matters: the 2 follow-ups share the same Future as the
+    // canonical leader, so coalescing didn't silently dupe responses.
+    expect(identical(await f2, await f3), true);
   });
 
   test('clearChat clears the local controller + room metadata', () async {
@@ -88,19 +106,19 @@ void main() {
       const RoomListItem(id: 'r1', name: 'Room', lastMessage: 'hi'),
     );
 
-    final r = await adapter.clearChat('r1');
+    final r = await adapter.messages.clearChat('r1');
     expect(r.isSuccess, true);
   });
 
   test('blockContact succeeds', () async {
-    final r = await adapter.blockContact('u3');
+    final r = await adapter.contacts.block('u3');
     expect(r.isSuccess, true);
   });
 
   test('leaveRoom removes the room from the list on success', () async {
     adapter.roomListController.addRoom(const RoomListItem(id: 'r1', name: 'R'));
 
-    final r = await adapter.leaveRoom('r1');
+    final r = await adapter.rooms.leave('r1');
     expect(r.isSuccess, true);
     expect(adapter.roomListController.getRoomById('r1'), isNull);
   });
@@ -108,10 +126,10 @@ void main() {
   test('hideRoom + unhideRoom toggle the hidden flag', () async {
     adapter.roomListController.addRoom(const RoomListItem(id: 'r1', name: 'R'));
 
-    await adapter.hideRoom('r1');
+    await adapter.rooms.hide('r1');
     expect(adapter.roomListController.getRoomById('r1')!.hidden, true);
 
-    await adapter.unhideRoom('r1');
+    await adapter.rooms.unhide('r1');
     expect(adapter.roomListController.getRoomById('r1')!.hidden, false);
   });
 
@@ -129,7 +147,7 @@ void main() {
       ),
     );
 
-    final r = await adapter.acceptInvitation(roomId);
+    final r = await adapter.rooms.acceptInvitation(roomId);
     expect(r.isSuccess, true);
   });
 
@@ -138,13 +156,13 @@ void main() {
       const RoomListItem(id: 'invited', name: 'X', custom: {'invited': true}),
     );
 
-    final r = await adapter.rejectInvitation('invited');
+    final r = await adapter.rooms.rejectInvitation('invited');
     expect(r.isSuccess, true);
     expect(adapter.roomListController.getRoomById('invited'), isNull);
   });
 
   test('sendReceipt forwards a custom status', () async {
-    final r = await adapter.sendReceipt(
+    final r = await adapter.messages.sendReceipt(
       'r1',
       'm1',
       status: ReceiptStatus.delivered,
@@ -153,8 +171,8 @@ void main() {
   });
 
   test('registerDmRoom + getDmRoomId roundtrip', () {
-    adapter.registerDmRoom('contact-1', 'room-dm-1');
-    expect(adapter.getDmRoomId('contact-1'), 'room-dm-1');
+    adapter.dm.registerRoom('contact-1', 'room-dm-1');
+    expect(adapter.dm.getRoomId('contact-1'), 'room-dm-1');
   });
 
   test('cacheUsers + findCachedUser', () {
@@ -185,7 +203,7 @@ void main() {
   });
 
   test('sendTyping happy path', () async {
-    final r = await adapter.sendTyping('r1');
+    final r = await adapter.messages.sendTyping('r1');
     expect(r.isSuccess, true);
   });
 }

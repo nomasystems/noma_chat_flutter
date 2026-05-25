@@ -1,194 +1,56 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../models/message.dart';
+import '../controller/audio_playback_coordinator.dart';
+import '../controller/chat_controller.dart';
+import '../theme/chat_theme.dart';
+import '../theme/default_palette.dart';
+import 'blocked_chat_banner.dart';
+import 'chat_view_config.dart';
+import 'connection_banner.dart';
+import 'empty_state.dart';
+import 'floating_reaction_picker.dart';
+import 'message_context_menu.dart';
+import 'message_input.dart';
+import 'message_list.dart';
+import 'not_participating_banner.dart';
+import 'reaction_detail_sheet.dart';
+
+export 'chat_view_config.dart'
+    show ChatViewBehaviors, ChatViewBuilders, ChatViewCallbacks;
 
 /// All-in-one chat screen body: message list + composer + optional banners.
 ///
 /// Backed by a [ChatController] from the SDK (typically obtained via
-/// `ChatUiAdapter.getChatController`). Customize via [ChatTheme] and the
-/// many `on…` callbacks; pass [initialMessageId] to scroll-and-highlight a
+/// `ChatUiAdapter.getChatController`). Customize via:
+///
+/// - [ChatTheme] for visuals.
+/// - [ChatViewBuilders] for widget / resolver slot overrides (avatars,
+///   system messages, banners, …).
+/// - [ChatViewCallbacks] for user-driven actions (send, edit, react,
+///   pick attachment, tap link, …).
+/// - [ChatViewBehaviors] for pure configuration (toggles, snapshots,
+///   labels, context-menu actions, …).
+///
+/// Pass [ChatViewBehaviors.initialMessageId] to scroll-and-highlight a
 /// specific message when the view mounts.
 class ChatView extends StatefulWidget {
   const ChatView({
     super.key,
     required this.controller,
     this.theme = ChatTheme.defaults,
-    required this.onSendMessage,
-    this.onSendMessageRich,
-    this.onEditMessage,
-    this.onDeleteMessage,
-    this.onMessageLongPress,
-    this.onLoadMoreMessages,
-    this.onTypingChanged,
-    this.onReactionSelected,
-    this.onDeleteReaction,
-    this.onReportMessage,
-    this.onTapImage,
-    this.onTapVideo,
-    this.onTapFile,
-    this.onTapLocation,
-    this.onTapLink,
-    this.onPickCamera,
-    this.onPickGallery,
-    this.onPickFile,
-    this.onAttachTap,
-    this.onVoiceMessageReady,
-    this.onPermissionDenied,
-    this.maxRecordingDuration = const Duration(minutes: 15),
-    this.inputMaxLines = 5,
-    this.showAttachButton = true,
-    this.showVoiceButton = true,
-    this.availableReactions = const ['👍', '❤️', '😂', '😮', '😢', '🙏'],
-    this.userReactions = const {},
-    this.messageReactions = const {},
-    this.messageStatuses = const {},
-    this.referencedMessages = const {},
-    this.connectionState,
-    this.connectionLabels = const {},
-    this.contextMenuBuilder,
-    this.contextMenuActions = const {
-      MessageAction.reply,
-      MessageAction.copy,
-      MessageAction.edit,
-      MessageAction.delete,
-      MessageAction.react,
-    },
-    this.onContextMenuAction,
-    this.forwardedSourceLabels = const {},
-    this.emptyIcon,
-    this.emptyTitle,
-    this.emptySubtitle,
-    this.onRetryMessage,
-    this.userResolver,
-    this.onFetchReactions,
-    this.reactionDetailSheetBuilder,
-    this.avatarBuilder,
-    this.audioUploadProgressFor,
+    this.builders = const ChatViewBuilders(),
+    this.callbacks = const ChatViewCallbacks(),
+    this.behaviors = const ChatViewBehaviors(),
     this.backgroundWidget,
-    this.systemMessageTextResolver,
-    this.systemMessageBuilder,
-    this.headerBuilder,
-    this.readOnly = false,
-    this.readOnlyLabel,
-    this.enableLinkPreview = true,
-    this.linkPreviewFetcher,
-    this.initialMessageId,
-    this.roomReceipts = const [],
-    this.roomMembers = const [],
-    this.showReadReceiptsInGroups = true,
   });
 
   final ChatController controller;
   final ChatTheme theme;
-
-  final ValueChanged<String> onSendMessage;
-
-  /// Optional rich-send callback. When provided, the composer uses it instead
-  /// of [onSendMessage] and includes any auxiliary metadata it has gathered
-  /// (e.g. link previews extracted from the typed text).
-  final void Function(String text, Map<String, dynamic>? metadata)?
-  onSendMessageRich;
-  final void Function(ChatMessage message, String newText)? onEditMessage;
-  final ValueChanged<ChatMessage>? onDeleteMessage;
-  final ValueChanged<ChatMessage>? onMessageLongPress;
-  final VoidCallback? onLoadMoreMessages;
-  final ValueChanged<bool>? onTypingChanged;
-  final void Function(ChatMessage message, String emoji)? onReactionSelected;
-  final void Function(ChatMessage message, String emoji)? onDeleteReaction;
-  final ValueChanged<ChatMessage>? onReportMessage;
-
-  final ValueChanged<ChatMessage>? onTapImage;
-  final ValueChanged<ChatMessage>? onTapVideo;
-  final ValueChanged<ChatMessage>? onTapFile;
-  final ValueChanged<ChatMessage>? onTapLocation;
-  final ValueChanged<String>? onTapLink;
-
-  final VoidCallback? onPickCamera;
-  final VoidCallback? onPickGallery;
-  final VoidCallback? onPickFile;
-
-  /// When provided, the attach button in the composer invokes this directly
-  /// instead of showing the built-in attachment picker sheet. Useful when the
-  /// consumer renders its own attachment menu.
-  final VoidCallback? onAttachTap;
-
-  final void Function(VoiceMessageData data)? onVoiceMessageReady;
-  final VoidCallback? onPermissionDenied;
-  final Duration maxRecordingDuration;
-
-  final int inputMaxLines;
-  final bool showAttachButton;
-  final bool showVoiceButton;
-  final List<String> availableReactions;
-
-  final Map<String, Set<String>> userReactions;
-  final Map<String, Map<String, int>> messageReactions;
-  final Map<String, ReceiptStatus> messageStatuses;
-  final Map<String, ChatMessage> referencedMessages;
-
-  final ChatConnectionState? connectionState;
-  final Map<ChatConnectionState, String> connectionLabels;
-
-  final Widget Function(BuildContext, ChatMessage, bool)? contextMenuBuilder;
-  final Set<MessageAction> contextMenuActions;
-  final void Function(ChatMessage message, MessageAction action)?
-  onContextMenuAction;
-
-  final Map<String, String> forwardedSourceLabels;
-
-  final IconData? emptyIcon;
-  final String? emptyTitle;
-  final String? emptySubtitle;
-  final ValueChanged<ChatMessage>? onRetryMessage;
-  final UserResolver? userResolver;
-  final Future<List<AggregatedReaction>> Function(String messageId)?
-  onFetchReactions;
-
-  /// Optional presenter for the reaction detail sheet. Lets the host app wrap
-  /// the SDK-built sheet content in its own bottom sheet (theme, drag handle,
-  /// safe-area padding, etc.). When `null`, the SDK falls back to a vanilla
-  /// [showModalBottomSheet] with the chat theme's rounded shape.
-  final ReactionDetailSheetBuilder? reactionDetailSheetBuilder;
-  final Widget Function(BuildContext context, String userId)? avatarBuilder;
-
-  /// Per-message resolver that returns an upload progress notifier (0..1) for
-  /// outgoing voice messages still being uploaded. Returning null means there
-  /// is no upload in flight for that message id.
-  final ValueListenable<double>? Function(String messageId)?
-  audioUploadProgressFor;
-
-  final String Function(ChatMessage message)? systemMessageTextResolver;
-  final Widget? Function(BuildContext context, ChatMessage message)?
-  systemMessageBuilder;
-  final Widget? Function(BuildContext context)? headerBuilder;
+  final ChatViewBuilders builders;
+  final ChatViewCallbacks callbacks;
+  final ChatViewBehaviors behaviors;
   final Widget? backgroundWidget;
-  final bool readOnly;
-  final String? readOnlyLabel;
-
-  /// Forwarded to the composer. When true (default), URLs typed in the input
-  /// trigger an Open Graph fetch and a preview banner above the text field.
-  final bool enableLinkPreview;
-
-  /// Optional shared [LinkPreviewFetcher]. When null and [enableLinkPreview]
-  /// is true, the composer creates its own internal fetcher.
-  final LinkPreviewFetcher? linkPreviewFetcher;
-
-  /// Message id to scroll to and highlight once messages are rendered.
-  /// Forwarded to [MessageList]. The intent is fired once; pass a new value
-  /// to re-trigger.
-  final String? initialMessageId;
-
-  /// Latest read receipts for the room. Forwarded to [MessageList] so each
-  /// outgoing bubble in a group can render avatars of the readers next to
-  /// the status icon. Combine with [roomMembers] for avatar resolution.
-  final List<ReadReceipt> roomReceipts;
-
-  /// Members of the room (used to resolve avatars/initials for read-receipt
-  /// avatars). Typically `controller.otherUsers + [currentUser]`.
-  final List<ChatUser> roomMembers;
-
-  /// Forwarded to [MessageList.showReadReceiptsInGroups].
-  final bool showReadReceiptsInGroups;
 
   @override
   State<ChatView> createState() => _ChatViewState();
@@ -215,8 +77,10 @@ class _ChatViewState extends State<ChatView> {
     ChatMessage message,
     Rect messageRect,
   ) async {
-    if (widget.onMessageLongPress != null) {
-      widget.onMessageLongPress!(message);
+    final callbacks = widget.callbacks;
+    final behaviors = widget.behaviors;
+    if (callbacks.onMessageLongPress != null) {
+      callbacks.onMessageLongPress!(message);
       return;
     }
 
@@ -225,8 +89,8 @@ class _ChatViewState extends State<ChatView> {
       context,
       message: message,
       isOutgoing: isOutgoing,
-      enabledActions: widget.contextMenuActions,
-      builder: widget.contextMenuBuilder,
+      enabledActions: behaviors.contextMenuActions,
+      builder: widget.builders.contextMenuBuilder,
       theme: widget.theme,
     );
 
@@ -238,156 +102,221 @@ class _ChatViewState extends State<ChatView> {
       case MessageAction.edit:
         widget.controller.setEditingMessage(message);
       case MessageAction.delete:
-        widget.onDeleteMessage?.call(message);
+        callbacks.onDeleteMessage?.call(message);
       case MessageAction.react:
-        if (widget.availableReactions.isNotEmpty) {
+        if (behaviors.availableReactions.isNotEmpty) {
           final emoji = await FloatingReactionPicker.show(
             context,
             anchorRect: messageRect,
-            reactions: widget.availableReactions,
+            reactions: behaviors.availableReactions,
             theme: widget.theme,
           );
           if (emoji != null && context.mounted) {
-            widget.onReactionSelected?.call(message, emoji);
+            callbacks.onReactionSelected?.call(message, emoji);
           }
         }
       case MessageAction.report:
-        widget.onReportMessage?.call(message);
+        callbacks.onReportMessage?.call(message);
       default:
         break;
     }
 
-    widget.onContextMenuAction?.call(message, action);
+    callbacks.onContextMenuAction?.call(message, action);
   }
 
   @override
   Widget build(BuildContext context) {
-    final headerWidget = widget.headerBuilder?.call(context);
+    final headerWidget = widget.builders.headerBuilder?.call(context);
+    final behaviors = widget.behaviors;
 
     final Widget body = Column(
       children: [
-        if (widget.connectionState != null)
+        if (behaviors.connectionState != null)
           ConnectionBanner(
-            state: widget.connectionState!,
+            state: behaviors.connectionState!,
             theme: widget.theme,
-            labels: widget.connectionLabels,
+            labels: behaviors.connectionLabels,
           ),
         if (headerWidget != null) headerWidget,
         Expanded(
           child: ListenableBuilder(
             listenable: widget.controller,
-            builder: (context, _) {
-              if (widget.controller.messages.isEmpty &&
-                  !widget.controller.isLoadingMore) {
-                return EmptyState(
-                  icon: widget.emptyIcon ?? Icons.chat_bubble_outline,
-                  title: widget.emptyTitle ?? widget.theme.l10n.noMessages,
-                  subtitle: widget.emptySubtitle,
-                  theme: widget.theme,
-                );
-              }
-              return MessageList(
-                controller: widget.controller,
-                theme: widget.theme,
-                audioCoordinator: _audioCoordinator,
-                audioUploadProgressFor: widget.audioUploadProgressFor,
-                initialMessageId: widget.initialMessageId,
-                roomReceipts: widget.roomReceipts,
-                roomMembers: widget.roomMembers,
-                showReadReceiptsInGroups: widget.showReadReceiptsInGroups,
-                onLoadMore: widget.onLoadMoreMessages,
-                onTapImage: widget.onTapImage,
-                onTapVideo: widget.onTapVideo,
-                onTapFile: widget.onTapFile,
-                onTapLocation: widget.onTapLocation,
-                onTapLink: widget.onTapLink,
-                onSwipeToReply: (msg) => widget.controller.setReplyTo(msg),
-                onMessageLongPress: (msg, rect) =>
-                    _handleLongPress(context, msg, rect),
-                onReactionTap: widget.onReactionSelected,
-                onDeleteReaction: widget.onDeleteReaction,
-                userReactions: widget.userReactions,
-                messageReactions: widget.messageReactions,
-                messageStatuses: widget.messageStatuses,
-                referencedMessages: widget.referencedMessages,
-                availableReactions: widget.availableReactions,
-                forwardedSourceLabels: widget.forwardedSourceLabels,
-                onRetryMessage: widget.onRetryMessage,
-                onShowReactionDetail:
-                    (widget.userResolver != null &&
-                        widget.onFetchReactions != null)
-                    ? (message) {
-                        ReactionDetailSheet.show(
-                          context,
-                          fetchReactions: () =>
-                              widget.onFetchReactions!(message.id),
-                          currentUserId: widget.controller.currentUser.id,
-                          userResolver: widget.userResolver!,
-                          onRemoveReaction: (emoji) =>
-                              widget.onDeleteReaction?.call(message, emoji),
-                          theme: widget.theme,
-                          sheetBuilder: widget.reactionDetailSheetBuilder,
-                        );
-                      }
-                    : null,
-                avatarBuilder: widget.avatarBuilder,
-                systemMessageTextResolver: widget.systemMessageTextResolver,
-                systemMessageBuilder: widget.systemMessageBuilder,
-              );
-            },
+            builder: (context, _) => _buildMessagesArea(context),
           ),
         ),
-        if (widget.readOnly)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-            decoration: BoxDecoration(
-              color:
-                  widget.theme.inputBackgroundColor ?? const Color(0xFFF5F5F5),
-              border: Border(
-                top: BorderSide(
-                  color:
-                      widget.theme.editingBorderColor ??
-                      const Color(0xFFE0E0E0),
-                  width: 0.5,
-                ),
-              ),
-            ),
-            child: Text(
-              widget.readOnlyLabel ?? widget.theme.l10n.readOnlyChannel,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: widget.theme.systemMessageBackgroundColor != null
-                    ? null
-                    : Colors.grey[600],
-                fontSize: 14,
-              ),
-            ),
-          )
-        else
-          MessageInput(
-            controller: widget.controller,
-            onSendMessage: widget.onSendMessage,
-            onSendMessageRich: widget.onSendMessageRich,
-            onEditMessage: widget.onEditMessage,
-            theme: widget.theme,
-            onTypingChanged: widget.onTypingChanged,
-            onPickCamera: widget.onPickCamera,
-            onPickGallery: widget.onPickGallery,
-            onPickFile: widget.onPickFile,
-            onAttachTap: widget.onAttachTap,
-            onVoiceMessageReady: widget.onVoiceMessageReady,
-            onPermissionDenied: widget.onPermissionDenied,
-            maxRecordingDuration: widget.maxRecordingDuration,
-            maxLines: widget.inputMaxLines,
-            showAttachButton: widget.showAttachButton,
-            showVoiceButton: widget.showVoiceButton,
-            enableLinkPreview: widget.enableLinkPreview,
-            linkPreviewFetcher: widget.linkPreviewFetcher,
-          ),
+        _buildFooter(context),
       ],
     );
 
+    return _wrapWithBackground(body);
+  }
+
+  Widget _buildMessagesArea(BuildContext context) {
+    final behaviors = widget.behaviors;
+    final builders = widget.builders;
+    final callbacks = widget.callbacks;
+    if (widget.controller.messages.isEmpty &&
+        !widget.controller.isLoadingMore) {
+      return EmptyState(
+        icon: behaviors.emptyIcon ?? Icons.chat_bubble_outline,
+        title: behaviors.emptyTitle ?? widget.theme.l10n.noMessages,
+        subtitle: behaviors.emptySubtitle,
+        theme: widget.theme,
+      );
+    }
+    return MessageList(
+      controller: widget.controller,
+      theme: widget.theme,
+      audioCoordinator: _audioCoordinator,
+      audioUploadProgressFor: builders.audioUploadProgressFor,
+      initialMessageId: behaviors.initialMessageId,
+      unreadBoundaryMessageId: behaviors.unreadBoundaryMessageId,
+      unreadCount: behaviors.unreadCount,
+      roomReceipts: behaviors.roomReceipts,
+      roomMembers: behaviors.roomMembers,
+      showReadReceiptsInGroups: behaviors.showReadReceiptsInGroups,
+      onLoadMore: callbacks.onLoadMoreMessages,
+      onTapImage: callbacks.onTapImage,
+      onTapVideo: callbacks.onTapVideo,
+      onTapFile: callbacks.onTapFile,
+      onTapLocation: callbacks.onTapLocation ?? _defaultOpenLocationInMaps,
+      onTapLink: callbacks.onTapLink ?? _defaultOpenLink,
+      onSwipeToReply: (msg) => widget.controller.setReplyTo(msg),
+      onMessageLongPress: (msg, rect) => _handleLongPress(context, msg, rect),
+      onReactionTap: callbacks.onReactionSelected,
+      onDeleteReaction: callbacks.onDeleteReaction,
+      userReactions: behaviors.userReactions,
+      messageReactions: behaviors.messageReactions,
+      messageStatuses: behaviors.messageStatuses,
+      referencedMessages: behaviors.referencedMessages,
+      availableReactions: behaviors.availableReactions,
+      forwardedSourceLabels: behaviors.forwardedSourceLabels,
+      onRetryMessage: callbacks.onRetryMessage,
+      onShowReactionDetail: _resolveShowReactionDetail(context),
+      avatarBuilder: builders.avatarBuilder,
+      systemMessageTextResolver: builders.systemMessageTextResolver,
+      systemMessageBuilder: builders.systemMessageBuilder,
+      displayNameResolver: builders.displayNameResolver,
+      avatarUrlResolver: builders.avatarUrlResolver,
+      isGroup: behaviors.isGroup,
+      avatarRebuildSignal: builders.avatarRebuildSignal,
+    );
+  }
+
+  ValueChanged<ChatMessage>? _resolveShowReactionDetail(BuildContext context) {
+    final builders = widget.builders;
+    final callbacks = widget.callbacks;
+    if (builders.userFetcher == null || callbacks.onFetchReactions == null) {
+      return null;
+    }
+    return (message) {
+      ReactionDetailSheet.show(
+        context,
+        fetchReactions: () => callbacks.onFetchReactions!(message.id),
+        currentUserId: widget.controller.currentUser.id,
+        userFetcher: builders.userFetcher!,
+        onRemoveReaction: (emoji) =>
+            callbacks.onDeleteReaction?.call(message, emoji),
+        theme: widget.theme,
+        sheetBuilder: builders.reactionDetailSheetBuilder,
+      );
+    };
+  }
+
+  Widget _buildFooter(BuildContext context) {
+    final behaviors = widget.behaviors;
+    final builders = widget.builders;
+    final callbacks = widget.callbacks;
+    if (behaviors.readOnly) {
+      return _buildReadOnlyBanner();
+    }
+    if (behaviors.isBlocked) {
+      // WhatsApp-style: composer swapped for a "tap to unblock"
+      // bar while still showing the full chat history above.
+      // Consumer-supplied builder wins; default = the SDK's
+      // [BlockedChatBanner].
+      return builders.blockedBannerBuilder?.call(
+            context,
+            callbacks.onUnblock ?? () {},
+          ) ??
+          BlockedChatBanner(
+            theme: widget.theme,
+            onUnblock: callbacks.onUnblock ?? () {},
+          );
+    }
+    if (!behaviors.isParticipating) {
+      // WhatsApp-parity: kicked from group → composer becomes
+      // the non-interactive "no longer a participant" banner.
+      // History above stays browsable. Consumer-supplied
+      // builder wins; default = the SDK's
+      // [NotParticipatingBanner].
+      return builders.notParticipatingBannerBuilder?.call(context) ??
+          NotParticipatingBanner(theme: widget.theme);
+    }
+    return _buildMessageInput();
+  }
+
+  Widget _buildReadOnlyBanner() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+      decoration: BoxDecoration(
+        color:
+            widget.theme.input.backgroundColor ?? DefaultPalette.mutedSurface,
+        border: Border(
+          top: BorderSide(
+            color:
+                widget.theme.input.editingBorderColor ??
+                DefaultPalette.mutedBorder,
+            width: 0.5,
+          ),
+        ),
+      ),
+      child: Text(
+        widget.behaviors.readOnlyLabel ?? widget.theme.l10n.readOnlyChannel,
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          color: widget.theme.systemMessageBackgroundColor != null
+              ? null
+              : Colors.grey[600],
+          fontSize: 14,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessageInput() {
+    final behaviors = widget.behaviors;
+    final builders = widget.builders;
+    final callbacks = widget.callbacks;
+    return MessageInput(
+      controller: widget.controller,
+      onSendMessageRequest: callbacks.onSendMessageRequest,
+      onEditMessage: callbacks.onEditMessage,
+      theme: widget.theme,
+      onTypingChanged: callbacks.onTypingChanged,
+      onPickCamera: callbacks.onPickCamera,
+      onPickGallery: callbacks.onPickGallery,
+      onPickFile: callbacks.onPickFile,
+      onShareLocation: callbacks.onShareLocation,
+      attachmentExtraOptions: behaviors.attachmentExtraOptions,
+      onAttachTap: callbacks.onAttachTap,
+      onVoiceMessageReady: callbacks.onVoiceMessageReady,
+      onPermissionDenied: callbacks.onPermissionDenied,
+      maxRecordingDuration: behaviors.maxRecordingDuration,
+      maxLines: behaviors.inputMaxLines,
+      showAttachButton: behaviors.showAttachButton,
+      showVoiceButton: behaviors.showVoiceButton,
+      enableLinkPreview: behaviors.enableLinkPreview,
+      linkPreviewFetcher: builders.linkPreviewFetcher,
+      enableMentions: behaviors.enableMentions,
+      mentionUsers: behaviors.enableMentions
+          ? widget.controller.otherUsers
+          : const [],
+    );
+  }
+
+  Widget _wrapWithBackground(Widget body) {
     if (widget.backgroundWidget != null) {
       return Container(
         color: widget.theme.backgroundColor,
@@ -421,4 +350,41 @@ class _ChatViewState extends State<ChatView> {
       child: body,
     );
   }
+}
+
+/// Fallback handler used when `callbacks.onTapLocation` is left `null`.
+///
+/// Reads `metadata.lat`/`metadata.lng` from [message] and hands them to
+/// the system's map viewer via `url_launcher`. Best effort: bad / missing
+/// coordinates are silently ignored — apps that want stricter behaviour
+/// (snackbar, fallback page, embedded Google Map) pass their own
+/// `onTapLocation`. Keeping a sensible default means consumers don't
+/// have to wire `url_launcher` themselves just to make a tapped pin do
+/// something useful.
+Future<void> _defaultOpenLocationInMaps(ChatMessage message) async {
+  final meta = message.metadata;
+  if (meta == null) return;
+  final lat = (meta['lat'] as num?)?.toDouble();
+  final lng = (meta['lng'] as num?)?.toDouble();
+  if (lat == null || lng == null) return;
+  final uri = Uri.parse('https://maps.google.com/?q=$lat,$lng');
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
+/// Fallback handler used when `callbacks.onTapLink` is left `null`. Opens
+/// the tapped URL in the system browser via `url_launcher`. Best effort:
+/// bad URLs / missing schemes are silently skipped. Apps wanting custom
+/// behaviour (in-app webview, deep-link router, confirmation dialog)
+/// pass their own `onTapLink`. Keeping a sensible default means tapping
+/// a link in a chat bubble does the obvious thing out of the box.
+Future<void> _defaultOpenLink(String url) async {
+  Uri? uri = Uri.tryParse(url);
+  if (uri == null) return;
+  // Markdown parser hands raw bare URLs without scheme (e.g. "google.com").
+  // Prefix `https://` so `launchUrl` doesn't reject them.
+  if (!uri.hasScheme) {
+    uri = Uri.tryParse('https://$url');
+    if (uri == null) return;
+  }
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
 }

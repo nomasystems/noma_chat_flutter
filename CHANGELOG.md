@@ -3,8 +3,357 @@
 All notable changes to `noma_chat` are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
-and the package follows [Semantic Versioning](https://semver.org/) from `0.2.0`
-onwards. Until `1.0.0`, **breaking changes may land in any minor release**.
+and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
+onwards, breaking changes require a **major version bump**.
+
+## [Unreleased]
+
+## [0.9.0] - 2026-05-29
+
+### Security
+
+- HTTP debug logger (`enableHttpLog: true`) now redacts sensitive values
+  in request/response bodies (`password`, `token`, `secret`,
+  `authorization`, `api_key`, `otp`, `pin`, `credential` and common
+  variants) and replaces binary payloads with a `<binary N bytes>`
+  placeholder. Previously bodies were logged verbatim and could leak
+  credentials to whichever sink the consumer wired (Sentry, file log,
+  console). Opt-in flag and `logger` callback semantics are unchanged.
+
+### Robustness
+
+- `HiveChatDatasource` serializes per-room writes (`saveMessages`,
+  `updateMessage`, `deleteMessage`, `clearMessages`) through an internal
+  per-`roomId` lock. Concurrent saves to the same room can no longer
+  leave the message-id index pointing to a key that was just removed.
+  Cross-room writes still run in parallel.
+- `RestClient` now exposes `cancelPending()` and the facade calls it on
+  `disconnect`/`dispose`/`logout`, so in-flight HTTP requests are aborted
+  instead of resurfacing as 401s through a stale `tokenProvider`.
+- `BearerAuthInterceptor` token refresh resets the WebSocket reconnect
+  attempt counter only on `auth_ok`, not on every `connect()` call —
+  prevents a programmatic reconnect from clobbering an in-progress
+  backoff schedule.
+- `AutoFailoverTransport` re-arms the SSE fallback on every primary drop,
+  not just the first one — connectivity recovers cleanly after a primary
+  + fallback double failure.
+- `RetryInterceptor` no longer retries non-idempotent verbs (POST, PATCH,
+  DELETE) on transient connection errors by default. Opt back in with
+  `options.extra['idempotent'] = true` per request when the caller can
+  guarantee safe replay.
+- Exponential backoff with jitter is now computed in a single helper
+  (`computeBackoffMs`) used by WS, SSE and HTTP retry layers. Jitter is
+  added before the cap so the maximum delay is honoured exactly.
+- `AutoFailoverTransport.dispose()` now propagates to both the primary
+  and fallback transports. Previously only streams and subscriptions
+  were cleaned up; the inner transport event/state streams were never
+  closed, leaking listeners across reconnect cycles.
+- `WsTransport._onMessage` now wraps `jsonDecode` in a try/catch so a
+  malformed frame (invalid JSON, non-UTF-8 bytes) is silently discarded
+  rather than propagating an uncaught `FormatException` to the zone.
+- `MessageDto.fromJson` no longer hard-casts `id`, `from`, and
+  `timestamp` fields. Non-string values (e.g. integer ids from certain
+  backends) are coerced via `toString()` instead of throwing
+  `_TypeError`. Similarly `text_history` guards against non-List values.
+- `PollingConfig.interval` below the 5 s floor is now clamped to 5 s with
+  a warning instead of throwing `ArgumentError`. A bad value supplied by
+  the consumer degrades the polling cadence rather than crashing
+  `NomaChat.create` at login.
+
+### Public surface
+
+- **Breaking**: types prefixed for clarity. `Result` → `ChatResult`,
+  `Success` → `ChatSuccess`, `Failure` → `ChatFailure*` (the existing
+  failure hierarchy keeps its `ChatFailure` base name and the `Result`
+  variant renames to `ChatFailureResult`), `PaginationParams` →
+  `ChatPaginationParams`, `CursorPaginationParams` →
+  `ChatCursorPaginationParams`, `PaginatedResponse` →
+  `ChatPaginatedResponse`, `SortOrder` → `ChatSortOrder`. Reduces
+  collisions with apps that already use `Result` / `Pagination` /
+  `SortOrder` from other libraries.
+- `ChatLocalDatasource` and `CachePolicy` moved out of `lib/src/_internal/`
+  (which is meant to be opaque) into `lib/src/cache/`. The barrel export
+  paths are unchanged.
+- `MockChatClient` and its eight `Mock*Api` siblings moved from the
+  primary `package:noma_chat/noma_chat.dart` barrel to a dedicated
+  `package:noma_chat/noma_chat_testing.dart`. Production apps no longer
+  see test scaffolding in autocomplete; tests `import` the testing
+  barrel explicitly.
+- `MetricCallback` exported from `package:noma_chat/noma_chat_advanced.dart`
+  (was reachable only by path before).
+- `ChatLogger` mentioned in earlier changelog drafts is renamed to the
+  typedef it actually is (`void Function(String level, String message)`).
+- `ChatRoomsApi.updateRoom` / `updateConfig` gains a `clearAvatar` flag.
+  When `true` the SDK sends an explicit empty avatar so a group photo can
+  be removed (the backend's merge-with-preserved config otherwise keeps
+  the old one). Mutually exclusive with a non-null `avatarUrl`.
+- `RoomDetail` and `RoomListItem` gain a `selfMuted` field (moderation
+  mute: an admin/owner silenced the current user in the room, distinct
+  from `muted` = the user's own notification preference). `isReadOnly`
+  now also returns `true` when `selfMuted`, so the composer goes
+  read-only.
+- `UserInfoPage` added and exported — a read-only WhatsApp-style "user
+  info" page for a DM peer (large avatar, display name, bio). The
+  read-only twin of `ProfileSettingsPage`.
+- `ChatConfig.eventBufferSize` default changed from `0` to `20`. Late
+  subscribers (e.g. a second `ChatController`) now replay the last 20
+  events on attach instead of none; set it back to `0` to opt out.
+
+### UI
+
+- Accessibility: composer send/attach/camera/voice and voice-recorder
+  overlay buttons enlarged to ≥48 dp tap targets (WCAG AA). Status icon
+  in message bubbles now exposes a `Semantics` label (`sent`,
+  `delivered`, `read`, …) and the timestamp/status/reactions row is
+  wrapped in `MergeSemantics` so screen readers announce the row once.
+- `MessageList` typing-row branch no longer recomputes `isGroup` from
+  `otherUsers.length`; reuses the host-provided `widget.isGroup` like the
+  message branch already did. Fixes typing label/avatar regressions for
+  callers that wire `isGroup` explicitly.
+- Audio bubble migrated to `ValueListenableBuilder<Duration>` for the
+  seek bar; the play button, speed button and status row no longer
+  rebuild on every player tick.
+- Cache: `CacheManager._timestamps` is persisted to a Hive meta box so
+  cold-starts no longer always fall through `cacheFirst` to network for
+  rooms/contacts.
+- `chat_room_options_menu.dart` factory `blockUser` documented for
+  parity with the others.
+
+### Internal / tests
+
+- `ChatUiAdapter` sub-API split: the 71 public methods now live in
+  their five sub-controllers (`ChatMessagesController`,
+  `ChatRoomsController`, `ChatContactsController`, `ChatProfileController`,
+  `ChatDmController`) instead of in the adapter itself. Each controller
+  is a `part of '../chat_ui_adapter.dart'` and accesses the adapter's
+  state through a single `_a` reference. The adapter retains a thin
+  pass-through for every method (`adapter.sendMessage(...)` ⇒
+  `adapter.messages.send(...)`), so existing callers and tests work
+  unchanged. `chat_ui_adapter.dart` drops from 2591 → 1706 LOC (-34%).
+  See `plans/split_chat_ui_adapter.md` for the sessions journal.
+- `chat_ui_adapter` further decomposed: `RoomListMutator` and
+  `MemberEventHandler` extracted as standalone collaborators. Adapter
+  drops from ~2960 LOC to ~2300 LOC.
+- `MessageInput` voice-recorder gesture machine extracted to
+  `MessageInputVoiceController` (ChangeNotifier) — composer state is no
+  longer entangled with drag/lock/overlay logic.
+- `ChatTheme.copyWith` (~250 manual lines) replaced with the Freezed
+  generator; adding a slot is now a one-line edit.
+- `MessageList`, `MessageBubble`, `TextBubble` and `ChatView` `build`
+  methods broken into `_build*` helpers (no behaviour change, just
+  legibility).
+- 31 cross-barrel self-imports inside `lib/src/*` replaced with relative
+  paths. The symbolic cycle (`lib/noma_chat.dart` exporting files that
+  import `package:noma_chat/noma_chat.dart`) is gone.
+- `lib/src/_internal/util/backoff.dart` added (shared helper, see above).
+- `test/cache/hive_chat_datasource_test.dart` and
+  `test/sdk/api/api_repositories_test.dart` split into smaller per-entity
+  files.
+- CI now also runs `flutter analyze` / `flutter test` over `example/` so
+  breaking the public API can no longer go undetected through the demo
+  app.
+
+### Docs
+
+- `CHANGELOG`: the long-standing `[Unreleased]` summary cut into this
+  `0.9.0` entry. Covers changes since the 2026-05-26 `0.6.0` audit.
+- `ARCHITECTURE.md` and the auto-generated dartdoc strings cleaned of
+  refactor history (`"Promoted from part of"`, `"Extracted from"`,
+  `"since 0.3.0"`) — historical context lives here in the changelog.
+
+## [0.6.0] - 2026-05-26
+
+### Architecture
+
+- **Three-layer package** — `ChatClient` (REST + real-time + cache-aware
+  sub-APIs), `HiveChatDatasource` (persistent local cache, opt-in but on by
+  default), `ChatUiAdapter` (bridges SDK events to per-room controllers and
+  drives the UI Kit).
+- **`Result<T, ChatFailure>` everywhere on the public surface.** No
+  `throw` leaks out of the SDK; the `Result` sealed type with
+  `Success` / `Failure` cases is pattern-matchable. Helpers:
+  `dataOrThrow`, `failureOrThrow`, `castFailure<R>()`, `getOrElse`,
+  `mapFailure`, `fold`.
+- **`ChatFailure` hierarchy** — sealed `AuthFailure`,
+  `NotFoundFailure`, `NetworkFailure`, `ValidationFailure`,
+  `ConflictFailure`, `CacheFailure`, `UnknownFailure`. Each carries a
+  cause when available.
+- **Models are Freezed.** All 17 SDK models and the `RoomListItem` UI
+  model use Freezed for `copyWith` / `==` / `hashCode` / `toString`.
+  Identity-equality preserved on entities that need it
+  (`ChatMessage`, `ChatRoom`, `ChatUser`, `ChatContact`, `RoomUser`,
+  `InvitedRoom`, `ScheduledMessage`, `ChatPresence`,
+  `BulkPresenceResponse`) via `@Freezed(equal: false)` + manual `==`.
+
+### Theming
+
+- **Cohesive sub-themes** — `ChatBubbleTheme`, `ChatInputTheme`,
+  `ChatRoomListTheme`, `ChatMarkdownTheme`. Each groups the slots that
+  belong together (e.g. `bubble.outgoingColor`,
+  `input.backgroundColor`, `roomList.unreadBadgeColor`,
+  `markdown.boldStyle`).
+- **Flat slots for cross-cutting surfaces** — `backgroundColor`,
+  `avatarBackgroundColor`, `presenceAvailableColor`,
+  `audioPlayButtonColor`, `videoBorderRadius`,
+  `linkPreviewBackgroundColor`, `reactionTextStyle`, the context menu,
+  attachment picker and image viewer colours, etc., remain top-level
+  on `ChatTheme` itself.
+- **Factories** — `ChatTheme.lightPreset()` and
+  `ChatTheme.darkPreset()` set rich defaults across every visible
+  surface; `ChatTheme.resolved(BuildContext)` picks one based on the
+  platform brightness; `ChatTheme.branded({accent,
+  contrastingOnAccent})` derives ~12 accent slots from a single
+  colour; `ChatTheme.highContrast()` returns a WCAG-AAA-friendly
+  preset.
+
+  ```dart
+  final theme = ChatTheme(
+    bubble: ChatBubbleTheme(outgoingColor: Colors.green),
+    input: ChatInputTheme(backgroundColor: Colors.white),
+    markdown: ChatMarkdownTheme(
+      boldStyle: TextStyle(fontWeight: FontWeight.w800),
+    ),
+    roomList: ChatRoomListTheme(
+      nameStyle: TextStyle(fontSize: 16),
+    ),
+  );
+  ```
+
+### Localization
+
+- **Seven shipped locales** — `en`, `es`, `fr`, `de`, `it`, `pt`, `ca`.
+  All user-facing strings (system messages, action labels, attachment
+  type names, voice message templates, deleted-message placeholders)
+  live in `ChatUiLocalizations`.
+- **`LocalizationsDelegate`** — `ChatUiLocalizations.delegate`
+  integrates with Flutter's standard l10n flow:
+
+  ```dart
+  MaterialApp(
+    localizationsDelegates: const [
+      ChatUiLocalizations.delegate,
+      GlobalMaterialLocalizations.delegate,
+      // …
+    ],
+    supportedLocales: ChatUiLocalizations.supportedLocales,
+  );
+  ```
+
+  Widgets call `ChatUiLocalizations.of(context)`; the SDK falls back
+  to English when no delegate is registered (handy in tests and
+  quick demos).
+
+### Real-time transports
+
+`ChatConfig.realtimeMode` chooses how live updates arrive:
+
+| Mode                     | What it does                                                                 |
+| ------------------------ | ---------------------------------------------------------------------------- |
+| `auto` *(default)*       | WebSocket primary, automatic SSE fallback when WS connect/upgrade fails.     |
+| `webSocketOnly`          | WS only; disconnects surface as errors instead of falling back.              |
+| `serverSentEventsOnly`   | SSE only; useful on networks that drop WebSockets.                           |
+| `polling`                | REST polling diff. Configurable interval; no typing/presence events.         |
+| `manual`                 | No background work. The host app calls `chat.refresh()` to pull updates.     |
+
+All transports emit events onto the same `chat.client.events` stream.
+SSE has a client-side idle watchdog (`ChatConfig.sseIdleTimeout`,
+default 60 s) that reconnects on long silence to mitigate zombie
+streams.
+
+### Cache
+
+- **Hive CE backend** (`HiveChatDatasource`), opt-in via `cache:` on
+  `NomaChat.create` (a default instance is wired up automatically).
+- **Per-API `CachePolicy`** — `cacheFirst`, `networkOnly`,
+  `cacheOnly`, `cacheThenNetwork` — surfaces explicitly on read
+  methods.
+- **Eviction policy** — FIFO with configurable per-room cap +
+  per-entry TTL. Tunable via `CacheConfig`.
+- **Schema migration** — `CacheSchemaMigrator` runs step-by-step
+  migrations between recorded schema versions, falling back to a
+  wipe-and-rebuild only when no path is registered.
+- **Avatar storage** — pluggable `AvatarStorage` interface; the
+  default delegates to `client.attachments.upload`.
+
+### Offline queue
+
+- **Sealed `PendingOperation`** with nine concrete subclasses
+  (`SendMessage`, `EditMessage`, `DeleteMessage`, `SendReaction`,
+  `DeleteReaction`, `MarkAsRead`, `PinMessage`, `UnpinMessage`,
+  `ToggleRoomFlag`). Each carries its own `Map<String, dynamic>
+  toJson()` so serialization stays cohesive with the type.
+- **Exponential backoff** with a configurable ceiling
+  (`OfflineQueue.maxBackoffSecs`).
+- **Drain runs through an injected `PendingOperationExecutor`** so
+  the queue stays decoupled from `ChatClient`.
+
+### UI Kit
+
+- **Message bubbles** for text, image, video, audio, file and
+  location, with a shared `BubbleMetadataRow` that handles the
+  `timestamp + receipt-status` corner consistently.
+- **Composer** (`MessageInput`) with mentions, replies, edits,
+  attachments, voice recording (slide-to-cancel, lock-to-keep),
+  link preview, send-on-Enter on desktop.
+- **Room list** with unread badges, mute / pin / hide / archive
+  affordances, WhatsApp-style last-message previews
+  (`📷 Photo`, `🎤 Voice message (0:14)`, etc.) and `Tú:` /
+  `You:` prefix in groups.
+- **Reactions** — long-press to pick, double-tap to react, picker
+  sheet, aggregated badges under the bubble.
+- **Group flows** — `MemberPickerSheet` → `GroupSetupPage` →
+  `GroupInfoPage`. Avatar pipeline: `AvatarPickerSheet` →
+  `AvatarCropPage` (square crop with pinch + pan + rotate).
+- **Profile** — `ProfileSettingsPage` for display name + avatar +
+  optional bio/email.
+
+### Observability
+
+- **Pluggable logger** — `ChatConfig.logger:
+  void Function(String level, String message)?`. Levels are
+  `debug`/`info`/`warn`/`error`. Propagated to interceptors, transports,
+  cache datasource and offline queue; the consumer passes their own
+  implementation to forward to telemetry.
+- **`OperationError` stream** — the adapter publishes
+  `(OperationKind, ChatFailure, roomId/messageId/userId)` for every
+  mutation failure, so a host app drives a single global banner
+  instead of wrapping each call site.
+- **`LinkPreviewFetcher.cacheStats`** — entries, capacity, in-flight,
+  hits, misses, failure retries, evictions, hit rate. Useful for
+  debug overlays.
+
+### Utilities
+
+- **`Result<T, ChatFailure>`** + helpers (above).
+- **`PaginatedResult<T>`** with `nextCursor` / `hasMore` for SDK
+  pagination.
+- **`MimeClassifier`** (`MimeKind { image, gif, video, audio, file }`
+  + `classifyMime(String?)`) — single source of truth for "what
+  kind of attachment is this".
+- **`DateFormatter`** — context-aware "12:34", "Yesterday",
+  weekday name, full date.
+- **`MarkdownParser`** — inline-only (`**bold**`, `*italic*`,
+  `~~strike~~`, `` `code` ``); the parser's scope and the deliberate
+  non-support (block markdown, links) are documented in the file.
+
+### Platform support
+
+`pubspec.yaml` declares all six Flutter targets — `android`, `ios`,
+`macos`, `linux`, `windows`, `web`. Production-tested: Android and
+iOS. Voice recording on web is disabled (the controller stages
+recordings on the local filesystem before sending); calling
+`startRecording()` returns `permissionDenied` instead of crashing.
+See the README "Platform support" table for the breakdown.
+
+### Lints & tests
+
+- `analysis_options.yaml` enables `strict-casts`,
+  `strict-inference`, `strict-raw-types` plus the canonical
+  `prefer_const_*` / `prefer_final_*` ruleset.
+- Suite size: **1710 tests passing**, 2 skipped. Coverage > 90% on
+  every leaf module. Golden tests for the seven non-network bubbles
+  in light + dark themes (19 baselines), plus the five outgoing
+  status icons.
 
 ## [0.3.1] - 2026-05-14
 
@@ -226,4 +575,4 @@ changes informed by real-world feedback before committing to a 1.0 contract.
 ## [0.1.0] - Unreleased
 
 Initial development version. Used internally during the SDK's design and
-test phase; never published to pub.dev. Replaced by `0.2.0`.
+not published to pub.dev.

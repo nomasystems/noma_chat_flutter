@@ -29,20 +29,25 @@ void main() {
     });
 
     testWidgets('RoomTile has room name as semantic label', (tester) async {
-      final room = RoomListItem(id: 'r1', name: 'Team Chat');
+      const room = RoomListItem(id: 'r1', name: 'Team Chat');
 
-      await tester.pumpWidget(wrap(RoomTile(room: room)));
+      await tester.pumpWidget(wrap(const RoomTile(room: room)));
       expect(findSemanticsWithLabel('Team Chat'), findsOneWidget);
     });
 
-    testWidgets('RoomTile uses id as semantic label when name is null', (
-      tester,
-    ) async {
-      final room = RoomListItem(id: 'room-xyz');
+    testWidgets(
+      'RoomTile uses empty string as semantic label when name is null '
+      '(never expose UUIDs as titles)',
+      (tester) async {
+        const room = RoomListItem(id: 'room-xyz');
 
-      await tester.pumpWidget(wrap(RoomTile(room: room)));
-      expect(findSemanticsWithLabel('room-xyz'), findsOneWidget);
-    });
+        await tester.pumpWidget(wrap(const RoomTile(room: room)));
+        // The room id must not surface — the fallback chain ends at
+        // `''` for both rendering and accessibility.
+        expect(findSemanticsWithLabel('room-xyz'), findsNothing);
+        expect(findSemanticsWithLabel(''), findsAtLeastNWidgets(1));
+      },
+    );
 
     testWidgets('UnreadBadge has unread messages semantics', (tester) async {
       await tester.pumpWidget(wrap(const UnreadBadge(count: 7)));
@@ -58,7 +63,7 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        MaterialApp(home: Scaffold(body: const VoiceRecorderButton())),
+        const MaterialApp(home: Scaffold(body: VoiceRecorderButton())),
       );
 
       expect(findSemanticsWithLabel('Record voice message'), findsOneWidget);
@@ -73,7 +78,10 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: Scaffold(
-            body: MessageInput(controller: controller, onSendMessage: (_) {}),
+            body: MessageInput(
+              controller: controller,
+              onSendMessageRequest: (_) {},
+            ),
           ),
         ),
       );
@@ -84,6 +92,55 @@ void main() {
       expect(findSemanticsWithLabel('Send'), findsOneWidget);
 
       controller.dispose();
+    });
+
+    testWidgets('ReplyPreview close button has close semantics', (
+      tester,
+    ) async {
+      final msg = ChatMessage(
+        id: 'm1',
+        from: 'alice',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'hi',
+      );
+      await tester.pumpWidget(
+        wrap(ReplyPreview(message: msg, onDismiss: () {})),
+      );
+      expect(findSemanticsWithLabel('Close'), findsOneWidget);
+    });
+
+    testWidgets('PinnedMessagesBanner close button has close semantics', (
+      tester,
+    ) async {
+      final pin = MessagePin(
+        roomId: 'r1',
+        messageId: 'm1',
+        pinnedBy: 'alice',
+        pinnedAt: DateTime(2026, 1, 1),
+      );
+      await tester.pumpWidget(
+        wrap(
+          PinnedMessagesBanner(
+            pinnedMessage: pin,
+            pinnedMessageText: 'pinned content',
+            onClose: () {},
+          ),
+        ),
+      );
+      expect(findSemanticsWithLabel('Close'), findsOneWidget);
+    });
+
+    testWidgets('BlockedChatBanner has the resolved label as semantics', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(BlockedChatBanner(onUnblock: () {})));
+      // The banner's visible text + semantic label match (the visible
+      // text is centered inside the InkWell; the wrapping Semantics
+      // mirrors it so a screen reader reads the action once).
+      expect(
+        findSemanticsWithLabel(ChatUiLocalizations.en.blockedContactBannerText),
+        findsOneWidget,
+      );
     });
   });
 }

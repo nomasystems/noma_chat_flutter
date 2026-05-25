@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/room_user.dart';
+import '../../models/user.dart';
+import '../theme/chat_theme.dart';
+import 'user_avatar.dart';
 
 /// A user paired with their per-room [RoomRole], shown in [MemberListView].
 class MemberEntry {
@@ -66,6 +69,10 @@ class MemberListView extends StatelessWidget {
         final canManage = _canManage(entry);
 
         return ListTile(
+          // Stable identity so Flutter doesn't recycle tiles when the
+          // member list reorders (e.g. role change moves a member from
+          // member→admin section, owner→admin demote, kick).
+          key: ValueKey(entry.user.id),
           onTap: onTapMember != null ? () => onTapMember!(entry.user) : null,
           leading: UserAvatar(
             imageUrl: entry.user.avatarUrl,
@@ -76,7 +83,7 @@ class MemberListView extends StatelessWidget {
           title: Text(
             entry.user.displayName ?? entry.user.id,
             style:
-                theme.roomNameTextStyle ??
+                theme.roomList.nameStyle ??
                 const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           subtitle: Container(

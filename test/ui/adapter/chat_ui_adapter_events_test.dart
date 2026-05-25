@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;
 
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -83,7 +84,7 @@ void main() {
   group('DM activity events', () {
     test('dmActivity sets typing via contact-to-room mapping', () async {
       await adapter.connect();
-      adapter.registerDmRoom('u2', 'dm-room');
+      adapter.dm.registerRoom('u2', 'dm-room');
       final controller = adapter.getChatController('dm-room');
 
       mockClient.emitEvent(
@@ -215,7 +216,7 @@ void main() {
         name: 'Test',
       );
 
-      final result = await adapter.sendMessage(
+      final result = await adapter.messages.send(
         'mock-room-0',
         text: 'Photo',
         attachmentUrl: 'https://example.com/photo.jpg',
@@ -229,13 +230,13 @@ void main() {
         audience: RoomAudience.contacts,
         name: 'Test',
       );
-      final sendResult = await adapter.sendMessage(
+      final sendResult = await adapter.messages.send(
         'mock-room-0',
         text: 'Original',
       );
       final msgId = sendResult.dataOrNull!.id;
 
-      final result = await adapter.editMessage(
+      final result = await adapter.messages.edit(
         'mock-room-0',
         msgId,
         text: 'Edited',
@@ -245,7 +246,7 @@ void main() {
     });
 
     test('sendReceipt calls SDK', () async {
-      final result = await adapter.sendReceipt(
+      final result = await adapter.messages.sendReceipt(
         'room1',
         'msg1',
         status: ReceiptStatus.read,

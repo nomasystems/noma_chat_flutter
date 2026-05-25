@@ -168,7 +168,7 @@ Distinguishes real DMs from conceptual groups with 2 participants (e.g. a plan w
 - Optional `logger` in `ChatConfig`, propagated to `BearerAuthInterceptor` and the 4 main APIs (users, rooms, messages, contacts).
 - 11 `catch (_)` cache-best-effort sites replaced with `catch (e) { _logger?.call('warn', '...: $e'); }`.
 - `_openBoxSafe()` recovery logs + metrics `box_delete_failed` / `box_reopen_failed`.
-- Exported `MetricCallback`: `cache_hit`, `cache_miss`, `cache_eviction`, `cache_ttl_expired`.
+- `MetricCallback` (typedef `void Function(String metric, Map<String, dynamic> data)`) exported from `package:noma_chat/noma_chat_advanced.dart`. Events emitted today: `cache_hit`, `cache_miss`, `cache_stale_fallback`, `cache_eviction`, `cache_ttl_expired`, `box_corrupted`, `box_delete_failed`, `box_reopen_failed`, `schema_migration_wipe`.
 
 ## Backend integration
 

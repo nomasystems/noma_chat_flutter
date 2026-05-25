@@ -1,4 +1,6 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'room_user.freezed.dart';
 
 /// Room-level role. The backend wire format uses "user" for [member].
 enum RoomRole {
@@ -13,12 +15,17 @@ enum RoomRole {
 }
 
 /// A member of a room with their assigned role.
-@immutable
-class RoomUser {
-  final String userId;
-  final RoomRole role;
+///
+/// Equality is id-based on [userId] so a `Set<RoomUser>` deduplicates by
+/// user regardless of role transitions during a single render pass.
+@Freezed(equal: false)
+abstract class RoomUser with _$RoomUser {
+  const RoomUser._();
 
-  const RoomUser({required this.userId, this.role = RoomRole.member});
+  const factory RoomUser({
+    required String userId,
+    @Default(RoomRole.member) RoomRole role,
+  }) = _RoomUser;
 
   @override
   bool operator ==(Object other) =>

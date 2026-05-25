@@ -1,3 +1,4 @@
+import 'dart:async' show TimeoutException;
 import 'dart:collection';
 
 import 'package:dio/dio.dart';
@@ -15,7 +16,14 @@ import '../models/link_preview_metadata.dart';
 class LinkPreviewFetcher {
   LinkPreviewFetcher({
     Dio? dio,
-    Duration timeout = const Duration(seconds: 5),
+    // Bumped from 5s to 15s. The previous default tripped Dio's own
+    // `connectTimeout` / `receiveTimeout` long before the outer wrapper
+    // in `_doFetch` had a chance — the spinner stopped, the null result
+    // landed in cache, and the next 5 minutes of paste-the-same-URL
+    // returned null instantly even when the underlying page was just
+    // slow. 15s matches the outer Future.timeout and gives slow CDNs
+    // / heavy OG-tag pages room to respond.
+    Duration timeout = const Duration(seconds: 15),
     int cacheSize = 64,
     Duration failureTtl = const Duration(minutes: 5),
     @visibleForTesting DateTime Function()? clock,
@@ -59,26 +67,51 @@ class LinkPreviewFetcher {
   final Map<String, DateTime> _failureStoredAt = {};
   final Map<String, Future<LinkPreviewMetadata?>> _inFlight = {};
 
+  // === Observability counters ===
+  int _hits = 0;
+  int _misses = 0;
+  int _failureRetries = 0;
+  int _evictions = 0;
+
+  /// Lightweight snapshot of the in-memory LRU + failure TTL caches.
+  /// Useful for telemetry / debug overlays. Cheap to call — just reads
+  /// the underlying maps and counters, no I/O.
+  LinkPreviewCacheStats get cacheStats => LinkPreviewCacheStats(
+    entries: _cache.length,
+    capacity: _cacheSize,
+    failures: _failureStoredAt.length,
+    inFlight: _inFlight.length,
+    hits: _hits,
+    misses: _misses,
+    failureRetries: _failureRetries,
+    evictions: _evictions,
+  );
+
   Future<LinkPreviewMetadata?> fetch(String url) {
     if (_cache.containsKey(url)) {
       final cached = _cache[url];
       if (cached == null) {
         final storedAt = _failureStoredAt[url];
         if (storedAt != null && _clock().difference(storedAt) >= _failureTtl) {
-          // Failure expired — evict and refetch.
+          // ChatFailureResult expired — evict and refetch.
           _cache.remove(url);
           _failureStoredAt.remove(url);
+          _failureRetries++;
         } else {
           // Refresh LRU position even on cached failures.
           _cache.remove(url);
           _cache[url] = null;
+          _hits++;
           return Future.value(null);
         }
       } else {
         _cache.remove(url);
         _cache[url] = cached;
+        _hits++;
         return Future.value(cached);
       }
+    } else {
+      _misses++;
     }
     final pending = _inFlight[url];
     if (pending != null) return pending;
@@ -91,10 +124,28 @@ class LinkPreviewFetcher {
   Future<LinkPreviewMetadata?> _doFetch(String url) async {
     LinkPreviewMetadata? result;
     try {
-      final response = await _dio.get<dynamic>(
-        url,
-        options: Options(responseType: ResponseType.plain),
-      );
+      // Defensive outer timeout: Dio's `connectTimeout` and
+      // `receiveTimeout` are honoured by the Dart HTTP client on
+      // desktop but can be ignored on iOS Simulator when the socket
+      // gets stuck in CONNECTING (observed multiple times — preview
+      // spinner runs forever despite the 5s settings above). A hard
+      // `Future.timeout` guarantees the future resolves, the spinner
+      // stops, and the `_inFlight` entry is removed via the
+      // `whenComplete` upstream — no leaks even if the underlying
+      // request keeps running in the background.
+      // Generous wall-clock cap so slow CDNs / OG-tag-heavy pages have
+      // time to respond. The composer decouples the spinner UX from
+      // this so the user doesn't see a frozen loader regardless. A
+      // null result (timeout / unreachable) still gets cached so we
+      // don't keep retrying the same URL until the failure TTL expires.
+      final response = await _dio
+          .get<dynamic>(url, options: Options(responseType: ResponseType.plain))
+          .timeout(
+            const Duration(seconds: 15),
+            onTimeout: () {
+              throw TimeoutException('link_preview fetch timeout: $url');
+            },
+          );
       final raw = response.data;
       final body = raw is String ? raw : raw?.toString();
       if (body != null && body.isNotEmpty) {
@@ -112,6 +163,7 @@ class LinkPreviewFetcher {
       final oldest = _cache.keys.first;
       _cache.remove(oldest);
       _failureStoredAt.remove(oldest);
+      _evictions++;
     }
     _cache[url] = value;
     if (value == null) {
@@ -161,4 +213,71 @@ class LinkPreviewFetcher {
       return maybeRelative;
     }
   }
+}
+
+/// Snapshot of [LinkPreviewFetcher]'s in-memory LRU + failure-TTL caches,
+/// plus running counters of how the cache has been used since process
+/// start.
+///
+/// Read from [LinkPreviewFetcher.cacheStats]. Useful when wiring a debug
+/// overlay or sending telemetry — for example, a low [hitRate] over a
+/// long session may indicate that the LRU [capacity] is too small for the
+/// host app's typical conversation length.
+class LinkPreviewCacheStats {
+  const LinkPreviewCacheStats({
+    required this.entries,
+    required this.capacity,
+    required this.failures,
+    required this.inFlight,
+    required this.hits,
+    required this.misses,
+    required this.failureRetries,
+    required this.evictions,
+  });
+
+  /// Total entries currently stored in the LRU (successes + failures).
+  final int entries;
+
+  /// Maximum [entries] before the oldest one is evicted.
+  final int capacity;
+
+  /// Subset of [entries] that are cached `null` results (failed fetches
+  /// awaiting their TTL).
+  final int failures;
+
+  /// Number of in-flight fetches that have been deduplicated against
+  /// concurrent callers.
+  final int inFlight;
+
+  /// Cumulative cache hits since this fetcher was constructed (successful
+  /// previews + cached failures within their TTL).
+  final int hits;
+
+  /// Cumulative cache misses since this fetcher was constructed
+  /// (URLs whose preview had to be fetched from the network).
+  final int misses;
+
+  /// Cumulative failure entries whose TTL expired and were re-fetched.
+  /// Counted separately from [misses] so callers can distinguish "first
+  /// time we see this URL" from "we already tried, time to retry".
+  final int failureRetries;
+
+  /// Cumulative number of LRU evictions (oldest entry dropped because
+  /// the cache reached [capacity]).
+  final int evictions;
+
+  /// `hits / (hits + misses)` rounded to two decimals; `0.0` until the
+  /// first fetch happens. Treats failure retries as misses.
+  double get hitRate {
+    final total = hits + misses;
+    if (total == 0) return 0.0;
+    return (hits * 100 / total).round() / 100;
+  }
+
+  @override
+  String toString() =>
+      'LinkPreviewCacheStats(entries: $entries/$capacity, '
+      'failures: $failures, inFlight: $inFlight, '
+      'hits: $hits, misses: $misses, failureRetries: $failureRetries, '
+      'evictions: $evictions, hitRate: $hitRate)';
 }

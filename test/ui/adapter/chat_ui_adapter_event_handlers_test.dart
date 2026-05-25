@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 
 /// Drives `_handleEvent` in `ChatUiAdapter` through each branch of the
@@ -253,7 +254,7 @@ void main() {
 
   test('DmActivityEvent for a known contact toggles typing', () async {
     // Pre-register the dm room mapping so the adapter can route the event.
-    adapter.registerDmRoom('contact-1', 'r1');
+    adapter.dm.registerRoom('contact-1', 'r1');
     final controller = adapter.getChatController('r1');
 
     client.emitEvent(

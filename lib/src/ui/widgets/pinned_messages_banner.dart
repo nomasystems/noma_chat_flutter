@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/pin.dart';
+import '../theme/chat_theme.dart';
 
 /// Banner displayed at the top of a chat view showing the current pinned message.
 class PinnedMessagesBanner extends StatelessWidget {
@@ -27,10 +28,10 @@ class PinnedMessagesBanner extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color: theme.replyPreviewBackgroundColor ?? Colors.blue.shade50,
+          color: theme.input.replyPreviewBackgroundColor ?? Colors.blue.shade50,
           border: Border(
             bottom: BorderSide(
-              color: theme.pinnedIconColor ?? Colors.grey.shade300,
+              color: theme.roomList.pinnedIconColor ?? Colors.grey.shade300,
               width: 0.5,
             ),
           ),
@@ -40,7 +41,7 @@ class PinnedMessagesBanner extends StatelessWidget {
             Icon(
               Icons.push_pin,
               size: 16,
-              color: theme.pinnedIconColor ?? Colors.grey,
+              color: theme.roomList.pinnedIconColor ?? Colors.grey,
             ),
             const SizedBox(width: 8),
             Expanded(
@@ -53,7 +54,7 @@ class PinnedMessagesBanner extends StatelessWidget {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: theme.sendButtonColor ?? Colors.blue,
+                      color: theme.input.sendButtonColor ?? Colors.blue,
                     ),
                   ),
                   if (pinnedMessageText != null)
@@ -70,11 +71,15 @@ class PinnedMessagesBanner extends StatelessWidget {
               ),
             ),
             if (onClose != null)
-              GestureDetector(
-                onTap: onClose,
-                child: const Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.close, size: 16),
+              Semantics(
+                label: theme.l10n.close,
+                button: true,
+                child: GestureDetector(
+                  onTap: onClose,
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.close, size: 16),
+                  ),
                 ),
               ),
           ],

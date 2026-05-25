@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/reaction.dart';
+import '../models/reaction_user.dart';
+import '../theme/chat_theme.dart';
+import 'user_avatar.dart';
 
 /// Signature for a custom presenter of the reaction detail sheet. Receives the
 /// already-built content widget and is responsible for displaying it in the
@@ -17,7 +20,7 @@ class ReactionDetailSheet {
     BuildContext context, {
     required Future<List<AggregatedReaction>> Function() fetchReactions,
     required String currentUserId,
-    required UserResolver userResolver,
+    required UserFetcher userFetcher,
     required ValueChanged<String> onRemoveReaction,
     ChatTheme theme = ChatTheme.defaults,
     ReactionDetailSheetBuilder? sheetBuilder,
@@ -25,7 +28,7 @@ class ReactionDetailSheet {
     final content = ReactionDetailContent(
       fetchReactions: fetchReactions,
       currentUserId: currentUserId,
-      userResolver: userResolver,
+      userFetcher: userFetcher,
       onRemoveReaction: onRemoveReaction,
       theme: theme,
     );
@@ -52,14 +55,14 @@ class ReactionDetailContent extends StatefulWidget {
     super.key,
     required this.fetchReactions,
     required this.currentUserId,
-    required this.userResolver,
+    required this.userFetcher,
     required this.onRemoveReaction,
     required this.theme,
   });
 
   final Future<List<AggregatedReaction>> Function() fetchReactions;
   final String currentUserId;
-  final UserResolver userResolver;
+  final UserFetcher userFetcher;
   final ValueChanged<String> onRemoveReaction;
   final ChatTheme theme;
 
@@ -100,7 +103,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
       final resolved = <String, ReactionUser>{};
       final futures = userIds.map((id) async {
         try {
-          resolved[id] = await widget.userResolver(id);
+          resolved[id] = await widget.userFetcher(id);
         } catch (_) {
           resolved[id] = ReactionUser(id: id, displayName: id);
         }
