@@ -14,40 +14,47 @@ analyzer:
 
 linter:
   rules:
-    - always_declare_return_types
-    - annotate_overrides
-    - avoid_dynamic_calls
-    - avoid_empty_else
-    - avoid_print
-    - avoid_relative_lib_imports
-    - avoid_returning_null_for_void
-    - avoid_slow_async_io
-    - avoid_type_to_string
-    - avoid_types_as_parameter_names
-    - avoid_unused_constructor_parameters
-    - avoid_void_async
-    - cancel_subscriptions
-    - close_sinks
-    - collection_methods_unrelated_type
-    - combinators_ordering
-    - dangling_library_doc_comments
-    - deprecated_member_use_from_same_package
-    - implicit_reopen
-    - invalid_case_patterns
-    - literal_only_boolean_expressions
-    - no_adjacent_strings_in_list
-    - no_self_assignments
-    - prefer_const_constructors
-    - prefer_const_constructors_in_immutables
-    - prefer_const_declarations
-    - prefer_const_literals_to_create_immutables
-    - prefer_final_fields
-    - prefer_final_locals
-    - prefer_function_declarations_over_variables
-    - prefer_single_quotes
-    - prefer_void_to_null
-    - test_types_in_equals
-    - throw_in_finally
-    - unnecessary_brace_in_string_interps
-    - unnecessary_statements
-    - use_super_parameters
+    # Intentionally disabled. `prefer_initializing_formals` became part of the
+    # recommended `lints` set on Dart 3.12 / Flutter 3.44. Many constructors
+    # here assign a public named parameter to a private field
+    # (`MyClass({required Fn callback}) : _callback = callback`); rewriting to
+    # `this._callback` would expose underscore-prefixed names in the public
+    # API, which is worse. The explicit-assignment style is deliberate.
+    prefer_initializing_formals: false
+    always_declare_return_types: true
+    annotate_overrides: true
+    avoid_dynamic_calls: true
+    avoid_empty_else: true
+    avoid_print: true
+    avoid_relative_lib_imports: true
+    avoid_returning_null_for_void: true
+    avoid_slow_async_io: true
+    avoid_type_to_string: true
+    avoid_types_as_parameter_names: true
+    avoid_unused_constructor_parameters: true
+    avoid_void_async: true
+    cancel_subscriptions: true
+    close_sinks: true
+    collection_methods_unrelated_type: true
+    combinators_ordering: true
+    dangling_library_doc_comments: true
+    deprecated_member_use_from_same_package: true
+    implicit_reopen: true
+    invalid_case_patterns: true
+    literal_only_boolean_expressions: true
+    no_adjacent_strings_in_list: true
+    no_self_assignments: true
+    prefer_const_constructors: true
+    prefer_const_constructors_in_immutables: true
+    prefer_const_declarations: true
+    prefer_const_literals_to_create_immutables: true
+    prefer_final_fields: true
+    prefer_final_locals: true
+    prefer_function_declarations_over_variables: true
+    prefer_single_quotes: true
+    prefer_void_to_null: true
+    test_types_in_equals: true
+    throw_in_finally: true
+    unnecessary_brace_in_string_interps: true
+    unnecessary_statements: true
+    use_super_parameters: true

@@ -8,6 +8,26 @@ onwards, breaking changes require a **major version bump**.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-29
+
+### Dependencies
+
+- **Breaking (consumers)**: minimum SDK raised to **Flutter 3.44 / Dart 3.12**.
+  Required by `record` 7, which dropped support for older SDKs.
+- `record` bumped `^6.0.0` → `^7.0.0` (the audio recorder used by voice
+  messages). The Dart API we use (`start`/`stop`/`pause`/`hasPermission`)
+  is unchanged; record 7's breaking changes are native-only (Android
+  background service, iOS `manageAudioSession`) and unused here.
+- `file_picker` lower bound raised `>=9.0.0` → `>=11.0.0`. The attachment
+  picker calls the `FilePicker.pickFiles` **static** API, which only exists
+  from file_picker 11.0.0 (it was instance-based before) — the old `>=9.0.0`
+  constraint let the package resolve to a version where the code did not
+  compile.
+
+### Docs
+
+- README quick-start now pins `noma_chat: ^0.9.0` (was a stale `^1.0.0`).
+
 ## [0.9.0] - 2026-05-29
 
 ### Security
