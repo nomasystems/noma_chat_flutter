@@ -28,7 +28,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^1.0.0
+  noma_chat: ^0.9.0
 ```
 
 ```dart
