@@ -8,7 +8,7 @@
 /// - **UI Adapter**: [ChatUiAdapter] glues the SDK to UI controllers
 ///   ([ChatController], [RoomListController], [MessageSearchController]),
 ///   exposing reactive state ready for widgets.
-/// - **UI Kit**: ready-to-use widgets ([ChatView], [MessageList],
+/// - **UI components**: ready-to-use widgets ([ChatView], [MessageList],
 ///   [RoomListView], pickers, bubbles…) themed via [ChatTheme].
 ///
 /// The typical entry point is [NomaChat.create], which wires all three:

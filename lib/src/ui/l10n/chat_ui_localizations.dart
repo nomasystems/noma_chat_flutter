@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-/// Localized strings for all chat UI Kit widgets.
+/// Localized strings for all chat UI components widgets.
 ///
 /// Provides pre-built [en], [es], [fr], [de], [it], [pt] and [ca] constants.
 /// Create a custom instance or use [copyWith] to override individual strings

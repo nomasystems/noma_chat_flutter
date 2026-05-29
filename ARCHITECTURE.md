@@ -41,7 +41,7 @@ lib/
     ├── events/                 # ChatEvent (sealed union) + EventParser
     ├── mock/                   # MockChatClient + MockDataStore (for tests)
     ├── models/                 # 30+ Freezed models
-    └── ui/                     # Complete UI Kit
+    └── ui/                     # Complete UI components
         ├── adapter/            # ChatUiAdapter
         ├── controllers/        # ChatController, RoomListController
         ├── widgets/            # ChatView, MessageList, MessageInput,

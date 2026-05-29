@@ -27,6 +27,6 @@ class ReactionUser {
 
 /// Callback that resolves a user ID into display information.
 ///
-/// Consumers inject this so the UI Kit can show user names and avatars
+/// Consumers inject this so the UI components can show user names and avatars
 /// in reaction detail sheets without depending on any user system.
 typedef UserFetcher = Future<ReactionUser> Function(String userId);

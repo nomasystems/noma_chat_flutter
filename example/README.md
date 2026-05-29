@@ -4,7 +4,7 @@ A small Flutter app that exercises the main pieces of `noma_chat`. It runs in
 two modes selected at compile time via `--dart-define=MODE=...`:
 
 - **mock** (default) — wires `MockChatClient` with seeded demo data. Useful
-  for trying the UI Kit and SDK shape without any backend running.
+  for trying the UI components and SDK shape without any backend running.
 - **cht** — connects to a real `apps/user_client` instance over HTTP Basic
   auth. Shows the onboarding flow you would build into your own app
   (register/login → persist → reconnect on reopen → logout).
