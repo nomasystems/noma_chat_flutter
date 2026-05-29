@@ -22,13 +22,13 @@ void main() {
           mimeType: 'application/pdf',
           timestamp: DateTime(2026, 1, 1),
         ),
-        MediaItem(
+        const MediaItem(
           url: 'https://x/data.csv',
           type: MediaItemType.file,
           fileName: 'data.csv',
           mimeType: 'text/csv',
         ),
-        MediaItem(
+        const MediaItem(
           url: 'https://x/zip.zip',
           type: MediaItemType.file,
           fileName: 'archive.zip',
@@ -48,7 +48,7 @@ void main() {
       tester,
     ) async {
       final items = [
-        MediaItem(
+        const MediaItem(
           url: 'https://x/a.mp3',
           type: MediaItemType.file,
           fileName: 'song.mp3',
@@ -70,7 +70,7 @@ void main() {
     testWidgets('tap fires onTapItem with the tapped doc', (tester) async {
       MediaItem? tapped;
       final items = [
-        MediaItem(
+        const MediaItem(
           url: 'https://x/y.pdf',
           type: MediaItemType.file,
           fileName: 'doc.pdf',
@@ -88,8 +88,8 @@ void main() {
 
     testWidgets('non-file MediaItems are filtered out', (tester) async {
       final items = [
-        MediaItem(url: 'https://x/img.jpg', type: MediaItemType.image),
-        MediaItem(url: 'https://x/vid.mp4', type: MediaItemType.video),
+        const MediaItem(url: 'https://x/img.jpg', type: MediaItemType.image),
+        const MediaItem(url: 'https://x/vid.mp4', type: MediaItemType.video),
       ];
 
       await tester.pumpWidget(wrap(DocsListView(items: items)));

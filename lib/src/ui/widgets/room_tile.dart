@@ -1,5 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../models/room_list_item.dart';
+import '../theme/chat_theme.dart';
+import '../utils/date_formatter.dart';
+import '../utils/last_message_preview.dart';
+import 'message_status_icon.dart';
+import 'unread_badge.dart';
+import 'user_avatar.dart';
 
 /// A single row in the room list showing avatar, name, last message preview,
 /// timestamp, unread badge, and muted/pinned indicators.
@@ -60,7 +66,7 @@ class RoomTile extends StatelessWidget {
         leadingBuilder?.call(context, room) ??
         UserAvatar(
           imageUrl: room.avatarUrl,
-          displayName: room.name,
+          displayName: room.displayName,
           size: 48,
           isOnline: room.isGroup ? null : room.isOnline,
           presenceStatus: room.isGroup ? null : room.presenceStatus,
@@ -78,13 +84,14 @@ class RoomTile extends StatelessWidget {
               Text(
                 _formatTimestamp(room.lastMessageTime!),
                 style: room.unreadCount > 0
-                    ? (theme.roomTimestampUnreadTextStyle ??
-                          theme.roomTimestampTextStyle ??
+                    ? (theme.roomList.timestampUnreadStyle ??
+                          theme.roomList.timestampStyle ??
                           TextStyle(
                             fontSize: 12,
-                            color: theme.unreadBadgeColor ?? Colors.red,
+                            color:
+                                theme.roomList.unreadBadgeColor ?? Colors.red,
                           ))
-                    : (theme.roomTimestampTextStyle ??
+                    : (theme.roomList.timestampStyle ??
                           TextStyle(fontSize: 12, color: Colors.grey.shade500)),
               ),
             const SizedBox(height: 4),
@@ -97,7 +104,7 @@ class RoomTile extends StatelessWidget {
                     child: Icon(
                       Icons.notifications_off_outlined,
                       size: 16,
-                      color: theme.mutedIconColor ?? Colors.grey,
+                      color: theme.roomList.mutedIconColor ?? Colors.grey,
                     ),
                   ),
                 if (room.pinned)
@@ -106,7 +113,7 @@ class RoomTile extends StatelessWidget {
                     child: Icon(
                       Icons.push_pin_outlined,
                       size: 16,
-                      color: theme.pinnedIconColor ?? Colors.grey,
+                      color: theme.roomList.pinnedIconColor ?? Colors.grey,
                     ),
                   ),
                 if (room.unreadCount > 0)
@@ -124,8 +131,8 @@ class RoomTile extends StatelessWidget {
       container: true,
       child: Material(
         color: isSelected
-            ? (theme.roomTileSelectedColor ?? Colors.blue.shade50)
-            : (theme.roomTileBackgroundColor ?? Colors.transparent),
+            ? (theme.roomList.tileSelectedColor ?? Colors.blue.shade50)
+            : (theme.roomList.tileBackgroundColor ?? Colors.transparent),
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
@@ -151,7 +158,7 @@ class RoomTile extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:
-                            (theme.roomNameTextStyle ??
+                            (theme.roomList.nameStyle ??
                                     const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
@@ -188,7 +195,7 @@ class RoomTile extends StatelessWidget {
         children: [
           _InvitationButton(
             label: theme.l10n.accept,
-            color: theme.sendButtonColor ?? Colors.blue,
+            color: theme.input.sendButtonColor ?? Colors.blue,
             onTap: onAcceptInvitation,
           ),
           const SizedBox(width: 8),
@@ -214,10 +221,10 @@ class RoomTile extends StatelessWidget {
 
     final hasUnread = room.unreadCount > 0;
     final defaultStyle =
-        theme.roomPreviewTextStyle ??
+        theme.roomList.previewStyle ??
         TextStyle(fontSize: 14, color: Colors.grey.shade600);
     final style = hasUnread
-        ? (theme.roomPreviewUnreadTextStyle ??
+        ? (theme.roomList.previewUnreadStyle ??
               defaultStyle.copyWith(fontWeight: FontWeight.w600))
         : defaultStyle;
 
@@ -282,8 +289,8 @@ class RoomTile extends StatelessWidget {
       text = theme.l10n.typing;
     }
 
-    final color = theme.sendButtonColor ?? Colors.blue;
-    final base = theme.roomPreviewTextStyle ?? const TextStyle(fontSize: 14);
+    final color = theme.input.sendButtonColor ?? Colors.blue;
+    final base = theme.roomList.previewStyle ?? const TextStyle(fontSize: 14);
     return Text(
       text,
       maxLines: 1,
@@ -304,10 +311,24 @@ class RoomTile extends StatelessWidget {
   /// is added because the localized text already implies authorship.
   String _resolvePrefix() {
     if (room.lastMessageIsDeleted) return '';
+    // DMs never get a sender prefix — the title already identifies who
+    // the conversation is with. The "Alice: Asdf" shape only makes
+    // sense in groups where the avatar / title can't disambiguate.
+    if (!room.isGroup) return '';
     if (_isOwnLastMessage) {
-      return room.isGroup ? '${theme.l10n.previewYouPrefix}: ' : '';
+      return '${theme.l10n.previewYouPrefix}: ';
     }
-    return lastMessageSenderName != null ? '$lastMessageSenderName: ' : '';
+    // Prefer the explicit constructor param (consumer-resolved name from
+    // its own user repository) and fall back to the adapter-enriched
+    // [room.lastMessageSenderName]. Both fields share the same shape, so
+    // the WhatsApp-style "Alice: hola" prefix works either with custom
+    // wiring or out of the box.
+    final resolved = (lastMessageSenderName?.trim().isNotEmpty == true)
+        ? lastMessageSenderName!.trim()
+        : (room.lastMessageSenderName?.trim().isNotEmpty == true
+              ? room.lastMessageSenderName!.trim()
+              : null);
+    return resolved != null ? '$resolved: ' : '';
   }
 }
 

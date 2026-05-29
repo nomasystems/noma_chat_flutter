@@ -48,6 +48,10 @@ class RoomDetailDto {
   final bool muted;
   final bool pinned;
   final bool hidden;
+
+  /// Moderation mute for the current user in this room (admin/owner
+  /// silenced them). Distinct from [muted] (notification preference).
+  final bool selfMuted;
   final String? createdAt;
   final String? avatarUrl;
   final Map<String, dynamic>? custom;
@@ -63,6 +67,7 @@ class RoomDetailDto {
     this.muted = false,
     this.pinned = false,
     this.hidden = false,
+    this.selfMuted = false,
     this.createdAt,
     this.avatarUrl,
     this.custom,
@@ -79,6 +84,7 @@ class RoomDetailDto {
     muted: (json['muted'] ?? false) as bool,
     pinned: (json['pinned'] ?? false) as bool,
     hidden: (json['hidden'] ?? false) as bool,
+    selfMuted: (json['selfMuted'] ?? false) as bool,
     createdAt: json['createdAt'] as String?,
     avatarUrl: json['avatarUrl'] as String?,
     custom: json['custom'] as Map<String, dynamic>?,

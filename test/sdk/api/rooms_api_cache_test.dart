@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:noma_chat/src/_internal/cache/cache_manager.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
@@ -35,17 +36,39 @@ void main() {
     cm = CacheManager(config: const CacheConfig());
     api = RoomsApi(rest: rest, cache: cache, cacheManager: cm);
 
-    when(() => cache.getRoomDetail(any())).thenAnswer((_) async => null);
-    when(() => cache.saveRoomDetail(any())).thenAnswer((_) async {});
-    when(() => cache.deleteRoom(any())).thenAnswer((_) async {});
-    when(() => cache.deleteRoomDetail(any())).thenAnswer((_) async {});
-    when(() => cache.deleteUnread(any())).thenAnswer((_) async {});
-    when(() => cache.saveRooms(any())).thenAnswer((_) async {});
-    when(() => cache.getRooms()).thenAnswer((_) async => []);
-    when(() => cache.saveUnreads(any())).thenAnswer((_) async {});
-    when(() => cache.getUnreads()).thenAnswer((_) async => []);
-    when(() => cache.saveInvitedRooms(any())).thenAnswer((_) async {});
-    when(() => cache.getInvitedRooms()).thenAnswer((_) async => []);
+    when(
+      () => cache.getRoomDetail(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.saveRoomDetail(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deleteRoom(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deleteRoomDetail(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deleteUnread(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.saveRooms(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getRooms(),
+    ).thenAnswer((_) async => const ChatSuccess(<ChatRoom>[]));
+    when(
+      () => cache.saveUnreads(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getUnreads(),
+    ).thenAnswer((_) async => const ChatSuccess(<UnreadRoom>[]));
+    when(
+      () => cache.saveInvitedRooms(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getInvitedRooms(),
+    ).thenAnswer((_) async => const ChatSuccess(<InvitedRoom>[]));
   });
 
   Map<String, dynamic> roomDetailJson(String id) => {
@@ -80,7 +103,9 @@ void main() {
         userRole: RoomRole.admin,
         config: RoomConfig(),
       );
-      when(() => cache.getRoomDetail('r1')).thenAnswer((_) async => cached);
+      when(
+        () => cache.getRoomDetail('r1'),
+      ).thenAnswer((_) async => const ChatSuccess(cached));
 
       final r = await api.get('r1', cachePolicy: CachePolicy.cacheFirst);
 

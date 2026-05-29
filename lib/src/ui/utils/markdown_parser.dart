@@ -141,13 +141,8 @@ List<MarkdownSpan> _parse(String text) {
       if (end != -1) {
         flushPlain();
         final inner = text.substring(i + 2, end);
-        final innerSpans = _parse(inner);
-        for (final s in innerSpans) {
-          if (s.style == MarkdownStyle.italic) {
-            spans.add(MarkdownSpan(s.text, MarkdownStyle.bold));
-          } else {
-            spans.add(MarkdownSpan(s.text, MarkdownStyle.bold));
-          }
+        for (final s in _parse(inner)) {
+          spans.add(MarkdownSpan(s.text, MarkdownStyle.bold));
         }
         i = end + 2;
         continue;

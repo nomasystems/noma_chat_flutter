@@ -84,7 +84,7 @@ void main() {
     });
 
     test('PresenceChangedEvent equality (ignores lastSeen + statusText)', () {
-      final a = PresenceChangedEvent(
+      const a = PresenceChangedEvent(
         userId: 'u1',
         status: PresenceStatus.away,
         online: true,

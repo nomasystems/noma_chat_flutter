@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;
 
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -55,7 +56,7 @@ void main() {
     test('newMessage event adds to chat controller', () async {
       await adapter.connect();
       final controller = adapter.getChatController('room1');
-      adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+      adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
 
       final msg = ChatMessage(
         id: 'msg1',
@@ -152,7 +153,7 @@ void main() {
     test('unreadUpdated event updates room list', () async {
       await adapter.connect();
       adapter.roomListController.addRoom(
-        RoomListItem(id: 'room1', name: 'Test', unreadCount: 0),
+        const RoomListItem(id: 'room1', name: 'Test', unreadCount: 0),
       );
 
       mockClient.emitEvent(
@@ -168,7 +169,7 @@ void main() {
       'roomDeleted event removes from list and disposes controller',
       () async {
         await adapter.connect();
-        adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+        adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
         adapter.getChatController('room1');
 
         mockClient.emitEvent(const ChatEvent.roomDeleted(roomId: 'room1'));
@@ -181,12 +182,12 @@ void main() {
     test('roomCreated event adds room AFTER successful detail fetch', () async {
       await adapter.connect();
       mockClient.seedRoom(
-        ChatRoom(
+        const ChatRoom(
           id: 'new-room',
           owner: 'u1',
           name: 'Seeded Room',
           audience: RoomAudience.unrestricted,
-          members: const ['u1', 'u2'],
+          members: ['u1', 'u2'],
         ),
       );
 
@@ -203,7 +204,7 @@ void main() {
       'roomCreated event does NOT add a ghost room when detail fails',
       () async {
         await adapter.connect();
-        // No seedRoom call: the mock will return Failure(NotFoundFailure()).
+        // No seedRoom call: the mock will return ChatFailureResult(NotFoundFailure()).
 
         mockClient.emitEvent(const ChatEvent.roomCreated(roomId: 'ghost-room'));
 
@@ -220,7 +221,7 @@ void main() {
 
     test('newMessage updates room list last message', () async {
       await adapter.connect();
-      adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+      adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
 
       final msg = ChatMessage(
         id: 'msg1',
@@ -245,27 +246,27 @@ void main() {
         name: 'Test',
       );
 
-      final result = await adapter.sendMessage('mock-room-0', text: 'Hello');
+      final result = await adapter.messages.send('mock-room-0', text: 'Hello');
       expect(result.isSuccess, true);
     });
 
     test('sendTyping calls SDK', () async {
-      final result = await adapter.sendTyping('room1');
+      final result = await adapter.messages.sendTyping('room1');
       expect(result.isSuccess, true);
     });
 
     test('markAsRead calls SDK', () async {
-      final result = await adapter.markAsRead('room1');
+      final result = await adapter.messages.markAsRead('room1');
       expect(result.isSuccess, true);
     });
 
     test('muteRoom calls SDK', () async {
-      final result = await adapter.muteRoom('room1');
+      final result = await adapter.rooms.mute('room1');
       expect(result.isSuccess, true);
     });
 
     test('pinRoom calls SDK', () async {
-      final result = await adapter.pinRoom('room1');
+      final result = await adapter.rooms.pin('room1');
       expect(result.isSuccess, true);
     });
   });

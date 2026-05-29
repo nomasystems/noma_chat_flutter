@@ -1,58 +1,40 @@
+import 'package:freezed_annotation/freezed_annotation.dart';
+
 import 'message.dart';
 import 'room_user.dart';
-import 'package:flutter/foundation.dart';
+
+part 'unread_room.freezed.dart';
 
 /// A room with its unread count and last message preview.
-@immutable
-class UnreadRoom {
-  final String roomId;
-  final int unreadMessages;
-  final String? lastMessage;
-  final DateTime? lastMessageTime;
-  final String? lastMessageUserId;
-  final String? lastMessageId;
-  final MessageType? lastMessageType;
-  final String? lastMessageMimeType;
-  final String? lastMessageFileName;
-  final int? lastMessageDurationMs;
-  final bool lastMessageIsDeleted;
-  final String? lastMessageReactionEmoji;
-  final String? name;
-  final String? avatarUrl;
-  final String? type;
-  final int? memberCount;
-  final RoomRole? userRole;
-  final bool muted;
-  final bool pinned;
-  final bool hidden;
-
-  const UnreadRoom({
-    required this.roomId,
-    required this.unreadMessages,
-    this.lastMessage,
-    this.lastMessageTime,
-    this.lastMessageUserId,
-    this.lastMessageId,
-    this.lastMessageType,
-    this.lastMessageMimeType,
-    this.lastMessageFileName,
-    this.lastMessageDurationMs,
-    this.lastMessageIsDeleted = false,
-    this.lastMessageReactionEmoji,
-    this.name,
-    this.avatarUrl,
-    this.type,
-    this.memberCount,
-    this.userRole,
-    this.muted = false,
-    this.pinned = false,
-    this.hidden = false,
-  });
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) || other is UnreadRoom && other.roomId == roomId;
-
-  @override
-  int get hashCode => roomId.hashCode;
+///
+/// Value-typed: equality and `hashCode` consider every field, so two
+/// instances with the same `roomId` but different `unreadMessages` /
+/// `lastMessage` / etc. compare unequal. Without this, a `ListenableBuilder`
+/// listening to a `roomListController.value` would skip rebuilds when
+/// only the badge or preview changed.
+@freezed
+abstract class UnreadRoom with _$UnreadRoom {
+  const factory UnreadRoom({
+    required String roomId,
+    required int unreadMessages,
+    String? lastMessage,
+    DateTime? lastMessageTime,
+    String? lastMessageUserId,
+    String? lastMessageId,
+    MessageType? lastMessageType,
+    String? lastMessageMimeType,
+    String? lastMessageFileName,
+    int? lastMessageDurationMs,
+    @Default(false) bool lastMessageIsDeleted,
+    String? lastMessageReactionEmoji,
+    ReceiptStatus? lastMessageReceipt,
+    String? name,
+    String? avatarUrl,
+    String? type,
+    int? memberCount,
+    RoomRole? userRole,
+    @Default(false) bool muted,
+    @Default(false) bool pinned,
+    @Default(false) bool hidden,
+  }) = _UnreadRoom;
 }

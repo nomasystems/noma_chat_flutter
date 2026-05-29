@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 import '../chat_provider.dart';
+import '../locale_provider.dart';
 
 /// Search page wired to `MessageSearchController`. Tapping a result pops the
 /// page returning the message id, so the caller can scroll the chat view to
@@ -40,10 +41,17 @@ class _MessageSearchPageState extends State<MessageSearchPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Search messages')),
+      appBar: AppBar(
+        title: Text(LocaleProvider.of(context).l10n.searchMessages),
+      ),
       body: MessageSearchView(
         controller: _controller,
         roomId: widget.roomId,
+        // Without this resolver the SDK falls back to the raw user id
+        // (typically a UUID) — by wiring `displayNameFor` the search
+        // results show "alice" / "bob" with the same precedence chain
+        // the rest of the chat UI uses (self → cached displayName → raw id).
+        senderNameResolver: _chat.adapter.displayNameFor,
         onMessageTap: (_, messageId) => Navigator.of(context).pop(messageId),
       ),
     );

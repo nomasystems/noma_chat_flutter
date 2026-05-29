@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:web_socket_channel/web_socket_channel.dart';
 
@@ -8,11 +7,13 @@ import '../../config/chat_config.dart';
 import '../../events/chat_event.dart';
 import '../../models/message.dart';
 import '../http/chat_exception.dart';
+import '../util/backoff.dart';
 import 'event_parser.dart';
+import 'realtime_transport.dart';
 
 typedef WebSocketChannelFactory = WebSocketChannel Function(Uri uri);
 
-class WsTransport {
+class WsTransport implements RealtimeTransport {
   final ChatConfig _config;
   final WebSocketChannelFactory _channelFactory;
   final _eventController = StreamController<ChatEvent>.broadcast();
@@ -35,17 +36,31 @@ class WsTransport {
   static WebSocketChannel _defaultFactory(Uri uri) =>
       WebSocketChannel.connect(uri);
 
+  @override
   Stream<ChatEvent> get events => _eventController.stream;
+  @override
   Stream<ChatConnectionState> get stateChanges => _stateController.stream;
+  @override
   ChatConnectionState get state => _state;
 
+  @override
+  bool get supportsOutboundFrames => true;
+
+  @override
+  Future<void> notifyTokenRotated() => sendAuthRefresh();
+
+  /// Streaming transport — the event stream already delivers updates
+  /// live, so an explicit refresh is a no-op.
+  @override
+  Future<void> refresh({String? singleRoomId}) async {}
+
+  @override
   Future<void> connect() async {
     if (_state == ChatConnectionState.connected ||
         _state == ChatConnectionState.connecting) {
       return;
     }
     _shouldReconnect = true;
-    _reconnectAttempts = 0;
     await _doConnect();
   }
 
@@ -140,7 +155,14 @@ class WsTransport {
 
   void _onMessage(dynamic data) {
     if (data is! String) return;
-    final json = jsonDecode(data) as Map<String, dynamic>;
+    final Map<String, dynamic> json;
+    try {
+      final decoded = jsonDecode(data);
+      if (decoded is! Map<String, dynamic>) return;
+      json = decoded;
+    } catch (_) {
+      return;
+    }
     final type = json['type'] as String?;
     if (type == 'auth_ok') {
       _config.log('debug', 'WS auth successful');
@@ -208,6 +230,7 @@ class WsTransport {
   void _onDone() {
     _stopPing();
     final closeCode = _channel?.closeCode;
+    final closeReason = _channel?.closeReason;
     final tokenInvalidated = closeCode == 4003 || closeCode == 4004;
     if (tokenInvalidated) {
       _config.log(
@@ -216,6 +239,11 @@ class WsTransport {
       );
       _config.authInterceptor.invalidateCache();
     }
+    _config.metricCallback?.call('ws_disconnect', {
+      'closeCode': closeCode ?? 0,
+      'reason': closeReason ?? '',
+      'attempts': _reconnectAttempts,
+    });
     if (_shouldReconnect) {
       _config.log(
         'warn',
@@ -279,10 +307,11 @@ class WsTransport {
   }
 
   Duration _calculateBackoff() {
-    final baseMs = _config.wsReconnectDelay.inMilliseconds;
-    final exponential = baseMs * pow(2, _reconnectAttempts.clamp(0, 6));
-    final jitter = Random().nextInt(1000);
-    return Duration(milliseconds: min(exponential.toInt(), 60000) + jitter);
+    final ms = computeBackoffMs(
+      attempt: _reconnectAttempts,
+      baseMs: _config.wsReconnectDelay.inMilliseconds,
+    );
+    return Duration(milliseconds: ms);
   }
 
   void _startPing() {
@@ -298,12 +327,15 @@ class WsTransport {
     _pingTimer = null;
   }
 
+  @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) =>
       sendRaw({'type': 'typing', 'roomId': roomId, 'activity': activity});
 
+  @override
   void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
       sendRaw({'type': 'typing', 'contactId': contactId, 'activity': activity});
 
+  @override
   void sendReceipt(
     String roomId,
     String messageId, {
@@ -315,6 +347,7 @@ class WsTransport {
     'status': status.name,
   });
 
+  @override
   void sendMessage(
     String roomId, {
     String? text,
@@ -341,6 +374,7 @@ class WsTransport {
     _channel!.sink.add(jsonEncode(data));
   }
 
+  @override
   Future<void> disconnect() async {
     _shouldReconnect = false;
     _reconnectTimer?.cancel();
@@ -351,6 +385,7 @@ class WsTransport {
     _setState(ChatConnectionState.disconnected);
   }
 
+  @override
   Future<void> dispose() async {
     await disconnect();
     await _eventController.close();

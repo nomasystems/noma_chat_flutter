@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../controller/chat_controller.dart';
+import '../theme/chat_theme.dart';
+import 'message_bubble.dart';
+import 'message_input.dart';
 
 /// Displays a message thread: the parent message, its replies, and an input for new replies.
 class ThreadView extends StatelessWidget {
@@ -58,7 +62,7 @@ class ThreadView extends StatelessWidget {
         ),
         MessageInput(
           controller: controller,
-          onSendMessage: (text) => onSendReply?.call(text),
+          onSendMessageRequest: (request) => onSendReply?.call(request.text),
           theme: theme.copyWith(
             l10n: theme.l10n.copyWith(writeMessage: theme.l10n.replyInThread),
           ),
@@ -98,7 +102,11 @@ class ThreadView extends StatelessWidget {
             ),
           ),
           if (onClose != null)
-            IconButton(icon: const Icon(Icons.close), onPressed: onClose),
+            IconButton(
+              icon: const Icon(Icons.close),
+              tooltip: theme.l10n.close,
+              onPressed: onClose,
+            ),
         ],
       ),
     );

@@ -9,12 +9,12 @@ void main() {
     testWidgets('renders avatars for each receipt', (tester) async {
       await tester.pumpWidget(
         wrap(
-          ReadReceiptAvatars(
-            receipts: const [
+          const ReadReceiptAvatars(
+            receipts: [
               ReadReceipt(userId: 'u1'),
               ReadReceipt(userId: 'u2'),
             ],
-            users: const [
+            users: [
               ChatUser(id: 'u1', displayName: 'Alice'),
               ChatUser(id: 'u2', displayName: 'Bob'),
             ],
@@ -30,15 +30,15 @@ void main() {
     testWidgets('shows overflow when more than maxAvatars', (tester) async {
       await tester.pumpWidget(
         wrap(
-          ReadReceiptAvatars(
-            receipts: const [
+          const ReadReceiptAvatars(
+            receipts: [
               ReadReceipt(userId: 'u1'),
               ReadReceipt(userId: 'u2'),
               ReadReceipt(userId: 'u3'),
               ReadReceipt(userId: 'u4'),
               ReadReceipt(userId: 'u5'),
             ],
-            users: const [
+            users: [
               ChatUser(id: 'u1', displayName: 'Alice'),
               ChatUser(id: 'u2', displayName: 'Bob'),
               ChatUser(id: 'u3', displayName: 'Charlie'),

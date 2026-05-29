@@ -2,35 +2,35 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 void main() {
-  group('PaginationParams.toQueryParams', () {
+  group('ChatPaginationParams.toQueryParams', () {
     test('omits null fields', () {
-      expect(const PaginationParams().toQueryParams(), <String, dynamic>{});
+      expect(const ChatPaginationParams().toQueryParams(), <String, dynamic>{});
     });
 
     test('emits set fields, including order.name', () {
       expect(
-        const PaginationParams(
+        const ChatPaginationParams(
           limit: 20,
           offset: 40,
           sort: 'createdAt',
-          order: SortOrder.desc,
+          order: ChatSortOrder.desc,
         ).toQueryParams(),
         {'limit': 20, 'offset': 40, 'sort': 'createdAt', 'order': 'desc'},
       );
     });
   });
 
-  group('CursorPaginationParams.toQueryParams', () {
+  group('ChatCursorPaginationParams.toQueryParams', () {
     test('omits null fields', () {
       expect(
-        const CursorPaginationParams().toQueryParams(),
+        const ChatCursorPaginationParams().toQueryParams(),
         <String, dynamic>{},
       );
     });
 
     test('emits only the set ones', () {
       expect(
-        const CursorPaginationParams(
+        const ChatCursorPaginationParams(
           before: '2026-01-01T00:00:00Z',
           limit: 50,
         ).toQueryParams(),
@@ -39,13 +39,13 @@ void main() {
     });
   });
 
-  group('PaginatedResponse', () {
+  group('ChatPaginatedResponse', () {
     test('equality compares items, hasMore and totalCount', () {
-      const a = PaginatedResponse<int>(items: [1, 2], hasMore: true);
-      const b = PaginatedResponse<int>(items: [1, 2], hasMore: true);
-      const c = PaginatedResponse<int>(items: [1, 3], hasMore: true);
-      const d = PaginatedResponse<int>(items: [1, 2], hasMore: false);
-      const e = PaginatedResponse<int>(
+      const a = ChatPaginatedResponse<int>(items: [1, 2], hasMore: true);
+      const b = ChatPaginatedResponse<int>(items: [1, 2], hasMore: true);
+      const c = ChatPaginatedResponse<int>(items: [1, 3], hasMore: true);
+      const d = ChatPaginatedResponse<int>(items: [1, 2], hasMore: false);
+      const e = ChatPaginatedResponse<int>(
         items: [1, 2],
         hasMore: true,
         totalCount: 99,
@@ -59,13 +59,13 @@ void main() {
     });
 
     test('identical short-circuits ==', () {
-      const a = PaginatedResponse<int>(items: [], hasMore: false);
+      const a = ChatPaginatedResponse<int>(items: [], hasMore: false);
       expect(identical(a, a), true);
       expect(a == a, true);
     });
 
     test('map() transforms items keeping hasMore + totalCount', () {
-      const src = PaginatedResponse<int>(
+      const src = ChatPaginatedResponse<int>(
         items: [1, 2, 3],
         hasMore: true,
         totalCount: 42,
@@ -79,14 +79,14 @@ void main() {
     });
 
     test('toString includes count, hasMore and totalCount', () {
-      const r = PaginatedResponse<int>(
+      const r = ChatPaginatedResponse<int>(
         items: [1, 2],
         hasMore: true,
         totalCount: 5,
       );
       expect(
         r.toString(),
-        'PaginatedResponse(2 items, hasMore: true, totalCount: 5)',
+        'ChatPaginatedResponse(2 items, hasMore: true, totalCount: 5)',
       );
     });
   });

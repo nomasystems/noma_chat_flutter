@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+
+import '../../events/chat_event.dart';
+import '../theme/chat_theme.dart';
 
 /// Horizontal banner showing the current connection state (connecting, reconnecting, disconnected, error).
 class ConnectionBanner extends StatelessWidget {

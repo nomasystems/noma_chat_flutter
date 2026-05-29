@@ -173,6 +173,40 @@ void main() {
       },
     );
 
+    test(
+      'logout cancels pending REST requests before tearing down transport',
+      () async {
+        final client = createClient();
+        when(() => mockRest.cancelPending(any())).thenAnswer((_) {});
+
+        await client.connect();
+        await client.logout();
+
+        verify(() => mockRest.cancelPending(any())).called(1);
+        verify(() => mockTransport.disconnect()).called(1);
+      },
+    );
+
+    test('dispose cancels pending REST requests', () async {
+      final client = createClient();
+      when(() => mockRest.cancelPending(any())).thenAnswer((_) {});
+
+      await client.connect();
+      await client.dispose();
+
+      verify(() => mockRest.cancelPending(any())).called(1);
+      verify(() => mockTransport.dispose()).called(1);
+    });
+
+    test('cancelPendingRequests delegates to the rest client', () {
+      final client = createClient();
+      when(() => mockRest.cancelPending(any())).thenAnswer((_) {});
+
+      client.cancelPendingRequests('reason-x');
+
+      verify(() => mockRest.cancelPending('reason-x')).called(1);
+    });
+
     test('DisconnectedEvent updates lastDisconnectedAt', () async {
       final client = createClient();
       await client.connect();

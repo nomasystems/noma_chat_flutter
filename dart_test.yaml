@@ -1,0 +1,15 @@
+# Tagged test groups. Filter with:
+#   flutter test -x slow      # skip slow tests (fast feedback loop)
+#   flutter test -t slow      # only slow tests (CI parallel job)
+#   flutter test -t golden    # only golden tests (regen with --update-goldens)
+tags:
+  slow:
+    description: >
+      Integration / full-flow / golden tests that pump the entire SDK
+      stack or render image diffs. Together they account for most of
+      the suite's wall-clock time; split into a dedicated CI job so
+      the main check returns faster.
+  golden:
+    description: >
+      Pixel-diff golden tests. Re-generate baselines with
+      `flutter test --update-goldens test/golden/`.

@@ -35,7 +35,7 @@ void main() {
           body: SizedBox(
             width: 200,
             child: WaveformDisplay(
-              samples: [0.5, 0.5, 0.5, 0.5],
+              samples: const [0.5, 0.5, 0.5, 0.5],
               onSeek: (value) => seekValue = value,
             ),
           ),
@@ -57,7 +57,7 @@ void main() {
           body: SizedBox(
             width: 200,
             child: WaveformDisplay(
-              samples: [0.5, 0.5, 0.5, 0.5],
+              samples: const [0.5, 0.5, 0.5, 0.5],
               onSeek: (value) => seekValue = value,
             ),
           ),

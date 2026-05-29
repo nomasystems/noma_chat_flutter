@@ -29,4 +29,4 @@ class ReactionUser {
 ///
 /// Consumers inject this so the UI Kit can show user names and avatars
 /// in reaction detail sheets without depending on any user system.
-typedef UserResolver = Future<ReactionUser> Function(String userId);
+typedef UserFetcher = Future<ReactionUser> Function(String userId);

@@ -27,14 +27,14 @@ class UnreadBadge extends StatelessWidget {
         width: 24,
         height: 24,
         decoration: BoxDecoration(
-          color: theme.unreadBadgeColor ?? Colors.red,
+          color: theme.roomList.unreadBadgeColor ?? Colors.red,
           shape: BoxShape.circle,
         ),
         child: Center(
           child: Text(
             label,
             style:
-                theme.unreadBadgeTextStyle ??
+                theme.roomList.unreadBadgeTextStyle ??
                 const TextStyle(
                   color: Colors.white,
                   fontSize: 11,

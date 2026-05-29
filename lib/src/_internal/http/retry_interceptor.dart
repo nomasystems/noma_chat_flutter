@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:dio/dio.dart';
 
+import '../util/backoff.dart';
 import 'circuit_breaker.dart';
 import 'circuit_breaker_registry.dart';
 import 'retry_config.dart';
@@ -73,16 +74,35 @@ class RetryInterceptor extends Interceptor {
   }
 
   bool _shouldRetry(DioException err) {
+    if (err.type == DioExceptionType.cancel) return false;
     if (err.type == DioExceptionType.connectionTimeout ||
         err.type == DioExceptionType.receiveTimeout ||
         err.type == DioExceptionType.sendTimeout ||
         err.type == DioExceptionType.connectionError) {
+      if (_isPreResponseError(err.type) && !_isIdempotent(err.requestOptions)) {
+        return false;
+      }
       return true;
     }
     final statusCode = err.response?.statusCode;
     if (statusCode == null) return true;
     if (statusCode == 401 || statusCode == 403) return false;
     return _config.retryableStatusCodes.contains(statusCode);
+  }
+
+  bool _isPreResponseError(DioExceptionType type) =>
+      type == DioExceptionType.connectionTimeout ||
+      type == DioExceptionType.sendTimeout ||
+      type == DioExceptionType.connectionError;
+
+  bool _isIdempotent(RequestOptions options) {
+    if (options.extra['idempotent'] == true) return true;
+    final method = options.method.toUpperCase();
+    return method == 'GET' ||
+        method == 'HEAD' ||
+        method == 'OPTIONS' ||
+        method == 'PUT' ||
+        method == 'DELETE';
   }
 
   int _getAttempt(RequestOptions options) =>
@@ -92,14 +112,14 @@ class RetryInterceptor extends Interceptor {
     final retryAfter = _parseRetryAfter(response);
     if (retryAfter != null) return retryAfter;
 
-    final exponentialMs =
-        _config.baseDelay.inMilliseconds * pow(2, attempt).toInt();
-    final jitterMs = _random.nextInt(500);
-    final cappedMs = min(
-      exponentialMs + jitterMs,
-      _config.maxDelay.inMilliseconds,
+    final ms = computeBackoffMs(
+      attempt: attempt,
+      baseMs: _config.baseDelay.inMilliseconds,
+      maxMs: _config.maxDelay.inMilliseconds,
+      jitterMs: 500,
+      random: _random,
     );
-    return Duration(milliseconds: cappedMs);
+    return Duration(milliseconds: ms);
   }
 
   Duration? _parseRetryAfter(Response<dynamic>? response) {

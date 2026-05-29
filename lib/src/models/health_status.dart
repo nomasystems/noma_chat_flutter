@@ -1,12 +1,16 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'health_status.freezed.dart';
 
 /// Server health status with individual service check results.
-@immutable
-class HealthStatus {
-  final ServiceStatus status;
-  final Map<String, String> checks;
+@freezed
+abstract class HealthStatus with _$HealthStatus {
+  const HealthStatus._();
 
-  const HealthStatus({required this.status, this.checks = const {}});
+  const factory HealthStatus({
+    required ServiceStatus status,
+    @Default(<String, String>{}) Map<String, String> checks,
+  }) = _HealthStatus;
 
   bool get isHealthy => status == ServiceStatus.ok;
 }

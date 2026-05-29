@@ -1,14 +1,16 @@
 import 'package:flutter/foundation.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../core/pagination.dart';
+import '../../core/result.dart';
+import '../../models/message.dart';
 
 /// Controller for searching messages within a room, with loading state and pagination.
 class MessageSearchController extends ChangeNotifier {
   MessageSearchController({required this.searchFn});
 
-  final Future<Result<PaginatedResponse<ChatMessage>>> Function(
+  final Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> Function(
     String query,
     String roomId, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   })
   searchFn;
 
@@ -41,7 +43,7 @@ class MessageSearchController extends ChangeNotifier {
 
     _isLoading = false;
     if (result.isSuccess) {
-      final data = result.dataOrNull!;
+      final data = result.dataOrThrow;
       _results = List.from(data.items);
       _hasMore = data.hasMore;
     }
@@ -57,12 +59,12 @@ class MessageSearchController extends ChangeNotifier {
     final result = await searchFn(
       _query,
       _roomId,
-      pagination: PaginationParams(offset: _results.length),
+      pagination: ChatPaginationParams(offset: _results.length),
     );
 
     _isLoading = false;
     if (result.isSuccess) {
-      final data = result.dataOrNull!;
+      final data = result.dataOrThrow;
       _results = [..._results, ...data.items];
       _hasMore = data.hasMore;
     }

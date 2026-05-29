@@ -25,12 +25,14 @@ void main() {
     bool readOnly = false,
   }) => ChatView(
     controller: controller,
-    onSendMessage: (_) {},
-    contextMenuActions: actions.toSet(),
-    connectionState: state,
-    headerBuilder: headerBuilder,
-    readOnly: readOnly,
-    enableLinkPreview: false,
+    callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+    builders: ChatViewBuilders(headerBuilder: headerBuilder),
+    behaviors: ChatViewBehaviors(
+      contextMenuActions: actions.toSet(),
+      connectionState: state,
+      readOnly: readOnly,
+      enableLinkPreview: false,
+    ),
   );
 
   testWidgets('shows reconnecting banner with custom label', (tester) async {

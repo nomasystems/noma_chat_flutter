@@ -1,5 +1,6 @@
-import 'package:noma_chat/noma_chat.dart';
 import 'package:flutter/foundation.dart';
+
+import '../../models/presence.dart';
 
 /// Lightweight projection of a user shown in [ContactSuggestionsBar] —
 /// just enough to render an avatar with name and presence dot.

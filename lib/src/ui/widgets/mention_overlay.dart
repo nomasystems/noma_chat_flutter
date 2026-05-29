@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/user.dart';
+import '../theme/chat_theme.dart';
+import 'user_avatar.dart';
 
 /// Floating list of matching users displayed above the composer when the
 /// user types `@`; tapping inserts the mention.
@@ -55,7 +57,7 @@ class MentionOverlay extends StatelessWidget {
               title: Text(
                 user.displayName ?? user.id,
                 style:
-                    theme.roomNameTextStyle ??
+                    theme.roomList.nameStyle ??
                     const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
               ),
               onTap: () => onSelect(user),

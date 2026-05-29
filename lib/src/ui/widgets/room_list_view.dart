@@ -36,6 +36,9 @@ class RoomListView extends StatelessWidget {
     this.lastMessageSenderNames = const {},
     this.headerTrailing,
     this.isLoading = false,
+    this.onAcceptInvitation,
+    this.onRejectInvitation,
+    this.currentUserId,
   });
 
   final RoomListController controller;
@@ -65,8 +68,28 @@ class RoomListView extends StatelessWidget {
 
   final Widget Function(BuildContext, RoomListItem, bool)? tileBuilder;
   final Map<String, String> lastMessageSenderNames;
+
+  /// Identifier of the locally-authenticated user. Forwarded to every
+  /// [RoomTile] so the "own message" gates (sent/delivered/read tick on
+  /// the preview row, the "Tú: …" prefix in groups) light up. Wire it
+  /// to `ChatUIAdapter.currentUser.id`. When `null`, the tile silently
+  /// skips both surfaces — which is what made the chat-list ticks
+  /// disappear in the example.
+  final String? currentUserId;
   final Widget? headerTrailing;
   final bool isLoading;
+
+  /// Invoked with the [RoomListItem] when the user taps the green
+  /// "Accept" button on an invitation row. Typically the consumer
+  /// calls `adapter.rooms.acceptInvitation(room.id)` here. Only relevant
+  /// for rows where `room.isInvitation == true` (the buttons don't
+  /// render otherwise).
+  final ValueChanged<RoomListItem>? onAcceptInvitation;
+
+  /// Invoked with the [RoomListItem] when the user taps the red
+  /// "Reject" button on an invitation row. Typical impl:
+  /// `adapter.rooms.rejectInvitation(room.id)`.
+  final ValueChanged<RoomListItem>? onRejectInvitation;
 
   Future<void> _handleLongPress(BuildContext context, RoomListItem room) async {
     if (onLongPressRoom != null) {
@@ -132,6 +155,7 @@ class RoomListView extends StatelessWidget {
                   room: room,
                   isSelected: isSelected,
                   theme: theme,
+                  currentUserId: currentUserId,
                   lastMessageSenderName: lastMessageSenderNames[room.id],
                   onTap: () {
                     if (controller.isSelecting) {
@@ -141,6 +165,12 @@ class RoomListView extends StatelessWidget {
                     }
                   },
                   onLongPress: () => _handleLongPress(context, room),
+                  onAcceptInvitation: onAcceptInvitation == null
+                      ? null
+                      : () => onAcceptInvitation!(room),
+                  onRejectInvitation: onRejectInvitation == null
+                      ? null
+                      : () => onRejectInvitation!(room),
                 );
               },
             ),

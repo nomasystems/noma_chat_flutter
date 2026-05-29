@@ -39,11 +39,22 @@ void main() {
       expect(find.byIcon(Icons.push_pin_outlined), findsOneWidget);
     });
 
-    testWidgets('shows sender name prefix', (tester) async {
+    testWidgets('shows sender name prefix in group rooms', (tester) async {
+      // Sender prefix only renders in group chats; DMs are disambiguated
+      // by the title already (WhatsApp-style, see room_tile.dart).
+      final groupRoom = room.copyWith(isGroup: true);
+      await tester.pumpWidget(
+        wrap(RoomTile(room: groupRoom, lastMessageSenderName: 'Alice')),
+      );
+      expect(find.text('Alice: Hello there'), findsOneWidget);
+    });
+
+    testWidgets('omits sender name prefix in DM rooms', (tester) async {
       await tester.pumpWidget(
         wrap(RoomTile(room: room, lastMessageSenderName: 'Alice')),
       );
-      expect(find.text('Alice: Hello there'), findsOneWidget);
+      expect(find.text('Alice: Hello there'), findsNothing);
+      expect(find.text('Hello there'), findsOneWidget);
     });
 
     testWidgets('calls onTap', (tester) async {
@@ -55,20 +66,24 @@ void main() {
       expect(tapped, true);
     });
 
-    testWidgets('shows id when name is null', (tester) async {
-      final noName = RoomListItem(id: 'room-abc');
-      await tester.pumpWidget(wrap(RoomTile(room: noName)));
-      expect(find.text('room-abc'), findsOneWidget);
+    testWidgets('renders blank title when name is null ('
+        'UUID fallback removed)', (tester) async {
+      const noName = RoomListItem(id: 'room-abc');
+      await tester.pumpWidget(wrap(const RoomTile(room: noName)));
+      // The id must never reach the visible UI — the displayName
+      // getter collapses to '' so apps stay honest about missing
+      // metadata instead of leaking opaque server ids.
+      expect(find.text('room-abc'), findsNothing);
     });
 
     testWidgets('no subtitle when no lastMessage', (tester) async {
-      final noMsg = RoomListItem(id: 'r2', name: 'Empty');
-      await tester.pumpWidget(wrap(RoomTile(room: noMsg)));
+      const noMsg = RoomListItem(id: 'r2', name: 'Empty');
+      await tester.pumpWidget(wrap(const RoomTile(room: noMsg)));
       expect(find.text('Empty'), findsOneWidget);
     });
 
     testWidgets('shows receipt icon for own last message', (tester) async {
-      final ownMsg = RoomListItem(
+      const ownMsg = RoomListItem(
         id: 'r3',
         name: 'Chat',
         lastMessage: 'My message',
@@ -76,7 +91,7 @@ void main() {
         lastMessageReceipt: ReceiptStatus.delivered,
       );
       await tester.pumpWidget(
-        wrap(RoomTile(room: ownMsg, currentUserId: 'me')),
+        wrap(const RoomTile(room: ownMsg, currentUserId: 'me')),
       );
       expect(find.byType(MessageStatusIcon), findsOneWidget);
       expect(find.text('My message'), findsOneWidget);
@@ -85,7 +100,7 @@ void main() {
     testWidgets('no receipt icon when last message is from other user', (
       tester,
     ) async {
-      final otherMsg = RoomListItem(
+      const otherMsg = RoomListItem(
         id: 'r4',
         name: 'Chat',
         lastMessage: 'Their message',
@@ -93,32 +108,32 @@ void main() {
         lastMessageReceipt: ReceiptStatus.read,
       );
       await tester.pumpWidget(
-        wrap(RoomTile(room: otherMsg, currentUserId: 'me')),
+        wrap(const RoomTile(room: otherMsg, currentUserId: 'me')),
       );
       expect(find.byType(MessageStatusIcon), findsNothing);
       expect(find.text('Their message'), findsOneWidget);
     });
 
     testWidgets('bold text style when unread count > 0', (tester) async {
-      final unread = RoomListItem(
+      const unread = RoomListItem(
         id: 'r5',
         name: 'Unread Room',
         lastMessage: 'New message',
         unreadCount: 2,
       );
-      await tester.pumpWidget(wrap(RoomTile(room: unread)));
+      await tester.pumpWidget(wrap(const RoomTile(room: unread)));
       final nameText = tester.widget<Text>(find.text('Unread Room'));
       expect(nameText.style?.fontWeight, FontWeight.w700);
     });
 
     testWidgets('normal text style when unread count is 0', (tester) async {
-      final read = RoomListItem(
+      const read = RoomListItem(
         id: 'r6',
         name: 'Read Room',
         lastMessage: 'Old message',
         unreadCount: 0,
       );
-      await tester.pumpWidget(wrap(RoomTile(room: read)));
+      await tester.pumpWidget(wrap(const RoomTile(room: read)));
       final nameText = tester.widget<Text>(find.text('Read Room'));
       expect(nameText.style?.fontWeight, FontWeight.w600);
     });

@@ -51,6 +51,7 @@ class ImageViewer extends StatelessWidget {
             Icons.close,
             color: theme.imageViewerIconColor ?? Colors.white,
           ),
+          tooltip: theme.l10n.close,
           onPressed: () => Navigator.of(context).pop(),
         ),
       ),

@@ -67,8 +67,9 @@ class _TypingIndicatorState extends State<TypingIndicator>
   Widget build(BuildContext context) {
     final theme = widget.theme;
     final dotColor = theme.typingIndicatorDotColor ?? Colors.grey.shade500;
-    final bubbleColor = theme.incomingBubbleColor ?? Colors.grey.shade200;
-    final defaultRadius = theme.bubbleBorderRadius ?? BorderRadius.circular(12);
+    final bubbleColor = theme.bubble.incomingColor ?? Colors.grey.shade200;
+    final defaultRadius =
+        theme.bubble.borderRadius ?? BorderRadius.circular(12);
     final hasAvatar = widget.avatarWidget != null;
     final bubbleRadius = hasAvatar
         ? defaultRadius
@@ -88,7 +89,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
               child: Text(
                 headerLabel,
                 style:
-                    theme.senderNameStyle ??
+                    theme.bubble.senderNameStyle ??
                     const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
               ),
             ),

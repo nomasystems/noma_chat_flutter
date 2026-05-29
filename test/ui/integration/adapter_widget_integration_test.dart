@@ -1,7 +1,14 @@
+@Tags(['slow'])
+library;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
+/// Tagged `slow` — these tests wire the full adapter+widget stack and
+/// pump real Flutter frames. Filter with `flutter test -x slow` to
+/// skip during fast feedback loops.
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;
@@ -26,7 +33,7 @@ void main() {
     test('new message event flows from adapter to controller', () async {
       await adapter.connect();
       final controller = adapter.getChatController('room1');
-      adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+      adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
 
       expect(controller.messages, isEmpty);
 
@@ -46,7 +53,7 @@ void main() {
     test('multiple events flow correctly', () async {
       await adapter.connect();
       final controller = adapter.getChatController('room1');
-      adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+      adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
 
       for (var i = 0; i < 3; i++) {
         mockClient.emitEvent(
@@ -79,7 +86,12 @@ void main() {
       );
 
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
 
       expect(find.textContaining('Pre-loaded message'), findsOneWidget);
@@ -91,7 +103,12 @@ void main() {
         final controller = adapter.getChatController('room1');
 
         await tester.pumpWidget(
-          wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+          wrap(
+            ChatView(
+              controller: controller,
+              callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            ),
+          ),
         );
 
         expect(find.text('No messages yet'), findsOneWidget);
@@ -116,10 +133,15 @@ void main() {
     ) async {
       adapter.start();
       final controller = adapter.getChatController('room1');
-      adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+      adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
 
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
 
       expect(find.text('No messages yet'), findsOneWidget);
@@ -149,7 +171,12 @@ void main() {
       final controller = adapter.getChatController('room1');
 
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
 
       mockClient.emitEvent(
@@ -169,7 +196,7 @@ void main() {
       );
 
       adapter.start();
-      final result = await adapter.loadRooms();
+      final result = await adapter.rooms.load();
 
       expect(result.isSuccess, true);
       expect(adapter.roomListController.allRooms, hasLength(1));
@@ -186,7 +213,7 @@ void main() {
       adapter.start();
       final controller = adapter.getChatController('mock-room-0');
 
-      final result = await adapter.sendMessage(
+      final result = await adapter.messages.send(
         'mock-room-0',
         text: 'Optimistic msg',
       );
@@ -209,7 +236,7 @@ void main() {
       expect(sendResult.isSuccess, true);
 
       adapter.start();
-      final result = await adapter.loadMessages('mock-room-0');
+      final result = await adapter.messages.load('mock-room-0');
 
       expect(result.isSuccess, true);
       final controller = adapter.getChatController('mock-room-0');

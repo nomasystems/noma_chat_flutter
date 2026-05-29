@@ -11,13 +11,13 @@ void main() {
     testWidgets('shows accept and reject buttons for invited room', (
       tester,
     ) async {
-      final room = RoomListItem(
+      const room = RoomListItem(
         id: 'r1',
         name: 'Invited Room',
-        custom: const {'invited': true, 'invitedBy': 'u2'},
+        custom: {'invited': true, 'invitedBy': 'u2'},
       );
 
-      await tester.pumpWidget(wrap(RoomTile(room: room)));
+      await tester.pumpWidget(wrap(const RoomTile(room: room)));
 
       expect(find.text('Accept'), findsOneWidget);
       expect(find.text('Reject'), findsOneWidget);
@@ -26,10 +26,10 @@ void main() {
 
     testWidgets('accept button triggers onAcceptInvitation', (tester) async {
       var accepted = false;
-      final room = RoomListItem(
+      const room = RoomListItem(
         id: 'r1',
         name: 'Invited Room',
-        custom: const {'invited': true},
+        custom: {'invited': true},
       );
 
       await tester.pumpWidget(
@@ -42,10 +42,10 @@ void main() {
 
     testWidgets('reject button triggers onRejectInvitation', (tester) async {
       var rejected = false;
-      final room = RoomListItem(
+      const room = RoomListItem(
         id: 'r1',
         name: 'Invited Room',
-        custom: const {'invited': true},
+        custom: {'invited': true},
       );
 
       await tester.pumpWidget(
@@ -57,13 +57,13 @@ void main() {
     });
 
     testWidgets('non-invited room shows last message instead', (tester) async {
-      final room = RoomListItem(
+      const room = RoomListItem(
         id: 'r1',
         name: 'Normal Room',
         lastMessage: 'Hello',
       );
 
-      await tester.pumpWidget(wrap(RoomTile(room: room)));
+      await tester.pumpWidget(wrap(const RoomTile(room: room)));
 
       expect(find.text('Hello'), findsOneWidget);
       expect(find.text('Accept'), findsNothing);

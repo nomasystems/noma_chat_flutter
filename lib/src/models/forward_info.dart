@@ -1,17 +1,17 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'forward_info.freezed.dart';
 
 /// Metadata about a forwarded message: original sender, room, and message ID.
-@immutable
-class ForwardInfo {
-  final String forwardedFrom;
-  final String forwardedFromRoom;
-  final String forwardedMessageId;
+@freezed
+abstract class ForwardInfo with _$ForwardInfo {
+  const ForwardInfo._();
 
-  const ForwardInfo({
-    required this.forwardedFrom,
-    required this.forwardedFromRoom,
-    required this.forwardedMessageId,
-  });
+  const factory ForwardInfo({
+    required String forwardedFrom,
+    required String forwardedFromRoom,
+    required String forwardedMessageId,
+  }) = _ForwardInfo;
 
   factory ForwardInfo.fromMetadata(Map<String, dynamic> metadata) =>
       ForwardInfo(
@@ -46,20 +46,4 @@ class ForwardInfo {
       forwardedMessageId: referencedMessageId ?? '',
     );
   }
-
-  @override
-  bool operator ==(Object other) =>
-      identical(this, other) ||
-      other is ForwardInfo &&
-          other.forwardedFrom == forwardedFrom &&
-          other.forwardedFromRoom == forwardedFromRoom &&
-          other.forwardedMessageId == forwardedMessageId;
-
-  @override
-  int get hashCode =>
-      Object.hash(forwardedFrom, forwardedFromRoom, forwardedMessageId);
-
-  @override
-  String toString() =>
-      'ForwardInfo(from: $forwardedFrom, room: $forwardedFromRoom, msg: $forwardedMessageId)';
 }

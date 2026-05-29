@@ -1,4 +1,4 @@
-import 'cache_policy.dart';
+import '../../cache/cache_policy.dart';
 
 /// Configuration for the SDK's caching layer.
 ///
@@ -20,5 +20,10 @@ class CacheConfig {
     this.ttlUsers = const Duration(hours: 6),
     this.defaultReadPolicy = CachePolicy.networkFirst,
     this.offlineQueueMaxRetries = 5,
-  });
+  }) : assert(maxMessagesPerRoom > 0, 'maxMessagesPerRoom must be > 0'),
+       assert(maxRooms > 0, 'maxRooms must be > 0'),
+       assert(
+         offlineQueueMaxRetries >= 0,
+         'offlineQueueMaxRetries must be >= 0',
+       );
 }

@@ -33,19 +33,19 @@ ChatFailure mapExceptionToFailure(Object e) {
   return UnexpectedFailure(e.toString(), e);
 }
 
-Future<Result<T>> safeApiCall<T>(Future<T> Function() call) async {
+Future<ChatResult<T>> safeApiCall<T>(Future<T> Function() call) async {
   try {
-    return Success(await call());
+    return ChatSuccess(await call());
   } catch (e) {
-    return Failure(mapExceptionToFailure(e));
+    return ChatFailureResult(mapExceptionToFailure(e));
   }
 }
 
-Future<Result<void>> safeVoidCall(Future<void> Function() call) async {
+Future<ChatResult<void>> safeVoidCall(Future<void> Function() call) async {
   try {
     await call();
-    return const Success(null);
+    return const ChatSuccess(null);
   } catch (e) {
-    return Failure(mapExceptionToFailure(e));
+    return ChatFailureResult(mapExceptionToFailure(e));
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// Smokes every sub-API of MockChatClient — covers many small branches
 /// in the mock that aren't exercised by `mock_chat_client_test.dart`.
@@ -57,7 +58,7 @@ void main() {
     );
     final id = created.dataOrNull!.id;
     expect(
-      (await c.members.add(
+      (await c.members.invite(
         id,
         userIds: ['u3'],
         mode: RoomUserMode.invite,

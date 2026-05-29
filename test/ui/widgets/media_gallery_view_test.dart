@@ -22,9 +22,18 @@ void main() {
   group('MediaGalleryView', () {
     testWidgets('renders grid with correct number of items', (tester) async {
       final items = [
-        MediaItem(url: 'https://example.com/1.jpg', type: MediaItemType.image),
-        MediaItem(url: 'https://example.com/2.jpg', type: MediaItemType.image),
-        MediaItem(url: 'https://example.com/3.mp4', type: MediaItemType.video),
+        const MediaItem(
+          url: 'https://example.com/1.jpg',
+          type: MediaItemType.image,
+        ),
+        const MediaItem(
+          url: 'https://example.com/2.jpg',
+          type: MediaItemType.image,
+        ),
+        const MediaItem(
+          url: 'https://example.com/3.mp4',
+          type: MediaItemType.video,
+        ),
       ];
 
       await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
@@ -35,8 +44,14 @@ void main() {
 
     testWidgets('shows play icon for video items', (tester) async {
       final items = [
-        MediaItem(url: 'https://example.com/1.jpg', type: MediaItemType.image),
-        MediaItem(url: 'https://example.com/2.mp4', type: MediaItemType.video),
+        const MediaItem(
+          url: 'https://example.com/1.jpg',
+          type: MediaItemType.image,
+        ),
+        const MediaItem(
+          url: 'https://example.com/2.mp4',
+          type: MediaItemType.video,
+        ),
       ];
 
       await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
@@ -48,7 +63,10 @@ void main() {
     testWidgets('calls onTapItem when tapped', (tester) async {
       MediaItem? tappedItem;
       final items = [
-        MediaItem(url: 'https://example.com/1.jpg', type: MediaItemType.image),
+        const MediaItem(
+          url: 'https://example.com/1.jpg',
+          type: MediaItemType.image,
+        ),
       ];
 
       await tester.pumpWidget(
@@ -76,12 +94,12 @@ void main() {
 
     testWidgets('hides audio attachments by default', (tester) async {
       final items = [
-        MediaItem(
+        const MediaItem(
           url: 'https://example.com/song.mp3',
           type: MediaItemType.file,
           mimeType: 'audio/mpeg',
         ),
-        MediaItem(
+        const MediaItem(
           url: 'https://example.com/photo.jpg',
           type: MediaItemType.image,
           mimeType: 'image/jpeg',
@@ -96,7 +114,7 @@ void main() {
       tester,
     ) async {
       final items = [
-        MediaItem(
+        const MediaItem(
           url: 'https://example.com/song.mp3',
           type: MediaItemType.file,
           mimeType: 'audio/mpeg',
@@ -114,7 +132,7 @@ void main() {
       tester,
     ) async {
       final items = [
-        MediaItem(
+        const MediaItem(
           url: 'https://example.com/voice.m4a',
           type: MediaItemType.file,
           mimeType: 'audio/mp4',

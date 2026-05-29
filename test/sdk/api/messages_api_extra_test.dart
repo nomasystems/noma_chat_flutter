@@ -10,11 +10,11 @@ class _MockRest extends Mock implements RestClient {}
 /// for a given method so a refactor that drifts either is caught.
 void main() {
   late _MockRest rest;
-  late MessagesApi api;
+  late RestMessagesApi api;
 
   setUp(() {
     rest = _MockRest();
-    api = MessagesApi(rest: rest);
+    api = RestMessagesApi(rest: rest);
   });
 
   Map<String, dynamic> msgJson(String id) => {

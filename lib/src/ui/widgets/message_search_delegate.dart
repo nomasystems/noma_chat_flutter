@@ -15,7 +15,8 @@ class MessageSearchView extends StatefulWidget {
     this.theme = ChatTheme.defaults,
     this.senderNameResolver,
     this.debounceDuration = const Duration(milliseconds: 300),
-  });
+    this.minQueryLength = 2,
+  }) : assert(minQueryLength >= 1, 'minQueryLength must be at least 1');
 
   final MessageSearchController controller;
   final String roomId;
@@ -23,6 +24,13 @@ class MessageSearchView extends StatefulWidget {
   final ChatTheme theme;
   final String Function(String userId)? senderNameResolver;
   final Duration debounceDuration;
+
+  /// Minimum number of characters (after `trim()`) the input must contain
+  /// before the search request is dispatched. Shorter queries clear any
+  /// prior results without hitting the backend, mirroring WhatsApp's
+  /// behaviour where a 1-letter search is suppressed as too broad. Pass
+  /// `1` to revert to the legacy "fire on every keystroke" semantics.
+  final int minQueryLength;
 
   @override
   State<MessageSearchView> createState() => _MessageSearchViewState();
@@ -41,8 +49,15 @@ class _MessageSearchViewState extends State<MessageSearchView> {
 
   void _onQueryChanged(String value) {
     _debounce?.cancel();
+    final trimmed = value.trim();
+    if (trimmed.length < widget.minQueryLength) {
+      // Suppress the backend search and clear any prior results so stale
+      // matches don't linger while the user is still typing.
+      widget.controller.search('', widget.roomId);
+      return;
+    }
     _debounce = Timer(widget.debounceDuration, () {
-      widget.controller.search(value.trim(), widget.roomId);
+      widget.controller.search(trimmed, widget.roomId);
     });
   }
 
@@ -51,22 +66,36 @@ class _MessageSearchViewState extends State<MessageSearchView> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.all(12),
+          // Match the horizontal/vertical rhythm used by RoomSearchBar
+          // so the chat-list and in-room search look identical.
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: TextField(
             controller: _textController,
             onChanged: _onQueryChanged,
+            // Outlined style aligned with RoomSearchBar + the host app's
+            // login / onboarding TextFields. Earlier "pill" treatment
+            // (filled + rounded 24 + borderSide.none) was inconsistent
+            // with the rest of the surface and felt out of place.
             decoration: InputDecoration(
               hintText: widget.theme.l10n.searchMessages,
-              prefixIcon: const Icon(Icons.search),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(24),
-                borderSide: BorderSide.none,
+              prefixIcon: const Icon(Icons.search, size: 20),
+              suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                valueListenable: _textController,
+                builder: (_, value, __) {
+                  if (value.text.isEmpty) return const SizedBox.shrink();
+                  return IconButton(
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: widget.theme.l10n.clearText,
+                    onPressed: () {
+                      _textController.clear();
+                      _onQueryChanged('');
+                    },
+                  );
+                },
               ),
-              filled: true,
-              fillColor:
-                  widget.theme.searchBarBackgroundColor ?? Colors.grey.shade100,
+              border: const OutlineInputBorder(),
               contentPadding: const EdgeInsets.symmetric(
-                horizontal: 16,
+                horizontal: 12,
                 vertical: 10,
               ),
               isDense: true,
@@ -81,7 +110,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   widget.controller.results.isEmpty) {
                 return Center(
                   child: CircularProgressIndicator(
-                    color: widget.theme.sendButtonColor,
+                    color: widget.theme.input.sendButtonColor,
                   ),
                 );
               }

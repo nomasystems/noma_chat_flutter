@@ -1,12 +1,20 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'invited_room.freezed.dart';
 
 /// A pending room invitation showing who invited the current user.
-@immutable
-class InvitedRoom {
-  final String roomId;
-  final String invitedBy;
+///
+/// Equality is id-based on [roomId] so the same invitation never appears
+/// twice in a [Set<InvitedRoom>] even if [invitedBy] races between
+/// duplicate notifications.
+@Freezed(equal: false)
+abstract class InvitedRoom with _$InvitedRoom {
+  const InvitedRoom._();
 
-  const InvitedRoom({required this.roomId, required this.invitedBy});
+  const factory InvitedRoom({
+    required String roomId,
+    required String invitedBy,
+  }) = _InvitedRoom;
 
   @override
   bool operator ==(Object other) =>

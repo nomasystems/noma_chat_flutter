@@ -2,20 +2,65 @@ import 'dart:async';
 
 import 'package:hive_ce/hive_ce.dart';
 import 'package:flutter/foundation.dart';
-import 'package:noma_chat/noma_chat.dart';
 
+import '../core/result.dart';
+import '../models/contact.dart';
+import '../models/invited_room.dart';
+import '../models/message.dart';
+import '../models/pin.dart';
+import '../models/reaction.dart';
+import '../models/read_receipt.dart';
+import '../models/room.dart';
+import '../models/unread_room.dart';
+import '../models/user.dart';
+import 'local_datasource.dart';
+import '_box_registry.dart';
+import '_message_eviction_policy.dart';
+import '_message_id_index.dart';
+import '_schema_migrator.dart';
 import 'serialization.dart';
 
 /// Persistent [ChatLocalDatasource] implementation backed by Hive CE.
 ///
 /// Use the [create] factory to initialize Hive boxes and obtain an instance.
 class HiveChatDatasource implements ChatLocalDatasource {
-  static const _messageRoomIdsKey = 'messageRoomIds';
-  static const _schemaVersionKey = 'schemaVersion';
-  static const _schemaVersion = 2;
+  // === Global box names ===
+  //
+  // Singleton boxes shared across the entire user session. Keys are
+  // entity ids (roomId, userId, etc.); values are JSON-shaped maps.
+  static const String _boxMeta = 'chat_meta';
+  static const String _boxRooms = 'chat_rooms';
+  static const String _boxRoomDetails = 'chat_room_details';
+  static const String _boxUsers = 'chat_users';
+  static const String _boxContacts = 'chat_contacts';
+  static const String _boxUnreads = 'chat_unreads';
+  static const String _boxInvited = 'chat_invited';
+  static const String _boxOfflineQueue = 'chat_offline_queue';
+  static const String _boxPins = 'chat_pins';
+  static const String _boxReceipts = 'chat_receipts';
 
-  final Map<String, Box<Map<dynamic, dynamic>>> _openBoxes = {};
-  final Map<String, Future<Box<Map<dynamic, dynamic>>>> _pendingOpens = {};
+  // === Per-room box prefixes ===
+  //
+  // One box per room so per-room ops are O(box) instead of O(all
+  // messages) and so `clearMessages(roomId)` is a single `.clear()`
+  // call. Box name = prefix + `_sanitizeForBoxName(roomId)`.
+  static const String _msgBoxPrefix = 'chat_messages_';
+  static const String _pendingBoxPrefix = 'chat_pending_';
+  static const String _reactionsBoxPrefix = 'chat_reactions_';
+
+  String _messagesBoxName(String roomId) =>
+      '$_msgBoxPrefix${_sanitizeForBoxName(roomId)}';
+  String _pendingBoxName(String roomId) =>
+      '$_pendingBoxPrefix${_sanitizeForBoxName(roomId)}';
+  String _reactionsBoxName(String roomId) =>
+      '$_reactionsBoxPrefix${_sanitizeForBoxName(roomId)}';
+
+  // === Meta box keys ===
+  static const String _messageRoomIdsKey = 'messageRoomIds';
+  static const String _schemaVersionKey = 'schemaVersion';
+  static const int _schemaVersion = 2;
+
+  late final HiveBoxRegistry _registry;
   late final Box<Map<dynamic, dynamic>> _metaBox;
   final int maxMessagesPerRoom;
   final int? maxRooms;
@@ -24,8 +69,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
   final int? maxOfflineQueueSize;
   final Duration? messageTtl;
   final Duration? messageTtlCheckInterval;
-  final HiveCipher? _cipher;
-  Timer? _ttlTimer;
+  late final MessageEvictionPolicy _eviction;
 
   @visibleForTesting
   final Map<int, Future<void> Function()> migrations = {};
@@ -39,7 +83,23 @@ class HiveChatDatasource implements ChatLocalDatasource {
     this.messageTtl,
     this.messageTtlCheckInterval,
     HiveCipher? cipher,
-  }) : _cipher = cipher;
+  }) {
+    _registry = HiveBoxRegistry(
+      cipher: cipher,
+      onWarning: (m) => onWarning?.call(m),
+      onMetric: (k, d) => onMetric?.call(k, d),
+      onBoxRecreated: (name) =>
+          _msgIdIndex.invalidateBoxByPrefix(name, _msgBoxPrefix),
+    );
+    _eviction = MessageEvictionPolicy(
+      maxPerRoom: maxMessagesPerRoom,
+      ttl: messageTtl,
+      checkInterval: messageTtlCheckInterval,
+      index: _msgIdIndex,
+      safeWrite: _safeWrite,
+      onMetric: (k, d) => onMetric?.call(k, d),
+    );
+  }
 
   /// Creates and initializes a Hive-backed datasource at the given basePath.
   ///
@@ -79,7 +139,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
     );
     if (migrations != null) ds.migrations.addAll(migrations);
     ds._metaBox = await Hive.openBox<Map<dynamic, dynamic>>(
-      'chat_meta',
+      _boxMeta,
       encryptionCipher: encryptionCipher,
     );
     await ds._migrateIfNeeded();
@@ -87,32 +147,38 @@ class HiveChatDatasource implements ChatLocalDatasource {
     await ds._cleanOrphanedMessageBoxes();
     if (messageTtl != null) {
       await ds._expireOldMessages();
-      if (messageTtlCheckInterval != null) {
-        ds._ttlTimer = Timer.periodic(messageTtlCheckInterval, (_) {
-          if (!ds._isDisposed) ds._expireOldMessages();
-        });
-      }
+      ds._eviction.startTtlTimer(
+        isAlive: () => !ds._isDisposed,
+        trigger: ds._expireOldMessages,
+      );
     }
     return ds;
+  }
+
+  /// Wraps a Hive operation in [ChatResult], converting any exception
+  /// thrown by the box op into a [ChatFailureResult]. Logs the error via
+  /// [onWarning] so existing observability paths still see it.
+  Future<ChatResult<T>> _wrap<T>(Future<T> Function() body) async {
+    try {
+      final value = await body();
+      return ChatSuccess(value);
+    } catch (e, st) {
+      onWarning?.call('Hive op failed: $e\n$st');
+      return ChatFailureResult(UnexpectedFailure(e.toString()));
+    }
   }
 
   Future<void> _cleanOrphanedMessageBoxes() async {
     final trackedRoomIds = _getMessageRoomIds();
     if (trackedRoomIds.isEmpty) return;
-    final roomsBox = await _box('chat_rooms');
+    final roomsBox = await _box(_boxRooms);
     final existingRoomIds = roomsBox.keys.cast<String>().toSet();
     final orphans = trackedRoomIds.difference(existingRoomIds);
     for (final roomId in orphans) {
-      final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
+      final name = _messagesBoxName(roomId);
       final box = await _box(name);
       await _safeWrite('cleanOrphans clear', () => box.clear());
-      await box.close();
-      _openBoxes.remove(name);
-      try {
-        await Hive.deleteBoxFromDisk(name);
-      } catch (e) {
-        onWarning?.call('Failed to delete orphan box "$name": $e');
-      }
+      await _registry.deleteFromDisk(name);
     }
     if (orphans.isNotEmpty) {
       final remaining = trackedRoomIds.difference(orphans);
@@ -124,59 +190,29 @@ class HiveChatDatasource implements ChatLocalDatasource {
   }
 
   Future<void> _migrateIfNeeded() async {
-    final stored = _metaBox.get(_schemaVersionKey);
-    final storedVersion = (stored?['version'] as int?) ?? 0;
-    if (storedVersion == _schemaVersion) return;
-
-    if (storedVersion < _schemaVersion) {
-      var v = storedVersion;
-      while (v < _schemaVersion) {
-        final nextVersion = v + 1;
-        final migration = migrations[nextVersion];
-        if (migration != null) {
-          await migration();
-        } else {
-          onWarning?.call(
-            'Schema migration: no migration from v$storedVersion to v$_schemaVersion, wiping cache',
-          );
-          onMetric?.call('schema_migration_wipe', {
-            'from': storedVersion,
-            'to': _schemaVersion,
-            'reason': 'no_migration_path',
-          });
-          await _openCoreBoxes();
-          await clear();
-          break;
-        }
-        v = nextVersion;
-      }
-    } else {
-      onWarning?.call(
-        'Schema migration: downgrade from v$storedVersion to v$_schemaVersion, wiping cache',
-      );
-      onMetric?.call('schema_migration_wipe', {
-        'from': storedVersion,
-        'to': _schemaVersion,
-        'reason': 'downgrade',
-      });
-      await _openCoreBoxes();
-      await clear();
-    }
-
-    await _safeWrite(
-      'migrateIfNeeded',
-      () => _metaBox.put(_schemaVersionKey, {'version': _schemaVersion}),
+    final migrator = CacheSchemaMigrator(
+      metaBox: _metaBox,
+      targetVersion: _schemaVersion,
+      versionKey: _schemaVersionKey,
+      migrations: migrations,
+      wipeStrategy: () async {
+        await _openCoreBoxes();
+        await clear();
+      },
+      onWarning: (level, message) => onWarning?.call(message),
+      onMetric: onMetric,
     );
+    await migrator.migrateIfNeeded();
   }
 
   Future<void> _openCoreBoxes() async {
-    await _box('chat_rooms');
-    await _box('chat_room_details');
-    await _box('chat_users');
-    await _box('chat_contacts');
-    await _box('chat_unreads');
-    await _box('chat_invited');
-    await _box('chat_offline_queue');
+    await _box(_boxRooms);
+    await _box(_boxRoomDetails);
+    await _box(_boxUsers);
+    await _box(_boxContacts);
+    await _box(_boxUnreads);
+    await _box(_boxInvited);
+    await _box(_boxOfflineQueue);
   }
 
   Set<String> _getMessageRoomIds() {
@@ -207,63 +243,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
     if (_isDisposed) throw StateError('HiveChatDatasource is disposed');
   }
 
-  Future<Box<Map<dynamic, dynamic>>> _box(String name) async {
-    final cached = _openBoxes[name];
-    if (cached != null && cached.isOpen) return cached;
-    if (_pendingOpens.containsKey(name)) {
-      return _pendingOpens[name]!;
-    }
-    final future = _openBoxSafe(name);
-    _pendingOpens[name] = future;
-    return future;
-  }
-
-  Future<Box<Map<dynamic, dynamic>>> _openBoxSafe(String name) async {
-    try {
-      final box = await Hive.openBox<Map<dynamic, dynamic>>(
-        name,
-        encryptionCipher: _cipher,
-      );
-      _openBoxes[name] = box;
-      _pendingOpens.remove(name);
-      return box;
-    } catch (e) {
-      onWarning?.call('Box "$name" corrupted, deleting and recreating: $e');
-      onMetric?.call('box_corrupted', {'box': name, 'error': '$e'});
-      try {
-        await Hive.deleteBoxFromDisk(name);
-      } catch (deleteErr) {
-        onWarning?.call('Failed to delete corrupted box "$name": $deleteErr');
-        onMetric?.call('box_delete_failed', {
-          'box': name,
-          'error': '$deleteErr',
-        });
-      }
-      try {
-        final box = await Hive.openBox<Map<dynamic, dynamic>>(
-          name,
-          encryptionCipher: _cipher,
-        );
-        _openBoxes[name] = box;
-        _pendingOpens.remove(name);
-        _clearMsgIdIndexForBox(name);
-        return box;
-      } catch (e2) {
-        onWarning?.call('Failed to reopen box "$name" after recreation: $e2');
-        onMetric?.call('box_reopen_failed', {'box': name, 'error': '$e2'});
-        _pendingOpens.remove(name);
-        rethrow;
-      }
-    }
-  }
-
-  void _clearMsgIdIndexForBox(String boxName) {
-    const prefix = 'chat_messages_';
-    if (boxName.startsWith(prefix)) {
-      final roomId = boxName.substring(prefix.length);
-      _msgIdIndex.remove(roomId);
-    }
-  }
+  Future<Box<Map<dynamic, dynamic>>> _box(String name) => _registry.box(name);
 
   Future<void> _safeWrite(
     String operation,
@@ -333,733 +313,913 @@ class HiveChatDatasource implements ChatLocalDatasource {
       input.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
 
   Future<Box<Map<dynamic, dynamic>>> _messagesBox(String roomId) async {
-    final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
+    final name = _messagesBoxName(roomId);
     await _trackMessageRoom(roomId);
     return _box(name);
   }
 
   // Messages — keys are `{iso_timestamp}_{msg_id}` for sorted access.
   // Hive returns keys sorted alphabetically = chronologically for ISO 8601.
-  // In-memory index: roomId -> {msgId -> timestampKey} for O(1) lookup.
-  final Map<String, Map<String, String>> _msgIdIndex = {};
+  // The MessageIdIndex collaborator owns the in-memory `roomId →
+  // {msgId → key}` map plus the key-encoding helpers.
+  final MessageIdIndex _msgIdIndex = MessageIdIndex();
 
-  static String _messageKey(DateTime timestamp, String id) =>
-      '${timestamp.toUtc().toIso8601String()}_$id';
+  // Per-room serialization. saveMessages / updateMessage /
+  // deleteMessage / clearMessages all mutate the in-memory
+  // _msgIdIndex AND the Hive box, in two separate awaits. Two
+  // concurrent ops on the same room would interleave those awaits
+  // and leave the index out of sync with the box. The lock chains
+  // pending ops onto a single future per room — same-room ops
+  // serialize, different-room ops still run in parallel.
+  final Map<String, Future<void>> _roomLocks = {};
 
-  static String? _extractMsgId(String key) {
-    final idx = key.indexOf('_');
-    return idx >= 0 ? key.substring(idx + 1) : null;
-  }
-
-  Map<String, String> _getOrBuildIndex(
-    String roomId,
-    Box<Map<dynamic, dynamic>> box,
-  ) {
-    if (_msgIdIndex.containsKey(roomId)) return _msgIdIndex[roomId]!;
-    final index = <String, String>{};
-    for (final key in box.keys.cast<String>()) {
-      final msgId = _extractMsgId(key);
-      if (msgId != null) index[msgId] = key;
+  Future<T> _withRoomLock<T>(String roomId, Future<T> Function() body) async {
+    final previous = _roomLocks[roomId] ?? Future<void>.value();
+    final completer = Completer<void>();
+    _roomLocks[roomId] = completer.future;
+    try {
+      await previous;
+      return await body();
+    } finally {
+      completer.complete();
+      if (identical(_roomLocks[roomId], completer.future)) {
+        _roomLocks.remove(roomId);
+      }
     }
-    _msgIdIndex[roomId] = index;
-    return index;
-  }
-
-  String? _findKeyByMessageId(
-    String roomId,
-    Box<Map<dynamic, dynamic>> box,
-    String messageId,
-  ) {
-    return _getOrBuildIndex(roomId, box)[messageId];
   }
 
   @override
-  Future<void> saveMessages(String roomId, List<ChatMessage> messages) async {
+  Future<ChatResult<void>> saveMessages(
+    String roomId,
+    List<ChatMessage> messages,
+  ) {
     _checkNotDisposed();
-    final box = await _messagesBox(roomId);
-    final index = _getOrBuildIndex(roomId, box);
-    final entries = <String, Map<dynamic, dynamic>>{};
-    final keysToRemove = <String>[];
-    for (final msg in messages) {
-      final newKey = _messageKey(msg.timestamp, msg.id);
-      final existingKey = index[msg.id];
-      if (existingKey != null && existingKey != newKey) {
-        keysToRemove.add(existingKey);
-      }
-      entries[newKey] = messageToMap(msg);
-      index[msg.id] = newKey;
-    }
-    if (keysToRemove.isNotEmpty) {
-      await _safeWrite('saveMessages dedup', () => box.deleteAll(keysToRemove));
-    }
-    await _safeWrite('saveMessages', () => box.putAll(entries));
-    await _evictOldMessages(box, roomId: roomId);
-  }
-
-  Future<void> _evictOldMessages(
-    Box<Map<dynamic, dynamic>> box, {
-    String? roomId,
-  }) async {
-    if (box.length <= maxMessagesPerRoom) return;
-    final keys = box.keys.cast<String>().toList();
-    final toRemove = keys.sublist(0, keys.length - maxMessagesPerRoom);
-    await _safeWrite('evictOldMessages', () => box.deleteAll(toRemove));
-    if (roomId != null) {
-      final index = _msgIdIndex[roomId];
-      if (index != null) {
-        for (final key in toRemove) {
-          final msgId = _extractMsgId(key);
-          if (msgId != null) index.remove(msgId);
+    return _wrap(
+      () => _withRoomLock(roomId, () async {
+        final box = await _messagesBox(roomId);
+        final index = _msgIdIndex.getOrBuild(roomId, box);
+        final entries = <String, Map<dynamic, dynamic>>{};
+        final keysToRemove = <String>[];
+        for (final msg in messages) {
+          final newKey = MessageIdIndex.keyFor(msg.timestamp, msg.id);
+          final existingKey = index[msg.id];
+          if (existingKey != null && existingKey != newKey) {
+            keysToRemove.add(existingKey);
+          }
+          entries[newKey] = messageToMap(msg);
+          index[msg.id] = newKey;
         }
-      }
-    }
-    onMetric?.call('cache_eviction', {
-      'entity': 'messages',
-      'count': toRemove.length,
-    });
+        if (keysToRemove.isNotEmpty) {
+          await _safeWrite(
+            'saveMessages dedup',
+            () => box.deleteAll(keysToRemove),
+          );
+        }
+        await _safeWrite('saveMessages', () => box.putAll(entries));
+        await _eviction.evictIfNeeded(box, roomId: roomId);
+      }),
+    );
   }
 
   @override
-  Future<List<ChatMessage>> getMessages(
+  Future<ChatResult<List<ChatMessage>>> getMessages(
     String roomId, {
     int? limit,
     String? before,
     String? after,
-  }) async {
+  }) {
     _checkNotDisposed();
-    final box = await _messagesBox(roomId);
-    var keys = box.keys.cast<String>().toList();
+    return _wrap(() async {
+      final box = await _messagesBox(roomId);
+      var keys = box.keys.cast<String>().toList();
 
-    final clearedAt = await getClearedAt(roomId);
-    if (clearedAt != null) {
-      final cutoff = '${clearedAt.toUtc().toIso8601String()}_\uffff';
-      keys = keys.where((k) => k.compareTo(cutoff) > 0).toList();
-    }
-
-    if (before != null) {
-      final beforeTime = DateTime.tryParse(before);
-      if (beforeTime == null) {
-        onWarning?.call('Invalid before cursor (not a timestamp): $before');
-        return [];
+      final clearedAt = (await getClearedAt(roomId)).dataOrNull;
+      if (clearedAt != null) {
+        final cutoff = '${clearedAt.toUtc().toIso8601String()}_￿';
+        keys = keys.where((k) => k.compareTo(cutoff) > 0).toList();
       }
-      final cutoffPrefix = beforeTime.toUtc().toIso8601String();
-      keys = keys.where((k) => k.compareTo(cutoffPrefix) < 0).toList();
-    }
 
-    if (after != null) {
-      final afterTime = DateTime.tryParse(after);
-      if (afterTime == null) {
-        onWarning?.call('Invalid after cursor (not a timestamp): $after');
-        return [];
+      if (before != null) {
+        final beforeTime = DateTime.tryParse(before);
+        if (beforeTime == null) {
+          onWarning?.call('Invalid before cursor (not a timestamp): $before');
+          return <ChatMessage>[];
+        }
+        final cutoffPrefix = beforeTime.toUtc().toIso8601String();
+        keys = keys.where((k) => k.compareTo(cutoffPrefix) < 0).toList();
       }
-      // Pad with suffix to exclude keys at the exact timestamp (keys are {ts}_{id}).
-      final cutoff = '${afterTime.toUtc().toIso8601String()}_\uffff';
-      keys = keys.where((k) => k.compareTo(cutoff) > 0).toList();
-    }
 
-    // Keys are ascending (oldest first) — reverse for newest-first, then take limit.
-    final selected = limit != null && keys.length > limit
-        ? keys.sublist(keys.length - limit)
-        : keys;
-
-    final result = <ChatMessage>[];
-    for (final key in selected.reversed) {
-      final data = box.get(key);
-      if (data == null) continue;
-      try {
-        result.add(
-          messageFromMap(Map<String, dynamic>.from(data), onWarning: onWarning),
-        );
-      } catch (e) {
-        onWarning?.call('Skipped corrupted message at key "$key": $e');
+      if (after != null) {
+        final afterTime = DateTime.tryParse(after);
+        if (afterTime == null) {
+          onWarning?.call('Invalid after cursor (not a timestamp): $after');
+          return <ChatMessage>[];
+        }
+        // Pad with suffix to exclude keys at the exact timestamp (keys are {ts}_{id}).
+        final cutoff = '${afterTime.toUtc().toIso8601String()}_￿';
+        keys = keys.where((k) => k.compareTo(cutoff) > 0).toList();
       }
-    }
-    return result;
+
+      // Keys are ascending (oldest first) — reverse for newest-first, then take limit.
+      final selected = limit != null && keys.length > limit
+          ? keys.sublist(keys.length - limit)
+          : keys;
+
+      final result = <ChatMessage>[];
+      for (final key in selected.reversed) {
+        final data = box.get(key);
+        if (data == null) continue;
+        try {
+          result.add(
+            messageFromMap(
+              Map<String, dynamic>.from(data),
+              onWarning: onWarning,
+            ),
+          );
+        } catch (e) {
+          onWarning?.call('Skipped corrupted message at key "$key": $e');
+        }
+      }
+      return result;
+    });
   }
 
   @override
-  Future<void> updateMessage(String roomId, ChatMessage message) async {
+  Future<ChatResult<void>> updateMessage(String roomId, ChatMessage message) {
     _checkNotDisposed();
-    final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
-    final box = await _box(name);
-    final key = _findKeyByMessageId(roomId, box, message.id);
-    if (key != null) {
-      await _safeWrite(
-        'updateMessage',
-        () => box.put(key, messageToMap(message)),
-      );
-    }
+    return _wrap(
+      () => _withRoomLock(roomId, () async {
+        final name = _messagesBoxName(roomId);
+        final box = await _box(name);
+        final key = _msgIdIndex.findKey(roomId, box, message.id);
+        if (key != null) {
+          await _safeWrite(
+            'updateMessage',
+            () => box.put(key, messageToMap(message)),
+          );
+        }
+      }),
+    );
   }
 
   @override
-  Future<void> deleteMessage(String roomId, String messageId) async {
+  Future<ChatResult<void>> deleteMessage(String roomId, String messageId) {
     _checkNotDisposed();
-    final box = await _messagesBox(roomId);
-    final key = _findKeyByMessageId(roomId, box, messageId);
-    if (key != null) {
-      await _safeWrite('deleteMessage', () => box.delete(key));
-      _msgIdIndex[roomId]?.remove(messageId);
-    }
+    return _wrap(
+      () => _withRoomLock(roomId, () async {
+        final box = await _messagesBox(roomId);
+        final key = _msgIdIndex.findKey(roomId, box, messageId);
+        if (key != null) {
+          await _safeWrite('deleteMessage', () => box.delete(key));
+          _msgIdIndex.removeMessage(roomId, messageId);
+        }
+      }),
+    );
   }
 
   @override
-  Future<void> clearMessages(String roomId) async {
+  Future<ChatResult<void>> clearMessages(String roomId) {
     _checkNotDisposed();
-    final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
+    return _wrap(
+      () => _withRoomLock(roomId, () => _clearMessagesUnlocked(roomId)),
+    );
+  }
+
+  // Lock-free clear used by cascades (deleteRoom, _evictRoomsIfNeeded)
+  // that already hold the room lock. Calling clearMessages from
+  // inside the lock would deadlock since _withRoomLock awaits the
+  // previous future for the same room — which is the very op
+  // running the cascade.
+  Future<void> _clearMessagesUnlocked(String roomId) async {
+    final name = _messagesBoxName(roomId);
     final box = await _box(name);
     await _safeWrite('clearMessages', () => box.clear());
-    _msgIdIndex.remove(roomId);
+    _msgIdIndex.invalidateRoom(roomId);
     await _untrackMessageRoom(roomId);
   }
 
   // Pending/failed outgoing messages — separate box per room. Keyed by
   // message id (not timestamp) so retries can find the entry directly.
   Future<Box<Map<dynamic, dynamic>>> _pendingBox(String roomId) =>
-      _box('chat_pending_${_sanitizeForBoxName(roomId)}');
+      _box(_pendingBoxName(roomId));
 
   @override
-  Future<void> savePendingMessage(
+  Future<ChatResult<void>> savePendingMessage(
     String roomId,
     ChatMessage message, {
     bool isFailed = false,
-  }) async {
+  }) {
     _checkNotDisposed();
-    final box = await _pendingBox(roomId);
-    final entry = {'message': messageToMap(message), 'isFailed': isFailed};
-    await _safeWrite('savePendingMessage', () => box.put(message.id, entry));
+    return _wrap(() async {
+      final box = await _pendingBox(roomId);
+      final entry = {'message': messageToMap(message), 'isFailed': isFailed};
+      await _safeWrite('savePendingMessage', () => box.put(message.id, entry));
+    });
   }
 
   @override
-  Future<List<PendingChatMessage>> getPendingMessages(String roomId) async {
+  Future<ChatResult<List<PendingChatMessage>>> getPendingMessages(
+    String roomId,
+  ) {
     _checkNotDisposed();
-    final box = await _pendingBox(roomId);
-    final result = <PendingChatMessage>[];
-    for (final raw in box.values) {
-      try {
-        final entry = Map<String, dynamic>.from(raw);
-        final msgMap = Map<String, dynamic>.from(entry['message'] as Map);
-        final msg = messageFromMap(msgMap, onWarning: onWarning);
-        final isFailed = entry['isFailed'] == true;
-        result.add(PendingChatMessage(msg, isFailed: isFailed));
-      } catch (e) {
-        onWarning?.call('Skipped corrupted pending message: $e');
+    return _wrap(() async {
+      final box = await _pendingBox(roomId);
+      final result = <PendingChatMessage>[];
+      for (final raw in box.values) {
+        try {
+          final entry = Map<String, dynamic>.from(raw);
+          final msgMap = Map<String, dynamic>.from(entry['message'] as Map);
+          final msg = messageFromMap(msgMap, onWarning: onWarning);
+          final isFailed = entry['isFailed'] == true;
+          result.add(PendingChatMessage(msg, isFailed: isFailed));
+        } catch (e) {
+          onWarning?.call('Skipped corrupted pending message: $e');
+        }
       }
-    }
-    result.sort((a, b) => a.message.timestamp.compareTo(b.message.timestamp));
-    return result;
+      result.sort((a, b) => a.message.timestamp.compareTo(b.message.timestamp));
+      return result;
+    });
   }
 
   @override
-  Future<void> deletePendingMessage(String roomId, String messageId) async {
+  Future<ChatResult<void>> deletePendingMessage(
+    String roomId,
+    String messageId,
+  ) {
     _checkNotDisposed();
-    final box = await _pendingBox(roomId);
-    if (box.containsKey(messageId)) {
-      await _safeWrite('deletePendingMessage', () => box.delete(messageId));
-    }
+    return _wrap(() async {
+      final box = await _pendingBox(roomId);
+      if (box.containsKey(messageId)) {
+        await _safeWrite('deletePendingMessage', () => box.delete(messageId));
+      }
+    });
   }
 
   @override
-  Future<void> clearPendingMessages(String roomId) async {
+  Future<ChatResult<void>> clearPendingMessages(String roomId) {
     _checkNotDisposed();
-    final box = await _pendingBox(roomId);
-    await _safeWrite('clearPendingMessages', () => box.clear());
+    return _wrap(() async {
+      final box = await _pendingBox(roomId);
+      await _safeWrite('clearPendingMessages', () => box.clear());
+    });
   }
 
   @override
-  Future<void> setClearedAt(String roomId, DateTime timestamp) async {
+  Future<ChatResult<void>> setClearedAt(String roomId, DateTime timestamp) {
     _checkNotDisposed();
-    await _safeWrite(
-      'setClearedAt',
-      () => _metaBox.put('clearedAt_$roomId', {
-        'ts': timestamp.toUtc().toIso8601String(),
-      }),
-    );
+    return _wrap(() async {
+      await _safeWrite(
+        'setClearedAt',
+        () => _metaBox.put('clearedAt_$roomId', {
+          'ts': timestamp.toUtc().toIso8601String(),
+        }),
+      );
+    });
   }
 
   @override
-  Future<DateTime?> getClearedAt(String roomId) async {
+  Future<ChatResult<DateTime?>> getClearedAt(String roomId) {
     _checkNotDisposed();
-    final data = _metaBox.get('clearedAt_$roomId');
-    if (data == null) return null;
-    final ts = data['ts'] as String?;
-    if (ts == null) return null;
-    return DateTime.tryParse(ts);
+    return _wrap(() async {
+      final data = _metaBox.get('clearedAt_$roomId');
+      if (data == null) return null;
+      final ts = data['ts'] as String?;
+      if (ts == null) return null;
+      return DateTime.tryParse(ts);
+    });
+  }
+
+  /// "Delete for me" — persistent per-room set of message IDs the
+  /// user wants hidden from their own view. Lives in `_metaBox` next
+  /// to `clearedAt_*` so it survives logout/login and app restarts.
+  /// The list is filtered post-fetch in `CachedMessagesApi.list`
+  /// (incoming network payloads) and applied to the controller after
+  /// `messages.load` (defence in depth) — that way a tombstone that
+  /// the user dismissed never re-appears just because the next
+  /// `GET /rooms/:id/messages` brought it back.
+  @override
+  Future<ChatResult<void>> hideMessageLocally(String roomId, String messageId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      await _safeWrite('hideMessageLocally', () async {
+        final key = 'hiddenMessages_$roomId';
+        final raw = _metaBox.get(key);
+        final ids = <String>{
+          ...((raw?['ids'] as List?)?.cast<String>() ?? const <String>[]),
+          messageId,
+        };
+        await _metaBox.put(key, {'ids': ids.toList()});
+      });
+    });
+  }
+
+  @override
+  Future<ChatResult<Set<String>>> getHiddenMessageIds(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final data = _metaBox.get('hiddenMessages_$roomId');
+      if (data == null) return <String>{};
+      final ids = (data['ids'] as List?)?.cast<String>() ?? const <String>[];
+      return ids.toSet();
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> clearHiddenMessages(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      await _safeWrite(
+        'clearHiddenMessages',
+        () => _metaBox.delete('hiddenMessages_$roomId'),
+      );
+    });
   }
 
   // Rooms
 
   @override
-  Future<void> saveRooms(List<ChatRoom> rooms) async {
+  Future<ChatResult<void>> saveRooms(List<ChatRoom> rooms) {
     _checkNotDisposed();
-    final box = await _box('chat_rooms');
-    final entries = <String, Map<dynamic, dynamic>>{};
-    for (final room in rooms) {
-      entries[room.id] = roomToMap(room);
-    }
-    await _safeWrite('saveRooms', () => box.putAll(entries));
-    await _evictRoomsIfNeeded();
-  }
-
-  @override
-  Future<List<ChatRoom>> getRooms() async {
-    _checkNotDisposed();
-    final box = await _box('chat_rooms');
-    return _safeDeserialize(
-      box.values,
-      (m) => roomFromMap(m, onWarning: onWarning),
-      boxName: 'rooms',
-    );
-  }
-
-  @override
-  Future<ChatRoom?> getRoom(String roomId) async {
-    _checkNotDisposed();
-    final box = await _box('chat_rooms');
-    final data = box.get(roomId);
-    if (data == null) return null;
-    try {
-      return roomFromMap(Map<String, dynamic>.from(data), onWarning: onWarning);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  @override
-  Future<void> deleteRoom(String roomId) async {
-    _checkNotDisposed();
-    final roomsBox = await _box('chat_rooms');
-    final detailsBox = await _box('chat_room_details');
-    final unreadsBox = await _box('chat_unreads');
-    final invitedBox = await _box('chat_invited');
-
-    final roomSnapshot = roomsBox.get(roomId);
-    final detailSnapshot = detailsBox.get(roomId);
-    final unreadSnapshot = unreadsBox.get(roomId);
-    final invitedSnapshot = <dynamic, Map<dynamic, dynamic>>{};
-    for (final entry in invitedBox.toMap().entries) {
-      final map = Map<String, dynamic>.from(entry.value);
-      if (map['roomId'] == roomId) {
-        invitedSnapshot[entry.key] = entry.value;
+    return _wrap(() async {
+      final box = await _box(_boxRooms);
+      final entries = <String, Map<dynamic, dynamic>>{};
+      for (final room in rooms) {
+        entries[room.id] = roomToMap(room);
       }
-    }
+      await _safeWrite('saveRooms', () => box.putAll(entries));
+      await _evictRoomsIfNeeded();
+    });
+  }
 
-    await _safeCascade(
-      'deleteRoom($roomId)',
-      [
-        () async => roomsBox.delete(roomId),
-        () async => detailsBox.delete(roomId),
-        () async => clearMessages(roomId),
-        () async => unreadsBox.delete(roomId),
-        () async {
-          for (final key in invitedSnapshot.keys) {
-            await invitedBox.delete(key);
+  @override
+  Future<ChatResult<List<ChatRoom>>> getRooms() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxRooms);
+      return _safeDeserialize(
+        box.values,
+        (m) => roomFromMap(m, onWarning: onWarning),
+        boxName: 'rooms',
+      );
+    });
+  }
+
+  @override
+  Future<ChatResult<ChatRoom?>> getRoom(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxRooms);
+      final data = box.get(roomId);
+      if (data == null) return null;
+      try {
+        return roomFromMap(
+          Map<String, dynamic>.from(data),
+          onWarning: onWarning,
+        );
+      } catch (_) {
+        return null;
+      }
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> deleteRoom(String roomId) {
+    _checkNotDisposed();
+    return _wrap(
+      () => _withRoomLock(roomId, () async {
+        final roomsBox = await _box(_boxRooms);
+        final detailsBox = await _box(_boxRoomDetails);
+        final unreadsBox = await _box(_boxUnreads);
+        final invitedBox = await _box(_boxInvited);
+
+        final roomSnapshot = roomsBox.get(roomId);
+        final detailSnapshot = detailsBox.get(roomId);
+        final unreadSnapshot = unreadsBox.get(roomId);
+        final invitedSnapshot = <dynamic, Map<dynamic, dynamic>>{};
+        for (final entry in invitedBox.toMap().entries) {
+          final map = Map<String, dynamic>.from(entry.value);
+          if (map['roomId'] == roomId) {
+            invitedSnapshot[entry.key] = entry.value;
           }
-        },
-        () async {
-          final reactionsBox = await _box(
-            'chat_reactions_${_sanitizeForBoxName(roomId)}',
-          );
-          await reactionsBox.clear();
-        },
-        () async {
-          final pinsBox = await _box('chat_pins');
-          await pinsBox.delete(roomId);
-        },
-        () async {
-          final receiptsBox = await _box('chat_receipts');
-          await receiptsBox.delete(roomId);
-        },
-        () async => clearPendingMessages(roomId),
-        () async => _metaBox.delete('clearedAt_$roomId'),
-      ],
-      onRollback: () async {
-        if (roomSnapshot != null) {
-          await roomsBox.put(roomId, roomSnapshot);
         }
-        if (detailSnapshot != null) {
-          await detailsBox.put(roomId, detailSnapshot);
-        }
-        if (unreadSnapshot != null) {
-          await unreadsBox.put(roomId, unreadSnapshot);
-        }
-        for (final entry in invitedSnapshot.entries) {
-          await invitedBox.put(entry.key, entry.value);
-        }
-      },
+
+        await _safeCascade(
+          'deleteRoom($roomId)',
+          [
+            () async => roomsBox.delete(roomId),
+            () async => detailsBox.delete(roomId),
+            () async => _clearMessagesUnlocked(roomId),
+            () async => unreadsBox.delete(roomId),
+            () async {
+              for (final key in invitedSnapshot.keys) {
+                await invitedBox.delete(key);
+              }
+            },
+            () async {
+              final reactionsBox = await _box(_reactionsBoxName(roomId));
+              await reactionsBox.clear();
+            },
+            () async {
+              final pinsBox = await _box(_boxPins);
+              await pinsBox.delete(roomId);
+            },
+            () async {
+              final receiptsBox = await _box(_boxReceipts);
+              await receiptsBox.delete(roomId);
+            },
+            () async => clearPendingMessages(roomId),
+            () async => _metaBox.delete('clearedAt_$roomId'),
+          ],
+          onRollback: () async {
+            if (roomSnapshot != null) {
+              await roomsBox.put(roomId, roomSnapshot);
+            }
+            if (detailSnapshot != null) {
+              await detailsBox.put(roomId, detailSnapshot);
+            }
+            if (unreadSnapshot != null) {
+              await unreadsBox.put(roomId, unreadSnapshot);
+            }
+            for (final entry in invitedSnapshot.entries) {
+              await invitedBox.put(entry.key, entry.value);
+            }
+          },
+        );
+      }),
     );
   }
 
   // Room details
 
   @override
-  Future<void> saveRoomDetail(RoomDetail detail) async {
+  Future<ChatResult<void>> saveRoomDetail(RoomDetail detail) {
     _checkNotDisposed();
-    final box = await _box('chat_room_details');
-    await _safeWrite(
-      'saveRoomDetail',
-      () => box.put(detail.id, roomDetailToMap(detail)),
-    );
-  }
-
-  @override
-  Future<RoomDetail?> getRoomDetail(String roomId) async {
-    _checkNotDisposed();
-    final box = await _box('chat_room_details');
-    final data = box.get(roomId);
-    if (data == null) return null;
-    try {
-      return roomDetailFromMap(
-        Map<String, dynamic>.from(data),
-        onWarning: onWarning,
+    return _wrap(() async {
+      final box = await _box(_boxRoomDetails);
+      await _safeWrite(
+        'saveRoomDetail',
+        () => box.put(detail.id, roomDetailToMap(detail)),
       );
-    } catch (_) {
-      return null;
-    }
+    });
   }
 
   @override
-  Future<void> deleteRoomDetail(String roomId) async {
+  Future<ChatResult<RoomDetail?>> getRoomDetail(String roomId) {
     _checkNotDisposed();
-    final box = await _box('chat_room_details');
-    await _safeWrite('deleteRoomDetail', () => box.delete(roomId));
+    return _wrap(() async {
+      final box = await _box(_boxRoomDetails);
+      final data = box.get(roomId);
+      if (data == null) return null;
+      try {
+        return roomDetailFromMap(
+          Map<String, dynamic>.from(data),
+          onWarning: onWarning,
+        );
+      } catch (_) {
+        return null;
+      }
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> deleteRoomDetail(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxRoomDetails);
+      await _safeWrite('deleteRoomDetail', () => box.delete(roomId));
+    });
   }
 
   // Users
 
   @override
-  Future<void> saveUsers(List<ChatUser> users) async {
+  Future<ChatResult<void>> saveUsers(List<ChatUser> users) {
     _checkNotDisposed();
-    final box = await _box('chat_users');
-    final entries = <String, Map<dynamic, dynamic>>{};
-    for (final user in users) {
-      entries[user.id] = userToMap(user);
-    }
-    await _safeWrite('saveUsers', () => box.putAll(entries));
-    await _evictUsersIfNeeded();
+    return _wrap(() async {
+      final box = await _box(_boxUsers);
+      final entries = <String, Map<dynamic, dynamic>>{};
+      for (final user in users) {
+        entries[user.id] = userToMap(user);
+      }
+      await _safeWrite('saveUsers', () => box.putAll(entries));
+      await _evictUsersIfNeeded();
+    });
   }
 
   @override
-  Future<List<ChatUser>> getUsers() async {
+  Future<ChatResult<List<ChatUser>>> getUsers() {
     _checkNotDisposed();
-    final box = await _box('chat_users');
-    return _safeDeserialize(
-      box.values,
-      (m) => userFromMap(m, onWarning: onWarning),
-      boxName: 'users',
-    );
+    return _wrap(() async {
+      final box = await _box(_boxUsers);
+      return _safeDeserialize(
+        box.values,
+        (m) => userFromMap(m, onWarning: onWarning),
+        boxName: 'users',
+      );
+    });
   }
 
   @override
-  Future<ChatUser?> getUser(String userId) async {
+  Future<ChatResult<ChatUser?>> getUser(String userId) {
     _checkNotDisposed();
-    final box = await _box('chat_users');
-    final data = box.get(userId);
-    if (data == null) return null;
-    try {
-      return userFromMap(Map<String, dynamic>.from(data), onWarning: onWarning);
-    } catch (_) {
-      return null;
-    }
+    return _wrap(() async {
+      final box = await _box(_boxUsers);
+      final data = box.get(userId);
+      if (data == null) return null;
+      try {
+        return userFromMap(
+          Map<String, dynamic>.from(data),
+          onWarning: onWarning,
+        );
+      } catch (_) {
+        return null;
+      }
+    });
   }
 
   @override
-  Future<void> deleteUser(String userId) async {
+  Future<ChatResult<void>> deleteUser(String userId) {
     _checkNotDisposed();
-    final box = await _box('chat_users');
-    await _safeWrite('deleteUser', () => box.delete(userId));
+    return _wrap(() async {
+      final box = await _box(_boxUsers);
+      await _safeWrite('deleteUser', () => box.delete(userId));
+    });
   }
 
   // Contacts
 
   @override
-  Future<void> saveContacts(List<ChatContact> contacts) async {
+  Future<ChatResult<void>> saveContacts(List<ChatContact> contacts) {
     _checkNotDisposed();
-    final box = await _box('chat_contacts');
-    await _safeWrite('saveContacts clear', () => box.clear());
-    final limited = maxContacts != null && contacts.length > maxContacts!
-        ? contacts.sublist(0, maxContacts!)
-        : contacts;
-    final entries = <int, Map<dynamic, dynamic>>{};
-    for (var i = 0; i < limited.length; i++) {
-      entries[i] = contactToMap(limited[i]);
-    }
-    await _safeWrite('saveContacts putAll', () => box.putAll(entries));
-    if (maxContacts != null && contacts.length > maxContacts!) {
-      onMetric?.call('cache_eviction', {
-        'entity': 'contacts',
-        'count': contacts.length - maxContacts!,
-      });
-    }
+    return _wrap(() async {
+      final box = await _box(_boxContacts);
+      await _safeWrite('saveContacts clear', () => box.clear());
+      final limited = maxContacts != null && contacts.length > maxContacts!
+          ? contacts.sublist(0, maxContacts!)
+          : contacts;
+      final entries = <int, Map<dynamic, dynamic>>{};
+      for (var i = 0; i < limited.length; i++) {
+        entries[i] = contactToMap(limited[i]);
+      }
+      await _safeWrite('saveContacts putAll', () => box.putAll(entries));
+      if (maxContacts != null && contacts.length > maxContacts!) {
+        onMetric?.call('cache_eviction', {
+          'entity': 'contacts',
+          'count': contacts.length - maxContacts!,
+        });
+      }
+    });
   }
 
   @override
-  Future<List<ChatContact>> getContacts() async {
+  Future<ChatResult<List<ChatContact>>> getContacts() {
     _checkNotDisposed();
-    final box = await _box('chat_contacts');
-    return _safeDeserialize(box.values, contactFromMap, boxName: 'contacts');
+    return _wrap(() async {
+      final box = await _box(_boxContacts);
+      return _safeDeserialize(box.values, contactFromMap, boxName: 'contacts');
+    });
   }
 
   // Unreads
 
   @override
-  Future<void> saveUnreads(List<UnreadRoom> unreads) async {
+  Future<ChatResult<void>> saveUnreads(List<UnreadRoom> unreads) {
     _checkNotDisposed();
-    final box = await _box('chat_unreads');
-    final entries = <String, Map<dynamic, dynamic>>{};
-    for (final u in unreads) {
-      entries[u.roomId] = unreadRoomToMap(u);
-    }
-    await _safeWrite('saveUnreads', () => box.putAll(entries));
+    return _wrap(() async {
+      final box = await _box(_boxUnreads);
+      final entries = <String, Map<dynamic, dynamic>>{};
+      for (final u in unreads) {
+        entries[u.roomId] = unreadRoomToMap(u);
+      }
+      await _safeWrite('saveUnreads', () => box.putAll(entries));
+    });
   }
 
   @override
-  Future<List<UnreadRoom>> getUnreads() async {
+  Future<ChatResult<List<UnreadRoom>>> getUnreads() {
     _checkNotDisposed();
-    final box = await _box('chat_unreads');
-    return _safeDeserialize(
-      box.values,
-      (m) => unreadRoomFromMap(m, onWarning: onWarning),
-      boxName: 'unreads',
-    );
+    return _wrap(() async {
+      final box = await _box(_boxUnreads);
+      return _safeDeserialize(
+        box.values,
+        (m) => unreadRoomFromMap(m, onWarning: onWarning),
+        boxName: 'unreads',
+      );
+    });
   }
 
   // Invited rooms
 
   @override
-  Future<void> saveInvitedRooms(List<InvitedRoom> invitedRooms) async {
+  Future<ChatResult<void>> saveInvitedRooms(List<InvitedRoom> invitedRooms) {
     _checkNotDisposed();
-    final box = await _box('chat_invited');
-    await _safeWrite('saveInvitedRooms clear', () => box.clear());
-    final entries = <int, Map<dynamic, dynamic>>{};
-    for (var i = 0; i < invitedRooms.length; i++) {
-      entries[i] = invitedRoomToMap(invitedRooms[i]);
-    }
-    await _safeWrite('saveInvitedRooms putAll', () => box.putAll(entries));
+    return _wrap(() async {
+      final box = await _box(_boxInvited);
+      await _safeWrite('saveInvitedRooms clear', () => box.clear());
+      final entries = <int, Map<dynamic, dynamic>>{};
+      for (var i = 0; i < invitedRooms.length; i++) {
+        entries[i] = invitedRoomToMap(invitedRooms[i]);
+      }
+      await _safeWrite('saveInvitedRooms putAll', () => box.putAll(entries));
+    });
   }
 
   @override
-  Future<List<InvitedRoom>> getInvitedRooms() async {
+  Future<ChatResult<List<InvitedRoom>>> getInvitedRooms() {
     _checkNotDisposed();
-    final box = await _box('chat_invited');
-    return _safeDeserialize(box.values, invitedRoomFromMap, boxName: 'invited');
+    return _wrap(() async {
+      final box = await _box(_boxInvited);
+      return _safeDeserialize(
+        box.values,
+        invitedRoomFromMap,
+        boxName: 'invited',
+      );
+    });
   }
 
   // Unreads (individual)
 
   @override
-  Future<void> deleteUnread(String roomId) async {
+  Future<ChatResult<void>> deleteUnread(String roomId) {
     _checkNotDisposed();
-    final box = await _box('chat_unreads');
-    await _safeWrite('deleteUnread', () => box.delete(roomId));
+    return _wrap(() async {
+      final box = await _box(_boxUnreads);
+      await _safeWrite('deleteUnread', () => box.delete(roomId));
+    });
   }
 
   // Offline queue
 
   @override
-  Future<void> saveOfflineQueue(List<Map<String, dynamic>> operations) async {
+  Future<ChatResult<void>> saveOfflineQueue(
+    List<Map<String, dynamic>> operations,
+  ) {
     _checkNotDisposed();
-    final box = await _box('chat_offline_queue');
-    final limited =
-        maxOfflineQueueSize != null && operations.length > maxOfflineQueueSize!
-        ? operations.sublist(operations.length - maxOfflineQueueSize!)
-        : operations;
-    final entries = <int, Map<dynamic, dynamic>>{};
-    for (var i = 0; i < limited.length; i++) {
-      entries[i] = limited[i];
-    }
-    await _safeWrite('saveOfflineQueue putAll', () => box.putAll(entries));
-    final keysToRemove = box.keys
-        .where((k) => k is int && k >= limited.length)
-        .toList();
-    if (keysToRemove.isNotEmpty) {
+    return _wrap(() async {
+      final box = await _box(_boxOfflineQueue);
+      final limited =
+          maxOfflineQueueSize != null &&
+              operations.length > maxOfflineQueueSize!
+          ? operations.sublist(operations.length - maxOfflineQueueSize!)
+          : operations;
+      final entries = <int, Map<dynamic, dynamic>>{};
+      for (var i = 0; i < limited.length; i++) {
+        entries[i] = limited[i];
+      }
+      await _safeWrite('saveOfflineQueue putAll', () => box.putAll(entries));
+      final keysToRemove = box.keys
+          .where((k) => k is int && k >= limited.length)
+          .toList();
+      if (keysToRemove.isNotEmpty) {
+        await _safeWrite(
+          'saveOfflineQueue trim',
+          () => box.deleteAll(keysToRemove),
+        );
+      }
+      if (maxOfflineQueueSize != null &&
+          operations.length > maxOfflineQueueSize!) {
+        onMetric?.call('cache_eviction', {
+          'entity': 'offlineQueue',
+          'count': operations.length - maxOfflineQueueSize!,
+        });
+      }
+    });
+  }
+
+  @override
+  Future<ChatResult<List<Map<String, dynamic>>>> getOfflineQueue() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxOfflineQueue);
+      return box.values.map((e) => Map<String, dynamic>.from(e)).toList();
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> clearOfflineQueue() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxOfflineQueue);
+      await _safeWrite('clearOfflineQueue', () => box.clear());
+    });
+  }
+
+  // Kicked-rooms registry — see [ChatLocalDatasource.markKicked].
+  // Stored in `_metaBox` (the same scratch box used for
+  // `messageRoomIds`, `schemaVersion`, etc.) under the key
+  // `kickedRoomIds`. Persists across cold starts so a user kicked
+  // from a group keeps the chat visible (read-only) after a
+  // restart — WhatsApp-parity. Cleared on admin re-add via
+  // `unmarkKicked` or by an explicit
+  // `ChatRoomOption.deleteKickedChat` tap from the room options
+  // menu (host wires that to `unmarkKicked` + `hideRoom`).
+  static const _kickedRoomIdsKey = 'kickedRoomIds';
+
+  Set<String> _readKickedRoomIds() {
+    final data = _metaBox.get(_kickedRoomIdsKey);
+    if (data == null) return <String>{};
+    final ids = data['ids'];
+    if (ids is List) return ids.cast<String>().toSet();
+    return <String>{};
+  }
+
+  @override
+  Future<ChatResult<void>> markKicked(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final ids = _readKickedRoomIds()..add(roomId);
       await _safeWrite(
-        'saveOfflineQueue trim',
-        () => box.deleteAll(keysToRemove),
+        'markKicked',
+        () => _metaBox.put(_kickedRoomIdsKey, {'ids': ids.toList()}),
       );
-    }
-    if (maxOfflineQueueSize != null &&
-        operations.length > maxOfflineQueueSize!) {
-      onMetric?.call('cache_eviction', {
-        'entity': 'offlineQueue',
-        'count': operations.length - maxOfflineQueueSize!,
-      });
-    }
+    });
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getOfflineQueue() async {
+  Future<ChatResult<void>> unmarkKicked(String roomId) {
     _checkNotDisposed();
-    final box = await _box('chat_offline_queue');
-    return box.values.map((e) => Map<String, dynamic>.from(e)).toList();
+    return _wrap(() async {
+      final ids = _readKickedRoomIds();
+      if (!ids.remove(roomId)) return;
+      await _safeWrite(
+        'unmarkKicked',
+        () => _metaBox.put(_kickedRoomIdsKey, {'ids': ids.toList()}),
+      );
+    });
   }
 
   @override
-  Future<void> clearOfflineQueue() async {
+  Future<ChatResult<Set<String>>> getKickedRoomIds() {
     _checkNotDisposed();
-    final box = await _box('chat_offline_queue');
-    await _safeWrite('clearOfflineQueue', () => box.clear());
+    return _wrap(() async => _readKickedRoomIds());
   }
 
   // Reactions
 
   @override
-  Future<void> saveReactions(
+  Future<ChatResult<void>> saveReactions(
     String roomId,
     String messageId,
     List<AggregatedReaction> reactions,
-  ) async {
+  ) {
     _checkNotDisposed();
-    final box = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
-    await _safeWrite(
-      'saveReactions',
-      () =>
-          box.put(messageId, {'items': reactions.map(reactionToMap).toList()}),
-    );
+    return _wrap(() async {
+      final box = await _box(_reactionsBoxName(roomId));
+      await _safeWrite(
+        'saveReactions',
+        () => box.put(messageId, {
+          'items': reactions.map(reactionToMap).toList(),
+        }),
+      );
+    });
   }
 
   @override
-  Future<List<AggregatedReaction>> getReactions(
+  Future<ChatResult<List<AggregatedReaction>>> getReactions(
     String roomId,
     String messageId,
-  ) async {
+  ) {
     _checkNotDisposed();
-    final box = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
-    final raw = box.get(messageId);
-    if (raw == null) return [];
-    final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    return _safeDeserialize(
-      items,
-      (m) => reactionFromMap(m),
-      boxName: 'reactions',
-    );
+    return _wrap(() async {
+      final box = await _box(_reactionsBoxName(roomId));
+      final raw = box.get(messageId);
+      if (raw == null) return <AggregatedReaction>[];
+      final items =
+          (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
+      return _safeDeserialize(
+        items,
+        (m) => reactionFromMap(m),
+        boxName: 'reactions',
+      );
+    });
   }
 
   @override
-  Future<void> deleteReactions(String roomId, String messageId) async {
+  Future<ChatResult<void>> deleteReactions(String roomId, String messageId) {
     _checkNotDisposed();
-    final box = await _box('chat_reactions_${_sanitizeForBoxName(roomId)}');
-    await _safeWrite('deleteReactions', () => box.delete(messageId));
+    return _wrap(() async {
+      final box = await _box(_reactionsBoxName(roomId));
+      await _safeWrite('deleteReactions', () => box.delete(messageId));
+    });
   }
 
   // Pins
 
   @override
-  Future<void> savePins(String roomId, List<MessagePin> pins) async {
+  Future<ChatResult<void>> savePins(String roomId, List<MessagePin> pins) {
     _checkNotDisposed();
-    final box = await _box('chat_pins');
-    await _safeWrite(
-      'savePins',
-      () => box.put(roomId, {'items': pins.map(pinToMap).toList()}),
-    );
+    return _wrap(() async {
+      final box = await _box(_boxPins);
+      await _safeWrite(
+        'savePins',
+        () => box.put(roomId, {'items': pins.map(pinToMap).toList()}),
+      );
+    });
   }
 
   @override
-  Future<List<MessagePin>> getPins(String roomId) async {
+  Future<ChatResult<List<MessagePin>>> getPins(String roomId) {
     _checkNotDisposed();
-    final box = await _box('chat_pins');
-    final raw = box.get(roomId);
-    if (raw == null) return [];
-    final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    return _safeDeserialize(items, (m) => pinFromMap(m), boxName: 'pins');
+    return _wrap(() async {
+      final box = await _box(_boxPins);
+      final raw = box.get(roomId);
+      if (raw == null) return <MessagePin>[];
+      final items =
+          (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
+      return _safeDeserialize(items, (m) => pinFromMap(m), boxName: 'pins');
+    });
   }
 
   @override
-  Future<void> deletePin(String roomId, String messageId) async {
+  Future<ChatResult<void>> deletePin(String roomId, String messageId) {
     _checkNotDisposed();
-    final box = await _box('chat_pins');
-    final raw = box.get(roomId);
-    if (raw == null) return;
-    final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    final filtered = items
-        .where((m) => Map<String, dynamic>.from(m)['messageId'] != messageId)
-        .toList();
-    await _safeWrite('deletePin', () => box.put(roomId, {'items': filtered}));
+    return _wrap(() async {
+      final box = await _box(_boxPins);
+      final raw = box.get(roomId);
+      if (raw == null) return;
+      final items =
+          (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
+      final filtered = items
+          .where((m) => Map<String, dynamic>.from(m)['messageId'] != messageId)
+          .toList();
+      await _safeWrite('deletePin', () => box.put(roomId, {'items': filtered}));
+    });
   }
 
   // Read receipts
 
   @override
-  Future<void> saveReceipts(String roomId, List<ReadReceipt> receipts) async {
+  Future<ChatResult<void>> saveReceipts(
+    String roomId,
+    List<ReadReceipt> receipts,
+  ) {
     _checkNotDisposed();
-    final box = await _box('chat_receipts');
-    await _safeWrite(
-      'saveReceipts',
-      () => box.put(roomId, {'items': receipts.map(receiptToMap).toList()}),
-    );
+    return _wrap(() async {
+      final box = await _box(_boxReceipts);
+      await _safeWrite(
+        'saveReceipts',
+        () => box.put(roomId, {'items': receipts.map(receiptToMap).toList()}),
+      );
+    });
   }
 
   @override
-  Future<List<ReadReceipt>> getReceipts(String roomId) async {
+  Future<ChatResult<List<ReadReceipt>>> getReceipts(String roomId) {
     _checkNotDisposed();
-    final box = await _box('chat_receipts');
-    final raw = box.get(roomId);
-    if (raw == null) return [];
-    final items = (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
-    return _safeDeserialize(
-      items,
-      (m) => receiptFromMap(m),
-      boxName: 'receipts',
-    );
+    return _wrap(() async {
+      final box = await _box(_boxReceipts);
+      final raw = box.get(roomId);
+      if (raw == null) return <ReadReceipt>[];
+      final items =
+          (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
+      return _safeDeserialize(
+        items,
+        (m) => receiptFromMap(m),
+        boxName: 'receipts',
+      );
+    });
   }
 
-  // TTL expiration
-
-  Future<void> _expireOldMessages() async {
-    final cutoffPrefix = DateTime.now()
-        .toUtc()
-        .subtract(messageTtl!)
-        .toIso8601String();
-    for (final roomId in _getMessageRoomIds()) {
-      final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
-      final box = await _box(name);
-      // Keys are `{timestamp}_{id}`, sorted ascending. All keys < cutoff are expired.
-      final keysToRemove = box.keys
-          .cast<String>()
-          .where((k) => k.compareTo(cutoffPrefix) < 0)
-          .toList();
-      if (keysToRemove.isNotEmpty) {
-        await _safeWrite(
-          'expireOldMessages',
-          () => box.deleteAll(keysToRemove),
-        );
-        onMetric?.call('cache_ttl_expired', {
-          'roomId': roomId,
-          'count': keysToRemove.length,
-        });
-      }
-    }
-  }
+  // TTL expiration — delegates to the eviction policy. Kept as a
+  // private method so the create() factory can call it inline.
+  Future<void> _expireOldMessages() => _eviction.expireOldMessages(
+    trackedRoomIds: _getMessageRoomIds(),
+    boxFor: (roomId) => _box(_messagesBoxName(roomId)),
+  );
 
   // Entity eviction
 
   Future<void> _evictRoomsIfNeeded() async {
     if (maxRooms == null) return;
-    final box = await _box('chat_rooms');
+    final box = await _box(_boxRooms);
     if (box.length <= maxRooms!) return;
     final keys = box.keys.cast<String>().toList();
     final toRemove = keys.sublist(0, keys.length - maxRooms!);
     await _safeWrite('evictRooms', () => box.deleteAll(toRemove));
     // Cascade: clean orphaned data for evicted rooms (best-effort, no rollback)
-    final detailsBox = await _box('chat_room_details');
-    final unreadsBox = await _box('chat_unreads');
-    final invitedBox = await _box('chat_invited');
-    final pinsBox = await _box('chat_pins');
-    final receiptsBox = await _box('chat_receipts');
+    final detailsBox = await _box(_boxRoomDetails);
+    final unreadsBox = await _box(_boxUnreads);
+    final invitedBox = await _box(_boxInvited);
+    final pinsBox = await _box(_boxPins);
+    final receiptsBox = await _box(_boxReceipts);
     for (final roomId in toRemove) {
-      await _safeWrite('evictRooms details', () => detailsBox.delete(roomId));
-      await _safeWrite('evictRooms unreads', () => unreadsBox.delete(roomId));
-      await clearMessages(roomId);
-      final reactionsBox = await _box(
-        'chat_reactions_${_sanitizeForBoxName(roomId)}',
-      );
-      await _safeWrite('evictRooms reactions', () => reactionsBox.clear());
-      await _safeWrite('evictRooms pins', () => pinsBox.delete(roomId));
-      await _safeWrite('evictRooms receipts', () => receiptsBox.delete(roomId));
-      await _safeWrite(
-        'evictRooms clearedAt',
-        () => _metaBox.delete('clearedAt_$roomId'),
-      );
-      await clearPendingMessages(roomId);
+      await _withRoomLock(roomId, () async {
+        await _safeWrite('evictRooms details', () => detailsBox.delete(roomId));
+        await _safeWrite('evictRooms unreads', () => unreadsBox.delete(roomId));
+        await _clearMessagesUnlocked(roomId);
+        final reactionsBox = await _box(_reactionsBoxName(roomId));
+        await _safeWrite('evictRooms reactions', () => reactionsBox.clear());
+        await _safeWrite('evictRooms pins', () => pinsBox.delete(roomId));
+        await _safeWrite(
+          'evictRooms receipts',
+          () => receiptsBox.delete(roomId),
+        );
+        await _safeWrite(
+          'evictRooms clearedAt',
+          () => _metaBox.delete('clearedAt_$roomId'),
+        );
+        await clearPendingMessages(roomId);
+      });
     }
     // Remove invited entries for evicted rooms
     final invitedEntries = invitedBox.toMap().entries.where((e) {
@@ -1080,7 +1240,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
 
   Future<void> _evictUsersIfNeeded() async {
     if (maxUsers == null) return;
-    final box = await _box('chat_users');
+    final box = await _box(_boxUsers);
     if (box.length <= maxUsers!) return;
     final keys = box.keys.cast<String>().toList();
     final toRemove = keys.sublist(0, keys.length - maxUsers!);
@@ -1095,12 +1255,12 @@ class HiveChatDatasource implements ChatLocalDatasource {
 
   Future<Map<String, dynamic>> exportData() async {
     _checkNotDisposed();
-    final roomsBox = await _box('chat_rooms');
-    final detailsBox = await _box('chat_room_details');
-    final usersBox = await _box('chat_users');
-    final contactsBox = await _box('chat_contacts');
-    final unreadsBox = await _box('chat_unreads');
-    final invitedBox = await _box('chat_invited');
+    final roomsBox = await _box(_boxRooms);
+    final detailsBox = await _box(_boxRoomDetails);
+    final usersBox = await _box(_boxUsers);
+    final contactsBox = await _box(_boxContacts);
+    final unreadsBox = await _box(_boxUnreads);
+    final invitedBox = await _box(_boxInvited);
 
     final rooms = roomsBox.values
         .map((e) => Map<String, dynamic>.from(e))
@@ -1182,12 +1342,12 @@ class HiveChatDatasource implements ChatLocalDatasource {
       }
     }
 
-    final roomsBox = await _box('chat_rooms');
-    final detailsBox = await _box('chat_room_details');
-    final usersBox = await _box('chat_users');
-    final contactsBox = await _box('chat_contacts');
-    final unreadsBox = await _box('chat_unreads');
-    final invitedBox = await _box('chat_invited');
+    final roomsBox = await _box(_boxRooms);
+    final detailsBox = await _box(_boxRoomDetails);
+    final usersBox = await _box(_boxUsers);
+    final contactsBox = await _box(_boxContacts);
+    final unreadsBox = await _box(_boxUnreads);
+    final invitedBox = await _box(_boxInvited);
 
     await _safeWrite('importData clear rooms', () => roomsBox.clear());
     await _safeWrite('importData clear details', () => detailsBox.clear());
@@ -1237,40 +1397,65 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
   }
 
+  // Cache manager TTL timestamps. See [ChatLocalDatasource.loadCacheTimestamps].
+  static const _cacheManagerTimestampsKey = 'cacheManagerTimestamps';
+
+  @override
+  Future<Map<String, DateTime>> loadCacheTimestamps() async {
+    _checkNotDisposed();
+    final data = _metaBox.get(_cacheManagerTimestampsKey);
+    if (data == null) return const <String, DateTime>{};
+    final result = <String, DateTime>{};
+    for (final entry in data.entries) {
+      final key = entry.key;
+      final value = entry.value;
+      if (key is String && value is int) {
+        result[key] = DateTime.fromMillisecondsSinceEpoch(value, isUtc: true);
+      }
+    }
+    return result;
+  }
+
+  @override
+  Future<void> saveCacheTimestamps(Map<String, DateTime> timestamps) async {
+    _checkNotDisposed();
+    final payload = <String, int>{
+      for (final entry in timestamps.entries)
+        entry.key: entry.value.toUtc().millisecondsSinceEpoch,
+    };
+    await _safeWrite(
+      'saveCacheTimestamps',
+      () => _metaBox.put(_cacheManagerTimestampsKey, payload),
+    );
+  }
+
   // Lifecycle
 
   @override
-  Future<void> clear() async {
-    // Clear already-open boxes
-    for (final box in _openBoxes.values) {
-      if (box.isOpen) {
-        await _safeWrite('clear box', () => box.clear());
+  Future<ChatResult<void>> clear() {
+    return _wrap(() async {
+      await _registry.clearAll();
+      // Delete message boxes that aren't open from disk
+      for (final roomId in _getMessageRoomIds()) {
+        final name = _messagesBoxName(roomId);
+        if (!_registry.isTracked(name)) {
+          try {
+            await Hive.deleteBoxFromDisk(name);
+          } catch (_) {}
+        }
       }
-    }
-    // Delete message boxes that aren't open from disk
-    for (final roomId in _getMessageRoomIds()) {
-      final name = 'chat_messages_${_sanitizeForBoxName(roomId)}';
-      if (!_openBoxes.containsKey(name)) {
-        try {
-          await Hive.deleteBoxFromDisk(name);
-        } catch (_) {}
+      _msgIdIndex.clear();
+      if (_metaBox.isOpen) {
+        await _safeWrite('clear metaBox', () => _metaBox.clear());
       }
-    }
-    _msgIdIndex.clear();
-    if (_metaBox.isOpen) {
-      await _safeWrite('clear metaBox', () => _metaBox.clear());
-    }
+    });
   }
 
   @override
   Future<void> dispose() async {
     _isDisposed = true;
-    _ttlTimer?.cancel();
-    _ttlTimer = null;
-    for (final box in _openBoxes.values) {
-      if (box.isOpen) await box.close();
-    }
-    _openBoxes.clear();
+    _eviction.stopTtlTimer();
+    await _registry.closeAll();
     if (_metaBox.isOpen) await _metaBox.close();
   }
 }

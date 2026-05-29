@@ -2,81 +2,89 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 void main() {
-  group('Result accessors', () {
-    test('isSuccess/isFailure and dataOrNull/failureOrNull match Success', () {
-      const r = Success<int>(7);
-      expect(r.isSuccess, true);
-      expect(r.isFailure, false);
-      expect(r.dataOrNull, 7);
-      expect(r.failureOrNull, isNull);
-    });
+  group('ChatResult accessors', () {
+    test(
+      'isSuccess/isFailure and dataOrNull/failureOrNull match ChatSuccess',
+      () {
+        const r = ChatSuccess<int>(7);
+        expect(r.isSuccess, true);
+        expect(r.isFailure, false);
+        expect(r.dataOrNull, 7);
+        expect(r.failureOrNull, isNull);
+      },
+    );
 
-    test('isSuccess/isFailure and dataOrNull/failureOrNull match Failure', () {
-      const r = Failure<int>(NotFoundFailure());
-      expect(r.isSuccess, false);
-      expect(r.isFailure, true);
-      expect(r.dataOrNull, isNull);
-      expect(r.failureOrNull, isA<NotFoundFailure>());
-    });
+    test(
+      'isSuccess/isFailure and dataOrNull/failureOrNull match ChatFailureResult',
+      () {
+        const r = ChatFailureResult<int>(NotFoundFailure());
+        expect(r.isSuccess, false);
+        expect(r.isFailure, true);
+        expect(r.dataOrNull, isNull);
+        expect(r.failureOrNull, isA<NotFoundFailure>());
+      },
+    );
   });
 
-  group('Result.fold', () {
+  group('ChatResult.fold', () {
     test('runs the success branch', () {
-      final out = const Success<int>(10).fold((f) => -1, (d) => d * 2);
+      final out = const ChatSuccess<int>(10).fold((f) => -1, (d) => d * 2);
       expect(out, 20);
     });
 
     test('runs the failure branch', () {
-      final out = const Failure<int>(
+      final out = const ChatFailureResult<int>(
         NetworkFailure(),
       ).fold((f) => f.message, (d) => 'never');
       expect(out, contains('Network'));
     });
   });
 
-  group('Result.map', () {
-    test('transforms Success', () {
-      final out = const Success<int>(3).map((v) => 'v$v');
-      expect(out, isA<Success<String>>());
+  group('ChatResult.map', () {
+    test('transforms ChatSuccess', () {
+      final out = const ChatSuccess<int>(3).map((v) => 'v$v');
+      expect(out, isA<ChatSuccess<String>>());
       expect(out.dataOrNull, 'v3');
     });
 
-    test('keeps Failure', () {
-      final out = const Failure<int>(NotFoundFailure()).map((v) => 'v$v');
-      expect(out, isA<Failure<String>>());
+    test('keeps ChatFailureResult', () {
+      final out = const ChatFailureResult<int>(
+        NotFoundFailure(),
+      ).map((v) => 'v$v');
+      expect(out, isA<ChatFailureResult<String>>());
       expect(out.failureOrNull, isA<NotFoundFailure>());
     });
   });
 
-  group('Result.flatMap', () {
-    test('chains on Success', () async {
-      final out = await const Success<int>(
+  group('ChatResult.flatMap', () {
+    test('chains on ChatSuccess', () async {
+      final out = await const ChatSuccess<int>(
         2,
-      ).flatMap<String>((v) async => Success('v$v'));
+      ).flatMap<String>((v) async => ChatSuccess('v$v'));
       expect(out.dataOrNull, 'v2');
     });
 
-    test('short-circuits on Failure', () async {
-      final out = await const Failure<int>(
+    test('short-circuits on ChatFailureResult', () async {
+      final out = await const ChatFailureResult<int>(
         NetworkFailure(),
-      ).flatMap<String>((v) async => Success('reached'));
+      ).flatMap<String>((v) async => const ChatSuccess('reached'));
       expect(out.isFailure, true);
     });
   });
 
   group('Equality and toString', () {
-    test('Success equality + hashCode', () {
-      const a = Success<int>(7);
-      const b = Success<int>(7);
-      const c = Success<int>(8);
+    test('ChatSuccess equality + hashCode', () {
+      const a = ChatSuccess<int>(7);
+      const b = ChatSuccess<int>(7);
+      const c = ChatSuccess<int>(8);
       expect(a, b);
       expect(a.hashCode, b.hashCode);
       expect(a, isNot(c));
-      expect(a.toString(), 'Success(7)');
+      expect(a.toString(), 'ChatSuccess(7)');
     });
 
-    test('Failure toString includes the failure type', () {
-      const a = Failure<int>(NotFoundFailure('nope'));
+    test('ChatFailureResult toString includes the failure type', () {
+      const a = ChatFailureResult<int>(NotFoundFailure('nope'));
       expect(a.toString(), contains('NotFoundFailure'));
     });
   });

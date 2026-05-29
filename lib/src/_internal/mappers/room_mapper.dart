@@ -40,6 +40,7 @@ class RoomMapper {
     muted: dto.muted,
     pinned: dto.pinned,
     hidden: dto.hidden,
+    selfMuted: dto.selfMuted,
     createdAt: dto.createdAt != null ? DateTime.tryParse(dto.createdAt!) : null,
     avatarUrl: dto.avatarUrl,
     custom: dto.custom,
@@ -80,6 +81,7 @@ class RoomMapper {
     int? lastMessageDurationMs;
     bool lastMessageIsDeleted = false;
     String? lastMessageReactionEmoji;
+    ReceiptStatus? lastMessageReceipt;
 
     if (lastMsg is Map<String, dynamic>) {
       lastMessage = _asString(lastMsg['body']) ?? _asString(lastMsg['text']);
@@ -104,6 +106,7 @@ class RoomMapper {
       }
       lastMessageIsDeleted = (lastMsg['isDeleted'] as bool?) ?? false;
       lastMessageReactionEmoji = _asString(lastMsg['reaction']);
+      lastMessageReceipt = _parseReceiptStatus(_asString(lastMsg['receipt']));
     } else {
       lastMessage = json['lastMessage'] as String?;
       final ts = json['lastMessageTime'] as String?;
@@ -119,6 +122,9 @@ class RoomMapper {
       if (dur is num) lastMessageDurationMs = dur.toInt();
       lastMessageIsDeleted = (json['lastMessageIsDeleted'] as bool?) ?? false;
       lastMessageReactionEmoji = json['lastMessageReactionEmoji'] as String?;
+      lastMessageReceipt = _parseReceiptStatus(
+        json['lastMessageReceipt'] as String?,
+      );
     }
 
     return UnreadRoom(
@@ -134,6 +140,7 @@ class RoomMapper {
       lastMessageDurationMs: lastMessageDurationMs,
       lastMessageIsDeleted: lastMessageIsDeleted,
       lastMessageReactionEmoji: lastMessageReactionEmoji,
+      lastMessageReceipt: lastMessageReceipt,
       name: json['name'] as String?,
       avatarUrl: json['avatarUrl'] as String?,
       type: json['type'] as String?,
@@ -154,6 +161,13 @@ class RoomMapper {
     'audio' => MessageType.audio,
     'forward' => MessageType.forward,
     'regular' => MessageType.regular,
+    _ => null,
+  };
+
+  static ReceiptStatus? _parseReceiptStatus(String? value) => switch (value) {
+    'sent' => ReceiptStatus.sent,
+    'delivered' => ReceiptStatus.delivered,
+    'read' => ReceiptStatus.read,
     _ => null,
   };
 

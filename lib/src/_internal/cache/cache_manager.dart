@@ -1,24 +1,59 @@
+import 'dart:async';
+import 'dart:collection';
+
+import 'package:meta/meta.dart' show experimental;
+
 import '../../core/result.dart';
 import 'cache_config.dart';
-import 'cache_policy.dart';
+import '../../cache/cache_policy.dart';
+import '../../cache/local_datasource.dart';
 
+@experimental
 typedef MetricCallback =
     void Function(String metric, Map<String, dynamic> data);
 
 class CacheManager {
   final CacheConfig config;
   final MetricCallback? onMetric;
-  final Map<String, DateTime> _timestamps = {};
+  final ChatLocalDatasource? datasource;
+  final Duration persistDebounce;
+  final int maxEntries;
 
-  CacheManager({required this.config, this.onMetric});
+  final LinkedHashMap<String, DateTime> _timestamps =
+      LinkedHashMap<String, DateTime>();
+  Timer? _persistTimer;
+  bool _dirty = false;
+  bool _disposed = false;
+
+  CacheManager({
+    required this.config,
+    this.onMetric,
+    this.datasource,
+    this.persistDebounce = const Duration(seconds: 5),
+    this.maxEntries = 1000,
+  }) : assert(maxEntries > 0, 'maxEntries must be > 0');
 
   CachePolicy get defaultPolicy => config.defaultReadPolicy;
 
-  Future<Result<T>> resolve<T>({
+  /// Loads previously-persisted TTL timestamps from [datasource] so
+  /// `cacheFirst` honours the TTL across cold starts. Safe to call
+  /// multiple times; the last call wins.
+  Future<void> restore() async {
+    if (_disposed || datasource == null) return;
+    final loaded = await datasource!.loadCacheTimestamps();
+    _timestamps
+      ..clear()
+      ..addAll(loaded);
+    while (_timestamps.length > maxEntries) {
+      _timestamps.remove(_timestamps.keys.first);
+    }
+  }
+
+  Future<ChatResult<T>> resolve<T>({
     required String key,
     required Duration ttl,
     required Future<T?> Function() fromCache,
-    required Future<Result<T>> Function() fromNetwork,
+    required Future<ChatResult<T>> Function() fromNetwork,
     required Future<void> Function(T data) saveToCache,
     CachePolicy? policy,
   }) async {
@@ -32,22 +67,24 @@ class CacheManager {
         final cached = await fromCache();
         if (cached != null) {
           onMetric?.call('cache_hit', {'key': key, 'policy': 'cacheOnly'});
-          return Success(cached);
+          return ChatSuccess(cached);
         }
         onMetric?.call('cache_miss', {'key': key, 'policy': 'cacheOnly'});
-        return const Failure(NetworkFailure('No cached data available'));
+        return const ChatFailureResult(
+          NetworkFailure('No cached data available'),
+        );
 
       case CachePolicy.networkFirst:
         final result = await fromNetwork();
         if (result.isSuccess) {
           await saveToCache(result.dataOrNull as T);
-          _timestamps[key] = DateTime.now();
+          _markFresh(key);
           return result;
         }
         final cached = await fromCache();
         if (cached != null) {
           onMetric?.call('cache_hit', {'key': key, 'policy': 'networkFirst'});
-          return Success(cached);
+          return ChatSuccess(cached);
         }
         onMetric?.call('cache_miss', {'key': key, 'policy': 'networkFirst'});
         return result;
@@ -57,7 +94,7 @@ class CacheManager {
           final cached = await fromCache();
           if (cached != null) {
             onMetric?.call('cache_hit', {'key': key, 'policy': 'cacheFirst'});
-            return Success(cached);
+            return ChatSuccess(cached);
           }
         }
         final cacheFirstResult = await _fromNetworkAndCache(
@@ -72,24 +109,47 @@ class CacheManager {
               'key': key,
               'policy': 'cacheFirst',
             });
-            return Success(stale);
+            return ChatSuccess(stale);
           }
         }
         return cacheFirstResult;
     }
   }
 
-  Future<Result<T>> _fromNetworkAndCache<T>(
+  Future<ChatResult<T>> _fromNetworkAndCache<T>(
     String key,
-    Future<Result<T>> Function() fromNetwork,
+    Future<ChatResult<T>> Function() fromNetwork,
     Future<void> Function(T data) saveToCache,
   ) async {
     final result = await fromNetwork();
     if (result.isSuccess) {
       await saveToCache(result.dataOrNull as T);
-      _timestamps[key] = DateTime.now();
+      _markFresh(key);
     }
     return result;
+  }
+
+  void _markFresh(String key) {
+    _timestamps.remove(key);
+    _timestamps[key] = DateTime.now();
+    while (_timestamps.length > maxEntries) {
+      _timestamps.remove(_timestamps.keys.first);
+    }
+    _schedulePersist();
+  }
+
+  void _schedulePersist() {
+    if (datasource == null || _disposed) return;
+    _dirty = true;
+    _persistTimer ??= Timer(persistDebounce, _persist);
+  }
+
+  Future<void> _persist() async {
+    _persistTimer = null;
+    if (!_dirty) return;
+    _dirty = false;
+    final snapshot = Map<String, DateTime>.of(_timestamps);
+    await datasource?.saveCacheTimestamps(snapshot);
   }
 
   bool _isValid(String key, Duration ttl) {
@@ -98,11 +158,33 @@ class CacheManager {
     return DateTime.now().difference(ts) < ttl;
   }
 
-  void invalidate(String key) => _timestamps.remove(key);
-
-  void invalidatePrefix(String prefix) {
-    _timestamps.removeWhere((k, _) => k == prefix || k.startsWith('$prefix:'));
+  void invalidate(String key) {
+    if (_timestamps.remove(key) != null) _schedulePersist();
   }
 
-  void clear() => _timestamps.clear();
+  void invalidatePrefix(String prefix) {
+    final before = _timestamps.length;
+    _timestamps.removeWhere((k, _) => k == prefix || k.startsWith('$prefix:'));
+    if (_timestamps.length != before) _schedulePersist();
+  }
+
+  void clear() {
+    if (_timestamps.isEmpty) return;
+    _timestamps.clear();
+    _schedulePersist();
+  }
+
+  /// Flushes any pending persist write synchronously and stops the
+  /// debounce timer. Safe to call multiple times.
+  Future<void> dispose() async {
+    if (_disposed) return;
+    _disposed = true;
+    _persistTimer?.cancel();
+    _persistTimer = null;
+    if (_dirty) {
+      _dirty = false;
+      final snapshot = Map<String, DateTime>.of(_timestamps);
+      await datasource?.saveCacheTimestamps(snapshot);
+    }
+  }
 }

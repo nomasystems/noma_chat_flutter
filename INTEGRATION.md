@@ -114,6 +114,103 @@ The backend's admin endpoints (`/v1/admin/*`) are also exposed via `client.admin
 - **Webhook circuit breaker**: the backend has a circuit breaker on webhook delivery. Not directly relevant to the SDK, but if your app relies on webhook delivery for some flow, expect transient delays.
 - **Multinodo cluster**: the backend may run as a cluster. Session lookups, NRTE events, scheduled messages, and admin config are cluster-coordinated. The SDK is unaware of cluster topology.
 
+## Avatar / profile-photo pipeline
+
+The SDK ships a WhatsApp-style avatar flow used by `ProfileSettingsPage`,
+`GroupInfoPage`, `GroupSetupPage` and the standalone `AvatarPickerField`.
+Two integration points matter for host apps.
+
+### 1. Pluggable upload — `AvatarStorage`
+
+By default the SDK uploads avatar bytes through
+`client.attachments.upload(...)` (the chat backend's generic attachment
+endpoint). Apps with their own image hosting (Firebase Storage, S3,
+Cloudinary, a custom CHT/wb pipeline, …) plug their own
+implementation:
+
+```dart
+class FirebaseAvatarStorage implements AvatarStorage {
+  FirebaseAvatarStorage(this._storage);
+  final FirebaseStorage _storage;
+
+  @override
+  Future<String> upload(Uint8List bytes, String mimeType, AvatarKind kind) async {
+    final path = kind == AvatarKind.user
+        ? 'avatars/users/${const Uuid().v4()}'
+        : 'avatars/rooms/${const Uuid().v4()}';
+    final ref = _storage.ref(path);
+    await ref.putData(bytes, SettableMetadata(contentType: mimeType));
+    return ref.getDownloadURL();
+  }
+
+  @override
+  Future<void> delete(String url) async {
+    try { await _storage.refFromURL(url).delete(); } catch (_) {}
+  }
+
+  @override
+  Future<String?> thumbnailUrl(String url, {required int targetSizePx}) async {
+    // Firebase's Image Extension exposes resized variants via a query
+    // param. Return null when the deployment doesn't have it.
+    return '$url?w=$targetSizePx&h=$targetSizePx&fit=crop';
+  }
+}
+
+final chat = await NomaChat.create(
+  ...,
+  avatarStorage: FirebaseAvatarStorage(FirebaseStorage.instance),
+);
+```
+
+If you don't pass `avatarStorage`, `DefaultAvatarStorage(client)` is
+used. `delete` and `thumbnailUrl` are no-ops in the default — chat
+attachments don't expose deletion and the backend doesn't transcode.
+
+### 2. Platform config for `image_cropper`
+
+`AvatarCropPage` uses the `image_cropper` package (^12.2.1) which
+delegates to native UIs: TOCropViewController on iOS, UCrop on Android.
+Both require platform-specific setup in host apps that consume the SDK:
+
+**iOS (`Info.plist`):**
+
+```xml
+<key>NSCameraUsageDescription</key>
+<string>This app needs camera access to take profile/group photos.</string>
+<key>NSPhotoLibraryUsageDescription</key>
+<string>This app needs gallery access to choose profile/group photos.</string>
+```
+
+These are the same keys `AttachmentPickers` already requires — apps
+that ship chat attachments are already configured.
+
+**Android (`AndroidManifest.xml`):**
+
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+```
+
+UCrop's `UCropActivity` registers itself via the plugin's manifest
+merge — no manual `<activity>` block needed. Camera permission is
+required only when the user invokes "Take photo"; gallery flow doesn't
+need it.
+
+**Both platforms**: the SDK ships `image_picker` and `image_cropper` as
+direct deps in `pubspec.yaml`, so consumers don't re-declare them — they
+inherit transitively.
+
+### 3. WS events the SDK consumes
+
+Two events feed the in-memory state used by the avatar UI:
+
+- `user_updated` — payload `{userId, displayName?, avatarUrl?, bio?, email?}`. The adapter refreshes `_userCache` so any `UserAvatar`/`RoomTile` referencing the user re-renders. When `userId == currentUser.id` (a change pushed from another device), `currentUser` is mirrored. `avatarFieldPresent` flag distinguishes "omitted" from "cleared".
+- `room_updated` — payload `{roomId}`. The adapter invalidates the room detail cache and refetches. The room list rebuilds with the new name/avatar.
+
+Backends that aren't CHT need to emit equivalent events for cross-device
+propagation. If your backend doesn't, the SDK's optimistic updates still
+work for the device that triggered the change — peers see it next time
+they reload.
+
 ## OpenAPI spec
 
 The full backend API is described by an OpenAPI document that your

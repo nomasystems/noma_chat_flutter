@@ -7,6 +7,18 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class _FakeWebSocketChannel implements WebSocketChannel {
+  _FakeWebSocketChannel({bool autoAuthOk = false}) {
+    if (autoAuthOk) {
+      _streamController.onListen = () {
+        scheduleMicrotask(() {
+          if (!_streamController.isClosed) {
+            _streamController.add(jsonEncode({'type': 'auth_ok'}));
+          }
+        });
+      };
+    }
+  }
+
   final _streamController = StreamController<dynamic>.broadcast();
   final _sinkController = StreamController<dynamic>(); // ignore: close_sinks
   @override
@@ -29,6 +41,10 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   dynamic noSuchMethod(Invocation invocation) => null;
 
   void receiveMessage(String message) => _streamController.add(message);
+
+  Future<void> simulateDrop() async {
+    await _streamController.close();
+  }
 
   List<String> get sentMessages =>
       _sinkController.stream.toList() as List<String>;
@@ -600,5 +616,91 @@ void main() {
       await sub.cancel();
       await transport.dispose();
     });
+
+    test('connect() while already connected does not reopen the channel '
+        'nor reset the reconnect counter', () async {
+      final channels = <_FakeWebSocketChannel>[];
+
+      final config = ChatConfig(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        tokenProvider: () async => 'test-token',
+        wsReconnectDelay: const Duration(milliseconds: 5),
+        maxReconnectAttempts: 2,
+      );
+
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) {
+          final channel = _FakeWebSocketChannel(autoAuthOk: true);
+          channels.add(channel);
+          return channel;
+        },
+      );
+
+      await transport.connect();
+      expect(channels, hasLength(1));
+
+      await transport.connect();
+      expect(
+        channels,
+        hasLength(1),
+        reason:
+            'connect() while already connected must be a no-op; it '
+            'must NOT reopen the channel nor reset the reconnect '
+            'counter',
+      );
+
+      await transport.dispose();
+    });
+
+    test(
+      'auth_ok resets reconnect counter so capped attempts apply per '
+      'authenticated session, not for the lifetime of the transport',
+      () async {
+        final channels = <_FakeWebSocketChannel>[];
+
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          wsReconnectDelay: const Duration(milliseconds: 5),
+          maxReconnectAttempts: 2,
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            final channel = _FakeWebSocketChannel(autoAuthOk: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        await transport.connect();
+        expect(channels, hasLength(1));
+
+        await channels[0].simulateDrop();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        expect(channels.length, greaterThanOrEqualTo(2));
+
+        await channels.last.simulateDrop();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        expect(channels.length, greaterThanOrEqualTo(3));
+
+        await channels.last.simulateDrop();
+        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        expect(
+          channels.length,
+          greaterThanOrEqualTo(4),
+          reason:
+              'each successful auth_ok must reset the attempt counter, '
+              'so total reconnects can exceed maxReconnectAttempts when '
+              'auth succeeds in between',
+        );
+
+        await transport.dispose();
+      },
+    );
   });
 }

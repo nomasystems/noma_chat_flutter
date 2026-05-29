@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 void main() {
-  final currentUser = const ChatUser(id: 'me', displayName: 'Me', active: true);
+  const currentUser = ChatUser(id: 'me', displayName: 'Me', active: true);
 
   ChatController makeController({List<ChatUser> otherUsers = const []}) =>
       ChatController(

@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import '../../../_internal/ui_debug_log.dart';
 import '../../theme/chat_theme.dart';
-import '../../utils/date_formatter.dart';
+import '_bubble_metadata.dart';
 
 /// Bubble that renders an image attachment with cached network loading and
 /// tap-to-open behavior.
@@ -50,10 +51,21 @@ class ImageBubble extends StatelessWidget {
                     height: 150,
                     child: Center(child: CircularProgressIndicator()),
                   ),
-                  errorWidget: (_, __, ___) => const SizedBox(
-                    height: 100,
-                    child: Center(child: Icon(Icons.broken_image)),
-                  ),
+                  // Log the real cause of fallback icons. The
+                  // user reported "ícono en vez de foto" — the error
+                  // payload tells us whether the URL is unreachable
+                  // (network/scheme), the server replied 500 (broken
+                  // file_upload backend), or the bytes are corrupt.
+                  errorWidget: (_, url, error) {
+                    uiDebugLog(
+                      'ImageBubble',
+                      'CachedNetworkImage error for $url: $error',
+                    );
+                    return const SizedBox(
+                      height: 100,
+                      child: Center(child: Icon(Icons.broken_image)),
+                    );
+                  },
                 ),
               ),
             ),
@@ -68,27 +80,12 @@ class ImageBubble extends StatelessWidget {
               const SizedBox(height: 2),
               Align(
                 alignment: Alignment.centerRight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (timestamp != null)
-                      Text(
-                        DateFormatter.formatTime(timestamp!),
-                        style:
-                            (isOutgoing
-                                ? theme.outgoingTimestampTextStyle
-                                : theme.incomingTimestampTextStyle) ??
-                            theme.timestampTextStyle ??
-                            TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade600,
-                            ),
-                      ),
-                    if (statusWidget != null) ...[
-                      const SizedBox(width: 4),
-                      statusWidget!,
-                    ],
-                  ],
+                child: BubbleMetadataRow(
+                  theme: theme,
+                  isOutgoing: isOutgoing,
+                  timestamp: timestamp,
+                  statusWidget: statusWidget,
+                  gap: 4,
                 ),
               ),
             ],

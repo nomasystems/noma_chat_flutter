@@ -1,11 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;
 
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -27,7 +28,7 @@ void main() {
       );
       mockClient.addMessage('room1', msg);
 
-      final result = await adapter.loadThread('room1', 'msg1');
+      final result = await adapter.messages.loadThread('room1', 'msg1');
 
       expect(result.isSuccess, true);
       expect(result.dataOrNull, isNotEmpty);
@@ -38,9 +39,9 @@ void main() {
 
     test('sendThreadReply sends with referencedMessageId', () async {
       adapter.getChatController('room1');
-      adapter.roomListController.addRoom(RoomListItem(id: 'room1'));
+      adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
 
-      final result = await adapter.sendThreadReply(
+      final result = await adapter.messages.sendThreadReply(
         'room1',
         'parent1',
         text: 'Thread reply',
@@ -55,23 +56,23 @@ void main() {
     test(
       'searchMessages delegates to SDK and returns paginated response',
       () async {
-        final result = await adapter.searchMessages(
+        final result = await adapter.messages.search(
           'hello',
           'room1',
-          pagination: const PaginationParams(limit: 10),
+          pagination: const ChatPaginationParams(limit: 10),
         );
 
         expect(result.isSuccess, true);
-        expect(result.dataOrNull, isA<PaginatedResponse<ChatMessage>>());
+        expect(result.dataOrNull, isA<ChatPaginatedResponse<ChatMessage>>());
         expect(result.dataOrNull!.items, isA<List<ChatMessage>>());
       },
     );
 
     test('searchMessages uses default pagination when null', () async {
-      final result = await adapter.searchMessages('hello', 'room1');
+      final result = await adapter.messages.search('hello', 'room1');
 
       expect(result.isSuccess, true);
-      expect(result.dataOrNull, isA<PaginatedResponse<ChatMessage>>());
+      expect(result.dataOrNull, isA<ChatPaginatedResponse<ChatMessage>>());
     });
 
     test(
@@ -92,7 +93,7 @@ void main() {
 
   group('Read Receipts', () {
     test('loadReceipts delegates to SDK', () async {
-      final result = await adapter.loadReceipts('room1');
+      final result = await adapter.messages.loadReceipts('room1');
 
       expect(result.isSuccess, true);
       expect(result.dataOrNull, isA<List<ReadReceipt>>());
@@ -100,7 +101,7 @@ void main() {
   });
 
   group('Invitations', () {
-    test('acceptInvitation calls members.add and updates room', () async {
+    test('acceptInvitation calls members.invite and updates room', () async {
       final createResult = await mockClient.rooms.create(
         audience: RoomAudience.public,
         name: 'Invited Room',
@@ -114,7 +115,7 @@ void main() {
         ),
       );
 
-      final result = await adapter.acceptInvitation(roomId);
+      final result = await adapter.rooms.acceptInvitation(roomId);
       expect(result.isSuccess, true);
 
       final room = adapter.roomListController.getRoomById(roomId);
@@ -123,14 +124,14 @@ void main() {
 
     test('rejectInvitation removes room from list', () async {
       adapter.roomListController.addRoom(
-        RoomListItem(
+        const RoomListItem(
           id: 'invited-room',
           name: 'Invited',
           custom: {'invited': true},
         ),
       );
 
-      final result = await adapter.rejectInvitation('invited-room');
+      final result = await adapter.rooms.rejectInvitation('invited-room');
       expect(result.isSuccess, true);
       expect(adapter.roomListController.getRoomById('invited-room'), isNull);
     });
@@ -138,17 +139,17 @@ void main() {
 
   group('Message Pins', () {
     test('pinMessage delegates to SDK', () async {
-      final result = await adapter.pinMessage('room1', 'msg1');
+      final result = await adapter.messages.pin('room1', 'msg1');
       expect(result.isSuccess, true);
     });
 
     test('unpinMessage delegates to SDK', () async {
-      final result = await adapter.unpinMessage('room1', 'msg1');
+      final result = await adapter.messages.unpin('room1', 'msg1');
       expect(result.isSuccess, true);
     });
 
     test('loadPins delegates to SDK', () async {
-      final result = await adapter.loadPins('room1');
+      final result = await adapter.messages.loadPins('room1');
       expect(result.isSuccess, true);
       expect(result.dataOrNull, isA<List<MessagePin>>());
     });

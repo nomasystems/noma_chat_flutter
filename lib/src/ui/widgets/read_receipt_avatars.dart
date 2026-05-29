@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/read_receipt.dart';
+import '../../models/user.dart';
+import '../theme/chat_theme.dart';
 
 /// Displays a row of small user avatars representing who has read a message.
 class ReadReceiptAvatars extends StatelessWidget {
@@ -27,10 +29,21 @@ class ReadReceiptAvatars extends StatelessWidget {
         .where((p) => p.isNotEmpty)
         .toList();
     if (parts.isEmpty) return '?';
-    if (parts.length >= 2) {
-      return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    // Use grapheme clusters via `Characters` instead of `[0]` (UTF-16 code
+    // unit). Surrogate pairs (emoji, astral plane chars) would return an
+    // isolated high-surrogate and crash Flutter painter with "not
+    // well-formed UTF-16". See `user_avatar.dart` for the parent fix.
+    String firstGrapheme(String s) {
+      if (s.isEmpty) return '';
+      final chars = s.characters;
+      return chars.isEmpty ? '' : chars.first;
     }
-    return parts[0][0].toUpperCase();
+
+    if (parts.length >= 2) {
+      return '${firstGrapheme(parts[0])}${firstGrapheme(parts[1])}'
+          .toUpperCase();
+    }
+    return firstGrapheme(parts[0]).toUpperCase();
   }
 
   String? _avatarUrlFor(String userId) {

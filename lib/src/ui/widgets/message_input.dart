@@ -1,7 +1,24 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../../models/user.dart';
+import '../controller/chat_controller.dart';
+import '../models/link_preview_metadata.dart';
+import '../models/send_message_request.dart';
+import '../models/voice_message_data.dart';
+import '../services/link_preview_fetcher.dart';
+import '../theme/chat_theme.dart';
+import '../utils/url_detector.dart';
+import '_voice_recorder_gesture.dart';
+import 'attachment_picker_sheet.dart';
+import 'bubbles/link_preview_bubble.dart';
+import 'mention_overlay.dart';
+import 'reply_preview.dart';
+import 'voice_recorder_button.dart';
+import 'voice_recorder_overlay.dart';
+
+import '_recording_indicators.dart';
 
 /// Composer for the chat: text field, attach/voice buttons, reply preview
 /// and editing affordances. Reads/edits state through the bound
@@ -10,14 +27,15 @@ class MessageInput extends StatefulWidget {
   const MessageInput({
     super.key,
     required this.controller,
-    required this.onSendMessage,
-    this.onSendMessageRich,
+    this.onSendMessageRequest,
     this.onEditMessage,
     this.theme = ChatTheme.defaults,
     this.onTypingChanged,
     this.onPickCamera,
     this.onPickGallery,
     this.onPickFile,
+    this.onShareLocation,
+    this.attachmentExtraOptions = const [],
     this.onAttachTap,
     this.onVoiceMessageReady,
     this.onPermissionDenied,
@@ -27,22 +45,38 @@ class MessageInput extends StatefulWidget {
     this.showVoiceButton = true,
     this.enableLinkPreview = true,
     this.linkPreviewFetcher,
+    this.enableMentions = false,
+    this.mentionUsers = const [],
   });
 
   final ChatController controller;
-  final ValueChanged<String> onSendMessage;
 
-  /// Optional rich-send callback. When provided, it is invoked instead of
-  /// [onSendMessage] and receives any auxiliary metadata the composer has
-  /// gathered (e.g. link previews). Falls back to [onSendMessage] when null.
-  final void Function(String text, Map<String, dynamic>? metadata)?
-  onSendMessageRich;
+  /// Canonical send callback. Receives a [SendMessageRequest] carrying the
+  /// trimmed text plus everything the composer gathered for this send
+  /// (link-preview metadata, the message being replied to, etc.). Forward
+  /// it to `ChatUiAdapter.sendMessage` and the optimistic bubble will be
+  /// rendered with quoted reply, link preview, etc. — no extra wiring.
+  ///
+  /// Single send slot — the legacy `onSendMessage` / `onSendMessageRich`
+  /// callbacks were removed. Consumers that only need plain text can read
+  /// `request.text` and ignore the rest.
+  final void Function(SendMessageRequest request)? onSendMessageRequest;
   final void Function(ChatMessage message, String newText)? onEditMessage;
   final ChatTheme theme;
   final ValueChanged<bool>? onTypingChanged;
   final VoidCallback? onPickCamera;
   final VoidCallback? onPickGallery;
   final VoidCallback? onPickFile;
+
+  /// Wires the "Location" row in the built-in attachment sheet. Apps that
+  /// hook a maps picker here (or fire a one-off geolocation pull) get the
+  /// row for free — when null the row simply isn't rendered.
+  final VoidCallback? onShareLocation;
+
+  /// Extra rows appended to the built-in attachment sheet, after the
+  /// SDK's Camera/Gallery/File/Location options. Useful for
+  /// app-specific actions (contact card, poll, plan attachment, …).
+  final List<AttachmentSheetOption> attachmentExtraOptions;
 
   /// When provided, the attach button invokes this directly instead of
   /// showing the built-in [AttachmentPickerSheet]. Use it when the consumer
@@ -66,24 +100,31 @@ class MessageInput extends StatefulWidget {
   /// default [LinkPreviewFetcher] is created internally.
   final LinkPreviewFetcher? linkPreviewFetcher;
 
+  /// When `true` and the user types `@<query>`, the composer floats a
+  /// [MentionOverlay] above the input filtering [mentionUsers] by
+  /// `displayName`. Tapping a user inserts `@<Name> ` into the text.
+  ///
+  /// Mentions land in the message body as plain text (no inline
+  /// metadata token yet — that needs a server-side update to round-trip
+  /// reliably). The renderer doesn't highlight them today either; the
+  /// purpose right now is making the @-typing UX feel like WhatsApp /
+  /// Slack.
+  final bool enableMentions;
+
+  /// Source list for the mention overlay. Typically
+  /// `controller.otherUsers` for the active room. Empty when
+  /// [enableMentions] is `false`.
+  final List<ChatUser> mentionUsers;
+
   @override
   State<MessageInput> createState() => _MessageInputState();
 }
 
-class _MessageInputState extends State<MessageInput>
-    with WidgetsBindingObserver {
+class _MessageInputState extends State<MessageInput> {
   final _textController = TextEditingController();
   bool _hasText = false;
   bool _isEditing = false;
-  VoiceRecordingController? _voiceController;
-  double _dragOffsetX = 0;
-  double _dragOffsetY = 0;
-
-  static const _lockThreshold = -100.0;
-  // Cancel threshold is computed dynamically from screen width: roughly a
-  // third of the available width has to be travelled to the left so a quick
-  // accidental drag doesn't tear the recording down.
-  static const _cancelThresholdRatio = 1 / 3;
+  late final MessageInputVoiceController _voice;
 
   LinkPreviewFetcher? _linkFetcher;
   Timer? _linkDebounce;
@@ -93,32 +134,34 @@ class _MessageInputState extends State<MessageInput>
   final Set<String> _dismissedUrls = {};
   int _linkRequestSeq = 0;
 
+  // Mention overlay state. `_mentionQuery` is the substring typed after
+  // the most recent `@` and up to the caret; `_mentionStartIndex` is the
+  // absolute index of that `@` in the text. Both are null when the
+  // overlay is hidden.
+  String? _mentionQuery;
+  int? _mentionStartIndex;
+
   static const _linkDebounceDuration = Duration(milliseconds: 500);
 
-  bool get _isRecordingNew =>
-      _voiceController != null &&
-      _voiceController!.state != VoiceRecordingState.idle;
-
-  bool get _isActiveRecording =>
-      _voiceController?.state == VoiceRecordingState.recording;
-
-  bool get _isLockedOrPreListen =>
-      _voiceController?.state == VoiceRecordingState.locked ||
-      _voiceController?.state == VoiceRecordingState.preListen;
-
   final LayerLink _voiceButtonLink = LayerLink();
-  OverlayEntry? _lockHintEntry;
+  final GlobalKey _voiceButtonKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
     _textController.addListener(_onTextChanged);
     widget.controller.addListener(_onControllerChanged);
-    WidgetsBinding.instance.addObserver(this);
+    _voice = MessageInputVoiceController(
+      maxRecordingDuration: widget.maxRecordingDuration,
+    )..addListener(_onVoiceChanged);
     if (widget.enableLinkPreview) {
       _linkFetcher = widget.linkPreviewFetcher ?? LinkPreviewFetcher();
     }
     _onControllerChanged();
+  }
+
+  void _onVoiceChanged() {
+    if (mounted) setState(() {});
   }
 
   void _onControllerChanged() {
@@ -150,6 +193,71 @@ class _MessageInputState extends State<MessageInput>
     }
     widget.onTypingChanged?.call(hasText);
     _maybeScheduleLinkPreview();
+    _detectMentionQuery();
+  }
+
+  void _detectMentionQuery() {
+    if (!widget.enableMentions) return;
+    final text = _textController.text;
+    final selection = _textController.selection;
+    if (!selection.isValid || selection.start != selection.end) {
+      _setMention(null, null);
+      return;
+    }
+    final caret = selection.start;
+    // Walk back from the caret looking for an `@`. If we hit whitespace
+    // first, there's no active mention. The `@` is valid only when it
+    // starts a fresh token (preceded by whitespace or string start).
+    int? atIndex;
+    for (var i = caret - 1; i >= 0; i--) {
+      final ch = text[i];
+      if (ch == '@') {
+        atIndex = i;
+        break;
+      }
+      if (ch == ' ' || ch == '\n') break;
+    }
+    if (atIndex == null) {
+      _setMention(null, null);
+      return;
+    }
+    if (atIndex > 0) {
+      final before = text[atIndex - 1];
+      if (before != ' ' && before != '\n') {
+        _setMention(null, null);
+        return;
+      }
+    }
+    final query = text.substring(atIndex + 1, caret);
+    _setMention(query, atIndex);
+  }
+
+  void _setMention(String? query, int? startIndex) {
+    if (_mentionQuery == query && _mentionStartIndex == startIndex) return;
+    setState(() {
+      _mentionQuery = query;
+      _mentionStartIndex = startIndex;
+    });
+  }
+
+  void _selectMention(ChatUser user) {
+    final startIndex = _mentionStartIndex;
+    if (startIndex == null) return;
+    final text = _textController.text;
+    final selection = _textController.selection;
+    if (!selection.isValid) return;
+    final caret = selection.start;
+    final name = user.displayName?.trim().isNotEmpty == true
+        ? user.displayName!.trim()
+        : user.id;
+    final replacement = '@$name ';
+    final newText = text.replaceRange(startIndex, caret, replacement);
+    final newCaret = startIndex + replacement.length;
+    _textController.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: newCaret),
+    );
+    _setMention(null, null);
   }
 
   void _maybeScheduleLinkPreview() {
@@ -189,19 +297,47 @@ class _MessageInputState extends State<MessageInput>
       _currentPreview = null;
     });
 
-    LinkPreviewMetadata? preview;
-    try {
-      preview = await fetcher.fetch(url);
-    } catch (_) {
-      preview = null;
-    }
-
-    if (!mounted || seq != _linkRequestSeq) return;
-    final stillTyped = _textController.text.contains(url);
-    setState(() {
-      _previewLoading = false;
-      _currentPreview = stillTyped ? preview : null;
+    // Decouple the visible spinner from the actual fetch so a slow page
+    // doesn't strand the UI in a permanently-loading state, but ALSO
+    // doesn't drop the preview on the floor when the fetch eventually
+    // succeeds. Previous version awaited a hard `.timeout(8s, ()=>null)`
+    // wrapper: when the underlying request took >8s the composer
+    // gave up and showed nothing — even though the fetch kept running
+    // and eventually completed (cached) so the next send had a preview
+    // but the visible banner never did. Now we listen for the real
+    // completion and update state regardless of timing.
+    final fetchFuture = fetcher.fetch(url);
+    final spinnerTimer = Timer(const Duration(seconds: 8), () {
+      if (!mounted || seq != _linkRequestSeq) return;
+      if (_currentPreview != null) return;
+      // Hide the bar but keep waiting for the late preview to land.
+      setState(() => _previewLoading = false);
     });
+
+    // `.then` (instead of `await`) on the in-flight future: the await
+    // continuation was getting silently dropped on iOS Simulator —
+    // logs confirmed `_doFetch` resolved but the awaiting frame never
+    // resumed, so the banner stayed hidden until the user hit Send and
+    // a fresh fetch landed in the cache. Using a `.then` callback
+    // bypasses whatever zone/microtask quirk swallowed the await.
+    fetchFuture
+        .then((preview) {
+          spinnerTimer.cancel();
+          if (!mounted || seq != _linkRequestSeq) return;
+          final stillTyped = _textController.text.contains(url);
+          setState(() {
+            _previewLoading = false;
+            _currentPreview = stillTyped ? preview : null;
+          });
+        })
+        .catchError((Object _) {
+          spinnerTimer.cancel();
+          if (!mounted || seq != _linkRequestSeq) return;
+          setState(() {
+            _previewLoading = false;
+            _currentPreview = null;
+          });
+        });
   }
 
   void _dismissPreview() {
@@ -215,6 +351,10 @@ class _MessageInputState extends State<MessageInput>
   }
 
   void _send() {
+    unawaited(_sendAsync());
+  }
+
+  Future<void> _sendAsync() async {
     final text = _textController.text.trim();
     if (text.isEmpty) return;
 
@@ -223,7 +363,7 @@ class _MessageInputState extends State<MessageInput>
       if (widget.onEditMessage != null) {
         widget.onEditMessage!(editing, text);
       } else {
-        _dispatchSend(text, null);
+        _dispatchSend(SendMessageRequest(text: text, editing: editing));
       }
       widget.controller.setEditingMessage(null);
     } else {
@@ -231,21 +371,98 @@ class _MessageInputState extends State<MessageInput>
       final preview = _currentPreview;
       if (preview != null && text.contains(preview.url)) {
         metadata = preview.toMessageMetadata();
+      } else if (widget.enableLinkPreview && _linkFetcher != null) {
+        // The user typed an URL and hit Send before the debounced
+        // fetcher resolved — first-send-of-a-fresh-URL race. Block
+        // briefly to give the fetch a chance: the second send for the
+        // same URL would have hit the in-memory cache and rendered
+        // the preview, leaving the first message preview-less and
+        // confusing. Cap at 2.5s so a flaky page doesn't freeze the
+        // composer; if it doesn't resolve in time we send without
+        // metadata (same fallback as before).
+        final urls = UrlDetector.extractUrls(text);
+        if (urls.isNotEmpty) {
+          final url = urls.first;
+          if (!_dismissedUrls.contains(url)) {
+            LinkPreviewMetadata? fetched;
+            try {
+              fetched = await _linkFetcher!
+                  .fetch(url)
+                  .timeout(
+                    const Duration(milliseconds: 2500),
+                    onTimeout: () => null,
+                  );
+            } catch (_) {
+              fetched = null;
+            }
+            if (!mounted) return;
+            if (fetched != null && text.contains(fetched.url)) {
+              metadata = fetched.toMessageMetadata();
+            }
+          }
+        }
       }
-      _dispatchSend(text, metadata);
+      // C.1 — when mentions are enabled, scan the trimmed text for
+      // `@<DisplayName>` tokens that match a known mentionable user
+      // and stash the matched userIds in `metadata.mentions`. This
+      // makes the data available server-side for analytics, push
+      // notifications targeted at mentioned users, etc. The render
+      // path doesn't depend on this list — `parseMarkdown` highlights
+      // every `@\w+` token regardless — but the persistence layer
+      // does.
+      if (widget.enableMentions && widget.mentionUsers.isNotEmpty) {
+        final ids = _extractMentionUserIds(text);
+        if (ids.isNotEmpty) {
+          metadata = {...?metadata, 'mentions': ids};
+        }
+      }
+      _dispatchSend(
+        SendMessageRequest(
+          text: text,
+          metadata: metadata,
+          replyTo: widget.controller.replyingTo,
+        ),
+      );
       widget.controller.setReplyTo(null);
     }
     _resetLinkPreviewState();
     _textController.clear();
   }
 
-  void _dispatchSend(String text, Map<String, dynamic>? metadata) {
-    final rich = widget.onSendMessageRich;
-    if (rich != null) {
-      rich(text, metadata);
-    } else {
-      widget.onSendMessage(text);
+  /// Returns the userIds of every `mentionUsers` entry whose display
+  /// name appears as a `@<token>` boundary in [text]. Case-insensitive,
+  /// word-boundary aware, dedup'd. Empty list when nothing matches.
+  List<String> _extractMentionUserIds(String text) {
+    final lower = text.toLowerCase();
+    final found = <String>{};
+    for (final user in widget.mentionUsers) {
+      final name = user.displayName?.trim();
+      if (name == null || name.isEmpty) continue;
+      final needle = '@${name.toLowerCase()}';
+      var idx = 0;
+      while ((idx = lower.indexOf(needle, idx)) >= 0) {
+        final after = idx + needle.length;
+        final atBoundary =
+            after == lower.length || !_isWordChar(lower.codeUnitAt(after));
+        if (atBoundary) {
+          found.add(user.id);
+          break;
+        }
+        idx = after;
+      }
     }
+    return found.toList(growable: false);
+  }
+
+  static bool _isWordChar(int codeUnit) {
+    return (codeUnit >= 0x30 && codeUnit <= 0x39) || // 0-9
+        (codeUnit >= 0x41 && codeUnit <= 0x5A) || // A-Z
+        (codeUnit >= 0x61 && codeUnit <= 0x7A) || // a-z
+        codeUnit == 0x5F; // _
+  }
+
+  void _dispatchSend(SendMessageRequest request) {
+    widget.onSendMessageRequest?.call(request);
   }
 
   void _resetLinkPreviewState() {
@@ -263,137 +480,22 @@ class _MessageInputState extends State<MessageInput>
         onPickCamera: widget.onPickCamera,
         onPickGallery: widget.onPickGallery,
         onPickFile: widget.onPickFile,
+        onShareLocation: widget.onShareLocation,
+        extraOptions: widget.attachmentExtraOptions,
         cameraLabel: widget.theme.l10n.camera,
         galleryLabel: widget.theme.l10n.gallery,
         fileLabel: widget.theme.l10n.file,
+        locationLabel: widget.theme.l10n.location,
         theme: widget.theme,
       ),
     );
   }
 
-  Future<void> _onLongPressStart() async {
-    _voiceController ??= VoiceRecordingController(
-      maxDuration: widget.maxRecordingDuration,
-    );
-
-    final result = await _voiceController!.startRecording();
-    if (!mounted) return;
-    switch (result) {
-      case StartRecordingResult.started:
-        _voiceController!.addListener(_onVoiceStateChanged);
-        setState(() {});
-      case StartRecordingResult.permissionDenied:
-        widget.onPermissionDenied?.call();
-      case StartRecordingResult.permissionJustGranted:
-      case StartRecordingResult.alreadyRunning:
-        break;
-    }
-  }
-
-  void _onLongPressEnd() {
-    if (_voiceController == null) return;
-
-    final state = _voiceController!.state;
-    if (state == VoiceRecordingState.recording) {
-      _sendVoiceMessage();
-    }
-    _dragOffsetX = 0;
-    _dragOffsetY = 0;
-  }
-
-  void _onDragUpdate(Offset delta) {
-    if (_voiceController?.state != VoiceRecordingState.recording) return;
-
-    _dragOffsetX += delta.dx;
-    _dragOffsetY += delta.dy;
-
-    final screenWidth = MediaQuery.maybeSizeOf(context)?.width ?? 360;
-    final cancelThreshold = -screenWidth * _cancelThresholdRatio;
-
-    if (_dragOffsetX < cancelThreshold) {
-      _dragOffsetX = 0;
-      _dragOffsetY = 0;
-      _voiceController!.cancelRecording();
-    } else if (_dragOffsetY < _lockThreshold) {
-      _dragOffsetX = 0;
-      _dragOffsetY = 0;
-      _voiceController!.lockRecording();
-    }
-  }
-
   Future<void> _sendVoiceMessage() async {
-    if (_voiceController == null) return;
-
-    final state = _voiceController!.state;
-    VoiceMessageData? data;
-
-    if (state == VoiceRecordingState.recording) {
-      data = await _voiceController!.stopRecording();
-    } else if (state == VoiceRecordingState.locked ||
-        state == VoiceRecordingState.preListen) {
-      data = await _voiceController!.confirmSend();
-    }
-
+    final data = await _voice.confirmSend();
     if (data != null) {
       widget.onVoiceMessageReady?.call(data);
     }
-    _cleanupVoiceController();
-  }
-
-  void _onVoiceStateChanged() {
-    if (!mounted) return;
-    if (_voiceController?.state == VoiceRecordingState.idle) {
-      _cleanupVoiceController();
-    }
-    _syncLockHintOverlay();
-    setState(() {});
-  }
-
-  void _syncLockHintOverlay() {
-    final shouldShow = _isActiveRecording;
-    if (shouldShow && _lockHintEntry == null) {
-      _showLockHintOverlay();
-    } else if (!shouldShow && _lockHintEntry != null) {
-      _removeLockHintOverlay();
-    }
-  }
-
-  void _showLockHintOverlay() {
-    final overlay = Overlay.maybeOf(context, rootOverlay: true);
-    if (overlay == null) return;
-    _lockHintEntry = OverlayEntry(
-      builder: (overlayContext) {
-        return Positioned(
-          left: 0,
-          top: 0,
-          child: CompositedTransformFollower(
-            link: _voiceButtonLink,
-            showWhenUnlinked: false,
-            targetAnchor: Alignment.topCenter,
-            followerAnchor: Alignment.bottomCenter,
-            offset: const Offset(0, -12),
-            child: Material(
-              color: Colors.transparent,
-              child:
-                  widget.theme.lockHintBuilder?.call(overlayContext) ??
-                  _LockHintPill(theme: widget.theme),
-            ),
-          ),
-        );
-      },
-    );
-    overlay.insert(_lockHintEntry!);
-  }
-
-  void _removeLockHintOverlay() {
-    _lockHintEntry?.remove();
-    _lockHintEntry = null;
-  }
-
-  void _cleanupVoiceController() {
-    _voiceController?.removeListener(_onVoiceStateChanged);
-    _removeLockHintOverlay();
-    if (mounted) setState(() {});
   }
 
   @override
@@ -408,24 +510,13 @@ class _MessageInputState extends State<MessageInput>
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused &&
-        _voiceController?.state == VoiceRecordingState.recording) {
-      _voiceController!.cancelRecording();
-      _cleanupVoiceController();
-    }
-  }
-
-  @override
   void dispose() {
     _saveDraft();
     _linkDebounce?.cancel();
-    WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_onControllerChanged);
     _textController.dispose();
-    _voiceController?.removeListener(_onVoiceStateChanged);
-    _voiceController?.dispose();
-    _removeLockHintOverlay();
+    _voice.removeListener(_onVoiceChanged);
+    _voice.dispose();
     super.dispose();
   }
 
@@ -445,10 +536,10 @@ class _MessageInputState extends State<MessageInput>
   Widget build(BuildContext context) {
     final Widget child;
     final String key;
-    if (_isLockedOrPreListen) {
+    if (_voice.isLockedOrPreListen) {
       child = _buildRecordingArea();
       key = 'locked';
-    } else if (_isActiveRecording) {
+    } else if (_voice.isRecording) {
       child = _buildActiveRecordingRow();
       key = 'recording';
     } else {
@@ -471,43 +562,53 @@ class _MessageInputState extends State<MessageInput>
 
     Widget inputArea = content;
 
-    // Wrap in a long-press detector that persists across recording state changes.
-    // This ensures slide-to-cancel and slide-to-lock gestures continue working
+    // Wrap in a long-press detector that persists across recording state
+    // changes so slide-to-cancel and slide-to-lock gestures keep working
     // even after the UI switches from mic button to recording overlay.
     if (widget.showVoiceButton && widget.onVoiceMessageReady != null) {
-      inputArea = GestureDetector(
-        onLongPressStart: !_isRecordingNew ? (_) => _onLongPressStart() : null,
-        onLongPressMoveUpdate: (details) {
-          _onDragUpdate(
-            Offset(
-              details.localOffsetFromOrigin.dx,
-              details.localOffsetFromOrigin.dy,
-            ),
-          );
-        },
-        onLongPressEnd: (_) => _onLongPressEnd(),
-        behavior: _isRecordingNew
-            ? HitTestBehavior.opaque
-            : HitTestBehavior.deferToChild,
+      inputArea = VoiceRecorderGesture(
+        controller: _voice,
+        layerLink: _voiceButtonLink,
+        theme: widget.theme,
+        onPermissionDenied: widget.onPermissionDenied,
+        onVoiceMessageReady: widget.onVoiceMessageReady,
+        voiceButtonKey: _voiceButtonKey,
         child: inputArea,
       );
     }
 
     return Container(
       decoration: BoxDecoration(
-        color: widget.theme.inputBackgroundColor ?? Colors.white,
-        boxShadow: widget.theme.inputContainerShadow,
+        color: widget.theme.input.backgroundColor ?? Colors.white,
+        boxShadow: widget.theme.input.containerShadow,
       ),
       child: SafeArea(
         top: false,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
+            _buildMentionOverlay(),
             _buildPreviewBanner(),
             _buildLinkPreviewBanner(),
             inputArea,
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildMentionOverlay() {
+    if (!widget.enableMentions) return const SizedBox.shrink();
+    final query = _mentionQuery;
+    if (query == null) return const SizedBox.shrink();
+    if (widget.mentionUsers.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      child: MentionOverlay(
+        query: query,
+        users: widget.mentionUsers,
+        onSelect: _selectMention,
+        theme: widget.theme,
       ),
     );
   }
@@ -565,10 +666,12 @@ class _MessageInputState extends State<MessageInput>
           return Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: widget.theme.editingBackgroundColor ?? Colors.blue.shade50,
+              color:
+                  widget.theme.input.editingBackgroundColor ??
+                  Colors.blue.shade50,
               border: Border(
                 left: BorderSide(
-                  color: widget.theme.editingBorderColor ?? Colors.blue,
+                  color: widget.theme.input.editingBorderColor ?? Colors.blue,
                   width: 3,
                 ),
               ),
@@ -578,7 +681,7 @@ class _MessageInputState extends State<MessageInput>
                 Icon(
                   Icons.edit,
                   size: 16,
-                  color: widget.theme.editingBorderColor ?? Colors.blue,
+                  color: widget.theme.input.editingBorderColor ?? Colors.blue,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -589,8 +692,8 @@ class _MessageInputState extends State<MessageInput>
                       Text(
                         widget.theme.l10n.editing,
                         style:
-                            widget.theme.editingLabelStyle ??
-                            TextStyle(
+                            widget.theme.input.editingLabelStyle ??
+                            const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
                               color: Colors.blue,
@@ -601,7 +704,7 @@ class _MessageInputState extends State<MessageInput>
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style:
-                            widget.theme.editingPreviewStyle ??
+                            widget.theme.input.editingPreviewStyle ??
                             const TextStyle(
                               fontSize: 12,
                               color: Colors.black54,
@@ -639,25 +742,36 @@ class _MessageInputState extends State<MessageInput>
   }
 
   Widget _buildRecordingArea() {
+    // The overlay needs the live drag offsets so it can slide the
+    // "← Slide to cancel" hint horizontally with the finger and the
+    // "Slide up to lock" pill vertically — WhatsApp-style follow-the-
+    // finger feedback. The thresholds themselves are also forwarded
+    // so the overlay can fade the hints as progress nears the trip
+    // point. Resets to 0 the moment the long-press ends.
+    final screenWidth = MediaQuery.maybeSizeOf(context)?.width ?? 360;
     return VoiceRecorderOverlay(
-      controller: _voiceController!,
+      controller: _voice.recording!,
       theme: widget.theme,
       onSend: _sendVoiceMessage,
+      dragOffsetX: _voice.dragOffsetX,
+      dragOffsetY: _voice.dragOffsetY,
+      cancelThreshold: _voice.thresholds.cancelThresholdFor(screenWidth),
+      lockThreshold: _voice.thresholds.lockThreshold,
     );
   }
 
   Widget _buildActiveRecordingRow() {
-    final controller = _voiceController!;
-    final custom = widget.theme.recordingComposerBuilder?.call(
+    final controller = _voice.recording!;
+    final custom = widget.theme.input.recordingComposerBuilder?.call(
       context,
       controller,
       _sendVoiceMessage,
     );
     if (custom != null) return custom;
-    return _ActiveRecordingRow(
+    return ActiveRecordingRow(
       controller: controller,
       theme: widget.theme,
-      voiceButton: _buildVoiceButton(),
+      voiceButton: _buildVoiceButtonForRecording(),
     );
   }
 
@@ -681,17 +795,17 @@ class _MessageInputState extends State<MessageInput>
                 minLines: 1,
                 textCapitalization: TextCapitalization.sentences,
                 textAlignVertical: TextAlignVertical.center,
-                style: widget.theme.inputTextStyle,
+                style: widget.theme.input.textStyle,
                 decoration: InputDecoration(
                   hintText: widget.theme.l10n.writeMessage,
-                  hintStyle: widget.theme.inputHintStyle,
+                  hintStyle: widget.theme.input.hintStyle,
                   border: _composerBorder(),
                   enabledBorder: _composerBorder(),
                   focusedBorder: _composerBorder(),
                   disabledBorder: _composerBorder(),
                   filled: true,
                   fillColor:
-                      widget.theme.inputFillColor ?? Colors.grey.shade100,
+                      widget.theme.input.fillColor ?? Colors.grey.shade100,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 16,
                     vertical: 11,
@@ -717,13 +831,14 @@ class _MessageInputState extends State<MessageInput>
   }
 
   OutlineInputBorder _composerBorder() {
-    final borderColor = widget.theme.inputBorderColor;
+    final borderColor = widget.theme.input.borderColor;
     return OutlineInputBorder(
-      borderRadius: widget.theme.inputBorderRadius ?? BorderRadius.circular(24),
+      borderRadius:
+          widget.theme.input.borderRadius ?? BorderRadius.circular(24),
       borderSide: borderColor != null
           ? BorderSide(
               color: borderColor,
-              width: widget.theme.inputBorderWidth ?? 1,
+              width: widget.theme.input.borderWidth ?? 1,
             )
           : BorderSide.none,
     );
@@ -738,11 +853,11 @@ class _MessageInputState extends State<MessageInput>
         onTap: _hasText ? _send : null,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          width: 40,
-          height: 40,
+          width: 48,
+          height: 48,
           alignment: Alignment.center,
           child:
-              widget.theme.sendIconBuilder?.call(context, _hasText) ??
+              widget.theme.input.sendIconBuilder?.call(context, _hasText) ??
               _defaultSendCircle(),
         ),
       ),
@@ -755,13 +870,14 @@ class _MessageInputState extends State<MessageInput>
       height: 40,
       decoration: BoxDecoration(
         color: _hasText
-            ? (widget.theme.sendButtonColor ?? Colors.blue)
-            : (widget.theme.sendButtonDisabledColor ?? Colors.grey.shade300),
+            ? (widget.theme.input.sendButtonColor ?? Colors.blue)
+            : (widget.theme.input.sendButtonDisabledColor ??
+                  Colors.grey.shade300),
         shape: BoxShape.circle,
       ),
       child: Icon(
-        widget.theme.sendButtonIcon ?? Icons.send,
-        color: widget.theme.sendButtonIconColor ?? Colors.white,
+        widget.theme.input.sendButtonIcon ?? Icons.send,
+        color: widget.theme.input.sendButtonIconColor ?? Colors.white,
         size: 20,
       ),
     );
@@ -775,14 +891,14 @@ class _MessageInputState extends State<MessageInput>
         onTap: widget.onAttachTap ?? _showAttachmentPicker,
         behavior: HitTestBehavior.opaque,
         child: Container(
-          width: 40,
-          height: 40,
+          width: 48,
+          height: 48,
           alignment: Alignment.center,
           child:
-              widget.theme.attachIconBuilder?.call(context) ??
+              widget.theme.input.attachIconBuilder?.call(context) ??
               Icon(
-                widget.theme.attachButtonIcon ?? Icons.attach_file,
-                color: widget.theme.attachButtonColor,
+                widget.theme.input.attachButtonIcon ?? Icons.attach_file,
+                color: widget.theme.input.attachButtonColor,
               ),
         ),
       ),
@@ -795,241 +911,58 @@ class _MessageInputState extends State<MessageInput>
       button: true,
       child: GestureDetector(
         onTap: widget.onPickCamera,
+        behavior: HitTestBehavior.opaque,
         child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: widget.theme.voiceButtonColor ?? Colors.grey.shade200,
-            shape: BoxShape.circle,
-          ),
-          child: Center(
-            child:
-                widget.theme.cameraIconBuilder?.call(context) ??
-                Icon(
-                  widget.theme.cameraButtonIcon ?? Icons.camera_alt_outlined,
-                  size: 20,
-                  color:
-                      widget.theme.cameraButtonColor ??
-                      widget.theme.voiceButtonIdleIconColor ??
-                      Colors.grey.shade700,
-                ),
+          width: 48,
+          height: 48,
+          alignment: Alignment.center,
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color:
+                  widget.theme.input.voiceButtonColor ?? Colors.grey.shade200,
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child:
+                  widget.theme.input.cameraIconBuilder?.call(context) ??
+                  Icon(
+                    widget.theme.input.cameraButtonIcon ??
+                        Icons.camera_alt_outlined,
+                    size: 20,
+                    color:
+                        widget.theme.input.cameraButtonColor ??
+                        widget.theme.input.voiceButtonIdleIconColor ??
+                        Colors.grey.shade700,
+                  ),
+            ),
           ),
         ),
       ),
     );
   }
 
-  Widget _buildVoiceButton() => CompositedTransformTarget(
+  /// Idle mic button — NO LayerLink target. Used by `_buildInputRow`
+  /// when the composer is in resting state. Wrapping it in a
+  /// `CompositedTransformTarget` here would collide with the same
+  /// target inside [ActiveRecordingRow] during the `AnimatedSwitcher`
+  /// cross-fade (both are alive for ~200 ms) and trip the Flutter
+  /// `_debugPreviousLeaders!.isEmpty` assertion on the shared
+  /// `_voiceButtonLink`. The lock-hint overlay only needs the link
+  /// while recording, so attaching it exclusively in the recording
+  /// row is enough.
+  Widget _buildVoiceButton() => KeyedSubtree(
+    key: _voiceButtonKey,
+    child: VoiceRecorderButton(theme: widget.theme),
+  );
+
+  /// Active-recording mic button — wraps the idle button in a
+  /// `CompositedTransformTarget` so the lock-hint `OverlayEntry` can
+  /// position itself above the mic via `_voiceButtonLink`. Only used
+  /// from [ActiveRecordingRow].
+  Widget _buildVoiceButtonForRecording() => CompositedTransformTarget(
     link: _voiceButtonLink,
     child: VoiceRecorderButton(theme: widget.theme),
   );
-}
-
-class _ActiveRecordingRow extends StatelessWidget {
-  const _ActiveRecordingRow({
-    required this.controller,
-    required this.theme,
-    required this.voiceButton,
-  });
-
-  final VoiceRecordingController controller;
-  final ChatTheme theme;
-  final Widget voiceButton;
-
-  @override
-  Widget build(BuildContext context) {
-    final activeColor = theme.voiceRecorderActiveColor ?? Colors.red;
-    final hintColor =
-        theme.voiceRecorderHintStyle?.color ?? Colors.grey.shade700;
-    final hintStyle =
-        theme.voiceRecorderHintStyle ??
-        TextStyle(color: hintColor, fontSize: 16);
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: SizedBox(
-        height: 40,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _RecordingPulsingMic(color: activeColor),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _SlideToCancelHint(
-                color: hintColor,
-                style: hintStyle,
-                text: theme.l10n.slideToCancel,
-              ),
-            ),
-            const SizedBox(width: 8),
-            voiceButton,
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RecordingPulsingMic extends StatefulWidget {
-  const _RecordingPulsingMic({required this.color});
-  final Color color;
-
-  @override
-  State<_RecordingPulsingMic> createState() => _RecordingPulsingMicState();
-}
-
-class _RecordingPulsingMicState extends State<_RecordingPulsingMic>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 900),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, _) => Opacity(
-        opacity: 0.45 + 0.55 * _controller.value,
-        child: Icon(Icons.mic, color: widget.color, size: 26),
-      ),
-    );
-  }
-}
-
-class _SlideToCancelHint extends StatefulWidget {
-  const _SlideToCancelHint({
-    required this.color,
-    required this.style,
-    required this.text,
-  });
-
-  final Color color;
-  final TextStyle style;
-  final String text;
-
-  @override
-  State<_SlideToCancelHint> createState() => _SlideToCancelHintState();
-}
-
-class _SlideToCancelHintState extends State<_SlideToCancelHint>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1300),
-  )..repeat(reverse: true);
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _controller,
-      builder: (_, _) {
-        final t = Curves.easeInOut.transform(_controller.value);
-        return Opacity(
-          opacity: 0.35 + 0.65 * t,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              Icon(Icons.chevron_left, color: widget.color, size: 24),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  widget.text,
-                  style: widget.style,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _LockHintPill extends StatefulWidget {
-  const _LockHintPill({required this.theme});
-  final ChatTheme theme;
-
-  @override
-  State<_LockHintPill> createState() => _LockHintPillState();
-}
-
-class _LockHintPillState extends State<_LockHintPill>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 1400),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final iconColor =
-        widget.theme.voiceRecorderLockIconColor ?? Colors.grey.shade700;
-    final pillColor = widget.theme.inputBackgroundColor ?? Colors.white;
-    return IgnorePointer(
-      child: Container(
-        width: 40,
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        decoration: BoxDecoration(
-          color: pillColor,
-          borderRadius: BorderRadius.circular(20),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.12),
-              blurRadius: 8,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.lock_outline, size: 20, color: iconColor),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 22,
-              child: AnimatedBuilder(
-                animation: _controller,
-                builder: (_, _) {
-                  final t = _controller.value;
-                  final fade = t < 0.5 ? (t * 2) : 1 - ((t - 0.5) * 2);
-                  final dy = -8 * t;
-                  return Transform.translate(
-                    offset: Offset(0, dy),
-                    child: Opacity(
-                      opacity: fade.clamp(0.0, 1.0),
-                      child: Icon(
-                        Icons.keyboard_arrow_up,
-                        size: 22,
-                        color: iconColor,
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

@@ -4,7 +4,6 @@ import '../api/attachments_api.dart';
 import '../api/auth_api.dart';
 import '../api/contacts_api.dart';
 import '../api/members_api.dart';
-import '../api/messages_api.dart';
 import '../api/presence_api.dart';
 import '../api/rooms_api.dart';
 import '../api/users_api.dart';
@@ -12,8 +11,9 @@ import '../config/chat_config.dart';
 import '../events/chat_event.dart';
 import '../models/room.dart';
 import '../models/room_user.dart';
+import '../_internal/api_factory.dart';
 import '../_internal/cache/cache_manager.dart';
-import '../_internal/cache/local_datasource.dart';
+import '../cache/local_datasource.dart';
 import '../_internal/cache/offline_queue.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/message_mapper.dart';
@@ -21,8 +21,6 @@ import '../models/message.dart';
 import '../_internal/mappers/user_mapper.dart';
 import '../_internal/transport/event_parser.dart';
 import '../_internal/transport/transport_manager.dart';
-import '../_internal/transport/ws_transport.dart';
-import '../_internal/transport/sse_transport.dart';
 
 import '../core/result.dart';
 import 'chat_client.dart';
@@ -34,6 +32,7 @@ import 'chat_client.dart';
 /// via [NomaChat.create] rather than instantiating it directly.
 class NomaChatClient implements ChatClient {
   final TransportManager _transport;
+  late final RestClient _rest;
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
   final OfflineQueue? _offlineQueue;
@@ -59,7 +58,7 @@ class NomaChatClient implements ChatClient {
   @override
   late final MembersApi members;
   @override
-  late final MessagesApi messages;
+  late final ChatMessagesApi messages;
   @override
   late final ContactsApi contacts;
   @override
@@ -71,22 +70,21 @@ class NomaChatClient implements ChatClient {
     required ChatConfig config,
     RestClient? restClient,
     TransportManager? transportManager,
-  }) : _transport =
-           transportManager ??
-           TransportManager(
-             ws: WsTransport(config: config),
-             sse: SseTransport(config: config),
-             eventBufferSize: config.eventBufferSize,
-           ),
+  }) : _transport = transportManager ?? TransportManager.fromConfig(config),
        _cache = config.localDatasource,
        _cacheManager = config.cacheConfig != null
-           ? CacheManager(config: config.cacheConfig!)
+           ? CacheManager(
+               config: config.cacheConfig!,
+               datasource: config.localDatasource,
+               onMetric: config.metricCallback,
+             )
            : null,
        _offlineQueue = config.cacheConfig != null
            ? OfflineQueue(
                maxRetries: config.cacheConfig!.offlineQueueMaxRetries,
                store: config.localDatasource,
                logger: config.logger,
+               metricCallback: config.metricCallback,
              )
            : null,
        _enableCatchUp = config.enableReconnectCatchUp,
@@ -94,42 +92,64 @@ class NomaChatClient implements ChatClient {
     MessageMapper.logger = config.logger;
     UserMapper.logger = config.logger;
     EventParser.logger = config.logger;
-    final rest = restClient ?? RestClient(config: config);
-    final cache = _cache;
-    final cacheManager = _cacheManager;
+    _rest = restClient ?? RestClient(config: config);
 
-    auth = AuthApi(rest: rest);
-    users = UsersApi(
-      rest: rest,
-      cache: cache,
-      cacheManager: cacheManager,
-      logger: config.logger,
-    );
-    rooms = RoomsApi(
-      rest: rest,
-      cache: cache,
-      cacheManager: cacheManager,
-      logger: config.logger,
-    );
-    members = MembersApi(rest: rest, userId: config.userId);
-    messages = MessagesApi(
-      rest: rest,
+    final apiFactory = ApiFactory(
+      rest: _rest,
+      userId: config.userId,
       transport: _transport,
-      cache: cache,
-      cacheManager: cacheManager,
+      cache: _cache,
+      cacheManager: _cacheManager,
       offlineQueue: _offlineQueue,
       logger: config.logger,
     );
-    contacts = ContactsApi(
-      rest: rest,
-      transport: _transport,
-      cache: cache,
-      cacheManager: cacheManager,
-      offlineQueue: _offlineQueue,
-      logger: config.logger,
-    );
-    presence = PresenceApi(rest: rest);
-    attachments = AttachmentsApi(rest: rest);
+
+    auth = apiFactory.auth();
+    users = apiFactory.users();
+    rooms = apiFactory.rooms();
+    members = apiFactory.members();
+    messages = apiFactory.messages();
+    contacts = apiFactory.contacts();
+    presence = apiFactory.presence();
+    attachments = apiFactory.attachments();
+
+    // Bind the drain executor now that every sub-API is wired. The
+    // queue was constructed in the field initializer (so MessagesApi
+    // / ContactsApi could receive a non-null reference for `enqueue`)
+    // but the executor closure can only be set here because it
+    // captures `this.messages`/`this.contacts` etc. that don't exist
+    // until the constructor body runs. This decouples
+    // OfflineQueue from the call-graph "circle" — the queue owns its
+    // own drain logic via the bound executor instead of having the
+    // host pass a closure every time it calls into the queue.
+    _offlineQueue?.bindExecutor(_offlineQueueExecutor);
+  }
+
+  Future<bool> _offlineQueueExecutor(PendingOperation op) async {
+    try {
+      final result = await _executeOfflineOp(op);
+      if (result.isFailure && result.failureOrNull is AuthFailure) {
+        _logger?.call('warn', 'Offline queue: auth failure, stopping');
+        return false;
+      }
+      if (result.isSuccess &&
+          op is PendingSendMessage &&
+          op.tempId != null &&
+          result.dataOrNull is ChatMessage) {
+        onOfflineMessageSent?.call(
+          op.roomId,
+          op.tempId!,
+          result.dataOrNull as ChatMessage,
+        );
+      }
+      return result.isSuccess;
+    } catch (e) {
+      _logger?.call(
+        'warn',
+        'Offline queue: failed to execute ${op.runtimeType}: $e',
+      );
+      return false;
+    }
   }
 
   @override
@@ -159,7 +179,20 @@ class NomaChatClient implements ChatClient {
   Future<void> notifyTokenRotated() => _transport.notifyTokenRotated();
 
   @override
+  Future<void> refresh() => _transport.refresh();
+
+  @override
+  Future<void> refreshRoom(String roomId) =>
+      _transport.refresh(singleRoomId: roomId);
+
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) {
+    _rest.cancelPending(reason);
+  }
+
+  @override
   Future<void> logout() async {
+    cancelPendingRequests('logout');
     await disconnect();
     _offlineQueue?.clear();
     _cacheManager?.clear();
@@ -168,10 +201,19 @@ class NomaChatClient implements ChatClient {
 
   @override
   Future<void> dispose() async {
+    cancelPendingRequests('dispose');
     await _eventSub?.cancel();
     _eventSub = null;
     await _transport.dispose();
+    await _cacheManager?.dispose();
     await _cache?.dispose();
+  }
+
+  /// Hydrates the in-memory cache TTL timestamps from persistent
+  /// storage. Called once at boot by [NomaChat.create] so `cacheFirst`
+  /// honours the configured TTLs across cold starts.
+  Future<void> restoreCacheTimestamps() async {
+    await _cacheManager?.restore();
   }
 
   void _onTransportEvent(ChatEvent event) {
@@ -213,35 +255,10 @@ class NomaChatClient implements ChatClient {
 
   Future<void> _processOfflineQueue() async {
     if (_offlineQueue == null || _offlineQueue.isEmpty) return;
-    await _offlineQueue.processQueue((op) async {
-      try {
-        final result = await _executeOfflineOp(op);
-        if (result.isFailure && result.failureOrNull is AuthFailure) {
-          _logger?.call('warn', 'Offline queue: auth failure, stopping');
-          return false;
-        }
-        if (result.isSuccess &&
-            op is PendingSendMessage &&
-            op.tempId != null &&
-            result.dataOrNull is ChatMessage) {
-          onOfflineMessageSent?.call(
-            op.roomId,
-            op.tempId!,
-            result.dataOrNull as ChatMessage,
-          );
-        }
-        return result.isSuccess;
-      } catch (e) {
-        _logger?.call(
-          'warn',
-          'Offline queue: failed to execute ${op.runtimeType}: $e',
-        );
-        return false;
-      }
-    });
+    await _offlineQueue.drain();
   }
 
-  Future<Result<dynamic>> _executeOfflineOp(PendingOperation op) async {
+  Future<ChatResult<dynamic>> _executeOfflineOp(PendingOperation op) async {
     switch (op) {
       case PendingSendMessage():
         return messages.send(
@@ -301,7 +318,11 @@ class NomaChatClient implements ChatClient {
                 _ => RoomRole.member,
               }
             : null;
-        return members.add(op.roomId, userIds: [op.userId], userRole: userRole);
+        return members.invite(
+          op.roomId,
+          userIds: [op.userId],
+          userRole: userRole,
+        );
       case PendingRemoveMember():
         return members.remove(op.roomId, op.userId);
     }

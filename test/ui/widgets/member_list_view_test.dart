@@ -6,15 +6,15 @@ void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
   final members = [
-    MemberEntry(
+    const MemberEntry(
       user: ChatUser(id: 'u1', displayName: 'Alice'),
       role: RoomRole.owner,
     ),
-    MemberEntry(
+    const MemberEntry(
       user: ChatUser(id: 'u2', displayName: 'Bob'),
       role: RoomRole.admin,
     ),
-    MemberEntry(
+    const MemberEntry(
       user: ChatUser(id: 'u3', displayName: 'Charlie'),
       role: RoomRole.member,
     ),

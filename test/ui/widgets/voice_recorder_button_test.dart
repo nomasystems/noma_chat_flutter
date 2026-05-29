@@ -22,7 +22,9 @@ void main() {
       await tester.pumpWidget(
         wrap(
           const VoiceRecorderButton(
-            theme: ChatTheme(voiceIconBuilder: _customMic),
+            theme: ChatTheme(
+              input: ChatInputTheme(voiceIconBuilder: _customMic),
+            ),
           ),
         ),
       );

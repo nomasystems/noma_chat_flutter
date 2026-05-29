@@ -1,3 +1,6 @@
+@Tags(['golden', 'slow'])
+library;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:golden_toolkit/golden_toolkit.dart';
@@ -42,8 +45,9 @@ void main() {
     await screenMatchesGolden(tester, 'bubble_text_incoming_dark');
   });
 
-  // See note in bubbles_light_test.dart: skipped due to CachedNetworkImage
-  // sqflite/path_provider chain in widget tests.
+  // See note in bubbles_light_test.dart: ImageBubble requires sqflite
+  // (via flutter_cache_manager). Tracked as deferred dev-dep concern
+  // in ISSUES.md.
   testGoldens(
     'ImageBubble outgoing — dark (skipped)',
     (tester) async {},
@@ -116,12 +120,25 @@ void main() {
     await screenMatchesGolden(tester, 'bubble_location_incoming_dark');
   });
 
-  // See note in bubbles_light_test.dart: skipped due to CachedNetworkImage.
-  testGoldens(
-    'LinkPreviewBubble outgoing — dark (skipped)',
-    (tester) async {},
-    skip: true,
-  );
+  // LinkPreviewBubble with `imageUrl: null` (no OG image branch) —
+  // captures the text-only card layout without needing sqflite.
+  testGoldens('LinkPreviewBubble outgoing (no OG image) — dark', (
+    tester,
+  ) async {
+    await pumpGoldenSurface(
+      tester,
+      LinkPreviewBubble(
+        url: 'https://example.com/article',
+        title: 'A meaningful headline',
+        description: 'A short OpenGraph description used as preview text.',
+        isOutgoing: true,
+        theme: theme,
+      ),
+      darkBackground: true,
+      size: const Size(360, 120),
+    );
+    await screenMatchesGolden(tester, 'bubble_link_preview_outgoing_dark');
+  });
 
   testGoldens('ForwardedBubble (text inside) — dark', (tester) async {
     await pumpGoldenSurface(

@@ -13,24 +13,35 @@ concurrency:
 
 jobs:
   analyze-and-test:
-    name: Analyze + test (Flutter ${{ matrix.flutter }})
-    # GitHub-hosted Ubuntu. Self-hosted runners are blocked for public repos
-    # by default at the org level (security: anyone can submit PRs).
-    # GitHub-hosted is free + unlimited for public OSS repos.
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: Analyze + test (Flutter ${{ matrix.flutter }} / ${{ matrix.os }})
+    # `ubuntu-latest` is the primary gate. `macos-latest` is added so we
+    # exercise the iOS / macOS pod / `image_picker` / `record` /
+    # `image_cropper` host-side codegen at least once per push — without
+    # this, breakage in those plugins only surfaces when a real iOS dev
+    # opens the example.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        # Pin to a stable channel; bump explicitly when the package's
-        # `environment.sdk` constraint is widened.
+        os: [ubuntu-latest, macos-latest]
         flutter: ["3.x"]
+        channel: [stable]
+        include:
+          # Informational job: track the next release channel so we get
+          # an early warning when the upcoming Flutter release breaks
+          # something. Failures here do not fail the workflow.
+          - os: ubuntu-latest
+            flutter: any
+            channel: beta
+            experimental: true
+    continue-on-error: ${{ matrix.experimental == true }}
     steps:
       - uses: actions/checkout@v5
 
       - uses: subosito/flutter-action@v2
         with:
-          channel: stable
+          channel: ${{ matrix.channel }}
           flutter-version: ${{ matrix.flutter }}
 
       - name: Flutter version
@@ -46,14 +57,80 @@ jobs:
         run: flutter analyze --fatal-infos --fatal-warnings
 
       - name: Tests + coverage
-        run: flutter test --coverage
+        # Golden baselines are generated on Linux (see regen-goldens.yml).
+        # macOS renders text/anti-aliasing differently, so the same PNGs
+        # never match there — exclude the golden tag on macOS only. Linux
+        # still runs (and gates) the full suite including goldens.
+        run: flutter test --coverage ${{ matrix.os == 'macos-latest' && '-x golden' || '' }}
 
       - name: Coverage gate (≥80%)
+        # Only the Linux/stable job gates coverage: it runs the full suite
+        # (goldens included) so its lcov is the complete picture. macOS
+        # excludes goldens, so its coverage is intentionally lower.
+        if: matrix.os == 'ubuntu-latest' && matrix.channel == 'stable'
         run: |
           awk 'BEGIN{lh=0; lf=0} /^LF:/{sub("LF:",""); lf+=$1} /^LH:/{sub("LH:",""); lh+=$1} END{ pct=(lh/lf)*100; printf "Coverage: %d/%d = %.2f%%\n", lh, lf, pct; if (pct < 80.0) { print "FAIL: coverage below 80% threshold"; exit 1 } }' coverage/lcov.info
 
+      # Upload coverage to Codecov on every successful run. The badge in
+      # README.md (https://codecov.io/gh/nomasystems/noma_chat_flutter)
+      # picks this up automatically. Requires the repo to be linked at
+      # codecov.io; public repos don't need a token. Only the ubuntu-latest
+      # / stable job uploads — running it from every matrix combo
+      # would create duplicate reports.
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest' && matrix.channel == 'stable'
+        with:
+          files: ./coverage/lcov.info
+          fail_ci_if_error: false
+
       - name: Dartdoc dry-run
         run: dart doc --dry-run
+
+  example:
+    name: Example app compiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.x"
+
+      - name: Pub get (package)
+        run: flutter pub get
+
+      - name: Pub get (example)
+        working-directory: example
+        run: flutter pub get
+
+      - name: Analyze example
+        working-directory: example
+        run: flutter analyze --fatal-infos --fatal-warnings
+
+      - name: Test example
+        working-directory: example
+        run: flutter test
+
+  performance:
+    name: Performance regression gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.x"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Performance test (10k messages ≤ 8s)
+        run: flutter test test/cache/hive_chat_datasource_performance_test.dart --reporter=expanded
 
   pana:
     name: pub.dev score (pana)

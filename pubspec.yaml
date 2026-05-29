@@ -2,7 +2,7 @@ name: noma_chat
 description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and a ready-to-use UI Kit for the Noma chat backend.
-version: 0.3.1
+version: 0.9.0
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
@@ -15,6 +15,18 @@ topics:
   - sdk
   - flutter
   - ui-kit
+
+screenshots:
+  - description: 'Real-time chat between two users with reactions'
+    path: screenshots/realtime_demo.gif
+  - description: 'Room list with unread badges and presence indicators'
+    path: screenshots/room_list.png
+  - description: 'Chat view with message bubbles, reactions and mentions'
+    path: screenshots/chat_view.png
+  - description: 'Voice recorder with lock gesture'
+    path: screenshots/voice_recorder.png
+  - description: 'Group info management and member list'
+    path: screenshots/group_info.png
 
 platforms:
   android:
@@ -43,6 +55,19 @@ dependencies:
   record: ^6.0.0
   url_launcher: ^6.3.1
   html: ^0.15.5
+  image_picker: ^1.1.0
+  # Bumped to >=9.0.0 because v9 removed `FilePicker.platform.pickFiles`
+  # in favour of the static `FilePicker.pickFiles`. Loose upper bound so
+  # consumers (e.g. WB/mobile already on ^11) don't hit version-solving
+  # conflicts. The narrow surface we use (`FilePicker.pickFiles` with
+  # `type`, `allowedExtensions`, `withData`) is stable across 9.x → 11.x.
+  file_picker: '>=9.0.0 <12.0.0'
+  image_cropper: ^12.2.1
+  characters: ^1.4.0
+  shared_preferences: ^2.2.0
+  uuid: ^4.0.0
+  intl: ^0.20.2
+  meta: ^1.16.0
 
 dev_dependencies:
   flutter_test:
@@ -54,3 +79,4 @@ dev_dependencies:
   freezed: ^3.1.0
   json_serializable: ^6.6.1
   golden_toolkit: ^0.15.0
+  benchmark_harness: ^2.3.0

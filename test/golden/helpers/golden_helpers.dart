@@ -27,7 +27,7 @@ const ChatTheme goldenLightTheme = ChatTheme.defaults;
 
 /// Dark theme shipped with the SDK. Pinned via this alias so a future rename
 /// or split keeps the goldens stable.
-final ChatTheme goldenDarkTheme = ChatTheme.dark;
+final ChatTheme goldenDarkTheme = ChatTheme.darkPreset();
 
 /// Wraps a single widget into a MaterialApp with the given background so the
 /// golden snapshot has consistent surroundings regardless of the calling
