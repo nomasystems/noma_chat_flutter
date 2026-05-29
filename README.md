@@ -19,7 +19,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 |---|---|
 | **SDK** | REST client · WebSocket / SSE / polling with auto-failover · auth · retry · circuit breaker · offline queue |
 | **Cache** | Persistent Hive CE storage — messages, rooms and receipts survive cold restarts |
-| **UI Kit** | 30+ production-ready widgets: bubbles, voice messages, reactions, mentions, threads, group flows, search |
+| **UI components** | 30+ production-ready widgets: bubbles, voice messages, reactions, mentions, threads, group flows, search |
 
 ---
 
@@ -77,7 +77,7 @@ RoomListView(controller: RoomListController(chat: chat))
 - Token rotation without reconnecting
 - 8 sub-APIs: auth, users, rooms, members, messages, contacts, presence, attachments
 
-**UI Kit — messages**
+**UI components — messages**
 - Text, image, audio, video, file and link-preview bubbles
 - Voice recording with lock-to-record gesture
 - Emoji reactions + reaction picker
@@ -89,7 +89,7 @@ RoomListView(controller: RoomListController(chat: chat))
 - Pinned messages banner
 - Message search
 
-**UI Kit — rooms & people**
+**UI components — rooms & people**
 - Room list with unread badges, mute, pin and hide
 - WhatsApp-style DM flow (lazy room creation before first message)
 - Block / unblock (blocker syncs list; blocked user is never notified)
@@ -138,8 +138,19 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 |---|---|---|
 | Android | **Production** | Primary target. Chat, attachments, voice, presence, offline cache exercised end-to-end. |
 | iOS | **Production** | Primary target. Same as Android. |
-| macOS / Linux / Windows | Best effort | SDK and UI Kit work; voice uses platform audio backends. Not exercised in production. |
+| macOS / Linux / Windows | Best effort | SDK and UI components work; voice uses platform audio backends. Not exercised in production. |
 | Web | Limited | SDK, cache (IndexedDB) and audio playback work. Voice **recording** is disabled (filesystem staging). |
+
+---
+
+## Backend
+
+`noma_chat` is built to talk to a **Nomasystems chat backend**. That backend exposes a REST + WebSocket/SSE API described by a public **OpenAPI 3.0 contract** — [browse the rendered API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/user-openapi.yml) or read the [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/user-openapi.yml). The SDK speaks exactly that contract, so it runs against **any** backend that implements the spec — not only ours.
+
+The Nomasystems chat backend is **planned to be open-sourced, but is not public yet**. To use it as part of a commercial product, get in touch: **[info@nomasystems.com](mailto:info@nomasystems.com)**.
+
+- Integration guide (endpoints, auth, WS frames): [INTEGRATION.md](./INTEGRATION.md)
+- Nomasystems: [www.nomasystems.com](https://www.nomasystems.com/)
 
 ---
 
@@ -149,7 +160,8 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 |---|---|
 | [Developer Guide](./doc/DEVELOPER_GUIDE.md) | Architecture · all APIs · configuration · theming · customization · events · testing |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Internal layers and data-flow diagrams |
-| [INTEGRATING.md](./INTEGRATING.md) | CHT backend contract (endpoints, auth, WS frames, S2S) |
+| [INTEGRATION.md](./INTEGRATION.md) | Backend contract (endpoints, auth, WS frames, S2S) |
+| [Backend API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/user-openapi.yml) | Rendered OpenAPI 3.0.1 (Redoc) · [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/user-openapi.yml) |
 | [MIGRATING.md](./MIGRATING.md) | Step-by-step upgrade guide for every breaking release |
 | [CHANGELOG.md](./CHANGELOG.md) | Version history |
 
@@ -157,7 +169,7 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 
 ## When NOT to use
 
-- **Custom backend with incompatible wire protocol** — the SDK speaks the CHT contract (REST + WS/SSE, JWT, specific error codes). You can plug a custom `ChatClient` via `NomaChat.fromClient()`, but adapting the full contract is non-trivial. Consider whether it fits before adopting.
+- **Custom backend with incompatible wire protocol** — the SDK speaks the [Nomasystems chat API contract](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/user-openapi.yml) (REST + WS/SSE, JWT, specific error codes). Any backend that implements that OpenAPI spec works out of the box; for anything else you can plug a custom `ChatClient` via `NomaChat.fromClient()`, but adapting the full contract is non-trivial. Consider whether it fits before adopting.
 - **End-to-end encryption** — TLS only. If E2EE is a hard requirement, use a different SDK.
 - **Hard latency SLO under ~100 ms** — the SDK is push-based but does not advertise a real-time SLO. For voice / video signalling, use a dedicated SDK.
 
@@ -171,6 +183,7 @@ Common issues and fixes are documented in the [Developer Guide — Troubleshooti
 
 ## Links
 
+- Nomasystems: [www.nomasystems.com](https://www.nomasystems.com/)
 - Source: [github.com/nomasystems/noma_chat_flutter](https://github.com/nomasystems/noma_chat_flutter)
 - Issues: [github.com/nomasystems/noma_chat_flutter/issues](https://github.com/nomasystems/noma_chat_flutter/issues)
 - License: [Apache-2.0](./LICENSE)

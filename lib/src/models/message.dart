@@ -56,7 +56,7 @@ abstract class ChatMessage with _$ChatMessage {
   String toString() => 'ChatMessage($id, $messageType)';
 }
 
-/// Discriminator for a [ChatMessage]'s payload. Bubbles in the UI Kit
+/// Discriminator for a [ChatMessage]'s payload. Bubbles in the UI components
 /// branch on this value to pick the right renderer.
 enum MessageType {
   regular,

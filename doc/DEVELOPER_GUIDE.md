@@ -11,8 +11,8 @@ Complete technical reference for integrating and customizing `noma_chat`.
 5. [Real-time modes](#real-time-modes)
 6. [Events](#events)
 7. [Cache](#cache)
-8. [UI Kit — controllers](#ui-kit--controllers)
-9. [UI Kit — widgets](#ui-kit--widgets)
+8. [UI components — controllers](#ui-components--controllers)
+9. [UI components — widgets](#ui-components--widgets)
 10. [Customization hooks](#customization-hooks)
 11. [Theming](#theming)
 12. [Localization](#localization)
@@ -269,7 +269,7 @@ await chat.client.presence.update(PresenceStatus.dnd);
 ### Attachments
 
 ```dart
-// Upload a file and send in one step (UI Kit helper)
+// Upload a file and send in one step (UI components helper)
 await chat.client.attachments.sendAttachment(
   roomId,
   filePath: '/path/to/image.jpg',
@@ -382,7 +382,7 @@ await cache.import(backup);
 
 ---
 
-## UI Kit — controllers
+## UI components — controllers
 
 ### ChatController
 
@@ -429,7 +429,7 @@ controller.dispose();
 
 ---
 
-## UI Kit — widgets
+## UI components — widgets
 
 ### Core screens
 

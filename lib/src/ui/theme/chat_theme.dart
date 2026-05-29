@@ -9,7 +9,7 @@ import 'room_list_theme.dart';
 
 part 'chat_theme.freezed.dart';
 
-/// Theming configuration for all chat UI Kit widgets.
+/// Theming configuration for all chat UI components widgets.
 ///
 /// All properties are optional and fall back to sensible defaults. Use
 /// [copyWith] to override specific properties while keeping the rest.

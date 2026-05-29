@@ -1,7 +1,7 @@
 /// Broad payload kinds the SDK distinguishes when previewing or grouping
 /// attachments. Resolved from the MIME type — see [classifyMime].
 ///
-/// The set is deliberately narrow: the UI Kit only needs to know which
+/// The set is deliberately narrow: the UI components only needs to know which
 /// renderer / icon / fallback string to pick. Apps wanting finer
 /// distinctions (e.g. PDF vs spreadsheet) should branch on `mimeType`
 /// directly downstream of this enum.

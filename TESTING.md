@@ -1,7 +1,7 @@
 # Testing
 
 `noma_chat` ships with **1474+ passing tests** (+ 4 skipped) across the SDK,
-cache, UI Kit, integration, accessibility and golden suites. Line coverage
+cache, UI components, integration, accessibility and golden suites. Line coverage
 is enforced at **≥80%** in CI.
 
 ## What's covered

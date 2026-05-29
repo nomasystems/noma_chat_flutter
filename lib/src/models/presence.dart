@@ -55,7 +55,7 @@ abstract class BulkPresenceResponse with _$BulkPresenceResponse {
   int get hashCode => own.hashCode;
 }
 
-/// Per-user presence states reported by the backend. The UI Kit only
+/// Per-user presence states reported by the backend. The UI components only
 /// distinguishes online (any non-`offline`) vs `offline`; the granular
 /// states are exposed for apps that want to render them.
 enum PresenceStatus {
