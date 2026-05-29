@@ -1,11 +1,11 @@
 /// Offset-based pagination parameters.
-class PaginationParams {
+class ChatPaginationParams {
   final int? limit;
   final int? offset;
   final String? sort;
-  final SortOrder? order;
+  final ChatSortOrder? order;
 
-  const PaginationParams({this.limit, this.offset, this.sort, this.order});
+  const ChatPaginationParams({this.limit, this.offset, this.sort, this.order});
 
   Map<String, dynamic> toQueryParams() => {
     if (limit != null) 'limit': limit,
@@ -16,12 +16,12 @@ class PaginationParams {
 }
 
 /// Cursor-based pagination using before/after timestamps (ISO 8601).
-class CursorPaginationParams {
+class ChatCursorPaginationParams {
   final String? before;
   final String? after;
   final int? limit;
 
-  const CursorPaginationParams({this.before, this.after, this.limit});
+  const ChatCursorPaginationParams({this.before, this.after, this.limit});
 
   Map<String, dynamic> toQueryParams() => {
     if (before != null) 'before': before,
@@ -31,19 +31,19 @@ class CursorPaginationParams {
 }
 
 /// A page of results with a flag indicating whether more data is available.
-class PaginatedResponse<T> {
+class ChatPaginatedResponse<T> {
   final List<T> items;
   final bool hasMore;
   final int? totalCount;
 
-  const PaginatedResponse({
+  const ChatPaginatedResponse({
     required this.items,
     required this.hasMore,
     this.totalCount,
   });
 
-  PaginatedResponse<R> map<R>(R Function(T item) transform) =>
-      PaginatedResponse(
+  ChatPaginatedResponse<R> map<R>(R Function(T item) transform) =>
+      ChatPaginatedResponse(
         items: items.map(transform).toList(),
         hasMore: hasMore,
         totalCount: totalCount,
@@ -52,7 +52,7 @@ class PaginatedResponse<T> {
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is PaginatedResponse<T> &&
+      other is ChatPaginatedResponse<T> &&
           other.hasMore == hasMore &&
           other.totalCount == totalCount &&
           _listEquals(other.items, items);
@@ -62,7 +62,7 @@ class PaginatedResponse<T> {
 
   @override
   String toString() =>
-      'PaginatedResponse(${items.length} items, hasMore: $hasMore, totalCount: $totalCount)';
+      'ChatPaginatedResponse(${items.length} items, hasMore: $hasMore, totalCount: $totalCount)';
 }
 
 bool _listEquals<T>(List<T> a, List<T> b) {
@@ -76,4 +76,4 @@ bool _listEquals<T>(List<T> a, List<T> b) {
 
 /// Ordering hint for paginated queries. Most message and room listings use
 /// `desc` (newest first) by default.
-enum SortOrder { asc, desc }
+enum ChatSortOrder { asc, desc }

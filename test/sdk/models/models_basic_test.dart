@@ -84,8 +84,8 @@ void main() {
       expect(p1.hashCode, isA<int>());
       expect(p1.toString(), contains('u1'));
 
-      final bulk = BulkPresenceResponse(own: p1, contacts: const [p3]);
-      final bulk2 = BulkPresenceResponse(own: p1, contacts: const []);
+      const bulk = BulkPresenceResponse(own: p1, contacts: [p3]);
+      const bulk2 = BulkPresenceResponse(own: p1, contacts: []);
       expect(bulk, equals(bulk2));
       expect(bulk.hashCode, isA<int>());
       expect(bulk.toString(), contains('contacts'));
@@ -129,8 +129,9 @@ void main() {
   });
 
   group('UnreadRoom', () {
-    test('default values + equality', () {
+    test('default values + structural equality', () {
       const a = UnreadRoom(roomId: 'r1', unreadMessages: 3);
+      const sameAsA = UnreadRoom(roomId: 'r1', unreadMessages: 3);
       const b = UnreadRoom(
         roomId: 'r1',
         unreadMessages: 7,
@@ -138,12 +139,14 @@ void main() {
         muted: true,
       );
       const c = UnreadRoom(roomId: 'r2', unreadMessages: 3);
-      expect(a, equals(b));
+      // Equality is structural across all fields (room.unread_room.dart).
+      expect(a, equals(sameAsA));
+      expect(a.hashCode, sameAsA.hashCode);
+      expect(a == b, isFalse);
       expect(a == c, isFalse);
       expect(a.muted, isFalse);
       expect(b.muted, isTrue);
       expect(b.hidden, isFalse);
-      expect(a.hashCode, 'r1'.hashCode);
     });
   });
 

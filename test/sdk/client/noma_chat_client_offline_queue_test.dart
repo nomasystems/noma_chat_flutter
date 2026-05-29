@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 import 'package:noma_chat/src/_internal/transport/transport_manager.dart';
 import 'package:mocktail/mocktail.dart';
@@ -78,7 +79,7 @@ void main() {
 
     await client.logout();
 
-    expect(await store.getOfflineQueue(), isEmpty);
+    expect((await store.getOfflineQueue()).dataOrNull, isEmpty);
   });
 
   test('restore() picks up persisted operations before connecting', () async {

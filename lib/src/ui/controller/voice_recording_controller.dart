@@ -21,7 +21,7 @@ import '_voice_recorder_io.dart'
 /// - `preListen`: recording stopped, user is previewing before sending.
 enum VoiceRecordingState { idle, recording, locked, preListen }
 
-/// Result of [VoiceRecordingController.startRecording].
+/// ChatResult of [VoiceRecordingController.startRecording].
 ///
 /// `permissionJustGranted` is returned when the OS permission dialog was
 /// shown during this call and the user accepted: instead of starting to
@@ -215,12 +215,19 @@ class VoiceRecordingController extends ChangeNotifier {
   }
 
   Future<void> startPreListen() async {
-    // If we're already in pre-listen, treat the call as "replay": after
-    // playback completes the listener below already seeks back to zero, so
-    // a fresh `resume()` restarts from the beginning.
+    // If we're already in pre-listen, treat the call as "replay". Same
+    // platform quirk as the message audio bubble (see `AudioBubble`):
+    // calling `resume()` from `completed` state is a no-op on iOS and
+    // some Android builds. Re-arm via `play(source)` which both seeks
+    // to zero and starts playback. The audioplayers cache avoids
+    // re-reading the file from disk.
     if (_state == VoiceRecordingState.preListen) {
       try {
-        await _preListenPlayer.resume();
+        if (_recordingPath != null) {
+          await _preListenPlayer.play(DeviceFileSource(_recordingPath!));
+        } else {
+          await _preListenPlayer.resume();
+        }
       } catch (_) {}
       notifyListeners();
       return;

@@ -1,4 +1,5 @@
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:noma_chat/src/_internal/cache/cache_manager.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -21,7 +22,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('network');
+          return const ChatSuccess('network');
         },
         saveToCache: (data) async => savedValue = data,
       );
@@ -41,7 +42,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('network');
+          return const ChatSuccess('network');
         },
         saveToCache: (data) async {},
       );
@@ -56,7 +57,7 @@ void main() {
         ttl: const Duration(hours: 1),
         policy: CachePolicy.cacheOnly,
         fromCache: () async => null,
-        fromNetwork: () async => const Success('network'),
+        fromNetwork: () async => const ChatSuccess('network'),
         saveToCache: (data) async {},
       );
 
@@ -71,7 +72,7 @@ void main() {
         ttl: const Duration(hours: 1),
         policy: CachePolicy.networkFirst,
         fromCache: () async => 'cached',
-        fromNetwork: () async => const Success('network'),
+        fromNetwork: () async => const ChatSuccess('network'),
         saveToCache: (data) async {},
       );
 
@@ -81,7 +82,8 @@ void main() {
         ttl: const Duration(hours: 1),
         policy: CachePolicy.networkFirst,
         fromCache: () async => 'cached',
-        fromNetwork: () async => const Failure(NetworkFailure('no connection')),
+        fromNetwork: () async =>
+            const ChatFailureResult(NetworkFailure('no connection')),
         saveToCache: (data) async {},
       );
 
@@ -97,7 +99,7 @@ void main() {
           policy: CachePolicy.networkFirst,
           fromCache: () async => null,
           fromNetwork: () async =>
-              const Failure(NetworkFailure('no connection')),
+              const ChatFailureResult(NetworkFailure('no connection')),
           saveToCache: (data) async {},
         );
 
@@ -117,7 +119,7 @@ void main() {
         fromCache: () async => null,
         fromNetwork: () async {
           networkCalls++;
-          return const Success('network');
+          return const ChatSuccess('network');
         },
         saveToCache: (data) async {},
       );
@@ -130,7 +132,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('network2');
+          return const ChatSuccess('network2');
         },
         saveToCache: (data) async {},
       );
@@ -150,7 +152,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('network');
+          return const ChatSuccess('network');
         },
         saveToCache: (data) async {},
       );
@@ -166,7 +168,7 @@ void main() {
         ttl: const Duration(hours: 1),
         policy: CachePolicy.networkOnly,
         fromCache: () async => null,
-        fromNetwork: () async => const Success('v1'),
+        fromNetwork: () async => const ChatSuccess('v1'),
         saveToCache: (data) async {},
       );
 
@@ -181,7 +183,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('v2');
+          return const ChatSuccess('v2');
         },
         saveToCache: (data) async {},
       );
@@ -196,7 +198,7 @@ void main() {
           ttl: const Duration(hours: 1),
           policy: CachePolicy.networkOnly,
           fromCache: () async => null,
-          fromNetwork: () async => const Success('v'),
+          fromNetwork: () async => const ChatSuccess('v'),
           saveToCache: (data) async {},
         );
       }
@@ -212,7 +214,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('v2');
+          return const ChatSuccess('v2');
         },
         saveToCache: (data) async {},
       );
@@ -226,7 +228,7 @@ void main() {
         fromCache: () async => 'cached',
         fromNetwork: () async {
           networkCalls++;
-          return const Success('v2');
+          return const ChatSuccess('v2');
         },
         saveToCache: (data) async {},
       );
@@ -242,7 +244,7 @@ void main() {
         key: 'test',
         ttl: const Duration(hours: 1),
         fromCache: () async => 'cached',
-        fromNetwork: () async => const Success('network'),
+        fromNetwork: () async => const ChatSuccess('network'),
         saveToCache: (data) async {},
       );
 

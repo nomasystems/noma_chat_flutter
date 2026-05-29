@@ -1,10 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -19,7 +20,7 @@ void main() {
   group('sendMessage optimistic', () {
     test('adds optimistic message to controller immediately', () async {
       final controller = adapter.getChatController('room1');
-      final future = adapter.sendMessage('room1', text: 'Hello');
+      final future = adapter.messages.send('room1', text: 'Hello');
 
       expect(controller.messages, hasLength(1));
       expect(controller.messages.first.text, 'Hello');
@@ -31,7 +32,7 @@ void main() {
 
     test('marks optimistic message as pending', () async {
       final controller = adapter.getChatController('room1');
-      final future = adapter.sendMessage('room1', text: 'Hello');
+      final future = adapter.messages.send('room1', text: 'Hello');
 
       final tempId = controller.messages.first.id;
       expect(controller.isPending(tempId), true);
@@ -44,7 +45,7 @@ void main() {
       'on success calls confirmSent replacing temp with server message',
       () async {
         final controller = adapter.getChatController('room1');
-        final result = await adapter.sendMessage('room1', text: 'Hello');
+        final result = await adapter.messages.send('room1', text: 'Hello');
 
         expect(result.isSuccess, true);
         final serverMsg = result.dataOrNull!;
@@ -183,10 +184,10 @@ void main() {
           otherUserId: 'contact1',
         ),
       );
-      adapter.registerDmRoom('contact1', 'dm-room-1');
+      adapter.dm.registerRoom('contact1', 'dm-room-1');
 
       mockClient.emitEvent(
-        ChatEvent.presenceChanged(
+        const ChatEvent.presenceChanged(
           userId: 'contact1',
           status: PresenceStatus.available,
           online: true,
@@ -199,7 +200,7 @@ void main() {
       expect(room!.isOnline, true);
 
       mockClient.emitEvent(
-        ChatEvent.presenceChanged(
+        const ChatEvent.presenceChanged(
           userId: 'contact1',
           status: PresenceStatus.away,
           online: false,
@@ -220,7 +221,7 @@ void main() {
       // No registerDmRoom call -> userId not in _dmRoomByContact
 
       mockClient.emitEvent(
-        ChatEvent.presenceChanged(
+        const ChatEvent.presenceChanged(
           userId: 'unknown-user',
           status: PresenceStatus.available,
           online: true,
@@ -244,7 +245,7 @@ void main() {
         name: 'Room B',
       );
 
-      final result = await adapter.loadRooms();
+      final result = await adapter.rooms.load();
       expect(result.isSuccess, true);
 
       final rooms = adapter.roomListController.allRooms;
@@ -258,7 +259,7 @@ void main() {
         name: 'Test Room',
       );
 
-      await adapter.loadRooms();
+      await adapter.rooms.load();
 
       final rooms = adapter.roomListController.allRooms;
       expect(rooms.first.id, startsWith('mock-room-'));

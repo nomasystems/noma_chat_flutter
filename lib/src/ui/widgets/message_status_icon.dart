@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../theme/chat_theme.dart';
 
 /// Small check-icon stack indicating the [ReceiptStatus] of an outgoing
 /// message (sent / delivered / read).
@@ -18,8 +19,8 @@ class MessageStatusIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = status == ReceiptStatus.read
-        ? (theme.messageStatusReadColor ?? Colors.blue)
-        : (theme.messageStatusColor ?? Colors.grey);
+        ? (theme.bubble.statusReadColor ?? Colors.blue)
+        : (theme.bubble.statusColor ?? Colors.grey);
 
     final label = switch (status) {
       ReceiptStatus.sent => theme.l10n.statusSent,
@@ -36,10 +37,14 @@ class MessageStatusIcon extends StatelessWidget {
         width: isDouble ? size * 1.3 : size,
         height: size,
         child: CustomPaint(
+          // Stroke 2.0 (was 1.5) for legibility on phone-density
+          // screens. WhatsApp uses ~2px for the tick stroke at ~14px
+          // height. Configurable via `MessageStatusIcon`'s `size` and
+          // the theme color tokens.
           painter: _CheckPainter(
             color: color,
             isDouble: isDouble,
-            strokeWidth: 1.5,
+            strokeWidth: 2.0,
           ),
         ),
       ),

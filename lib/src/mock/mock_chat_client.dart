@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import '../_internal/cache/cache_policy.dart';
+import '../cache/cache_policy.dart';
 import '../client/chat_client.dart';
 import '../core/pagination.dart';
 import '../core/result.dart';
@@ -37,6 +37,12 @@ class MockChatClient implements ChatClient {
   final Map<String, ChatRoom> _rooms = {};
   final Map<String, List<ChatMessage>> _messages = {};
   final List<String> _contacts = [];
+
+  // Demo/test seedable chat-list metadata the real backend derives but the
+  // mock `ChatRoom` doesn't carry. Drive the room tile (badge / pin / mute).
+  final Map<String, int> _unread = {};
+  final Map<String, bool> _pinned = {};
+  final Map<String, bool> _muted = {};
   int _messageCounter = 0;
 
   @override
@@ -98,6 +104,12 @@ class MockChatClient implements ChatClient {
   @override
   Future<void> notifyTokenRotated() async {}
 
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  Future<void> refreshRoom(String roomId) async {}
+
   void emitEvent(ChatEvent event) => _eventController.add(event);
 
   /// Test helper: register a room directly in the mock store so subsequent
@@ -105,6 +117,22 @@ class MockChatClient implements ChatClient {
   void seedRoom(ChatRoom room) {
     _rooms[room.id] = room;
     _messages.putIfAbsent(room.id, () => []);
+  }
+
+  /// Test/demo helper: seed chat-list metadata (unread badge, pinned,
+  /// muted) that the real backend computes/stores but the mock `ChatRoom`
+  /// model doesn't carry. Null args leave the current value untouched.
+  void seedRoomMeta(String roomId, {int? unread, bool? pinned, bool? muted}) {
+    if (unread != null) _unread[roomId] = unread;
+    if (pinned != null) _pinned[roomId] = pinned;
+    if (muted != null) _muted[roomId] = muted;
+  }
+
+  /// Test helper: register a user directly in the mock store so subsequent
+  /// `client.users.get(userId)` calls return them. Pair with [seedRoom]
+  /// when a test exercises the DM-draft hydration path.
+  void seedUser(ChatUser user) {
+    _users[user.id] = user;
   }
 
   void addMessage(String roomId, ChatMessage message) {
@@ -126,6 +154,9 @@ class MockChatClient implements ChatClient {
     _messages.clear();
     _contacts.clear();
     _users.clear();
+    _unread.clear();
+    _pinned.clear();
+    _muted.clear();
   }
 
   @override
@@ -134,8 +165,11 @@ class MockChatClient implements ChatClient {
     await _stateController.close();
   }
 
+  // The mock client has no real HTTP requests in flight; cancellation is a no-op.
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) {}
+
   // The mock does not have an offline queue, so the setter is a no-op.
-  // Implemented to satisfy the `ChatClient` contract introduced in 0.3.0.
   @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
@@ -144,8 +178,8 @@ class MockChatClient implements ChatClient {
 
 class MockAuthApi implements ChatAuthApi {
   @override
-  Future<Result<HealthStatus>> healthCheck() async =>
-      const Success(HealthStatus(status: ServiceStatus.ok));
+  Future<ChatResult<HealthStatus>> healthCheck() async =>
+      const ChatSuccess(HealthStatus(status: ServiceStatus.ok));
 }
 
 class MockUsersApi implements ChatUsersApi {
@@ -153,30 +187,43 @@ class MockUsersApi implements ChatUsersApi {
   MockUsersApi(this._client);
 
   @override
-  Future<Result<ChatUser>> get(
+  Future<ChatResult<ChatUser>> get(
     String userId, {
     CachePolicy? cachePolicy,
   }) async {
     final user = _client._users[userId];
-    if (user == null) return const Failure(NotFoundFailure());
-    return Success(user);
+    if (user == null) return const ChatFailureResult(NotFoundFailure());
+    return ChatSuccess(user);
   }
 
   @override
-  Future<Result<ChatUser>> create({
+  Future<ChatResult<ChatUser>> create({
     List<String>? externalIds,
     Map<String, String>? passwords,
+    String? displayName,
+    String? avatarUrl,
+    String? bio,
+    String? email,
+    Map<String, dynamic>? custom,
   }) async {
     final id = 'mock-user-${_client._users.length}';
-    final user = ChatUser(id: id, active: true);
+    final user = ChatUser(
+      id: id,
+      displayName: displayName,
+      avatarUrl: avatarUrl,
+      bio: bio,
+      email: email,
+      custom: custom,
+      active: true,
+    );
     _client._users[id] = user;
-    return Success(user);
+    return ChatSuccess(user);
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatUser>>> search(
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> search(
     String query, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) async {
     final matches = _client._users.values
         .where(
@@ -185,25 +232,26 @@ class MockUsersApi implements ChatUsersApi {
               false,
         )
         .toList();
-    return Success(PaginatedResponse(items: matches, hasMore: false));
+    return ChatSuccess(ChatPaginatedResponse(items: matches, hasMore: false));
   }
 
   @override
-  Future<Result<ChatUser>> update(
+  Future<ChatResult<ChatUser>> update(
     String userId, {
     String? displayName,
     String? avatarUrl,
+    bool clearAvatar = false,
     String? bio,
     String? email,
     Map<String, dynamic>? custom,
     bool? active,
   }) async {
     final existing = _client._users[userId];
-    if (existing == null) return const Failure(NotFoundFailure());
+    if (existing == null) return const ChatFailureResult(NotFoundFailure());
     final updated = ChatUser(
       id: userId,
       displayName: displayName ?? existing.displayName,
-      avatarUrl: avatarUrl ?? existing.avatarUrl,
+      avatarUrl: clearAvatar ? null : (avatarUrl ?? existing.avatarUrl),
       bio: bio ?? existing.bio,
       email: email ?? existing.email,
       custom: custom ?? existing.custom,
@@ -212,49 +260,51 @@ class MockUsersApi implements ChatUsersApi {
       configuration: existing.configuration,
     );
     _client._users[userId] = updated;
-    return Success(updated);
+    return ChatSuccess(updated);
   }
 
   @override
-  Future<Result<void>> delete(String userId) async {
+  Future<ChatResult<void>> delete(String userId) async {
     if (!_client._users.containsKey(userId)) {
-      return const Failure(NotFoundFailure());
+      return const ChatFailureResult(NotFoundFailure());
     }
     _client._users.remove(userId);
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<ChatUser>> searchManaged({required String externalId}) async =>
-      const Failure(NotFoundFailure());
+  Future<ChatResult<ChatUser>> searchManaged({
+    required String externalId,
+  }) async => const ChatFailureResult(NotFoundFailure());
 
   @override
-  Future<Result<List<ChatUser>>> createManaged({
+  Future<ChatResult<List<ChatUser>>> createManaged({
     required List<String> externalIds,
-  }) async => const Success([]);
+  }) async => const ChatSuccess([]);
 
   @override
-  Future<Result<PaginatedResponse<ChatUser>>> getManaged(
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManaged(
     String userId, {
-    PaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<void>> deleteManaged(
+  Future<ChatResult<void>> deleteManaged(
     String userId, {
     required String fromUserId,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
 
   @override
-  Future<Result<ManagedUserConfiguration>> getManagedConfig(
+  Future<ChatResult<ManagedUserConfiguration>> getManagedConfig(
     String userId,
-  ) async => const Success(UserConfiguration());
+  ) async => const ChatSuccess(UserConfiguration());
 
   @override
-  Future<Result<void>> updateManagedConfig(
+  Future<ChatResult<void>> updateManagedConfig(
     String userId, {
     required ManagedUserConfiguration configuration,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
 }
 
 class MockRoomsApi implements ChatRoomsApi {
@@ -262,7 +312,7 @@ class MockRoomsApi implements ChatRoomsApi {
   MockRoomsApi(this._client);
 
   @override
-  Future<Result<ChatRoom>> create({
+  Future<ChatResult<ChatRoom>> create({
     required RoomAudience audience,
     bool allowInvitations = false,
     String? name,
@@ -285,34 +335,53 @@ class MockRoomsApi implements ChatRoomsApi {
     );
     _client._rooms[id] = room;
     _client._messages[id] = [];
-    return Success(room);
+    return ChatSuccess(room);
   }
 
   @override
-  Future<Result<UserRooms>> getUserRooms({
+  Future<ChatResult<UserRooms>> getUserRooms({
     String type = 'all',
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
     CachePolicy? cachePolicy,
   }) async {
-    final rooms = _client._rooms.values
-        .map(
-          (r) => UnreadRoom(
-            roomId: r.id,
-            unreadMessages: 0,
-            name: r.name,
-            avatarUrl: r.avatarUrl,
-            type: r.audience == RoomAudience.public ? 'group' : 'group',
-            memberCount: r.members.length,
-          ),
-        )
-        .toList();
-    return Success(UserRooms(rooms: rooms));
+    final rooms = _client._rooms.values.map((r) {
+      final msgs = _client._messages[r.id] ?? const <ChatMessage>[];
+      final last = msgs.isEmpty
+          ? null
+          : msgs.reduce((a, b) => a.timestamp.isAfter(b.timestamp) ? a : b);
+      return UnreadRoom(
+        roomId: r.id,
+        // Seeded via `seedRoomMeta`; the real backend computes this.
+        unreadMessages: _client._unread[r.id] ?? 0,
+        name: r.name,
+        avatarUrl: r.avatarUrl,
+        // Type drives RoomListItem.isGroup. The mock used to
+        // hard-code `'group'` for every room which left DMs
+        // misclassified, breaking the SDK's DM-aware title default.
+        //  - `custom.type == 'announcement'` → announcement.
+        //  - 2 members → one-to-one DM.
+        //  - otherwise → group.
+        type: r.custom?['type'] == 'announcement'
+            ? 'announcement'
+            : (r.members.length == 2 ? 'one-to-one' : 'group'),
+        memberCount: r.members.length,
+        // Last-message preview + time so the tile shows the snippet and
+        // timestamp (and the list sorts by recency) instead of a bare
+        // title. Derived from the seeded messages (max timestamp).
+        lastMessage: last?.text,
+        lastMessageTime: last?.timestamp,
+        lastMessageUserId: last?.from,
+        lastMessageId: last?.id,
+        lastMessageType: last?.messageType,
+      );
+    }).toList();
+    return ChatSuccess(UserRooms(rooms: rooms));
   }
 
   @override
-  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
+  Future<ChatResult<ChatPaginatedResponse<DiscoveredRoom>>> discover(
     String query, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) async {
     final matches = _client._rooms.values
         .where(
@@ -320,49 +389,60 @@ class MockRoomsApi implements ChatRoomsApi {
         )
         .map((r) => DiscoveredRoom(id: r.id, name: r.name, subject: r.subject))
         .toList();
-    return Success(PaginatedResponse(items: matches, hasMore: false));
+    return ChatSuccess(ChatPaginatedResponse(items: matches, hasMore: false));
   }
 
   @override
-  Future<Result<RoomDetail>> get(
+  Future<ChatResult<RoomDetail>> get(
     String roomId, {
     CachePolicy? cachePolicy,
   }) async {
     final room = _client._rooms[roomId];
-    if (room == null) return const Failure(NotFoundFailure());
-    return Success(
+    if (room == null) return const ChatFailureResult(NotFoundFailure());
+    // Same room-type classification as `listAll` above — without this
+    // `_isDmDetail` returns false (default to group) and the host's
+    // `RoomTitleResolver` never gets `isDm: true` for one-to-one rooms.
+    final type = room.custom?['type'] == 'announcement'
+        ? RoomType.announcement
+        : (room.members.length == 2 ? RoomType.oneToOne : RoomType.group);
+    return ChatSuccess(
       RoomDetail(
         id: room.id,
         name: room.name,
         subject: room.subject,
-        type: RoomType.group,
+        type: type,
         memberCount: room.members.length,
         userRole: RoomRole.owner,
         config: RoomConfig(allowInvitations: room.allowInvitations),
+        avatarUrl: room.avatarUrl,
+        custom: room.custom,
+        muted: _client._muted[roomId] ?? false,
+        pinned: _client._pinned[roomId] ?? false,
       ),
     );
   }
 
   @override
-  Future<Result<void>> delete(String roomId) async {
+  Future<ChatResult<void>> delete(String roomId) async {
     if (!_client._rooms.containsKey(roomId)) {
-      return const Failure(NotFoundFailure());
+      return const ChatFailureResult(NotFoundFailure());
     }
     _client._rooms.remove(roomId);
     _client._messages.remove(roomId);
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> updateConfig(
+  Future<ChatResult<void>> updateConfig(
     String roomId, {
     String? name,
     String? subject,
     String? avatarUrl,
+    bool clearAvatar = false,
     Map<String, dynamic>? custom,
   }) async {
     final room = _client._rooms[roomId];
-    if (room == null) return const Failure(NotFoundFailure());
+    if (room == null) return const ChatFailureResult(NotFoundFailure());
     _client._rooms[roomId] = ChatRoom(
       id: room.id,
       owner: room.owner,
@@ -371,10 +451,16 @@ class MockRoomsApi implements ChatRoomsApi {
       audience: room.audience,
       allowInvitations: room.allowInvitations,
       members: room.members,
-      avatarUrl: avatarUrl ?? room.avatarUrl,
+      avatarUrl: clearAvatar ? null : (avatarUrl ?? room.avatarUrl),
       custom: custom ?? room.custom,
     );
-    return const Success(null);
+    // Other mutations (mute/pin/hide/leave) also emit RoomUpdatedEvent —
+    // without this, in mock mode, changing the group name/avatar/description
+    // did not propagate to the chat list, AppBar, or _userCache. The change
+    // was visible inside GroupInfoPage (which reloads via `_loadDetail`)
+    // but disappeared on exit since the cached state was never updated.
+    _client._eventController.add(RoomUpdatedEvent(roomId: roomId));
+    return const ChatSuccess(null);
   }
 
   // Room mutations mirror the real client: every successful mutation
@@ -382,50 +468,51 @@ class MockRoomsApi implements ChatRoomsApi {
   // event behaves identically against the mock.
 
   @override
-  Future<Result<void>> mute(String roomId) async {
+  Future<ChatResult<void>> mute(String roomId) async {
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> unmute(String roomId) async {
+  Future<ChatResult<void>> unmute(String roomId) async {
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> pin(String roomId) async {
+  Future<ChatResult<void>> pin(String roomId) async {
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> unpin(String roomId) async {
+  Future<ChatResult<void>> unpin(String roomId) async {
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> hide(String roomId) async {
+  Future<ChatResult<void>> hide(String roomId) async {
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> unhide(String roomId) async {
+  Future<ChatResult<void>> unhide(String roomId) async {
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> batchMarkAsRead(List<String> roomIds) async =>
-      const Success(null);
+  Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) async =>
-      Success(
-        roomIds.map((id) => UnreadRoom(roomId: id, unreadMessages: 0)).toList(),
-      );
+  Future<ChatResult<List<UnreadRoom>>> batchGetUnread(
+    List<String> roomIds,
+  ) async => ChatSuccess(
+    roomIds.map((id) => UnreadRoom(roomId: id, unreadMessages: 0)).toList(),
+  );
 
   @override
   Future<void> updateCachedRoomPreview(
@@ -448,25 +535,25 @@ class MockMembersApi implements ChatMembersApi {
   MockMembersApi(this._client);
 
   @override
-  Future<Result<PaginatedResponse<RoomUser>>> list(
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) async {
     final room = _client._rooms[roomId];
-    if (room == null) return const Failure(NotFoundFailure());
+    if (room == null) return const ChatFailureResult(NotFoundFailure());
     final users = room.members.map((id) => RoomUser(userId: id)).toList();
-    return Success(PaginatedResponse(items: users, hasMore: false));
+    return ChatSuccess(ChatPaginatedResponse(items: users, hasMore: false));
   }
 
   @override
-  Future<Result<void>> add(
+  Future<ChatResult<void>> invite(
     String roomId, {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
     RoomRole? userRole,
   }) async {
     final room = _client._rooms[roomId];
-    if (room == null) return const Failure(NotFoundFailure());
+    if (room == null) return const ChatFailureResult(NotFoundFailure());
     _client._rooms[roomId] = ChatRoom(
       id: room.id,
       owner: room.owner,
@@ -478,41 +565,42 @@ class MockMembersApi implements ChatMembersApi {
       avatarUrl: room.avatarUrl,
       custom: room.custom,
     );
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> remove(String roomId, String userId) async =>
-      const Success(null);
+  Future<ChatResult<void>> remove(String roomId, String userId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<void>> leave(String roomId) async => const Success(null);
+  Future<ChatResult<void>> leave(String roomId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<void>> updateRole(
+  Future<ChatResult<void>> updateRole(
     String roomId,
     String userId,
     RoomRole role,
-  ) async => const Success(null);
+  ) async => const ChatSuccess(null);
 
   @override
-  Future<Result<void>> ban(
+  Future<ChatResult<void>> ban(
     String roomId,
     String userId, {
     String? reason,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
 
   @override
-  Future<Result<void>> unban(String roomId, String userId) async =>
-      const Success(null);
+  Future<ChatResult<void>> unban(String roomId, String userId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<void>> muteUser(String roomId, String userId) async =>
-      const Success(null);
+  Future<ChatResult<void>> muteUser(String roomId, String userId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<void>> unmuteUser(String roomId, String userId) async =>
-      const Success(null);
+  Future<ChatResult<void>> unmuteUser(String roomId, String userId) async =>
+      const ChatSuccess(null);
 }
 
 class MockMessagesApi implements ChatMessagesApi {
@@ -520,15 +608,15 @@ class MockMessagesApi implements ChatMessagesApi {
   MockMessagesApi(this._client);
 
   @override
-  Future<Result<ChatMessage>> get(String roomId, String messageId) async {
+  Future<ChatResult<ChatMessage>> get(String roomId, String messageId) async {
     final messages = _client._messages[roomId] ?? [];
     final msg = messages.where((m) => m.id == messageId).firstOrNull;
-    if (msg == null) return const Failure(NotFoundFailure());
-    return Success(msg);
+    if (msg == null) return const ChatFailureResult(NotFoundFailure());
+    return ChatSuccess(msg);
   }
 
   @override
-  Future<Result<ChatMessage>> send(
+  Future<ChatResult<ChatMessage>> send(
     String roomId, {
     String? text,
     MessageType messageType = MessageType.regular,
@@ -564,22 +652,22 @@ class MockMessagesApi implements ChatMessagesApi {
     } else {
       _client.emitEvent(ChatEvent.newMessage(message: msg, roomId: roomId));
     }
-    return Success(msg);
+    return ChatSuccess(msg);
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> list(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> list(
     String roomId, {
-    CursorPaginationParams? pagination,
+    ChatCursorPaginationParams? pagination,
     bool? unreadOnly,
     CachePolicy? cachePolicy,
   }) async {
     final messages = _client._messages[roomId] ?? [];
-    return Success(PaginatedResponse(items: messages, hasMore: false));
+    return ChatSuccess(ChatPaginatedResponse(items: messages, hasMore: false));
   }
 
   @override
-  Future<Result<void>> sendViaWs(
+  Future<ChatResult<ChatMessage>> sendViaWs(
     String roomId, {
     String? text,
     MessageType messageType = MessageType.regular,
@@ -588,116 +676,155 @@ class MockMessagesApi implements ChatMessagesApi {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) async => const Success(null);
+  }) => send(
+    roomId,
+    text: text,
+    messageType: messageType,
+    referencedMessageId: referencedMessageId,
+    reaction: reaction,
+    attachmentUrl: attachmentUrl,
+    sourceRoomId: sourceRoomId,
+    metadata: metadata,
+  );
 
   @override
-  Future<Result<void>> update(
+  Future<ChatResult<void>> update(
     String roomId,
     String messageId, {
     required String text,
     Map<String, dynamic>? metadata,
   }) async {
     final messages = _client._messages[roomId];
-    if (messages == null) return const Failure(NotFoundFailure());
+    if (messages == null) return const ChatFailureResult(NotFoundFailure());
     final idx = messages.indexWhere((m) => m.id == messageId);
-    if (idx < 0) return const Failure(NotFoundFailure());
+    if (idx < 0) return const ChatFailureResult(NotFoundFailure());
     messages[idx] = messages[idx].copyWith(text: text, metadata: metadata);
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> delete(String roomId, String messageId) async {
+  Future<ChatResult<void>> delete(String roomId, String messageId) async {
     _client._messages[roomId]?.removeWhere((m) => m.id == messageId);
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<void>> sendReceipt(
+  Future<ChatResult<void>> sendReceipt(
     String roomId,
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
+
+  /// Records each `markRoomAsRead` invocation as a `(roomId,
+  /// lastReadMessageId)` tuple so tests can assert how often the
+  /// adapter flushed read receipts and against which high-water
+  /// mark. Cleared via [resetMarkRoomAsReadCalls].
+  final List<({String roomId, String? lastReadMessageId})> markRoomAsReadCalls =
+      [];
+
+  /// Clears the [markRoomAsReadCalls] history. Convenient at the
+  /// start of a test stage that wants to isolate a specific flush.
+  void resetMarkRoomAsReadCalls() => markRoomAsReadCalls.clear();
 
   @override
-  Future<Result<void>> markRoomAsRead(
+  Future<ChatResult<void>> markRoomAsRead(
     String roomId, {
     String? lastReadMessageId,
-  }) async => const Success(null);
-
-  @override
-  Future<Result<PaginatedResponse<ReadReceipt>>> getRoomReceipts(
-    String roomId,
-  ) async => const Success(PaginatedResponse(items: [], hasMore: false));
-
-  @override
-  Future<Result<void>> sendTyping(
-    String roomId, {
-    ChatActivity activity = ChatActivity.startsTyping,
-  }) async => const Success(null);
-
-  @override
-  Future<Result<PaginatedResponse<ChatMessage>>> getThread(
-    String roomId,
-    String messageId, {
-    CursorPaginationParams? pagination,
   }) async {
-    final messages = _client._messages[roomId] ?? [];
-    final thread = messages.where((m) => m.id == messageId).toList();
-    return Success(PaginatedResponse(items: thread, hasMore: false));
+    markRoomAsReadCalls.add((
+      roomId: roomId,
+      lastReadMessageId: lastReadMessageId,
+    ));
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<List<AggregatedReaction>>> getReactions(
+  Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
+    String roomId,
+  ) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
+
+  @override
+  Future<ChatResult<void>> sendTyping(
+    String roomId, {
+    ChatActivity activity = ChatActivity.startsTyping,
+  }) async => const ChatSuccess(null);
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> getThread(
     String roomId,
     String messageId, {
+    ChatCursorPaginationParams? pagination,
+  }) async {
+    final messages = _client._messages[roomId] ?? [];
+    final thread = messages.where((m) => m.id == messageId).toList();
+    return ChatSuccess(ChatPaginatedResponse(items: thread, hasMore: false));
+  }
+
+  @override
+  Future<ChatResult<List<AggregatedReaction>>> getReactions(
+    String roomId,
+    String messageId, {
+    @Deprecated(
+      'Use cachePolicy: CachePolicy.networkOnly instead. '
+      'forceRefresh will be removed in 1.0.',
+    )
     bool forceRefresh = false,
-  }) async => const Success([]);
+    CachePolicy? cachePolicy,
+  }) async => const ChatSuccess([]);
 
   @override
-  Future<Result<void>> deleteReaction(String roomId, String messageId) async =>
-      const Success(null);
+  Future<ChatResult<void>> deleteReaction(
+    String roomId,
+    String messageId,
+  ) async => const ChatSuccess(null);
 
   @override
-  Future<Result<void>> pinMessage(String roomId, String messageId) async =>
-      const Success(null);
+  Future<ChatResult<void>> pinMessage(String roomId, String messageId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<void>> unpinMessage(String roomId, String messageId) async =>
-      const Success(null);
+  Future<ChatResult<void>> unpinMessage(
+    String roomId,
+    String messageId,
+  ) async => const ChatSuccess(null);
 
   @override
-  Future<Result<PaginatedResponse<MessagePin>>> listPins(
+  Future<ChatResult<ChatPaginatedResponse<MessagePin>>> listPins(
     String roomId, {
-    PaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> search(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> search(
     String query, {
     required String roomId,
-    PaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<void>> report(
+  Future<ChatResult<void>> report(
     String roomId,
     String messageId, {
     required String reason,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
 
   @override
-  Future<Result<PaginatedResponse<MessageReport>>> listReports(
+  Future<ChatResult<ChatPaginatedResponse<MessageReport>>> listReports(
     String roomId, {
-    PaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<ScheduledMessage>> schedule(
+  Future<ChatResult<ScheduledMessage>> schedule(
     String roomId, {
     required DateTime sendAt,
     String? text,
     Map<String, dynamic>? metadata,
-  }) async => Success(
+  }) async => ChatSuccess(
     ScheduledMessage(
       id: 'mock-scheduled-1',
       userId: _client.currentUserId,
@@ -710,21 +837,24 @@ class MockMessagesApi implements ChatMessagesApi {
   );
 
   @override
-  Future<Result<PaginatedResponse<ScheduledMessage>>> listScheduled(
+  Future<ChatResult<ChatPaginatedResponse<ScheduledMessage>>> listScheduled(
     String roomId,
-  ) async => const Success(PaginatedResponse(items: [], hasMore: false));
+  ) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<void>> cancelScheduled(
+  Future<ChatResult<void>> cancelScheduled(
     String roomId,
     String scheduledId,
-  ) async => const Success(null);
+  ) async => const ChatSuccess(null);
 
   @override
-  Future<Result<void>> clearChat(String roomId) async => const Success(null);
+  Future<ChatResult<void>> clearChat(String roomId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<DateTime?> getClearedAt(String roomId) async => null;
+  Future<ChatResult<DateTime?>> getClearedAt(String roomId) async =>
+      const ChatSuccess(null);
 }
 
 class MockContactsApi implements ChatContactsApi {
@@ -732,30 +862,30 @@ class MockContactsApi implements ChatContactsApi {
   MockContactsApi(this._client);
 
   @override
-  Future<Result<void>> add(String contactUserId) async {
+  Future<ChatResult<void>> add(String contactUserId) async {
     _client._contacts.add(contactUserId);
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatContact>>> list({
-    PaginationParams? pagination,
+  Future<ChatResult<ChatPaginatedResponse<ChatContact>>> list({
+    ChatPaginationParams? pagination,
     CachePolicy? cachePolicy,
   }) async {
     final contacts = _client._contacts
         .map((id) => ChatContact(userId: id))
         .toList();
-    return Success(PaginatedResponse(items: contacts, hasMore: false));
+    return ChatSuccess(ChatPaginatedResponse(items: contacts, hasMore: false));
   }
 
   @override
-  Future<Result<void>> remove(String contactUserId) async {
+  Future<ChatResult<void>> remove(String contactUserId) async {
     _client._contacts.remove(contactUserId);
-    return const Success(null);
+    return const ChatSuccess(null);
   }
 
   @override
-  Future<Result<ChatMessage>> sendDirectMessage(
+  Future<ChatResult<ChatMessage>> sendDirectMessage(
     String contactUserId, {
     String? text,
     MessageType messageType = MessageType.regular,
@@ -771,24 +901,27 @@ class MockContactsApi implements ChatContactsApi {
       text: text,
       messageType: messageType,
     );
-    return Success(msg);
+    return ChatSuccess(msg);
   }
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> getDirectMessages(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> getDirectMessages(
     String contactUserId, {
-    CursorPaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatCursorPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> getConversationMessages(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>>
+  getConversationMessages(
     String conversationId, {
-    CursorPaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatCursorPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<ChatPresence>> getPresence(String contactUserId) async =>
-      Success(
+  Future<ChatResult<ChatPresence>> getPresence(String contactUserId) async =>
+      ChatSuccess(
         ChatPresence(
           userId: contactUserId,
           status: PresenceStatus.available,
@@ -797,21 +930,24 @@ class MockContactsApi implements ChatContactsApi {
       );
 
   @override
-  Future<Result<void>> sendTyping(
+  Future<ChatResult<void>> sendTyping(
     String contactUserId, {
     ChatActivity activity = ChatActivity.startsTyping,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
 
   @override
-  Future<Result<void>> block(String userId) async => const Success(null);
+  Future<ChatResult<void>> block(String userId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<void>> unblock(String userId) async => const Success(null);
+  Future<ChatResult<void>> unblock(String userId) async =>
+      const ChatSuccess(null);
 
   @override
-  Future<Result<PaginatedResponse<String>>> listBlocked({
-    PaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+  Future<ChatResult<ChatPaginatedResponse<String>>> listBlocked({
+    ChatPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 }
 
 class MockPresenceApi implements ChatPresenceApi {
@@ -834,7 +970,7 @@ class MockPresenceApi implements ChatPresenceApi {
   }
 
   @override
-  Future<Result<ChatPresence>> getOwn() async => Success(
+  Future<ChatResult<ChatPresence>> getOwn() async => ChatSuccess(
     ChatPresence(
       userId: _currentUserId,
       status: PresenceStatus.available,
@@ -843,9 +979,9 @@ class MockPresenceApi implements ChatPresenceApi {
   );
 
   @override
-  Future<Result<BulkPresenceResponse>> getAll() async {
+  Future<ChatResult<BulkPresenceResponse>> getAll() async {
     _getAllCallCount++;
-    return Success(
+    return ChatSuccess(
       BulkPresenceResponse(
         own: ChatPresence(
           userId: _currentUserId,
@@ -858,19 +994,19 @@ class MockPresenceApi implements ChatPresenceApi {
   }
 
   @override
-  Future<Result<void>> update({
+  Future<ChatResult<void>> update({
     required PresenceStatus status,
     String? statusText,
-  }) async => const Success(null);
+  }) async => const ChatSuccess(null);
 }
 
 class MockAttachmentsApi implements ChatAttachmentsApi {
   @override
-  Future<Result<AttachmentUploadResult>> upload(
+  Future<ChatResult<AttachmentUploadResult>> upload(
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
-  }) async => const Success(
+  }) async => const ChatSuccess(
     AttachmentUploadResult(
       attachmentId: 'mock-attachment-1',
       raw: {'attachmentId': 'mock-attachment-1'},
@@ -878,19 +1014,22 @@ class MockAttachmentsApi implements ChatAttachmentsApi {
   );
 
   @override
-  Future<Result<Uint8List>> download(
+  Future<ChatResult<Uint8List>> download(
     String attachmentId, {
     String? metadata,
     void Function(int received, int total)? onProgress,
-  }) async => Success(Uint8List(0));
+  }) async => ChatSuccess(Uint8List(0));
 
   @override
-  Future<Result<PaginatedResponse<ChatMessage>>> listInRoom(
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> listInRoom(
     String roomId, {
-    CursorPaginationParams? pagination,
-  }) async => const Success(PaginatedResponse(items: [], hasMore: false));
+    ChatCursorPaginationParams? pagination,
+  }) async =>
+      const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
-  Future<Result<void>> deleteInRoom(String roomId, String messageId) async =>
-      const Success(null);
+  Future<ChatResult<void>> deleteInRoom(
+    String roomId,
+    String messageId,
+  ) async => const ChatSuccess(null);
 }

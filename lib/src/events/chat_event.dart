@@ -9,7 +9,25 @@ enum ChatConnectionState {
   connecting,
   connected,
   reconnecting,
-  error,
+  error;
+
+  /// `true` when the realtime channel is fully usable. Convenience
+  /// shortcut for `state == ChatConnectionState.connected` —
+  /// readability win in UI conditions ("show online indicator").
+  bool get isConnected => this == ChatConnectionState.connected;
+
+  /// `true` while the SDK is establishing or restoring the connection
+  /// (`connecting` or `reconnecting`). Use to drive spinners and
+  /// suppress retry buttons.
+  bool get isWorking =>
+      this == ChatConnectionState.connecting ||
+      this == ChatConnectionState.reconnecting;
+
+  /// `true` when the connection is in an end-user-visible failure
+  /// state (`disconnected` or `error`). Drives error banners.
+  bool get isOffline =>
+      this == ChatConnectionState.disconnected ||
+      this == ChatConnectionState.error;
 }
 
 /// Typing indicator activity sent to a room or DM.
@@ -39,10 +57,14 @@ sealed class ChatEvent {
     required String roomId,
   }) = NewMessageEvent;
 
-  /// A message was edited.
+  /// A message was edited. [message] carries the full updated row when
+  /// the server bundled it inline with the WS event — in that case
+  /// listeners can apply the change without a follow-up REST fetch.
+  /// `null` (legacy / partial events) means "go re-read the message".
   const factory ChatEvent.messageUpdated({
     required String roomId,
     required String messageId,
+    ChatMessage? message,
   }) = MessageUpdatedEvent;
 
   /// A message was deleted.
@@ -59,9 +81,17 @@ sealed class ChatEvent {
   const factory ChatEvent.roomUpdated({required String roomId}) =
       RoomUpdatedEvent;
 
-  /// A room was deleted.
-  const factory ChatEvent.roomDeleted({required String roomId}) =
-      RoomDeletedEvent;
+  /// A room was deleted (either by the owner, by admin action, or because
+  /// the local user was banned from it). [reason] is a machine-readable
+  /// tag the back end optionally attaches — currently `"banned"` for
+  /// admin-issued per-room bans. [adminReason] is the free-text
+  /// admin-supplied explanation surfaced from the same flow. Both are
+  /// `null` for organic room deletions.
+  const factory ChatEvent.roomDeleted({
+    required String roomId,
+    String? reason,
+    String? adminReason,
+  }) = RoomDeletedEvent;
 
   /// A user started or stopped typing in a room.
   const factory ChatEvent.userActivity({
@@ -106,10 +136,17 @@ sealed class ChatEvent {
     required String userId,
   }) = UserJoinedEvent;
 
-  /// A user left a room.
+  /// A user left a room. When [actorUserId] is non-null and
+  /// distinct from [userId], the event represents a KICK by that
+  /// actor (admin-driven) — the SDK uses it to render
+  /// "Alice removed Bob" system bubbles + the
+  /// "You are no longer a participant" composer banner on the
+  /// kicked client. `null` `actorUserId` = self-leave (legacy
+  /// behaviour, "Bob left").
   const factory ChatEvent.userLeft({
     required String roomId,
     required String userId,
+    String? actorUserId,
   }) = UserLeftEvent;
 
   /// A user's role was changed in a room.
@@ -135,6 +172,22 @@ sealed class ChatEvent {
 
   /// A server-wide broadcast message was received.
   const factory ChatEvent.broadcast({required String message}) = BroadcastEvent;
+
+  /// A user's profile was updated (display name, avatar, bio, email).
+  /// Only the fields the backend chose to broadcast are carried in the
+  /// event — the others stay `null`. Used by the SDK to (a) refresh the
+  /// in-memory user cache so any [UserAvatar]/[RoomTile] referencing the
+  /// user picks up the new values, (b) update `currentUser` when the
+  /// changed user is self (i.e. the change was pushed from another
+  /// device).
+  const factory ChatEvent.userUpdated({
+    required String userId,
+    String? displayName,
+    String? avatarUrl,
+    bool avatarFieldPresent,
+    String? bio,
+    String? email,
+  }) = UserUpdatedEvent;
 
   /// The real-time connection was established.
   const factory ChatEvent.connected() = ConnectedEvent;
@@ -164,15 +217,21 @@ final class NewMessageEvent extends ChatEvent {
 final class MessageUpdatedEvent extends ChatEvent {
   final String roomId;
   final String messageId;
-  const MessageUpdatedEvent({required this.roomId, required this.messageId});
+  final ChatMessage? message;
+  const MessageUpdatedEvent({
+    required this.roomId,
+    required this.messageId,
+    this.message,
+  });
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is MessageUpdatedEvent &&
           other.roomId == roomId &&
-          other.messageId == messageId;
+          other.messageId == messageId &&
+          other.message == message;
   @override
-  int get hashCode => Object.hash(roomId, messageId);
+  int get hashCode => Object.hash(roomId, messageId, message);
 }
 
 final class MessageDeletedEvent extends ChatEvent {
@@ -211,15 +270,61 @@ final class RoomUpdatedEvent extends ChatEvent {
   int get hashCode => roomId.hashCode;
 }
 
-final class RoomDeletedEvent extends ChatEvent {
-  final String roomId;
-  const RoomDeletedEvent({required this.roomId});
+final class UserUpdatedEvent extends ChatEvent {
+  final String userId;
+  final String? displayName;
+  final String? avatarUrl;
+
+  /// `true` when the backend explicitly broadcasted the avatar field — the
+  /// SDK uses this to distinguish "avatar omitted from event" (leave it
+  /// alone) from "avatar cleared" (set it to null). Both encode as
+  /// `avatarUrl == null` otherwise.
+  final bool avatarFieldPresent;
+  final String? bio;
+  final String? email;
+  const UserUpdatedEvent({
+    required this.userId,
+    this.displayName,
+    this.avatarUrl,
+    this.avatarFieldPresent = false,
+    this.bio,
+    this.email,
+  });
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is RoomDeletedEvent && other.roomId == roomId;
+      other is UserUpdatedEvent &&
+          other.userId == userId &&
+          other.displayName == displayName &&
+          other.avatarUrl == avatarUrl &&
+          other.avatarFieldPresent == avatarFieldPresent &&
+          other.bio == bio &&
+          other.email == email;
   @override
-  int get hashCode => roomId.hashCode;
+  int get hashCode => Object.hash(
+    userId,
+    displayName,
+    avatarUrl,
+    avatarFieldPresent,
+    bio,
+    email,
+  );
+}
+
+final class RoomDeletedEvent extends ChatEvent {
+  final String roomId;
+  final String? reason;
+  final String? adminReason;
+  const RoomDeletedEvent({required this.roomId, this.reason, this.adminReason});
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoomDeletedEvent &&
+          other.roomId == roomId &&
+          other.reason == reason &&
+          other.adminReason == adminReason;
+  @override
+  int get hashCode => Object.hash(roomId, reason, adminReason);
 }
 
 final class UserActivityEvent extends ChatEvent {
@@ -340,15 +445,21 @@ final class UserJoinedEvent extends ChatEvent {
 final class UserLeftEvent extends ChatEvent {
   final String roomId;
   final String userId;
-  const UserLeftEvent({required this.roomId, required this.userId});
+  final String? actorUserId;
+  const UserLeftEvent({
+    required this.roomId,
+    required this.userId,
+    this.actorUserId,
+  });
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
       other is UserLeftEvent &&
           other.roomId == roomId &&
-          other.userId == userId;
+          other.userId == userId &&
+          other.actorUserId == actorUserId;
   @override
-  int get hashCode => Object.hash(roomId, userId);
+  int get hashCode => Object.hash(roomId, userId, actorUserId);
 }
 
 final class UserRoleChangedEvent extends ChatEvent {

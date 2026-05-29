@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/presence.dart';
+import '../../models/user.dart';
+import '../theme/chat_theme.dart';
+import 'user_avatar.dart';
 
 /// Profile sheet for a single user: avatar, display name, presence and
 /// quick actions (DM, mute, block) supplied by the host app.
@@ -61,7 +64,7 @@ class UserProfileView extends StatelessWidget {
           Text(
             user.displayName ?? user.id,
             style:
-                theme.roomNameTextStyle ??
+                theme.roomList.nameStyle ??
                 const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
           ),
           if (user.bio != null && user.bio!.isNotEmpty) ...[
@@ -70,7 +73,7 @@ class UserProfileView extends StatelessWidget {
               user.bio!,
               textAlign: TextAlign.center,
               style:
-                  theme.roomPreviewTextStyle ??
+                  theme.roomList.previewStyle ??
                   TextStyle(fontSize: 14, color: Colors.grey.shade600),
             ),
           ],
@@ -91,7 +94,7 @@ class UserProfileView extends StatelessWidget {
                 Text(
                   _presenceText(),
                   style:
-                      theme.timestampTextStyle ??
+                      theme.bubble.timestampStyle ??
                       TextStyle(fontSize: 13, color: Colors.grey.shade500),
                 ),
               ],
@@ -107,7 +110,7 @@ class UserProfileView extends StatelessWidget {
                     label: theme.l10n.startChat,
                     icon: Icons.chat_outlined,
                     onPressed: onStartChat!,
-                    color: theme.sendButtonColor ?? Colors.blue,
+                    color: theme.input.sendButtonColor ?? Colors.blue,
                   ),
                 if (onMute != null) ...[
                   if (onStartChat != null) const SizedBox(width: 12),
@@ -115,7 +118,7 @@ class UserProfileView extends StatelessWidget {
                     label: theme.l10n.mute,
                     icon: Icons.notifications_off_outlined,
                     onPressed: onMute!,
-                    color: theme.mutedIconColor ?? Colors.grey,
+                    color: theme.roomList.mutedIconColor ?? Colors.grey,
                   ),
                 ],
                 if (onBlock != null) ...[

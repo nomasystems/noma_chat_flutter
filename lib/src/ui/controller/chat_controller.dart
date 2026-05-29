@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../../models/pin.dart';
+import '../../models/user.dart';
 
 /// Manages the state of a single chat conversation: messages, typing indicators,
 /// reactions, receipts, reply/edit state, and pagination.
@@ -40,8 +42,20 @@ class ChatController extends ChangeNotifier {
   // User's own reactions: messageId -> {emoji}
   final Map<String, Set<String>> _userReactions = {};
 
-  // Receipt statuses: messageId -> status
+  // Receipt statuses: messageId -> aggregated status (visible to UI).
+  // For 1:1 chats the aggregate equals the single other user's state.
+  // For groups, it's the WhatsApp-style aggregate: ✓✓-blue only when
+  // every non-sender member has read.
   final Map<String, ReceiptStatus> _receiptStatuses = {};
+
+  // Per-user breakdown driving the aggregate above. `_readBy[msg]` is
+  // the set of userIds that have read `msg`; `_deliveredBy[msg]` covers
+  // delivered+read (read implies delivered). Used by the group "read
+  // by all" computation and by the propagation pass that flips older
+  // messages from the same sender when a recipient reaches a high
+  // water mark (a single backend event fans out to every prior msg).
+  final Map<String, Set<String>> _readBy = {};
+  final Map<String, Set<String>> _deliveredBy = {};
 
   // Pinned messages, latest first (per the backend's natural order).
   final List<MessagePin> _pinnedMessages = [];
@@ -60,12 +74,33 @@ class ChatController extends ChangeNotifier {
   String? _highlightedMessageId;
   Timer? _highlightTimer;
 
+  // Draft state — see "Draft (lazy DM creation)" section below.
+  bool _isDraft = false;
+  String? _draftOtherUserId;
+  String? _roomId;
+
   // Error state
   ChatError? _lastError;
 
   List<ChatMessage> get messages => List.unmodifiable(_messages);
   String? get highlightedMessageId => _highlightedMessageId;
   ChatError? get lastError => _lastError;
+
+  /// `true` while this controller represents a draft DM that has not been
+  /// materialized server-side yet (no `roomId` assigned). See "Draft (lazy DM
+  /// creation)" section below.
+  bool get isDraft => _isDraft;
+
+  /// The other user's id when [isDraft] is `true`. `null` once materialized
+  /// (or for non-draft controllers).
+  String? get draftOtherUserId => _draftOtherUserId;
+
+  /// The server-side room id this controller is bound to. `null` while in
+  /// draft state (see [isDraft]). The adapter sets this on creation
+  /// (`getChatController`) and updates it on materialization
+  /// (`_materializeDraft`); consumers can read it to route follow-up
+  /// adapter calls without tracking the id separately.
+  String? get roomId => _roomId;
   ChatUser get currentUser => _currentUser;
   List<ChatUser> get otherUsers => List.unmodifiable(_otherUsers);
   String? get draft => _draft;
@@ -146,6 +181,8 @@ class ChatController extends ChangeNotifier {
     _reactions.clear();
     _userReactions.clear();
     _receiptStatuses.clear();
+    _readBy.clear();
+    _deliveredBy.clear();
     _pinnedMessages.clear();
     _pendingMessages.clear();
     _tempToServerId.clear();
@@ -209,6 +246,39 @@ class ChatController extends ChangeNotifier {
     _otherUsers
       ..clear()
       ..addAll(users);
+    notifyListeners();
+  }
+
+  // --- Draft (lazy DM creation) ---
+
+  /// Marks this controller as a draft DM with [otherUserId]. While in draft
+  /// state, the controller has no server-side room. The adapter
+  /// (`openDirectMessageDraft`) sets this; consumers normally don't need to
+  /// call it directly. Drafts materialize into a real room on the first
+  /// successful send via `_OptimisticHandler.sendMessage`.
+  void markAsDraft(String otherUserId) {
+    _isDraft = true;
+    _draftOtherUserId = otherUserId;
+    notifyListeners();
+  }
+
+  /// Called by the adapter once the draft has been materialized server-side
+  /// (a real `roomId` exists). Cleans the draft flags; the controller becomes
+  /// indistinguishable from one created via `getChatController(roomId)`.
+  void clearDraft() {
+    if (!_isDraft) return;
+    _isDraft = false;
+    _draftOtherUserId = null;
+    notifyListeners();
+  }
+
+  /// Binds the controller to [roomId]. Called by the adapter when a
+  /// controller is created via `getChatController(roomId)` or when a draft
+  /// is materialized (`_materializeDraft`). Consumers should NOT call this
+  /// directly — read [roomId] instead.
+  void setRoomId(String? roomId) {
+    if (_roomId == roomId) return;
+    _roomId = roomId;
     notifyListeners();
   }
 
@@ -335,10 +405,139 @@ class ChatController extends ChangeNotifier {
 
   // --- Receipts ---
 
-  void updateReceipt(String messageId, ReceiptStatus status) {
-    _receiptStatuses[messageId] = status;
+  /// Records a receipt event for [messageId] attributed to [fromUserId]
+  /// and recomputes the aggregated status visible in the UI.
+  ///
+  /// **DM semantics** (`otherUsers.length <= 1`): the aggregate matches
+  /// the single peer's state directly — ✓ sent → ✓✓ delivered → ✓✓ read.
+  ///
+  /// **Group semantics** (WhatsApp): the bubble only flips to ✓✓-blue
+  /// once every non-sender member has read. Until then it stays at
+  /// "delivered" (or "sent") even if some members have read it.
+  ///
+  /// **High-water-mark propagation**: when [fromUserId] reads [messageId],
+  /// the SDK implicitly marks every older message from the same sender
+  /// as also read by [fromUserId] — backend keeps the wire small by only
+  /// emitting the latest receipt, so the SDK fans it out locally and
+  /// re-aggregates each affected row.
+  ///
+  /// [fromUserId] = `null` applies the receipt wholesale without
+  /// per-user bookkeeping; behaves identically in 1:1 conversations.
+  void updateReceipt(
+    String messageId,
+    ReceiptStatus status, {
+    String? fromUserId,
+  }) {
+    if (fromUserId == null) {
+      _receiptStatuses[messageId] = status;
+      _propagateAggregated(messageId, status);
+      notifyListeners();
+      return;
+    }
+
+    _recordReceiptFor(messageId, status, fromUserId);
+
+    // Propagate: any older message from the same sender that the reader
+    // hadn't acknowledged yet is implicitly acknowledged at this level.
+    if (status == ReceiptStatus.delivered || status == ReceiptStatus.read) {
+      final reference = _messages.firstWhere(
+        (m) => m.id == messageId,
+        orElse: () => _absentReceiptReference,
+      );
+      if (!identical(reference, _absentReceiptReference)) {
+        final referenceTs = reference.timestamp;
+        final senderId = reference.from;
+        for (final m in _messages) {
+          if (m.id == messageId) continue;
+          if (m.from != senderId) continue;
+          if (m.timestamp.isAfter(referenceTs)) continue;
+          _recordReceiptFor(m.id, status, fromUserId);
+        }
+      }
+    }
     notifyListeners();
   }
+
+  void _recordReceiptFor(
+    String messageId,
+    ReceiptStatus status,
+    String fromUserId,
+  ) {
+    if (status == ReceiptStatus.delivered) {
+      (_deliveredBy[messageId] ??= <String>{}).add(fromUserId);
+    } else if (status == ReceiptStatus.read) {
+      (_deliveredBy[messageId] ??= <String>{}).add(fromUserId);
+      (_readBy[messageId] ??= <String>{}).add(fromUserId);
+    }
+    _receiptStatuses[messageId] = _aggregateStatus(messageId);
+  }
+
+  ReceiptStatus _aggregateStatus(String messageId) {
+    final otherUserIds = _otherUsers.map((u) => u.id).toSet();
+    final totalOthers = otherUserIds.length;
+    if (totalOthers <= 1) {
+      // 1:1 (or unresolved members): any read => read; any delivered => delivered.
+      final readers = _readBy[messageId];
+      if (readers != null && readers.isNotEmpty) return ReceiptStatus.read;
+      final delivered = _deliveredBy[messageId];
+      if (delivered != null && delivered.isNotEmpty) {
+        return ReceiptStatus.delivered;
+      }
+      return ReceiptStatus.sent;
+    }
+    // Group: only mark as read once *every* other member has read.
+    final readers = _readBy[messageId] ?? const <String>{};
+    final readByAll =
+        readers.length >= totalOthers && otherUserIds.every(readers.contains);
+    if (readByAll) return ReceiptStatus.read;
+    final delivered = _deliveredBy[messageId] ?? const <String>{};
+    final deliveredToAll =
+        delivered.length >= totalOthers &&
+        otherUserIds.every(delivered.contains);
+    if (deliveredToAll) return ReceiptStatus.delivered;
+    // Some, but not all, members have ack'd — keep the bubble at sent
+    // until at least delivered-by-all so the user sees the visual jump
+    // exactly as WhatsApp renders it.
+    return ReceiptStatus.sent;
+  }
+
+  // Legacy fan-out used only when the caller didn't supply a fromUserId.
+  // Preserves the old "high water mark for all previous messages of the
+  // same sender" behaviour for callers (and tests) still on the binary
+  // API. Drops out cleanly when a per-user call arrives later.
+  void _propagateAggregated(String messageId, ReceiptStatus status) {
+    final reference = _messages.firstWhere(
+      (m) => m.id == messageId,
+      orElse: () => _absentReceiptReference,
+    );
+    if (identical(reference, _absentReceiptReference)) return;
+    final referenceTs = reference.timestamp;
+    final senderId = reference.from;
+    for (final m in _messages) {
+      if (m.id == messageId) continue;
+      if (m.from != senderId) continue;
+      if (m.timestamp.isAfter(referenceTs)) continue;
+      final current = _receiptStatuses[m.id] ?? m.receipt;
+      if (_rankReceipt(current) >= _rankReceipt(status)) continue;
+      _receiptStatuses[m.id] = status;
+    }
+  }
+
+  // Sentinel for `firstWhere` when the referenced message is no longer in
+  // the controller's message list (e.g. evicted by cache). Lets us skip
+  // the propagation pass without throwing.
+  static final ChatMessage _absentReceiptReference = ChatMessage(
+    id: '__noma_chat_absent_receipt_ref__',
+    from: '',
+    timestamp: DateTime.fromMillisecondsSinceEpoch(0),
+  );
+
+  static int _rankReceipt(ReceiptStatus? status) => switch (status) {
+    null => 0,
+    ReceiptStatus.sent => 1,
+    ReceiptStatus.delivered => 2,
+    ReceiptStatus.read => 3,
+  };
 
   // --- Pinned messages ---
 
@@ -415,7 +614,11 @@ class ChatController extends ChangeNotifier {
     _highlightTimer?.cancel();
     _highlightedMessageId = messageId;
     notifyListeners();
-    _highlightTimer = Timer(const Duration(milliseconds: 1500), () {
+    // 3s: long enough to land after a scroll-to-message animation
+    // (search result → chat view) without parking the highlight
+    // permanently. Previously 1500ms felt rushed when the target sat
+    // mid-screen and the user was still tracking the row visually.
+    _highlightTimer = Timer(const Duration(milliseconds: 3000), () {
       _highlightedMessageId = null;
       _highlightTimer = null;
       notifyListeners();

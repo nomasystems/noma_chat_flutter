@@ -42,7 +42,7 @@ class ScrollToBottomButton extends StatelessWidget {
             onPressed: onPressed,
             backgroundColor:
                 theme.scrollToBottomButtonColor ??
-                theme.sendButtonColor ??
+                theme.input.sendButtonColor ??
                 Colors.blue,
             child: Icon(
               Icons.keyboard_arrow_down,

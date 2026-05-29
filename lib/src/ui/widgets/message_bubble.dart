@@ -1,6 +1,24 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../../models/read_receipt.dart';
+import '../../models/user.dart';
+import '../controller/audio_playback_coordinator.dart';
+import '../theme/chat_theme.dart';
+import '../utils/url_detector.dart';
+import 'bubbles/audio_bubble.dart';
+import 'bubbles/file_bubble.dart';
+import 'bubbles/forwarded_bubble.dart';
+import 'bubbles/image_bubble.dart';
+import 'bubbles/link_preview_bubble.dart';
+import 'bubbles/location_bubble.dart';
+import 'bubbles/text_bubble.dart';
+import 'bubbles/video_bubble.dart';
+import 'message_status_icon.dart';
+import 'reaction_bar.dart';
+import 'read_receipt_avatars.dart';
+import 'reply_preview.dart';
+import 'swipe_to_reply.dart';
 
 /// Renders a single message as a styled bubble with support for text, images, audio,
 /// video, files, link previews, forwarded labels, reactions, receipts, and threads.
@@ -30,6 +48,7 @@ class MessageBubble extends StatelessWidget {
     this.maxBubbleWidth,
     this.isPending = false,
     this.isFailed = false,
+    this.isPinned = false,
     this.onRetry,
     this.isFirstInGroup = true,
     this.isLastInGroup = true,
@@ -44,6 +63,8 @@ class MessageBubble extends StatelessWidget {
     this.systemMessageBuilder,
     this.readReceiptUsers = const [],
     this.readReceipts = const [],
+    this.senderAvatarUrl,
+    this.senderDisplayName,
   });
 
   final ChatMessage message;
@@ -69,6 +90,14 @@ class MessageBubble extends StatelessWidget {
   final double? maxBubbleWidth;
   final bool isPending;
   final bool isFailed;
+
+  /// Visual marker for "this message is currently pinned in the room".
+  /// Source of truth is the controller (`controller.isPinned(id)`),
+  /// passed down from the message list. Drives a small pin icon in
+  /// the bubble's top-left corner (incoming) / top-right (outgoing)
+  /// so users can spot pinned messages while scrolling the timeline,
+  /// not just inside the dedicated pins drawer.
+  final bool isPinned;
   final VoidCallback? onRetry;
   final bool isFirstInGroup;
 
@@ -91,6 +120,14 @@ class MessageBubble extends StatelessWidget {
   final ValueListenable<double>? audioUploadProgress;
 
   final Widget? avatarWidget;
+
+  /// Sender avatar URL and display name — used exclusively by
+  /// [AudioBubble] to render the large in-bubble portrait that
+  /// doubles as the play trigger and (post-tap) as the speed pill.
+  /// `null` falls back to initials inside the portrait.
+  final String? senderAvatarUrl;
+  final String? senderDisplayName;
+
   final String Function(ChatMessage message)? systemMessageTextResolver;
   final Widget? Function(BuildContext context, ChatMessage message)?
   systemMessageBuilder;
@@ -104,6 +141,18 @@ class MessageBubble extends StatelessWidget {
   final List<ReadReceipt> readReceipts;
 
   bool get _isEdited => message.isEdited;
+
+  /// Read each admin-action flag from `metadata`. Backend sets these
+  /// when an admin posts (`adminSent`), edits (`adminEdited`) or
+  /// deletes (`adminDeleted`) a message from the admin panel. Used
+  /// here to inject subtle moderation labels — "edited by admin",
+  /// "Deleted by admin", a small "admin" pill on brand-new admin sends.
+  /// Defensive `== true` so a missing key, `null`, or non-bool value
+  /// all fall back to `false` (typical when the consumer's
+  /// MessageMetadata model drops unknown keys).
+  bool get _adminSent => message.metadata?['adminSent'] == true;
+  bool get _adminEdited => message.metadata?['adminEdited'] == true;
+  bool get _adminDeleted => message.metadata?['adminDeleted'] == true;
 
   bool get _isForwarded => message.isForwarded;
 
@@ -123,53 +172,42 @@ class MessageBubble extends StatelessWidget {
 
   Widget _buildBubbleContent() {
     if (message.isDeleted) {
-      final baseStyle = isOutgoing
-          ? theme.outgoingTextStyle
-          : theme.incomingTextStyle;
-      final color = baseStyle?.color?.withValues(alpha: 0.7) ?? Colors.grey;
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.block, size: 14, color: color),
-            const SizedBox(width: 4),
-            Text(
-              theme.l10n.messageDeleted,
-              style: TextStyle(
-                fontSize: 13,
-                fontStyle: FontStyle.italic,
-                fontWeight: FontWeight.w500,
-                color: color,
-              ),
-            ),
-          ],
-        ),
+      return _DeletedBubbleContent(
+        isOutgoing: isOutgoing,
+        adminDeleted: _adminDeleted,
+        theme: theme,
       );
     }
 
     final mimeType = _mimeType?.toLowerCase() ?? '';
 
+    // Bumped from 12 → 14 + stroke 1.5 → 2 inside MessageStatusIcon.
+    // The user reported "no se ven los ticks" on a real device; the
+    // previous values were too thin on a phone display. WhatsApp uses
+    // ~14px ticks with a slightly thicker stroke. Still configurable
+    // via `theme.bubble.statusColor` / `theme.bubble.statusReadColor`
+    // (and the size can be overridden by consumers replacing
+    // `outgoingStatusWidget` via the bubble's statusWidget slot).
     final Widget? statusIcon = isOutgoing
         ? (isFailed
               ? GestureDetector(
                   onTap: onRetry,
                   child: Icon(
                     Icons.error_outline,
-                    size: 12,
-                    color: theme.failedMessageIconColor ?? Colors.red,
+                    size: 14,
+                    color: theme.bubble.failedIconColor ?? Colors.red,
                   ),
                 )
               : isPending
               ? Icon(
                   Icons.access_time,
-                  size: 12,
-                  color: theme.messageStatusColor ?? Colors.grey,
+                  size: 14,
+                  color: theme.bubble.statusColor ?? Colors.grey,
                 )
               : MessageStatusIcon(
                   status: _effectiveStatus ?? ReceiptStatus.sent,
                   theme: theme,
-                  size: 12,
+                  size: 14,
                 ))
         : null;
 
@@ -194,6 +232,13 @@ class MessageBubble extends StatelessWidget {
     if (message.messageType == MessageType.audio &&
         message.attachmentUrl != null) {
       final waveform = _extractWaveform();
+      // Audio carries the sender's portrait INSIDE the bubble — the large
+      // tappable slot on the far edge (left for outgoing, right for
+      // incoming) that morphs into the speed pill on play. So it skips the
+      // group leading-avatar wrapper: otherwise the sender showed twice (a
+      // small leading avatar on the near edge + the big portrait), and with
+      // the portrait suppressed it looked off-balance. One portrait, on the
+      // far edge, symmetric with outgoing.
       return AudioBubble(
         audioUrl: message.attachmentUrl!,
         timestamp: message.timestamp,
@@ -204,6 +249,9 @@ class MessageBubble extends StatelessWidget {
         coordinator: audioCoordinator,
         uploadProgress: audioUploadProgress,
         statusWidget: outgoingStatusWidget,
+        senderAvatarUrl: senderAvatarUrl,
+        senderDisplayName: senderDisplayName,
+        showSenderPortrait: true,
       );
     }
 
@@ -211,6 +259,9 @@ class MessageBubble extends StatelessWidget {
         message.attachmentUrl != null) {
       if (mimeType.startsWith('audio/')) {
         final waveform = _extractWaveform();
+        // Same as the audio MessageType branch above: the in-bubble
+        // portrait (far edge → speed pill) replaces the group leading
+        // avatar, keeping incoming symmetric with outgoing.
         return AudioBubble(
           audioUrl: message.attachmentUrl!,
           timestamp: message.timestamp,
@@ -221,6 +272,9 @@ class MessageBubble extends StatelessWidget {
           coordinator: audioCoordinator,
           uploadProgress: audioUploadProgress,
           statusWidget: outgoingStatusWidget,
+          senderAvatarUrl: senderAvatarUrl,
+          senderDisplayName: senderDisplayName,
+          showSenderPortrait: true,
         );
       }
       if (mimeType.startsWith('image/')) {
@@ -315,6 +369,8 @@ class MessageBubble extends StatelessWidget {
       isOutgoing: isOutgoing,
       timestamp: message.timestamp,
       isEdited: _isEdited,
+      editedByAdmin: _adminEdited,
+      adminSent: _adminSent,
       theme: theme,
       replyPreview: replyWidget,
       linkPreview: linkPreview,
@@ -336,60 +392,67 @@ class MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (_isSystem) {
-      final customSystemWidget = systemMessageBuilder?.call(context, message);
-      if (customSystemWidget != null) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: customSystemWidget,
-        );
-      }
-      final resolvedText =
-          systemMessageTextResolver?.call(message) ?? message.text ?? '';
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-            decoration: BoxDecoration(
-              color:
-                  theme.systemMessageBackgroundColor ??
-                  theme.dateSeparatorBackgroundColor ??
-                  Colors.black12,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              resolvedText,
-              style:
-                  theme.systemMessageTextStyle ??
-                  theme.dateSeparatorTextStyle ??
-                  const TextStyle(fontSize: 12, color: Colors.black54),
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ),
-      );
+      return _buildSystemMessage(context);
     }
 
+    final bubble = _buildBubble(context);
+    final body = _buildBubbleColumn(bubble);
+    final wrapped = _wrapWithSwipeAndSemantics(body);
+    return _buildAlignedRow(wrapped);
+  }
+
+  Widget _buildSystemMessage(BuildContext context) {
+    final customSystemWidget = systemMessageBuilder?.call(context, message);
+    if (customSystemWidget != null) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: customSystemWidget,
+      );
+    }
+    final resolvedText =
+        systemMessageTextResolver?.call(message) ?? message.text ?? '';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Center(
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+          decoration: BoxDecoration(
+            color:
+                theme.systemMessageBackgroundColor ??
+                theme.dateSeparatorBackgroundColor ??
+                Colors.black12,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Text(
+            resolvedText,
+            style:
+                theme.systemMessageTextStyle ??
+                theme.dateSeparatorTextStyle ??
+                const TextStyle(fontSize: 12, color: Colors.black54),
+            textAlign: TextAlign.center,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBubble(BuildContext context) {
     final baseBubbleColor = isOutgoing
-        ? (theme.outgoingBubbleColor ?? Colors.blue.shade100)
-        : (theme.incomingBubbleColor ?? Colors.grey.shade200);
+        ? (theme.bubble.outgoingColor ?? Colors.blue.shade100)
+        : (theme.bubble.incomingColor ?? Colors.grey.shade200);
     final bubbleColor = isHighlighted
         ? Color.lerp(baseBubbleColor, Colors.yellow.shade200, 0.5)!
         : baseBubbleColor;
 
-    final alignment = isOutgoing
-        ? CrossAxisAlignment.end
-        : CrossAxisAlignment.start;
-
-    final defaultRadius = theme.bubbleBorderRadius ?? BorderRadius.circular(12);
-    final hasAvatar = !isOutgoing && avatarWidget != null;
+    final defaultRadius =
+        theme.bubble.borderRadius ?? BorderRadius.circular(12);
     final bubbleRadius = isLastInGroup
         ? (isOutgoing
               ? defaultRadius.copyWith(bottomRight: const Radius.circular(4))
               : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
         : defaultRadius;
 
-    final bubble = GestureDetector(
+    return GestureDetector(
       onLongPress: onLongPress,
       child: Container(
         constraints: BoxConstraints(
@@ -404,26 +467,59 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (senderName != null && !isOutgoing)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: Text(
-                  senderName!,
-                  style:
-                      theme.senderNameStyle ??
-                      const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12,
-                      ),
-                ),
-              ),
+            if (isPinned) _buildPinBadge(),
+            if (senderName != null && !isOutgoing) _buildSenderName(),
             _buildBubbleContent(),
           ],
         ),
       ),
     );
+  }
 
-    Widget content = Column(
+  /// Pin badge: rendered at the very top of the bubble so it's
+  /// visible while scrolling the timeline, not just inside the
+  /// dedicated pins drawer. Subtle by design — single icon +
+  /// "Pinned" label, italic grey, in line with the existing
+  /// "edited" / "admin" microcopy.
+  Widget _buildPinBadge() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
+          const SizedBox(width: 3),
+          Text(
+            theme.l10n.pinned.isNotEmpty ? theme.l10n.pinned : 'Pinned',
+            style: TextStyle(
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+              color: Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSenderName() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: Text(
+        senderName!,
+        style:
+            theme.bubble.senderNameStyle ??
+            const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+      ),
+    );
+  }
+
+  Widget _buildBubbleColumn(Widget bubble) {
+    final alignment = isOutgoing
+        ? CrossAxisAlignment.end
+        : CrossAxisAlignment.start;
+
+    return Column(
       crossAxisAlignment: alignment,
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -449,34 +545,54 @@ class MessageBubble extends StatelessWidget {
                 theme.l10n.replies(replyCount!),
                 style: TextStyle(
                   fontSize: 12,
-                  color: theme.sendButtonColor ?? Colors.blue,
+                  color: theme.input.sendButtonColor ?? Colors.blue,
                 ),
               ),
             ),
           ),
       ],
     );
+  }
 
+  Widget _wrapWithSwipeAndSemantics(Widget content) {
+    Widget result = content;
     if (onSwipeToReply != null) {
-      content = SwipeToReply(onSwipe: onSwipeToReply!, child: content);
+      result = SwipeToReply(onSwipe: onSwipeToReply!, child: result);
     }
+    return Semantics(
+      label: _buildSemanticLabel(),
+      excludeSemantics: true,
+      child: result,
+    );
+  }
 
-    const avatarSize = 28.0;
-    const avatarGap = 8.0;
-    const avatarSpace = avatarSize + avatarGap;
-
+  String _buildSemanticLabel() {
     final semanticSender = senderName ?? (isOutgoing ? theme.l10n.you : '');
     final semanticBody = message.isDeleted
         ? theme.l10n.messageDeleted
         : (message.text ?? '');
-    final semanticLabel = semanticSender.isNotEmpty
-        ? '$semanticSender: $semanticBody'
-        : semanticBody;
-    content = Semantics(
-      label: semanticLabel,
-      excludeSemantics: true,
-      child: content,
-    );
+    final statusForSemantics = isOutgoing && !message.isDeleted
+        ? _effectiveStatus
+        : null;
+    final statusSuffix = statusForSemantics == null
+        ? ''
+        : ', ${switch (statusForSemantics) {
+            ReceiptStatus.sent => theme.l10n.statusSent,
+            ReceiptStatus.delivered => theme.l10n.statusDelivered,
+            ReceiptStatus.read => theme.l10n.statusRead,
+          }}';
+    final semanticBodyWithStatus = '$semanticBody$statusSuffix';
+    return semanticSender.isNotEmpty
+        ? '$semanticSender: $semanticBodyWithStatus'
+        : semanticBodyWithStatus;
+  }
+
+  Widget _buildAlignedRow(Widget content) {
+    const avatarSize = 28.0;
+    const avatarGap = 8.0;
+    const avatarSpace = avatarSize + avatarGap;
+
+    final hasAvatar = !isOutgoing && avatarWidget != null;
 
     return Padding(
       padding: EdgeInsets.only(
@@ -513,6 +629,68 @@ class MessageBubble extends StatelessWidget {
                 ),
                 child: content,
               ),
+      ),
+    );
+  }
+}
+
+/// Renders the "this message was deleted" placeholder inside a bubble.
+/// Chooses between three labels depending on who deleted the message:
+///
+/// - admin-side deletion: shows `l10n.messageDeletedByAdmin` (moderation
+///   takes precedence over the by-author labels because the moderator
+///   action is the relevant information).
+/// - deleted by the local user: shows `l10n.previewDeletedByYou` (falls
+///   back to the legacy `messageDeleted` when that slot is unset).
+/// - deleted by anyone else: shows `l10n.previewDeletedByOther` (same
+///   fallback).
+///
+/// Reuses the room-list preview strings so consumers only need to
+/// translate them once.
+class _DeletedBubbleContent extends StatelessWidget {
+  const _DeletedBubbleContent({
+    required this.isOutgoing,
+    required this.adminDeleted,
+    required this.theme,
+  });
+
+  final bool isOutgoing;
+  final bool adminDeleted;
+  final ChatTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = isOutgoing
+        ? theme.bubble.outgoingTextStyle
+        : theme.bubble.incomingTextStyle;
+    final color = baseStyle?.color?.withValues(alpha: 0.7) ?? Colors.grey;
+    final l10n = theme.l10n;
+    final deletedText = adminDeleted
+        ? l10n.messageDeletedByAdmin
+        : (isOutgoing
+              ? (l10n.previewDeletedByYou.isNotEmpty
+                    ? l10n.previewDeletedByYou
+                    : l10n.messageDeleted)
+              : (l10n.previewDeletedByOther.isNotEmpty
+                    ? l10n.previewDeletedByOther
+                    : l10n.messageDeleted));
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.block, size: 14, color: color),
+          const SizedBox(width: 4),
+          Text(
+            deletedText,
+            style: TextStyle(
+              fontSize: 13,
+              fontStyle: FontStyle.italic,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+        ],
       ),
     );
   }

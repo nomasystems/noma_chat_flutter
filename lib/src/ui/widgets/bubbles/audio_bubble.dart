@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import '../../../_internal/ui_debug_log.dart';
 import '../../controller/audio_playback_coordinator.dart';
 import '../../theme/chat_theme.dart';
-import '../../utils/date_formatter.dart';
+import '../user_avatar.dart';
+import '_bubble_metadata.dart';
 import '../waveform_display.dart';
 
 /// Bubble for a voice message: play/pause, waveform, duration, and optional
@@ -24,6 +26,9 @@ class AudioBubble extends StatefulWidget {
     this.messageId,
     this.uploadProgress,
     this.statusWidget,
+    this.senderAvatarUrl,
+    this.senderDisplayName,
+    this.showSenderPortrait = true,
   });
 
   final String audioUrl;
@@ -45,6 +50,32 @@ class AudioBubble extends StatefulWidget {
   /// outgoing messages). When null, only the timestamp is shown.
   final Widget? statusWidget;
 
+  /// Avatar URL of the user that sent this audio. Rendered inside the
+  /// bubble on the side furthest from the bubble's "anchored" edge
+  /// (outgoing → left side; incoming → right side). Tap on the avatar
+  /// starts playback. Once playback has started at least once, the
+  /// avatar is replaced by the speed pill (1x / 1.5x / 2x) and stays
+  /// as a pill until the user leaves the chat — that's the only
+  /// way to change playback speed (the old right-hand pill was
+  /// removed).
+  final String? senderAvatarUrl;
+
+  /// Display name of the sender, used by [UserAvatar] for the
+  /// initials fallback when [senderAvatarUrl] is missing or fails to
+  /// load.
+  final String? senderDisplayName;
+
+  /// Whether to paint the sender's portrait in the lateral slot before
+  /// playback starts. Group-incoming messages already show the sender
+  /// avatar in the leading slot to the LEFT of the bubble (added by
+  /// `MessageBubble._wrapWithLeadingAvatar`), so painting it again inside
+  /// the bubble produced a duplicate portrait. Callers pass `false` for
+  /// group-incoming audio: the slot is then omitted entirely until the
+  /// first play, after which the speed pill takes its place. DM/outgoing
+  /// audio keep it `true` (no leading avatar there → the in-bubble
+  /// portrait is the only one).
+  final bool showSenderPortrait;
+
   @override
   State<AudioBubble> createState() => _AudioBubbleState();
 }
@@ -58,11 +89,21 @@ class _AudioBubbleState extends State<AudioBubble> {
   // exclusivity, never the speed — that way each audio remembers its own
   // 1x / 1.5x / 2x independently of any other bubble.
   double _speed = 1.0;
+  // True once `_togglePlayPause` has been invoked at least once (regardless
+  // of whether playback ultimately succeeded). Drives the avatar → speed
+  // pill swap on the lateral slot: until the user "listens to it once"
+  // the slot shows the sender's portrait (large, tappable to start play);
+  // after the first tap it permanently becomes the speed control for the
+  // rest of this bubble's lifetime. Resets when the chat is re-entered
+  // because the widget is rebuilt from scratch.
+  bool _hasStartedPlaying = false;
   StreamSubscription<PlayerState>? _stateSub;
   StreamSubscription<Duration>? _durationSub;
   StreamSubscription<Duration>? _positionSub;
   Duration? _resolvedDuration;
-  Duration _position = Duration.zero;
+  final ValueNotifier<Duration> _positionNotifier = ValueNotifier(
+    Duration.zero,
+  );
   PlayerState _playerState = PlayerState.stopped;
   bool _completedFired = false;
 
@@ -72,11 +113,36 @@ class _AudioBubbleState extends State<AudioBubble> {
     _listened = widget.isListened;
   }
 
+  /// Wraps `audioplayers` source resolution: `asset:` URLs become
+  /// `AssetSource` (bundled assets, played from the app package); any
+  /// other URL falls through to `UrlSource` (http/https/file). The
+  /// mock example uses `asset:` for the locally-generated TTS clips
+  /// so the demo plays offline without hitting a CDN.
+  Source _resolveSource(String url) {
+    const prefix = 'asset:';
+    if (url.startsWith(prefix)) {
+      var assetPath = url.substring(prefix.length);
+      // audioplayers' AssetSource prepends its AudioCache prefix
+      // (default `assets/`), so a path that already starts with
+      // `assets/` resolves to `assets/assets/...` and fails — surfacing
+      // as "Audio unavailable". Strip a leading `assets/` so the player
+      // receives the package-relative path. (UserAvatar uses AssetImage,
+      // which takes the full `assets/...` path, so the seed's
+      // `asset:assets/...` convention is right for images but needs this
+      // adjustment for audio.)
+      if (assetPath.startsWith('assets/')) {
+        assetPath = assetPath.substring('assets/'.length);
+      }
+      return AssetSource(assetPath);
+    }
+    return UrlSource(url);
+  }
+
   Future<void> _ensureInitialized() async {
     if (_initialized || _hasError) return;
     _player ??= AudioPlayer();
     try {
-      await _player!.setSource(UrlSource(widget.audioUrl));
+      await _player!.setSource(_resolveSource(widget.audioUrl));
       // Faster position updates for a smooth waveform fill.
       await _player!.setPlayerMode(PlayerMode.mediaPlayer);
       if (mounted) setState(() => _initialized = true);
@@ -89,7 +155,17 @@ class _AudioBubbleState extends State<AudioBubble> {
         );
       }
       _attachStateListener();
-    } catch (_) {
+    } catch (e, st) {
+      // Surface the real cause instead of silently flipping
+      // to "Audio unavailable". Most common reasons in /observa-noma:
+      // the upstream file_upload service returned 404/500 (slot
+      // expired, GFS misconfigured, file wiped) or the device cannot
+      // reach the URL (cleartext-traffic policy in release builds,
+      // host-network unreachable from a remote sim).
+      uiDebugLog(
+        'AudioBubble',
+        'setSource failed for ${widget.audioUrl}: $e\n$st',
+      );
       if (mounted) setState(() => _hasError = true);
     }
   }
@@ -128,7 +204,7 @@ class _AudioBubbleState extends State<AudioBubble> {
     });
     _positionSub = player.onPositionChanged.listen((position) {
       if (!mounted) return;
-      setState(() => _position = position);
+      _positionNotifier.value = position;
     });
   }
 
@@ -144,7 +220,7 @@ class _AudioBubbleState extends State<AudioBubble> {
       _positionSub?.cancel();
       _positionSub = null;
       _resolvedDuration = null;
-      _position = Duration.zero;
+      _positionNotifier.value = Duration.zero;
       _playerState = PlayerState.stopped;
       _player?.dispose();
       _player = null;
@@ -166,6 +242,7 @@ class _AudioBubbleState extends State<AudioBubble> {
     _positionSub?.cancel();
     _unregister();
     _player?.dispose();
+    _positionNotifier.dispose();
     super.dispose();
   }
 
@@ -177,12 +254,19 @@ class _AudioBubbleState extends State<AudioBubble> {
 
   Future<void> _togglePlayPause() async {
     try {
+      // Flip the slot from avatar → speed pill the moment the user
+      // interacts, BEFORE any await, so the swap is immediate. Once
+      // flipped it stays flipped for the rest of this bubble's
+      // lifetime (the only way back to the avatar is leaving and
+      // re-entering the chat — by design).
+      if (!_hasStartedPlaying) {
+        setState(() => _hasStartedPlaying = true);
+      }
       await _ensureInitialized();
       if (!_initialized) return;
 
       final playing = _playerState == PlayerState.playing;
       final completed = _playerState == PlayerState.completed;
-      if (completed) await _player!.seek(Duration.zero);
 
       if (playing) {
         if (widget.coordinator != null && widget.messageId != null) {
@@ -204,6 +288,24 @@ class _AudioBubbleState extends State<AudioBubble> {
         // Apply the per-bubble speed BEFORE delegating to the coordinator so
         // each audio is reproduced at its own 1x/1.5x/2x.
         await _player!.setPlaybackRate(_speed);
+        // After a completion, both `resume()` and `play(UrlSource)`
+        // exhibit platform-specific failures on audioplayers v6:
+        // - iOS: `resume()` is a no-op (stays at completed), and
+        //   `play(UrlSource)` throws "Failed to set source" on some
+        //   builds because the AVPlayerItem is still attached.
+        // - Android: behaviour varies by API level.
+        // The most reliable reset is `setSource()` again with the
+        // same URL — that drops the previous AVPlayerItem / MediaPlayer
+        // and rebuilds it into a known paused-at-0 state. Then the
+        // normal `coordinator.play()` (or `resume()`) path works as
+        // for any fresh playback. Cached internally by audioplayers,
+        // so no new network fetch.
+        if (completed) {
+          await _player!.setSource(_resolveSource(widget.audioUrl));
+          // setSource may reset the playback rate on some platforms;
+          // reapply.
+          await _player!.setPlaybackRate(_speed);
+        }
         if (widget.coordinator != null && widget.messageId != null) {
           await widget.coordinator!.play(widget.messageId!);
         } else {
@@ -231,7 +333,8 @@ class _AudioBubbleState extends State<AudioBubble> {
       );
     }
 
-    final outgoingText = widget.theme.outgoingTextStyle?.color ?? Colors.white;
+    final outgoingText =
+        widget.theme.bubble.outgoingTextStyle?.color ?? Colors.white;
     final playColor = widget.isOutgoing
         ? (outgoingText.withValues(alpha: 0.3))
         : (widget.theme.audioPlayButtonColor ?? Colors.blue);
@@ -239,12 +342,33 @@ class _AudioBubbleState extends State<AudioBubble> {
     final unlistenedColor =
         widget.theme.audioUnlistenedIconColor ?? Colors.grey.shade500;
 
+    // Avatar / speed-pill slot. WhatsApp puts the sender's portrait on
+    // the side FURTHEST from the bubble's anchored edge: outgoing
+    // bubbles anchor right → avatar on the left; incoming anchor left
+    // → avatar on the right. The slot diameter is 2x the play button
+    // (80 vs 40) so it's clearly the focal point of the bubble. After
+    // the first tap the slot morphs into the speed pill (the previous
+    // right-hand pill is gone — there's only ONE control for speed
+    // now and it lives where the avatar was).
+    final lateralSlot = _buildAvatarOrSpeedSlot();
+    // Group-incoming audio suppresses the in-bubble portrait (the leading
+    // avatar already identifies the sender). The slot still appears once
+    // playback starts, because that's where the speed pill lives.
+    final showLateralSlot = _hasStartedPlaying || widget.showSenderPortrait;
+
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Listened indicator (mic icon)
+            if (widget.isOutgoing && showLateralSlot) ...[
+              lateralSlot,
+              const SizedBox(width: 8),
+            ],
+            // Listened indicator (mic icon). Only on incoming side and
+            // before the play button, same as before — keeps the
+            // visual semantic of "you haven't heard this yet" intact.
             if (!widget.isOutgoing)
               Padding(
                 padding: const EdgeInsets.only(right: 4),
@@ -258,36 +382,60 @@ class _AudioBubbleState extends State<AudioBubble> {
             _buildPlayButton(playColor),
             const SizedBox(width: 8),
             Expanded(child: _buildSeekArea()),
-            const SizedBox(width: 4),
-            _buildSpeedButton(),
+            if (!widget.isOutgoing && showLateralSlot) ...[
+              const SizedBox(width: 8),
+              lateralSlot,
+            ],
           ],
         ),
         if (widget.timestamp != null || widget.statusWidget != null) ...[
           const SizedBox(height: 2),
           Align(
             alignment: Alignment.centerRight,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.timestamp != null)
-                  Text(
-                    DateFormatter.formatTime(widget.timestamp!),
-                    style:
-                        (widget.isOutgoing
-                            ? widget.theme.outgoingTimestampTextStyle
-                            : widget.theme.incomingTimestampTextStyle) ??
-                        widget.theme.timestampTextStyle ??
-                        TextStyle(fontSize: 11, color: Colors.grey.shade600),
-                  ),
-                if (widget.statusWidget != null) ...[
-                  const SizedBox(width: 4),
-                  widget.statusWidget!,
-                ],
-              ],
+            child: BubbleMetadataRow(
+              theme: widget.theme,
+              isOutgoing: widget.isOutgoing,
+              timestamp: widget.timestamp,
+              statusWidget: widget.statusWidget,
+              gap: 4,
             ),
           ),
         ],
       ],
+    );
+  }
+
+  /// Lateral slot widget: avatar (diameter 48, 1.2× play button) when
+  /// playback has never started; a tappable speed pill (cycles
+  /// 1x → 1.5x → 2x) once it has. Both sit inside a 48×48 box so
+  /// the overall bubble layout never shifts when the slot morphs.
+  /// The avatar is tappable → triggers `_togglePlayPause()`, mirroring
+  /// the WhatsApp behaviour where tapping the portrait starts playback.
+  Widget _buildAvatarOrSpeedSlot() {
+    const double slotSize = 48;
+    if (_hasStartedPlaying) {
+      // Speed pill replaces the avatar after the user has interacted.
+      // Centered inside the same 80×80 box so the row geometry is
+      // identical before and after the swap.
+      return SizedBox(
+        width: slotSize,
+        height: slotSize,
+        child: Center(child: _buildSpeedPill()),
+      );
+    }
+    // The play button already provides the primary "Play audio message"
+    // affordance; exclude this avatar slot from the semantic tree to avoid
+    // announcing a duplicate action to screen-reader users.
+    return ExcludeSemantics(
+      child: GestureDetector(
+        onTap: _togglePlayPause,
+        child: UserAvatar(
+          imageUrl: widget.senderAvatarUrl,
+          displayName: widget.senderDisplayName,
+          size: slotSize,
+          theme: widget.theme,
+        ),
+      ),
     );
   }
 
@@ -300,7 +448,9 @@ class _AudioBubbleState extends State<AudioBubble> {
           final clamped = value.clamp(0.0, 1.0);
           final iconColor = widget.theme.audioPlayIconColor ?? Colors.white;
           return Semantics(
-            label: 'Uploading voice message ${(clamped * 100).round()}%',
+            label: widget.theme.l10n.audioUploadingLabel(
+              (clamped * 100).round(),
+            ),
             child: SizedBox(
               width: 40,
               height: 40,
@@ -335,7 +485,9 @@ class _AudioBubbleState extends State<AudioBubble> {
     }
     final playing = _playerState == PlayerState.playing;
     return Semantics(
-      label: playing ? 'Pause audio message' : 'Play audio message',
+      label: playing
+          ? widget.theme.l10n.audioPauseLabel
+          : widget.theme.l10n.audioPlayLabel,
       button: true,
       child: GestureDetector(
         onTap: _togglePlayPause,
@@ -360,21 +512,14 @@ class _AudioBubbleState extends State<AudioBubble> {
   }
 
   Widget _buildSeekArea() {
-    // audioplayers emits `onPositionChanged` ~5x/second by default, which is
-    // smooth enough for the waveform fill. The local `_position` state is
-    // updated from that stream in `_attachStateListener`.
-    final position = _position;
     Duration duration = _resolvedDuration ?? Duration.zero;
     if (duration <= Duration.zero) {
       duration = _waveformEstimatedDuration;
     }
     final maxMs = duration.inMilliseconds.toDouble();
-    final progress = maxMs > 0
-        ? (position.inMilliseconds / maxMs).clamp(0.0, 1.0)
-        : 0.0;
 
     final outgoingTextColor =
-        widget.theme.outgoingTextStyle?.color ?? Colors.white;
+        widget.theme.bubble.outgoingTextStyle?.color ?? Colors.white;
     final defaultActiveColor = widget.isOutgoing
         ? outgoingTextColor
         : (widget.theme.audioSeekBarActiveColor ?? Colors.blue);
@@ -385,68 +530,82 @@ class _AudioBubbleState extends State<AudioBubble> {
         ? outgoingTextColor.withValues(alpha: 0.7)
         : Colors.grey.shade600;
 
-    if (widget.waveform != null && widget.waveform!.isNotEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          WaveformDisplay(
-            samples: WaveformDisplay.normalizeIntSamples(widget.waveform!),
-            progress: progress,
-            height: 28,
-            activeColor: widget.theme.waveformActiveColor ?? defaultActiveColor,
-            inactiveColor:
-                widget.theme.waveformInactiveColor ?? defaultInactiveColor,
-            onSeek: (value) {
-              if (maxMs > 0) {
-                _player?.seek(Duration(milliseconds: (value * maxMs).toInt()));
-              }
-            },
-          ),
-          const SizedBox(height: 2),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Text(
-              _formatDuration(position > Duration.zero ? position : duration),
-              style:
-                  widget.theme.audioDurationTextStyle ??
-                  TextStyle(fontSize: 11, color: defaultDurationColor),
-            ),
-          ),
-        ],
-      );
-    }
+    return ValueListenableBuilder<Duration>(
+      valueListenable: _positionNotifier,
+      builder: (context, position, _) {
+        final progress = maxMs > 0
+            ? (position.inMilliseconds / maxMs).clamp(0.0, 1.0)
+            : 0.0;
 
-    // Fallback: plain slider
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SliderTheme(
-          data: SliderThemeData(
-            trackHeight: 3,
-            thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-            activeTrackColor:
-                widget.theme.audioSeekBarActiveColor ?? defaultActiveColor,
-            inactiveTrackColor:
-                widget.theme.audioSeekBarColor ?? defaultInactiveColor,
-          ),
-          child: Slider(
-            value: maxMs > 0
-                ? position.inMilliseconds.toDouble().clamp(0, maxMs)
-                : 0,
-            max: maxMs > 0 ? maxMs : 1,
-            onChanged: (v) => _player?.seek(Duration(milliseconds: v.toInt())),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Text(
-            _formatDuration(position > Duration.zero ? position : duration),
-            style:
-                widget.theme.audioDurationTextStyle ??
-                TextStyle(fontSize: 11, color: defaultDurationColor),
-          ),
-        ),
-      ],
+        if (widget.waveform != null && widget.waveform!.isNotEmpty) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              WaveformDisplay(
+                samples: WaveformDisplay.normalizeIntSamples(widget.waveform!),
+                progress: progress,
+                height: 28,
+                activeColor:
+                    widget.theme.waveformActiveColor ?? defaultActiveColor,
+                inactiveColor:
+                    widget.theme.waveformInactiveColor ?? defaultInactiveColor,
+                onSeek: (value) {
+                  if (maxMs > 0) {
+                    _player?.seek(
+                      Duration(milliseconds: (value * maxMs).toInt()),
+                    );
+                  }
+                },
+              ),
+              const SizedBox(height: 2),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  _formatDuration(
+                    position > Duration.zero ? position : duration,
+                  ),
+                  style:
+                      widget.theme.audioDurationTextStyle ??
+                      TextStyle(fontSize: 11, color: defaultDurationColor),
+                ),
+              ),
+            ],
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SliderTheme(
+              data: SliderThemeData(
+                trackHeight: 3,
+                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+                activeTrackColor:
+                    widget.theme.audioSeekBarActiveColor ?? defaultActiveColor,
+                inactiveTrackColor:
+                    widget.theme.audioSeekBarColor ?? defaultInactiveColor,
+              ),
+              child: Slider(
+                value: maxMs > 0
+                    ? position.inMilliseconds.toDouble().clamp(0, maxMs)
+                    : 0,
+                max: maxMs > 0 ? maxMs : 1,
+                onChanged: (v) =>
+                    _player?.seek(Duration(milliseconds: v.toInt())),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: Text(
+                _formatDuration(position > Duration.zero ? position : duration),
+                style:
+                    widget.theme.audioDurationTextStyle ??
+                    TextStyle(fontSize: 11, color: defaultDurationColor),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -472,23 +631,32 @@ class _AudioBubbleState extends State<AudioBubble> {
     } catch (_) {}
   }
 
-  Widget _buildSpeedButton() {
+  Widget _buildSpeedPill() {
     final outgoing = widget.isOutgoing;
-    final outgoingText = widget.theme.outgoingTextStyle?.color ?? Colors.white;
-
+    final outgoingText =
+        widget.theme.bubble.outgoingTextStyle?.color ?? Colors.white;
+    // Background tinted ~2x stronger than the previous right-hand pill
+    // (alpha 0.35 vs 0.2 on outgoing; a darker grey on incoming) so the
+    // pill reads as "clearly tappable control" rather than "subtle text
+    // chip" — the avatar slot it replaces was the focal point of the
+    // bubble, so the pill needs to match that visual weight.
+    final pillColor = outgoing
+        ? outgoingText.withValues(alpha: 0.35)
+        : (widget.theme.audioSpeedButtonColor ?? Colors.grey.shade400);
     return Semantics(
-      label: 'Playback speed $_speedLabel',
+      label: widget.theme.l10n.audioPlaybackSpeedLabel(_speedLabel),
       button: true,
       child: GestureDetector(
         onTap: _cycleSpeed,
         child: Container(
-          width: 32,
-          height: 24,
+          // Slightly larger than before (was 32×24) because the pill
+          // now occupies the focal slot vacated by the avatar and the
+          // text label needs to feel like the primary control.
+          width: 44,
+          height: 28,
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(12),
-            color: outgoing
-                ? outgoingText.withValues(alpha: 0.2)
-                : (widget.theme.audioSpeedButtonColor ?? Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(14),
+            color: pillColor,
           ),
           alignment: Alignment.center,
           child: Text(
@@ -496,9 +664,9 @@ class _AudioBubbleState extends State<AudioBubble> {
             style:
                 widget.theme.audioSpeedTextStyle ??
                 TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: outgoing ? outgoingText : null,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: outgoing ? outgoingText : Colors.white,
                 ),
           ),
         ),

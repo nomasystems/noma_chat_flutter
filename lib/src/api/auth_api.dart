@@ -13,7 +13,7 @@ class AuthApi implements ChatAuthApi {
   AuthApi({required RestClient rest}) : _rest = rest;
 
   @override
-  Future<Result<HealthStatus>> healthCheck() => safeApiCall(() async {
+  Future<ChatResult<HealthStatus>> healthCheck() => safeApiCall(() async {
     final json = await _rest.get('/health');
     return HealthMapper.fromJson(json);
   });

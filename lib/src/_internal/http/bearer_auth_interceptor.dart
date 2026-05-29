@@ -62,6 +62,9 @@ class BearerAuthInterceptor extends AuthInterceptor {
     DioException err,
     ErrorInterceptorHandler handler,
   ) async {
+    if (err.type == DioExceptionType.cancel) {
+      return handler.next(err);
+    }
     if (err.response?.statusCode != 401) {
       return handler.next(err);
     }

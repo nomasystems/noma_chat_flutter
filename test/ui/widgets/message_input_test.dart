@@ -17,7 +17,9 @@ void main() {
   group('MessageInput', () {
     testWidgets('renders text field with hint', (tester) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
       expect(find.byType(TextField), findsOneWidget);
       expect(find.text('Write a message'), findsOneWidget);
@@ -25,7 +27,9 @@ void main() {
 
     testWidgets('shows send button when text is entered', (tester) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
       await tester.enterText(find.byType(TextField), 'Hello');
       await tester.pump();
@@ -38,7 +42,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (text) => sent = text,
+            onSendMessageRequest: (req) => sent = req.text,
           ),
         ),
       );
@@ -59,7 +63,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) => called = true,
+            onSendMessageRequest: (_) => called = true,
           ),
         ),
       );
@@ -71,7 +75,9 @@ void main() {
 
     testWidgets('shows reply preview when replyingTo is set', (tester) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
 
       final msg = ChatMessage(
@@ -88,7 +94,9 @@ void main() {
 
     testWidgets('shows editing bar when editingMessage is set', (tester) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
 
       final msg = ChatMessage(
@@ -111,7 +119,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             onEditMessage: (msg, text) {
               editedMsg = msg;
               newText = text;
@@ -146,7 +154,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             onTypingChanged: (v) => typing = v,
           ),
         ),
@@ -167,7 +175,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             showAttachButton: false,
           ),
         ),
@@ -187,7 +195,9 @@ void main() {
       controller.setReplyTo(msg);
 
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
       await tester.pump();
 
@@ -204,7 +214,9 @@ void main() {
       tester,
     ) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
 
       final msg = ChatMessage(
@@ -222,7 +234,9 @@ void main() {
 
     testWidgets('edit mode shows edit label', (tester) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
 
       final msg = ChatMessage(
@@ -240,7 +254,9 @@ void main() {
 
     testWidgets('edit mode close button clears editing', (tester) async {
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
 
       final msg = ChatMessage(
@@ -261,12 +277,17 @@ void main() {
     });
 
     testWidgets('attach button opens attachment picker', (tester) async {
+      // the SDK sheet only renders the rows whose callback is
+      // non-null. Wire all three so the test exercises the full label set.
       await tester.pumpWidget(
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             showAttachButton: true,
+            onPickCamera: () {},
+            onPickGallery: () {},
+            onPickFile: () {},
           ),
         ),
       );
@@ -286,7 +307,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             showVoiceButton: true,
           ),
         ),
@@ -302,7 +323,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             showVoiceButton: false,
           ),
         ),
@@ -318,7 +339,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             showVoiceButton: true,
           ),
         ),
@@ -342,7 +363,9 @@ void main() {
       controller.setReplyTo(msg);
 
       await tester.pumpWidget(
-        wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
       );
       await tester.pump();
 
@@ -362,10 +385,12 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             theme: const ChatTheme(
-              attachButtonIcon: Icons.attach_file,
-              attachIconBuilder: _customIcon,
+              input: ChatInputTheme(
+                attachButtonIcon: Icons.attach_file,
+                attachIconBuilder: _customIcon,
+              ),
             ),
           ),
         ),
@@ -383,11 +408,13 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessage: (_) {},
+            onSendMessageRequest: (_) {},
             onPickCamera: () {},
             theme: const ChatTheme(
-              cameraButtonIcon: Icons.camera_alt_outlined,
-              cameraIconBuilder: _customCameraIcon,
+              input: ChatInputTheme(
+                cameraButtonIcon: Icons.camera_alt_outlined,
+                cameraIconBuilder: _customCameraIcon,
+              ),
             ),
           ),
         ),

@@ -34,12 +34,18 @@ void main() {
     when(() => mockWs.state).thenReturn(ChatConnectionState.disconnected);
     when(() => mockWs.connect()).thenAnswer((_) async {});
     when(() => mockWs.disconnect()).thenAnswer((_) async {});
+    when(() => mockWs.supportsOutboundFrames).thenReturn(true);
+    when(() => mockWs.notifyTokenRotated()).thenAnswer((_) async {});
+    when(() => mockWs.dispose()).thenAnswer((_) async {});
 
     when(() => mockSse.events).thenAnswer((_) => sseEvents.stream);
     when(() => mockSse.stateChanges).thenAnswer((_) => sseStates.stream);
     when(() => mockSse.state).thenReturn(ChatConnectionState.disconnected);
     when(() => mockSse.connect()).thenAnswer((_) async {});
     when(() => mockSse.disconnect()).thenAnswer((_) async {});
+    when(() => mockSse.supportsOutboundFrames).thenReturn(false);
+    when(() => mockSse.notifyTokenRotated()).thenAnswer((_) async {});
+    when(() => mockSse.dispose()).thenAnswer((_) async {});
 
     manager = TransportManager(ws: mockWs, sse: mockSse);
   });
@@ -178,5 +184,40 @@ void main() {
     verify(() => mockWs.disconnect()).called(1);
     verify(() => mockSse.disconnect()).called(1);
     expect(manager.state, ChatConnectionState.disconnected);
+  });
+
+  group('notifyTokenRotated', () {
+    test('WS connected: delegates to WS, no SSE touched', () async {
+      await manager.connect();
+      when(() => mockWs.state).thenReturn(ChatConnectionState.connected);
+
+      await manager.notifyTokenRotated();
+
+      verify(() => mockWs.notifyTokenRotated()).called(1);
+      verifyNever(() => mockSse.notifyTokenRotated());
+    });
+
+    test('SSE active (WS down): delegates to SSE, no WS frame', () async {
+      await manager.connect();
+      // Failover: WS connected then down → SSE becomes active.
+      wsStates.add(ChatConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+      wsStates.add(ChatConnectionState.disconnected);
+      await Future<void>.delayed(Duration.zero);
+      verify(() => mockSse.connect()).called(1);
+      when(() => mockWs.state).thenReturn(ChatConnectionState.disconnected);
+
+      await manager.notifyTokenRotated();
+
+      verify(() => mockSse.notifyTokenRotated()).called(1);
+      verifyNever(() => mockWs.notifyTokenRotated());
+    });
+
+    test('fully disconnected: no-op', () async {
+      await manager.notifyTokenRotated();
+
+      verifyNever(() => mockWs.notifyTokenRotated());
+      verifyNever(() => mockSse.notifyTokenRotated());
+    });
   });
 }

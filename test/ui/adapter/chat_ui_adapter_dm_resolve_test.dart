@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 class _FailableMembersApi implements ChatMembersApi {
   final ChatMembersApi _delegate;
@@ -9,53 +10,63 @@ class _FailableMembersApi implements ChatMembersApi {
   bool throwOnList = false;
 
   @override
-  Future<Result<PaginatedResponse<RoomUser>>> list(
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) {
     if (throwOnList) throw StateError('members.list threw synchronously');
     if (failList) {
-      return Future.value(const Failure(ServerFailure(statusCode: 500)));
+      return Future.value(
+        const ChatFailureResult(ServerFailure(statusCode: 500)),
+      );
     }
     return _delegate.list(roomId, pagination: pagination);
   }
 
   @override
-  Future<Result<void>> add(
+  Future<ChatResult<void>> invite(
     String roomId, {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
     RoomRole? userRole,
-  }) => _delegate.add(roomId, userIds: userIds, mode: mode, userRole: userRole);
+  }) => _delegate.invite(
+    roomId,
+    userIds: userIds,
+    mode: mode,
+    userRole: userRole,
+  );
 
   @override
-  Future<Result<void>> remove(String roomId, String userId) =>
+  Future<ChatResult<void>> remove(String roomId, String userId) =>
       _delegate.remove(roomId, userId);
 
   @override
-  Future<Result<void>> leave(String roomId) => _delegate.leave(roomId);
+  Future<ChatResult<void>> leave(String roomId) => _delegate.leave(roomId);
 
   @override
-  Future<Result<void>> updateRole(
+  Future<ChatResult<void>> updateRole(
     String roomId,
     String userId,
     RoomRole role,
   ) => _delegate.updateRole(roomId, userId, role);
 
   @override
-  Future<Result<void>> ban(String roomId, String userId, {String? reason}) =>
-      _delegate.ban(roomId, userId, reason: reason);
+  Future<ChatResult<void>> ban(
+    String roomId,
+    String userId, {
+    String? reason,
+  }) => _delegate.ban(roomId, userId, reason: reason);
 
   @override
-  Future<Result<void>> unban(String roomId, String userId) =>
+  Future<ChatResult<void>> unban(String roomId, String userId) =>
       _delegate.unban(roomId, userId);
 
   @override
-  Future<Result<void>> muteUser(String roomId, String userId) =>
+  Future<ChatResult<void>> muteUser(String roomId, String userId) =>
       _delegate.muteUser(roomId, userId);
 
   @override
-  Future<Result<void>> unmuteUser(String roomId, String userId) =>
+  Future<ChatResult<void>> unmuteUser(String roomId, String userId) =>
       _delegate.unmuteUser(roomId, userId);
 }
 
@@ -64,9 +75,9 @@ class _DmRoomsApi implements ChatRoomsApi {
   _DmRoomsApi(this._delegate);
 
   @override
-  Future<Result<UserRooms>> getUserRooms({
+  Future<ChatResult<UserRooms>> getUserRooms({
     String type = 'all',
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
     CachePolicy? cachePolicy,
   }) async {
     final result = await _delegate.getUserRooms(
@@ -88,11 +99,11 @@ class _DmRoomsApi implements ChatRoomsApi {
           ),
         )
         .toList();
-    return Success(UserRooms(rooms: dmRooms));
+    return ChatSuccess(UserRooms(rooms: dmRooms));
   }
 
   @override
-  Future<Result<ChatRoom>> create({
+  Future<ChatResult<ChatRoom>> create({
     required RoomAudience audience,
     bool allowInvitations = false,
     String? name,
@@ -111,23 +122,23 @@ class _DmRoomsApi implements ChatRoomsApi {
   );
 
   @override
-  Future<Result<void>> delete(String roomId) => _delegate.delete(roomId);
+  Future<ChatResult<void>> delete(String roomId) => _delegate.delete(roomId);
 
   @override
-  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
+  Future<ChatResult<ChatPaginatedResponse<DiscoveredRoom>>> discover(
     String query, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => _delegate.discover(query, pagination: pagination);
 
   @override
-  Future<Result<RoomDetail>> get(
+  Future<ChatResult<RoomDetail>> get(
     String roomId, {
     CachePolicy? cachePolicy,
   }) async {
     final base = await _delegate.get(roomId, cachePolicy: cachePolicy);
     if (base.isFailure) return base;
     final raw = base.dataOrNull!;
-    return Success(
+    return ChatSuccess(
       RoomDetail(
         id: raw.id,
         name: raw.name,
@@ -147,45 +158,47 @@ class _DmRoomsApi implements ChatRoomsApi {
   }
 
   @override
-  Future<Result<void>> updateConfig(
+  Future<ChatResult<void>> updateConfig(
     String roomId, {
     String? name,
     String? subject,
     String? avatarUrl,
+    bool clearAvatar = false,
     Map<String, dynamic>? custom,
   }) => _delegate.updateConfig(
     roomId,
     name: name,
     subject: subject,
     avatarUrl: avatarUrl,
+    clearAvatar: clearAvatar,
     custom: custom,
   );
 
   @override
-  Future<Result<void>> mute(String roomId) => _delegate.mute(roomId);
+  Future<ChatResult<void>> mute(String roomId) => _delegate.mute(roomId);
 
   @override
-  Future<Result<void>> unmute(String roomId) => _delegate.unmute(roomId);
+  Future<ChatResult<void>> unmute(String roomId) => _delegate.unmute(roomId);
 
   @override
-  Future<Result<void>> pin(String roomId) => _delegate.pin(roomId);
+  Future<ChatResult<void>> pin(String roomId) => _delegate.pin(roomId);
 
   @override
-  Future<Result<void>> unpin(String roomId) => _delegate.unpin(roomId);
+  Future<ChatResult<void>> unpin(String roomId) => _delegate.unpin(roomId);
 
   @override
-  Future<Result<void>> batchMarkAsRead(List<String> roomIds) =>
+  Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) =>
       _delegate.batchMarkAsRead(roomIds);
 
   @override
-  Future<Result<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
+  Future<ChatResult<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       _delegate.batchGetUnread(roomIds);
 
   @override
-  Future<Result<void>> hide(String roomId) => _delegate.hide(roomId);
+  Future<ChatResult<void>> hide(String roomId) => _delegate.hide(roomId);
 
   @override
-  Future<Result<void>> unhide(String roomId) => _delegate.unhide(roomId);
+  Future<ChatResult<void>> unhide(String roomId) => _delegate.unhide(roomId);
 
   @override
   Future<void> updateCachedRoomPreview(
@@ -262,6 +275,13 @@ class _DmTestClient implements ChatClient {
   @override
   Future<void> notifyTokenRotated() => _delegate.notifyTokenRotated();
   @override
+  Future<void> refresh() => _delegate.refresh();
+  @override
+  Future<void> refreshRoom(String roomId) => _delegate.refreshRoom(roomId);
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) =>
+      _delegate.cancelPendingRequests(reason);
+  @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _delegate.onOfflineMessageSent = value;
@@ -272,7 +292,7 @@ void main() {
   late _DmTestClient testClient;
   late ChatUiAdapter adapter;
 
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -287,42 +307,48 @@ void main() {
 
   group('_resolveDmContact resilience', () {
     test('loadRooms succeeds when members.list returns failure', () async {
+      // real DMs have no user-assigned name. Rooms with a
+      // name are intentional groups (even with 2 members) and the
+      // default `_isDmDetail` excludes them from DM resolution.
       await mockClient.rooms.create(
         audience: RoomAudience.contacts,
-        name: 'DM Room',
         members: ['u2'],
       );
 
       testClient.failableMembers.failList = true;
-      final result = await adapter.loadRooms();
+      final result = await adapter.rooms.load();
 
       expect(result.isSuccess, true);
       expect(adapter.roomListController.allRooms, hasLength(1));
     });
 
     test('loadRooms succeeds when members.list throws', () async {
+      // real DMs have no user-assigned name. Rooms with a
+      // name are intentional groups (even with 2 members) and the
+      // default `_isDmDetail` excludes them from DM resolution.
       await mockClient.rooms.create(
         audience: RoomAudience.contacts,
-        name: 'DM Room',
         members: ['u2'],
       );
 
       testClient.failableMembers.throwOnList = true;
-      final result = await adapter.loadRooms();
+      final result = await adapter.rooms.load();
 
       expect(result.isSuccess, true);
       expect(adapter.roomListController.allRooms, hasLength(1));
     });
 
     test('DM contact is not resolved when members.list fails', () async {
+      // real DMs have no user-assigned name. Rooms with a
+      // name are intentional groups (even with 2 members) and the
+      // default `_isDmDetail` excludes them from DM resolution.
       await mockClient.rooms.create(
         audience: RoomAudience.contacts,
-        name: 'DM Room',
         members: ['u2'],
       );
 
       testClient.failableMembers.failList = true;
-      await adapter.loadRooms();
+      await adapter.rooms.load();
       await Future.delayed(const Duration(milliseconds: 50));
 
       final room = adapter.roomListController.allRooms.first;
@@ -330,13 +356,15 @@ void main() {
     });
 
     test('DM contact is resolved when members.list succeeds', () async {
+      // real DMs have no user-assigned name. Rooms with a
+      // name are intentional groups (even with 2 members) and the
+      // default `_isDmDetail` excludes them from DM resolution.
       await mockClient.rooms.create(
         audience: RoomAudience.contacts,
-        name: 'DM Room',
         members: ['u2'],
       );
 
-      final result = await adapter.loadRooms();
+      final result = await adapter.rooms.load();
       await Future.delayed(const Duration(milliseconds: 50));
 
       expect(result.isSuccess, true);

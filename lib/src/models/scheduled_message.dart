@@ -1,25 +1,24 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'scheduled_message.freezed.dart';
 
 /// A message scheduled to be sent at a future time.
-@immutable
-class ScheduledMessage {
-  final String id;
-  final String userId;
-  final String roomId;
-  final DateTime sendAt;
-  final DateTime createdAt;
-  final String? text;
-  final Map<String, dynamic>? metadata;
+///
+/// Equality is id-based so a re-fetched scheduled message with a freshly
+/// updated `text` is considered the same entity for `Set` / `Map` lookups.
+@Freezed(equal: false)
+abstract class ScheduledMessage with _$ScheduledMessage {
+  const ScheduledMessage._();
 
-  const ScheduledMessage({
-    required this.id,
-    required this.userId,
-    required this.roomId,
-    required this.sendAt,
-    required this.createdAt,
-    this.text,
-    this.metadata,
-  });
+  const factory ScheduledMessage({
+    required String id,
+    required String userId,
+    required String roomId,
+    required DateTime sendAt,
+    required DateTime createdAt,
+    String? text,
+    Map<String, dynamic>? metadata,
+  }) = _ScheduledMessage;
 
   @override
   bool operator ==(Object other) =>

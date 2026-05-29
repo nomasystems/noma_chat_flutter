@@ -1,0 +1,50 @@
+name: regen-goldens
+
+# Regenerates the golden baselines on Linux — the same OS that validates
+# them in `ci.yml` and `publish.yml` — and uploads them as an artifact so a
+# maintainer can download + commit the CI-matched PNGs. This solves the
+# local (macOS) vs CI (Linux) pixel-diff mismatch: goldens generated on a
+# developer's Mac never match the Linux runner's text rendering.
+#
+# Usage:
+#   1. Push the release branch (this runs automatically) or trigger manually.
+#   2. Download the `goldens` artifact from the run.
+#   3. Replace test/golden/goldens/ with its contents, commit, push.
+#
+# Uses `channel: stable` with no version pin to mirror `publish.yml` exactly,
+# so the regenerated baselines match the runner that gates publishing.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "release/**"
+
+jobs:
+  regen:
+    name: Regenerate golden baselines (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Regenerate goldens
+        run: flutter test --update-goldens test/golden/
+
+      - name: Upload regenerated goldens
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldens
+          path: test/golden/goldens/
+          if-no-files-found: error
+          retention-days: 3

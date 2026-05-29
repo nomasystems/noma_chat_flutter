@@ -102,7 +102,7 @@ void main() {
       final f1 = interceptor.onError(err1, handler1);
       final f2 = interceptor.onError(err2, handler2);
 
-      await Future<void>.delayed(Duration(milliseconds: 50));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       completer.complete('refreshed-token');
       await Future.wait([f1, f2]);
 
@@ -268,6 +268,66 @@ void main() {
       expect(callCount, 1);
       expect(handler.nextCalled, isTrue);
     });
+
+    test(
+      'passes cancel errors through without calling tokenProvider or onAuthFailure',
+      () async {
+        var tokenCalls = 0;
+        var authFailureCalled = false;
+        final interceptor = BearerAuthInterceptor(
+          tokenProvider: () async {
+            tokenCalls++;
+            return 'token-$tokenCalls';
+          },
+          onAuthFailure: () => authFailureCalled = true,
+        );
+
+        final handler = _TrackingErrorHandler();
+        final opts = _opts();
+        // A cancel error never has a response, but it always has a 401-ish
+        // status sometimes when the request had been received — still must
+        // be detected by DioExceptionType.
+        final err = DioException(
+          requestOptions: opts,
+          type: DioExceptionType.cancel,
+        );
+
+        await interceptor.onError(err, handler);
+
+        expect(tokenCalls, 0);
+        expect(authFailureCalled, isFalse);
+        expect(handler.nextCalled, isTrue);
+      },
+    );
+
+    test(
+      'cancel takes precedence over a 401 response on the same error',
+      () async {
+        var tokenCalls = 0;
+        var authFailureCalled = false;
+        final interceptor = BearerAuthInterceptor(
+          tokenProvider: () async {
+            tokenCalls++;
+            return 'token';
+          },
+          onAuthFailure: () => authFailureCalled = true,
+        );
+
+        final handler = _TrackingErrorHandler();
+        final opts = _opts();
+        final err = DioException(
+          requestOptions: opts,
+          type: DioExceptionType.cancel,
+          response: Response(statusCode: 401, requestOptions: opts),
+        );
+
+        await interceptor.onError(err, handler);
+
+        expect(tokenCalls, 0);
+        expect(authFailureCalled, isFalse);
+        expect(handler.nextCalled, isTrue);
+      },
+    );
   });
 }
 

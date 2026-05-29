@@ -2,7 +2,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import '../../theme/chat_theme.dart';
-import '../../utils/date_formatter.dart';
+import '_bubble_metadata.dart';
 
 /// Bubble for a shared location: shows a static map preview centered on the
 /// coordinates and opens the system maps app on tap.
@@ -102,27 +102,12 @@ class LocationBubble extends StatelessWidget {
               const SizedBox(height: 2),
               Align(
                 alignment: Alignment.centerRight,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (timestamp != null)
-                      Text(
-                        DateFormatter.formatTime(timestamp!),
-                        style:
-                            (isOutgoing
-                                ? theme.outgoingTimestampTextStyle
-                                : theme.incomingTimestampTextStyle) ??
-                            theme.timestampTextStyle ??
-                            TextStyle(
-                              fontSize: 11,
-                              color: Colors.grey.shade600,
-                            ),
-                      ),
-                    if (statusWidget != null) ...[
-                      const SizedBox(width: 4),
-                      statusWidget!,
-                    ],
-                  ],
+                child: BubbleMetadataRow(
+                  theme: theme,
+                  isOutgoing: isOutgoing,
+                  timestamp: timestamp,
+                  statusWidget: statusWidget,
+                  gap: 4,
                 ),
               ),
             ],

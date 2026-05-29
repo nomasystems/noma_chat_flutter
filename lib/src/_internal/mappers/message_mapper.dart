@@ -85,7 +85,9 @@ class MessageMapper {
   }
 
   static ChatMessage fromJson(Map<String, dynamic> json) {
-    final textHistory = json['text_history'] as List?;
+    final textHistory = json['text_history'] is List
+        ? json['text_history'] as List
+        : null;
     final isEdited = textHistory != null && textHistory.isNotEmpty;
     final msg = fromDto(MessageDto.fromJson(json), isEdited: isEdited);
 

@@ -1,19 +1,15 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'report.freezed.dart';
 
 /// A moderation report filed against a message.
-@immutable
-class MessageReport {
-  final String reporterId;
-  final String messageId;
-  final String roomId;
-  final String reason;
-  final DateTime reportedAt;
-
-  const MessageReport({
-    required this.reporterId,
-    required this.messageId,
-    required this.roomId,
-    required this.reason,
-    required this.reportedAt,
-  });
+@freezed
+abstract class MessageReport with _$MessageReport {
+  const factory MessageReport({
+    required String reporterId,
+    required String messageId,
+    required String roomId,
+    required String reason,
+    required DateTime reportedAt,
+  }) = _MessageReport;
 }

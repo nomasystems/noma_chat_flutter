@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart' show experimental;
+
 import '../_internal/http/exception_mapper.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/presence_mapper.dart';
@@ -15,20 +17,21 @@ class PresenceApi implements ChatPresenceApi {
   PresenceApi({required RestClient rest}) : _rest = rest;
 
   @override
-  Future<Result<ChatPresence>> getOwn() => safeApiCall(() async {
+  Future<ChatResult<ChatPresence>> getOwn() => safeApiCall(() async {
     final json = await _rest.get('/presence');
     final bulk = PresenceMapper.bulkFromJson(json);
     return bulk.own;
   });
 
   @override
-  Future<Result<BulkPresenceResponse>> getAll() => safeApiCall(() async {
+  Future<ChatResult<BulkPresenceResponse>> getAll() => safeApiCall(() async {
     final json = await _rest.get('/presence');
     return PresenceMapper.bulkFromJson(json);
   });
 
+  @experimental
   @override
-  Future<Result<void>> update({
+  Future<ChatResult<void>> update({
     required PresenceStatus status,
     String? statusText,
   }) => safeVoidCall(

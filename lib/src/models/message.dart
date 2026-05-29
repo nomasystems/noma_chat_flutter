@@ -1,50 +1,39 @@
+import 'package:freezed_annotation/freezed_annotation.dart';
+
 import 'forward_info.dart';
-import 'package:flutter/foundation.dart';
+
+part 'message.freezed.dart';
 
 /// A chat message with text, attachments, reactions, and metadata.
-@immutable
-class ChatMessage {
-  final String id;
-  final String from;
-  final DateTime timestamp;
-  final String? text;
-  final MessageType messageType;
-  final String? attachmentUrl;
-  final String? referencedMessageId;
-  final String? reaction;
-  final String? reply;
-  final Map<String, dynamic>? metadata;
-  final ReceiptStatus? receipt;
-  final bool isEdited;
-  final bool isDeleted;
-  final bool isForwarded;
-  final bool isSystem;
-  final String? mimeType;
-  final String? fileName;
-  final String? fileSize;
-  final String? thumbnailUrl;
+///
+/// Equality is id-based so a `Set<ChatMessage>` deduplicates by `id`
+/// even when an in-flight version (pending) and a server-confirmed
+/// version (with receipt) of the same message coexist briefly.
+@Freezed(equal: false)
+abstract class ChatMessage with _$ChatMessage {
+  const ChatMessage._();
 
-  const ChatMessage({
-    required this.id,
-    required this.from,
-    required this.timestamp,
-    this.text,
-    this.messageType = MessageType.regular,
-    this.attachmentUrl,
-    this.referencedMessageId,
-    this.reaction,
-    this.reply,
-    this.metadata,
-    this.receipt,
-    this.isEdited = false,
-    this.isDeleted = false,
-    this.isForwarded = false,
-    this.isSystem = false,
-    this.mimeType,
-    this.fileName,
-    this.fileSize,
-    this.thumbnailUrl,
-  });
+  const factory ChatMessage({
+    required String id,
+    required String from,
+    required DateTime timestamp,
+    String? text,
+    @Default(MessageType.regular) MessageType messageType,
+    String? attachmentUrl,
+    String? referencedMessageId,
+    String? reaction,
+    String? reply,
+    Map<String, dynamic>? metadata,
+    ReceiptStatus? receipt,
+    @Default(false) bool isEdited,
+    @Default(false) bool isDeleted,
+    @Default(false) bool isForwarded,
+    @Default(false) bool isSystem,
+    String? mimeType,
+    String? fileName,
+    String? fileSize,
+    String? thumbnailUrl,
+  }) = _ChatMessage;
 
   /// Extracts forwarding metadata if this is a forwarded message.
   /// Tries metadata keys first, falls back to message-level fields.
@@ -55,48 +44,6 @@ class ChatMessage {
           metadata: metadata,
         )
       : null;
-
-  ChatMessage copyWith({
-    String? id,
-    String? from,
-    DateTime? timestamp,
-    String? text,
-    MessageType? messageType,
-    String? attachmentUrl,
-    String? referencedMessageId,
-    String? reaction,
-    String? reply,
-    Map<String, dynamic>? metadata,
-    ReceiptStatus? receipt,
-    bool? isEdited,
-    bool? isDeleted,
-    bool? isForwarded,
-    bool? isSystem,
-    String? mimeType,
-    String? fileName,
-    String? fileSize,
-    String? thumbnailUrl,
-  }) => ChatMessage(
-    id: id ?? this.id,
-    from: from ?? this.from,
-    timestamp: timestamp ?? this.timestamp,
-    text: text ?? this.text,
-    messageType: messageType ?? this.messageType,
-    attachmentUrl: attachmentUrl ?? this.attachmentUrl,
-    referencedMessageId: referencedMessageId ?? this.referencedMessageId,
-    reaction: reaction ?? this.reaction,
-    reply: reply ?? this.reply,
-    metadata: metadata ?? this.metadata,
-    receipt: receipt ?? this.receipt,
-    isEdited: isEdited ?? this.isEdited,
-    isDeleted: isDeleted ?? this.isDeleted,
-    isForwarded: isForwarded ?? this.isForwarded,
-    isSystem: isSystem ?? this.isSystem,
-    mimeType: mimeType ?? this.mimeType,
-    fileName: fileName ?? this.fileName,
-    fileSize: fileSize ?? this.fileSize,
-    thumbnailUrl: thumbnailUrl ?? this.thumbnailUrl,
-  );
 
   @override
   bool operator ==(Object other) =>
@@ -118,19 +65,45 @@ enum MessageType {
   reply,
   audio,
   forward,
-  location,
+  location;
+
+  /// `true` for messages that render as a user-visible chat bubble
+  /// (regular, attachment, reply, audio, forward, location).
+  /// `reaction` is special — it's metadata on another message, never
+  /// shown as a standalone bubble.
+  bool get isBubble => this != MessageType.reaction;
+
+  /// `true` for messages that include media (image / video / audio /
+  /// file). Lets UI code decide whether to render an attachment
+  /// preview vs a text-only bubble without inspecting `mimeType`.
+  bool get hasAttachment =>
+      this == MessageType.attachment || this == MessageType.audio;
 }
 
 /// Delivery state of an outgoing message as reported by the backend. Read
 /// receipts can advance from `sent` to `delivered` to `read`.
-enum ReceiptStatus { sent, delivered, read }
+enum ReceiptStatus {
+  sent,
+  delivered,
+  read;
+
+  /// `true` when the recipient has confirmed reading the message.
+  /// Drives the double-blue check rendering in the bubble status.
+  bool get isRead => this == ReceiptStatus.read;
+
+  /// `true` when the message reached the recipient's device (read or
+  /// delivered). False only when still in-flight (`sent`).
+  bool get isDelivered =>
+      this == ReceiptStatus.delivered || this == ReceiptStatus.read;
+}
 
 /// A locally-persisted outgoing message that has not been confirmed by the
-/// server. [isFailed] is `true` when the last send attempt returned an error;
-/// when `false`, the message is still pending (in flight or queued).
-@immutable
-class PendingChatMessage {
-  final ChatMessage message;
-  final bool isFailed;
-  const PendingChatMessage(this.message, {this.isFailed = false});
+/// server. [isFailed] is `true` when the last send attempt returned an
+/// error; when `false`, the message is still pending (in flight or queued).
+@freezed
+abstract class PendingChatMessage with _$PendingChatMessage {
+  const factory PendingChatMessage(
+    ChatMessage message, {
+    @Default(false) bool isFailed,
+  }) = _PendingChatMessage;
 }

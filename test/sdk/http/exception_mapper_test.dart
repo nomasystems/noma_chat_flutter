@@ -91,13 +91,13 @@ void main() {
   });
 
   group('safeApiCall', () {
-    test('returns Success on success', () async {
+    test('returns ChatSuccess on success', () async {
       final result = await safeApiCall(() async => 42);
       expect(result.isSuccess, isTrue);
       expect(result.dataOrNull, 42);
     });
 
-    test('returns Failure on exception', () async {
+    test('returns ChatFailureResult on exception', () async {
       final result = await safeApiCall<int>(
         () async => throw const ChatAuthException(),
       );
@@ -107,12 +107,12 @@ void main() {
   });
 
   group('safeVoidCall', () {
-    test('returns Success on success', () async {
+    test('returns ChatSuccess on success', () async {
       final result = await safeVoidCall(() async {});
       expect(result.isSuccess, isTrue);
     });
 
-    test('returns Failure on exception', () async {
+    test('returns ChatFailureResult on exception', () async {
       final result = await safeVoidCall(
         () async => throw const ChatNetworkException(),
       );

@@ -1,10 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
-/// Tests for the presence cache and public APIs added in DEC-036.
+/// Tests for the presence cache and its public APIs.
 /// The bootstrap path itself (loadRooms -> presence.getAll()) is covered by
-/// the manual smoke E2E; here we focus on the cache-driven APIs that any
-/// consumer (e.g. WB/mobile Sugerencias) relies on.
+/// the manual smoke E2E; here we focus on the cache-driven APIs.
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;

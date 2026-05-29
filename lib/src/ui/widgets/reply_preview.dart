@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../models/message.dart';
+import '../theme/chat_theme.dart';
 
 /// Compact preview of the message being replied to. Shown inside reply
 /// bubbles and above the composer while drafting a reply.
@@ -66,7 +67,7 @@ class ReplyPreview extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style:
-                theme.replyPreviewSenderStyle ??
+                theme.input.replyPreviewSenderStyle ??
                 const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
           ),
         Row(
@@ -94,7 +95,7 @@ class ReplyPreview extends StatelessWidget {
   Widget build(BuildContext context) {
     final (icon, text) = _resolveContent();
     final textStyle =
-        theme.replyPreviewTextStyle ??
+        theme.input.replyPreviewTextStyle ??
         const TextStyle(fontSize: 12, color: Colors.black54);
 
     final thumbnailUrl = _isImage
@@ -104,11 +105,11 @@ class ReplyPreview extends StatelessWidget {
     Widget content = Container(
       padding: const EdgeInsets.all(8),
       decoration: BoxDecoration(
-        color: theme.replyPreviewBackgroundColor ?? Colors.grey.shade200,
+        color: theme.input.replyPreviewBackgroundColor ?? Colors.grey.shade200,
         borderRadius: BorderRadius.circular(8),
         border: Border(
           left: BorderSide(
-            color: theme.replyPreviewBarColor ?? Colors.blue,
+            color: theme.input.replyPreviewBarColor ?? Colors.blue,
             width: 3,
           ),
         ),
@@ -128,19 +129,30 @@ class ReplyPreview extends StatelessWidget {
                   thumbnailUrl,
                   width: 40,
                   height: 40,
+                  // Decode at 3× pixel density (~120 px) instead of
+                  // the full image, which can be multi-MB for chat
+                  // attachments. Without these, every reply preview
+                  // pinned in the input would hold the source bitmap
+                  // (often 4K) in the image cache.
+                  cacheWidth: 120,
+                  cacheHeight: 120,
                   fit: BoxFit.cover,
                   errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                 ),
               ),
             ),
           if (onDismiss != null)
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onDismiss,
-              child: const SizedBox(
-                width: 48,
-                height: 48,
-                child: Center(child: Icon(Icons.close, size: 18)),
+            Semantics(
+              label: theme.l10n.close,
+              button: true,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onDismiss,
+                child: const SizedBox(
+                  width: 48,
+                  height: 48,
+                  child: Center(child: Icon(Icons.close, size: 18)),
+                ),
               ),
             ),
         ],

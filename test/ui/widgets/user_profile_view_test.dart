@@ -5,7 +5,7 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
-  final user = ChatUser(
+  const user = ChatUser(
     id: 'u1',
     displayName: 'Alice Smith',
     bio: 'Software engineer',
@@ -13,7 +13,7 @@ void main() {
 
   group('UserProfileView', () {
     testWidgets('renders name and bio', (tester) async {
-      await tester.pumpWidget(wrap(UserProfileView(user: user)));
+      await tester.pumpWidget(wrap(const UserProfileView(user: user)));
       expect(find.text('Alice Smith'), findsOneWidget);
       expect(find.text('Software engineer'), findsOneWidget);
     });
@@ -45,7 +45,7 @@ void main() {
     });
 
     testWidgets('hides buttons when no callback provided', (tester) async {
-      await tester.pumpWidget(wrap(UserProfileView(user: user)));
+      await tester.pumpWidget(wrap(const UserProfileView(user: user)));
       expect(find.text('Start chat'), findsNothing);
       expect(find.text('Mute'), findsNothing);
       expect(find.text('Block'), findsNothing);

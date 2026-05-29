@@ -15,12 +15,21 @@ class DocsListView extends StatelessWidget {
     this.theme = ChatTheme.defaults,
     this.onTapItem,
     this.includeAudioFiles = false,
+    this.senderNameResolver,
   });
 
   final List<MediaItem> items;
   final ChatTheme theme;
   final ValueChanged<MediaItem>? onTapItem;
   final bool includeAudioFiles;
+
+  /// Optional resolver from `senderId` → display name. Used to render
+  /// the sender in the subtitle as "Alice" instead of a raw UUID.
+  /// Return `null` (or the same id back) to fall through to "no
+  /// name" — the sender chip is omitted when no friendly label is
+  /// available. Typically wired to
+  /// `ChatUiAdapter.displayNameFor`.
+  final String? Function(String userId)? senderNameResolver;
 
   static IconData _iconFor(String? mimeType) {
     final mime = mimeType?.toLowerCase() ?? '';
@@ -74,10 +83,23 @@ class DocsListView extends StatelessWidget {
             DateFormatter.formatRelative(item.timestamp!, l10n: theme.l10n),
           );
         }
+        // Resolve the sender id to a friendly display name when a
+        // resolver is wired. Treat "no resolver" or "resolved back to
+        // the raw id" both as "no name available" — same UX contract
+        // as LinksListView.
         if (item.senderId != null && item.senderId!.isNotEmpty) {
-          subtitleParts.add(item.senderId!);
+          final resolved = senderNameResolver?.call(item.senderId!)?.trim();
+          if (resolved != null &&
+              resolved.isNotEmpty &&
+              resolved != item.senderId) {
+            subtitleParts.add(resolved);
+          }
         }
         return ListTile(
+          // Stable identity per attachment so Flutter doesn't reuse
+          // tile state across docs when the gallery refreshes. Files
+          // dedupe by url + sender + timestamp (MediaItem has no id).
+          key: ValueKey('${item.url}-${item.senderId}-${item.timestamp}'),
           leading: CircleAvatar(
             backgroundColor: Colors.grey.shade200,
             foregroundColor: iconColor,

@@ -1,51 +1,26 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'user.freezed.dart';
 
 /// A chat platform user with profile information and role.
-@immutable
-class ChatUser {
-  final String id;
-  final String? displayName;
-  final String? avatarUrl;
-  final String? bio;
-  final String? email;
-  final UserRole role;
-  final bool active;
-  final Map<String, dynamic>? custom;
-  final UserConfiguration? configuration;
+///
+/// Equality is id-based so user collections (`Set<ChatUser>`, lookup
+/// maps) deduplicate by `id` regardless of churn in the profile fields.
+@Freezed(equal: false)
+abstract class ChatUser with _$ChatUser {
+  const ChatUser._();
 
-  const ChatUser({
-    required this.id,
-    this.displayName,
-    this.avatarUrl,
-    this.bio,
-    this.email,
-    this.role = UserRole.user,
-    this.active = true,
-    this.custom,
-    this.configuration,
-  });
-
-  ChatUser copyWith({
-    String? id,
+  const factory ChatUser({
+    required String id,
     String? displayName,
     String? avatarUrl,
     String? bio,
     String? email,
-    UserRole? role,
-    bool? active,
+    @Default(UserRole.user) UserRole role,
+    @Default(true) bool active,
     Map<String, dynamic>? custom,
     UserConfiguration? configuration,
-  }) => ChatUser(
-    id: id ?? this.id,
-    displayName: displayName ?? this.displayName,
-    avatarUrl: avatarUrl ?? this.avatarUrl,
-    bio: bio ?? this.bio,
-    email: email ?? this.email,
-    role: role ?? this.role,
-    active: active ?? this.active,
-    custom: custom ?? this.custom,
-    configuration: configuration ?? this.configuration,
-  );
+  }) = _ChatUser;
 
   @override
   bool operator ==(Object other) =>
@@ -59,30 +34,24 @@ class ChatUser {
 }
 
 /// User-level configuration including webhook settings and custom metadata.
-@immutable
-class UserConfiguration {
-  final Map<String, dynamic>? metadata;
-  final WebhookConfig? webhook;
-
-  const UserConfiguration({this.metadata, this.webhook});
+@freezed
+abstract class UserConfiguration with _$UserConfiguration {
+  const factory UserConfiguration({
+    Map<String, dynamic>? metadata,
+    WebhookConfig? webhook,
+  }) = _UserConfiguration;
 }
 
 /// Webhook configuration for server-to-server notifications.
-@immutable
-class WebhookConfig {
-  final String url;
-  final WebhookAuthType authType;
-  final String? token;
-  final String? username;
-  final String? password;
-
-  const WebhookConfig({
-    required this.url,
-    required this.authType,
-    this.token,
-    this.username,
-    this.password,
-  });
+@freezed
+abstract class WebhookConfig with _$WebhookConfig {
+  const factory WebhookConfig({
+    required String url,
+    required WebhookAuthType authType,
+    String? token,
+    String? username,
+    String? password,
+  }) = _WebhookConfig;
 }
 
 /// Authentication scheme expected by an outgoing webhook target.

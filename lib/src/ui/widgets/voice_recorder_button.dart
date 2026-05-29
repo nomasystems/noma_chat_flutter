@@ -20,16 +20,18 @@ class VoiceRecorderButton extends StatelessWidget {
         width: 40,
         height: 40,
         decoration: BoxDecoration(
-          color: theme.voiceButtonColor ?? Colors.grey.shade200,
+          color: theme.input.voiceButtonColor ?? Colors.grey.shade200,
           shape: BoxShape.circle,
         ),
         child: Center(
           child:
-              theme.voiceIconBuilder?.call(context) ??
+              theme.input.voiceIconBuilder?.call(context) ??
               Icon(
-                theme.voiceButtonIcon ?? Icons.mic,
+                theme.input.voiceButtonIcon ?? Icons.mic,
                 size: 20,
-                color: theme.voiceButtonIdleIconColor ?? Colors.grey.shade700,
+                color:
+                    theme.input.voiceButtonIdleIconColor ??
+                    Colors.grey.shade700,
               ),
         ),
       ),

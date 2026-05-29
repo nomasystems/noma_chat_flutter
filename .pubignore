@@ -1,7 +1,34 @@
 # Files / directories excluded from the tarball uploaded to pub.dev.
-# This is on top of pub's own default ignores (.git/, .dart_tool/, build/, …).
-# Anything excluded here is still kept in the GitHub repo; we only trim
-# what consumers don't need.
+#
+# IMPORTANT: when a .pubignore exists, pub uses it INSTEAD of .gitignore
+# (they are not merged). So every build/dev artefact that .gitignore keeps
+# out of the repo must ALSO be listed here, or it leaks into the published
+# tarball. Pub only hard-ignores .git/ and .dart_tool/ on its own — notably
+# NOT root build/, so the 70 MB test_cache .dill shipped until this list
+# grew. Anything excluded here is still kept in the GitHub repo; we only
+# trim what consumers don't need.
+
+# Build / cache artefacts (regenerated on demand; never useful to consumers).
+build/
+**/build/
+.dart_tool/
+**/.dart_tool/
+
+# Coverage reports and stray run logs.
+coverage/
+.coverage/
+*.log
+
+# IDE / editor / OS noise.
+.idea/
+.vscode/
+*.iml
+.DS_Store
+
+# Example platform host projects — pub.dev renders example/lib, consumers
+# never need the iOS/Android Runner scaffolding. Kept in the repo.
+example/ios/
+example/android/
 
 # Tests are useful in the repo but not for consumers; they would bloat the
 # tarball by megabytes and pub.dev does not render them anywhere.

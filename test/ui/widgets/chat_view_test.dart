@@ -19,7 +19,12 @@ void main() {
   group('ChatView', () {
     testWidgets('shows empty state when no messages', (tester) async {
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
       expect(find.text('No messages yet'), findsOneWidget);
     });
@@ -37,7 +42,12 @@ void main() {
         currentUser: user,
       );
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
       expect(find.textContaining('Hello world'), findsOneWidget);
     });
@@ -47,8 +57,10 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (_) {},
-            connectionState: ChatConnectionState.reconnecting,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            behaviors: const ChatViewBehaviors(
+              connectionState: ChatConnectionState.reconnecting,
+            ),
           ),
         ),
       );
@@ -57,14 +69,24 @@ void main() {
 
     testWidgets('no connection banner when state is null', (tester) async {
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
       expect(find.byType(ConnectionBanner), findsNothing);
     });
 
     testWidgets('includes message input', (tester) async {
       await tester.pumpWidget(
-        wrap(ChatView(controller: controller, onSendMessage: (_) {})),
+        wrap(
+          ChatView(
+            controller: controller,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+          ),
+        ),
       );
       expect(find.byType(TextField), findsOneWidget);
     });
@@ -75,7 +97,9 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (text) => sent = text,
+            callbacks: ChatViewCallbacks(
+              onSendMessageRequest: (req) => sent = req.text,
+            ),
           ),
         ),
       );
@@ -93,9 +117,11 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (_) {},
-            emptyTitle: 'Start chatting!',
-            emptyIcon: Icons.forum,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            behaviors: const ChatViewBehaviors(
+              emptyTitle: 'Start chatting!',
+              emptyIcon: Icons.forum,
+            ),
           ),
         ),
       );
@@ -113,11 +139,13 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (_) {},
-            onEditMessage: (msg, text) {
-              editedMsg = msg;
-              newText = text;
-            },
+            callbacks: ChatViewCallbacks(
+              onSendMessageRequest: (_) {},
+              onEditMessage: (msg, text) {
+                editedMsg = msg;
+                newText = text;
+              },
+            ),
           ),
         ),
       );
@@ -146,8 +174,10 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (_) {},
-            onTypingChanged: (v) => typing = v,
+            callbacks: ChatViewCallbacks(
+              onSendMessageRequest: (_) {},
+              onTypingChanged: (v) => typing = v,
+            ),
           ),
         ),
       );
@@ -162,8 +192,10 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (_) {},
-            connectionState: ChatConnectionState.reconnecting,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            behaviors: const ChatViewBehaviors(
+              connectionState: ChatConnectionState.reconnecting,
+            ),
           ),
         ),
       );
@@ -177,8 +209,10 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            onSendMessage: (_) {},
-            connectionState: ChatConnectionState.connected,
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            behaviors: const ChatViewBehaviors(
+              connectionState: ChatConnectionState.connected,
+            ),
           ),
         ),
       );

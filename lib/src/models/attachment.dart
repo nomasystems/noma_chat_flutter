@@ -1,20 +1,15 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
 
-/// Result of an attachment upload containing the server-assigned ID and optional URL.
-@immutable
-class AttachmentUploadResult {
-  final String attachmentId;
-  final String? url;
-  final String? metadata;
-  final Map<String, dynamic> raw;
+part 'attachment.freezed.dart';
 
-  const AttachmentUploadResult({
-    required this.attachmentId,
-    this.url,
-    this.metadata,
-    required this.raw,
-  });
-
-  @override
-  String toString() => 'AttachmentUploadResult($attachmentId)';
+/// ChatResult of an attachment upload containing the server-assigned ID and
+/// optional URL.
+@freezed
+abstract class AttachmentUploadResult with _$AttachmentUploadResult {
+  const factory AttachmentUploadResult({
+    required String attachmentId,
+    String? url,
+    String? metadata,
+    required Map<String, dynamic> raw,
+  }) = _AttachmentUploadResult;
 }

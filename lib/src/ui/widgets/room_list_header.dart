@@ -43,7 +43,7 @@ class RoomListHeader extends StatelessWidget {
             Text(
               '$selectedCount',
               style:
-                  theme.roomListHeaderSelectedStyle ??
+                  theme.roomList.headerSelectedStyle ??
                   const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
             ),
           ] else ...[
@@ -51,7 +51,7 @@ class RoomListHeader extends StatelessWidget {
               child: Text(
                 title,
                 style:
-                    theme.roomListHeaderTextStyle ??
+                    theme.roomList.headerStyle ??
                     const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
               ),
             ),
@@ -62,6 +62,7 @@ class RoomListHeader extends StatelessWidget {
           else if (!isSelecting && onNewChat != null)
             IconButton(
               icon: const Icon(Icons.edit_square),
+              tooltip: theme.l10n.newGroup,
               onPressed: onNewChat,
             ),
         ],

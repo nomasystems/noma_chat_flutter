@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 class _PredicateRoomsApi implements ChatRoomsApi {
   _PredicateRoomsApi(this._delegate, this._customByRoomId);
@@ -8,9 +9,9 @@ class _PredicateRoomsApi implements ChatRoomsApi {
   final Map<String, Map<String, dynamic>?> _customByRoomId;
 
   @override
-  Future<Result<UserRooms>> getUserRooms({
+  Future<ChatResult<UserRooms>> getUserRooms({
     String type = 'all',
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
     CachePolicy? cachePolicy,
   }) async {
     final result = await _delegate.getUserRooms(
@@ -32,18 +33,18 @@ class _PredicateRoomsApi implements ChatRoomsApi {
           ),
         )
         .toList();
-    return Success(UserRooms(rooms: dmRooms));
+    return ChatSuccess(UserRooms(rooms: dmRooms));
   }
 
   @override
-  Future<Result<RoomDetail>> get(
+  Future<ChatResult<RoomDetail>> get(
     String roomId, {
     CachePolicy? cachePolicy,
   }) async {
     final base = await _delegate.get(roomId, cachePolicy: cachePolicy);
     if (base.isFailure) return base;
     final raw = base.dataOrNull!;
-    return Success(
+    return ChatSuccess(
       RoomDetail(
         id: raw.id,
         name: raw.name,
@@ -63,7 +64,7 @@ class _PredicateRoomsApi implements ChatRoomsApi {
   }
 
   @override
-  Future<Result<ChatRoom>> create({
+  Future<ChatResult<ChatRoom>> create({
     required RoomAudience audience,
     bool allowInvitations = false,
     String? name,
@@ -82,54 +83,56 @@ class _PredicateRoomsApi implements ChatRoomsApi {
   );
 
   @override
-  Future<Result<void>> delete(String roomId) => _delegate.delete(roomId);
+  Future<ChatResult<void>> delete(String roomId) => _delegate.delete(roomId);
 
   @override
-  Future<Result<PaginatedResponse<DiscoveredRoom>>> discover(
+  Future<ChatResult<ChatPaginatedResponse<DiscoveredRoom>>> discover(
     String query, {
-    PaginationParams? pagination,
+    ChatPaginationParams? pagination,
   }) => _delegate.discover(query, pagination: pagination);
 
   @override
-  Future<Result<void>> updateConfig(
+  Future<ChatResult<void>> updateConfig(
     String roomId, {
     String? name,
     String? subject,
     String? avatarUrl,
+    bool clearAvatar = false,
     Map<String, dynamic>? custom,
   }) => _delegate.updateConfig(
     roomId,
     name: name,
     subject: subject,
     avatarUrl: avatarUrl,
+    clearAvatar: clearAvatar,
     custom: custom,
   );
 
   @override
-  Future<Result<void>> mute(String roomId) => _delegate.mute(roomId);
+  Future<ChatResult<void>> mute(String roomId) => _delegate.mute(roomId);
 
   @override
-  Future<Result<void>> unmute(String roomId) => _delegate.unmute(roomId);
+  Future<ChatResult<void>> unmute(String roomId) => _delegate.unmute(roomId);
 
   @override
-  Future<Result<void>> pin(String roomId) => _delegate.pin(roomId);
+  Future<ChatResult<void>> pin(String roomId) => _delegate.pin(roomId);
 
   @override
-  Future<Result<void>> unpin(String roomId) => _delegate.unpin(roomId);
+  Future<ChatResult<void>> unpin(String roomId) => _delegate.unpin(roomId);
 
   @override
-  Future<Result<void>> batchMarkAsRead(List<String> roomIds) =>
+  Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) =>
       _delegate.batchMarkAsRead(roomIds);
 
   @override
-  Future<Result<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
+  Future<ChatResult<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       _delegate.batchGetUnread(roomIds);
 
   @override
-  Future<Result<void>> hide(String roomId) => _delegate.hide(roomId);
+  Future<ChatResult<void>> hide(String roomId) => _delegate.hide(roomId);
 
   @override
-  Future<Result<void>> unhide(String roomId) => _delegate.unhide(roomId);
+  Future<ChatResult<void>> unhide(String roomId) => _delegate.unhide(roomId);
 
   @override
   Future<void> updateCachedRoomPreview(
@@ -203,6 +206,13 @@ class _PredicateTestClient implements ChatClient {
   @override
   Future<void> notifyTokenRotated() => _delegate.notifyTokenRotated();
   @override
+  Future<void> refresh() => _delegate.refresh();
+  @override
+  Future<void> refreshRoom(String roomId) => _delegate.refreshRoom(roomId);
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) =>
+      _delegate.cancelPendingRequests(reason);
+  @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _delegate.onOfflineMessageSent = value;
@@ -226,27 +236,51 @@ void main() {
   }
 
   group('isDmRoom predicate', () {
-    test(
-      'without predicate, oneToOne room enters DM cache (default behaviour)',
-      () async {
-        final s = await setupAdapter(customByRoomId: {});
-        await s.mock.rooms.create(
-          audience: RoomAudience.contacts,
-          name: 'Plain DM',
-          members: ['u2'],
-        );
+    test('without predicate, nameless oneToOne room enters DM cache '
+        '(default behaviour)', () async {
+      final s = await setupAdapter(customByRoomId: {});
+      // a real DM has no user-assigned name. Rooms with a
+      // name are intentional groups (even with 2 members) and the
+      // default `_isDmDetail` excludes them from the DM cache, so
+      // create the DM with no name here.
+      await s.mock.rooms.create(
+        audience: RoomAudience.contacts,
+        members: ['u2'],
+      );
 
-        final result = await s.adapter.loadRooms();
-        await Future.delayed(const Duration(milliseconds: 50));
+      final result = await s.adapter.rooms.load();
+      await Future.delayed(const Duration(milliseconds: 50));
 
-        expect(result.isSuccess, true);
-        final room = s.adapter.roomListController.allRooms.first;
-        expect(s.adapter.getDmRoomId('u2'), room.id);
+      expect(result.isSuccess, true);
+      final room = s.adapter.roomListController.allRooms.first;
+      expect(s.adapter.dm.getRoomId('u2'), room.id);
 
-        await s.adapter.dispose();
-        await s.mock.dispose();
-      },
-    );
+      await s.adapter.dispose();
+      await s.mock.dispose();
+    });
+
+    test('without predicate, NAMED 2-member oneToOne room does NOT enter DM '
+        'cache', () async {
+      final s = await setupAdapter(customByRoomId: {});
+      await s.mock.rooms.create(
+        audience: RoomAudience.contacts,
+        name: 'A&B private group',
+        members: ['u2'],
+      );
+
+      final result = await s.adapter.rooms.load();
+      await Future.delayed(const Duration(milliseconds: 50));
+
+      expect(result.isSuccess, true);
+      // The room is in the list (the user sees their group)…
+      expect(s.adapter.roomListController.allRooms.length, 1);
+      // …but it is NOT registered as a DM with u2, so the user can
+      // still openDirectMessageDraft with u2 in a separate flow.
+      expect(s.adapter.dm.getRoomId('u2'), isNull);
+
+      await s.adapter.dispose();
+      await s.mock.dispose();
+    });
 
     test(
       'with predicate, oneToOne room with non-dm custom does NOT enter cache',
@@ -269,11 +303,11 @@ void main() {
               d.type == RoomType.oneToOne && d.custom?['type'] == 'dm',
         );
 
-        final result = await adapter.loadRooms();
+        final result = await adapter.rooms.load();
         await Future.delayed(const Duration(milliseconds: 50));
 
         expect(result.isSuccess, true);
-        expect(adapter.getDmRoomId('u2'), isNull);
+        expect(adapter.dm.getRoomId('u2'), isNull);
         final room = adapter.roomListController.allRooms.first;
         expect(room.otherUserId, isNull);
 
@@ -303,11 +337,11 @@ void main() {
               d.type == RoomType.oneToOne && d.custom?['type'] == 'dm',
         );
 
-        final result = await adapter.loadRooms();
+        final result = await adapter.rooms.load();
         await Future.delayed(const Duration(milliseconds: 50));
 
         expect(result.isSuccess, true);
-        expect(adapter.getDmRoomId('u2'), roomId);
+        expect(adapter.dm.getRoomId('u2'), roomId);
         final room = adapter.roomListController.allRooms.first;
         expect(room.otherUserId, 'u2');
 

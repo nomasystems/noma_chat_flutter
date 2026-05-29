@@ -9,6 +9,12 @@ import '../mappers/message_mapper.dart';
 class EventParser {
   static void Function(String level, String message)? logger;
 
+  /// Safe cast: returns the value when it's a [String], `null` otherwise.
+  /// Use instead of `as String?` for any field that comes from a JSON
+  /// payload whose shape we don't fully control — protects against
+  /// backends that send numbers / lists where strings are expected.
+  static String? _asString(dynamic value) => value is String ? value : null;
+
   static ChatEvent? parseJson(Map<String, dynamic> json) {
     final type = json['type'] as String?;
     if (type == null) return null;
@@ -30,6 +36,7 @@ class EventParser {
       'reaction_added' => _parseReactionAddedNative(json),
       'reaction_deleted' => _parseReactionDeleted(json),
       'broadcast' => _parseBroadcast(json),
+      'user_updated' => _parseUserUpdated(json),
       _ => () {
         logger?.call('warn', 'EventParser: unknown event type "$type"');
         return null;
@@ -78,7 +85,19 @@ class EventParser {
     final roomId = json['roomId'] as String?;
     final messageId = json['messageId'] as String?;
     if (roomId == null || messageId == null) return null;
-    return ChatEvent.messageUpdated(roomId: roomId, messageId: messageId);
+    // When the server bundles the full row inline (CHT `put_messages`,
+    // `do_admin_put_message`), the SDK can apply the update without a
+    // follow-up REST round-trip — there's no GET on
+    // `/v1/rooms/:roomId/messages/:messageId` so the legacy
+    // `_refreshMessage` path silently dropped admin edits.
+    final message = json.containsKey('message')
+        ? _messageFromEvent(json)
+        : null;
+    return ChatEvent.messageUpdated(
+      roomId: roomId,
+      messageId: messageId,
+      message: message,
+    );
   }
 
   static ChatEvent? _parseMessageDeleted(Map<String, dynamic> json) {
@@ -89,25 +108,57 @@ class EventParser {
   }
 
   static ChatEvent? _parseRoomCreated(Map<String, dynamic> json) {
-    final room = json['room'] as Map<String, dynamic>?;
+    final room = json['room'] is Map<String, dynamic>
+        ? json['room'] as Map<String, dynamic>
+        : null;
     final roomId =
-        (json['roomId'] ?? room?['roomId'] ?? room?['id']) as String?;
+        _asString(json['roomId']) ??
+        _asString(room?['roomId']) ??
+        _asString(room?['id']);
     if (roomId == null) return null;
     return ChatEvent.roomCreated(roomId: roomId);
   }
 
   static ChatEvent? _parseRoomUpdated(Map<String, dynamic> json) {
-    final room = json['room'] as Map<String, dynamic>?;
+    final room = json['room'] is Map<String, dynamic>
+        ? json['room'] as Map<String, dynamic>
+        : null;
     final roomId =
-        (json['roomId'] ?? room?['roomId'] ?? room?['id']) as String?;
+        _asString(json['roomId']) ??
+        _asString(room?['roomId']) ??
+        _asString(room?['id']);
     if (roomId == null) return null;
     return ChatEvent.roomUpdated(roomId: roomId);
   }
 
+  static ChatEvent? _parseUserUpdated(Map<String, dynamic> json) {
+    final userId = _asString(json['userId']);
+    if (userId == null || userId.isEmpty) return null;
+    return ChatEvent.userUpdated(
+      userId: userId,
+      displayName: _asString(json['displayName']),
+      avatarUrl: _asString(json['avatarUrl']),
+      // `containsKey` distinguishes "field present and null" (explicit
+      // avatar clear) from "field absent" (no change). The backend sets
+      // the field whenever it's part of the change set.
+      avatarFieldPresent: json.containsKey('avatarUrl'),
+      bio: _asString(json['bio']),
+      email: _asString(json['email']),
+    );
+  }
+
   static ChatEvent? _parseRoomDeleted(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
+    final roomId = _asString(json['roomId']);
     if (roomId == null) return null;
-    return ChatEvent.roomDeleted(roomId: roomId);
+    // Optional admin-attached metadata. CHT pushes `reason=banned` plus
+    // a free-text `adminReason` when a per-room ban is the cause —
+    // hosts use these to render an explanatory toast instead of a
+    // silent disappearance.
+    return ChatEvent.roomDeleted(
+      roomId: roomId,
+      reason: _asString(json['reason']),
+      adminReason: _asString(json['adminReason']),
+    );
   }
 
   static ChatEvent? _parseUserActivity(Map<String, dynamic> json) {
@@ -188,7 +239,17 @@ class EventParser {
     final roomId = json['roomId'] as String?;
     final userId = json['userId'] as String?;
     if (roomId == null || userId == null) return null;
-    return ChatEvent.userLeft(roomId: roomId, userId: userId);
+    // `actorUserId` non-null + distinct from `userId` means this
+    // was a kick. WhatsApp-parity rendering: the event router
+    // synthesises an "Alice removed Bob" system bubble and the
+    // kicked client flips `isParticipating=false` so its composer
+    // is swapped for the banner. Self-leaves carry no actor.
+    final actorUserId = json['actorUserId'] as String?;
+    return ChatEvent.userLeft(
+      roomId: roomId,
+      userId: userId,
+      actorUserId: actorUserId,
+    );
   }
 
   static ChatEvent? _parseUserRoleChanged(Map<String, dynamic> json) {
@@ -265,7 +326,7 @@ class EventParser {
   }
 
   static ChatEvent? _parseBroadcast(Map<String, dynamic> json) {
-    final message = json['message'] as String?;
+    final message = _asString(json['message']);
     if (message == null) return null;
     return ChatEvent.broadcast(message: message);
   }

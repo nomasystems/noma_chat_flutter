@@ -1,5 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../../client/chat_client.dart';
+import '../../core/pagination.dart';
+import '../../core/result.dart';
+import '../../models/message.dart';
+import '../controller/chat_controller.dart';
+import '../theme/chat_theme.dart';
+import '../utils/mime_classifier.dart';
+import '../widgets/docs_list_view.dart';
+import '../widgets/empty_state.dart';
+import '../widgets/links_list_view.dart';
+import '../widgets/media_gallery_view.dart';
 
 /// WhatsApp-style "Shared in this chat" page with three tabs: Media, Docs and
 /// Links. Voice notes and audio attachments are excluded by default.
@@ -19,6 +29,7 @@ class MediaGalleryPage extends StatefulWidget {
     this.onTapLink,
     this.linkSourceMessages = const [],
     this.includeAudioFiles = false,
+    this.senderNameResolver,
   });
 
   final ChatClient client;
@@ -35,6 +46,13 @@ class MediaGalleryPage extends StatefulWidget {
 
   /// Whether audio attachments (mime `audio/*`) should appear in Media/Docs.
   final bool includeAudioFiles;
+
+  /// Optional resolver from `senderId` → display name. Used by the Docs
+  /// and Links tabs to render the sender as "Alice" instead of a raw
+  /// UUID. Typically wired to `ChatUiAdapter.displayNameFor`. When
+  /// `null` (or when the resolver returns the same id back) the
+  /// sender chip is omitted from the row.
+  final String? Function(String userId)? senderNameResolver;
 
   @override
   State<MediaGalleryPage> createState() => _MediaGalleryPageState();
@@ -76,11 +94,11 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
         widget.roomId,
         pagination: oldestTimestamp == null
             ? null
-            : CursorPaginationParams(before: oldestTimestamp),
+            : ChatCursorPaginationParams(before: oldestTimestamp),
       );
       if (!mounted) return;
       switch (result) {
-        case Success(:final data):
+        case ChatSuccess(:final data):
           for (final msg in data.items) {
             final url = msg.attachmentUrl;
             if (url == null || msg.isDeleted) continue;
@@ -128,7 +146,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
           }
           oldestTimestamp = lastBatchOldest.toIso8601String();
           pages += 1;
-        case Failure(:final failure):
+        case ChatFailureResult(:final failure):
           setState(() {
             _loading = false;
             _errorMessage = failure.toString();
@@ -149,10 +167,16 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
   }
 
   MediaItemType _classify(String? mime) {
-    if (mime == null) return MediaItemType.file;
-    if (mime.startsWith('image/')) return MediaItemType.image;
-    if (mime.startsWith('video/')) return MediaItemType.video;
-    return MediaItemType.file;
+    switch (classifyMime(mime)) {
+      case MimeKind.image:
+      case MimeKind.gif:
+        return MediaItemType.image;
+      case MimeKind.video:
+        return MediaItemType.video;
+      case MimeKind.audio:
+      case MimeKind.file:
+        return MediaItemType.file;
+    }
   }
 
   int _compareDesc(DateTime? a, DateTime? b) {
@@ -200,11 +224,13 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
                   theme: widget.theme,
                   onTap: widget.onTapDoc,
                   includeAudioFiles: widget.includeAudioFiles,
+                  senderNameResolver: widget.senderNameResolver,
                 ),
                 _LinksTab(
                   messages: widget.linkSourceMessages,
                   theme: widget.theme,
                   onTap: widget.onTapLink,
+                  senderNameResolver: widget.senderNameResolver,
                 ),
               ],
             ),
@@ -218,12 +244,14 @@ class _DocsTab extends StatelessWidget {
     required this.theme,
     required this.includeAudioFiles,
     this.onTap,
+    this.senderNameResolver,
   });
 
   final List<MediaItem> items;
   final ChatTheme theme;
   final bool includeAudioFiles;
   final ValueChanged<MediaItem>? onTap;
+  final String? Function(String userId)? senderNameResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -239,16 +267,23 @@ class _DocsTab extends StatelessWidget {
       theme: theme,
       onTapItem: onTap,
       includeAudioFiles: includeAudioFiles,
+      senderNameResolver: senderNameResolver,
     );
   }
 }
 
 class _LinksTab extends StatelessWidget {
-  const _LinksTab({required this.messages, required this.theme, this.onTap});
+  const _LinksTab({
+    required this.messages,
+    required this.theme,
+    this.onTap,
+    this.senderNameResolver,
+  });
 
   final List<ChatMessage> messages;
   final ChatTheme theme;
   final ValueChanged<SharedLink>? onTap;
+  final String? Function(String userId)? senderNameResolver;
 
   @override
   Widget build(BuildContext context) {
@@ -264,6 +299,7 @@ class _LinksTab extends StatelessWidget {
       links: links,
       theme: theme,
       onTapLink: onTap,
+      senderNameResolver: senderNameResolver,
     );
   }
 }

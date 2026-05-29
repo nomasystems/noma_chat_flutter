@@ -46,7 +46,7 @@ void main() {
       final saveMs = DateTime.now().difference(saveStart).inMilliseconds;
 
       final readStart = DateTime.now();
-      final loaded = await ds.getMessages('room-perf');
+      final loaded = (await ds.getMessages('room-perf')).dataOrNull!;
       final readMs = DateTime.now().difference(readStart).inMilliseconds;
 
       expect(loaded, hasLength(10000));

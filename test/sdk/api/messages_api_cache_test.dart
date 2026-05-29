@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:noma_chat/src/_internal/cache/cache_manager.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
@@ -12,7 +13,7 @@ void main() {
   late _MockRest rest;
   late _MockCache cache;
   late CacheManager cacheManager;
-  late MessagesApi api;
+  late CachedMessagesApi api;
 
   setUpAll(() {
     registerFallbackValue(
@@ -38,7 +39,11 @@ void main() {
     rest = _MockRest();
     cache = _MockCache();
     cacheManager = CacheManager(config: const CacheConfig());
-    api = MessagesApi(rest: rest, cache: cache, cacheManager: cacheManager);
+    api = CachedMessagesApi(
+      rest: rest,
+      cache: cache,
+      cacheManager: cacheManager,
+    );
 
     // Permissive defaults for cache calls.
     when(
@@ -48,24 +53,55 @@ void main() {
         before: any(named: 'before'),
         after: any(named: 'after'),
       ),
-    ).thenAnswer((_) async => []);
-    when(() => cache.saveMessages(any(), any())).thenAnswer((_) async {});
-    when(() => cache.getClearedAt(any())).thenAnswer((_) async => null);
-    when(() => cache.getReceipts(any())).thenAnswer((_) async => []);
-    when(() => cache.saveReceipts(any(), any())).thenAnswer((_) async {});
-    when(() => cache.getReactions(any(), any())).thenAnswer((_) async => []);
+    ).thenAnswer((_) async => const ChatSuccess(<ChatMessage>[]));
+    when(
+      () => cache.saveMessages(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getClearedAt(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getReceipts(any()),
+    ).thenAnswer((_) async => const ChatSuccess(<ReadReceipt>[]));
+    when(
+      () => cache.saveReceipts(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getReactions(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(<AggregatedReaction>[]));
     when(
       () => cache.saveReactions(any(), any(), any()),
-    ).thenAnswer((_) async {});
-    when(() => cache.getPins(any())).thenAnswer((_) async => []);
-    when(() => cache.savePins(any(), any())).thenAnswer((_) async {});
-    when(() => cache.deletePin(any(), any())).thenAnswer((_) async {});
-    when(() => cache.updateMessage(any(), any())).thenAnswer((_) async {});
-    when(() => cache.deleteMessage(any(), any())).thenAnswer((_) async {});
-    when(() => cache.deleteUnread(any())).thenAnswer((_) async {});
-    when(() => cache.setClearedAt(any(), any())).thenAnswer((_) async {});
-    when(() => cache.clearMessages(any())).thenAnswer((_) async {});
-    when(() => cache.clearPendingMessages(any())).thenAnswer((_) async {});
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getPins(any()),
+    ).thenAnswer((_) async => const ChatSuccess(<MessagePin>[]));
+    when(
+      () => cache.savePins(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deletePin(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.updateMessage(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deleteMessage(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deleteUnread(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.setClearedAt(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.clearMessages(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.clearPendingMessages(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.getHiddenMessageIds(any()),
+    ).thenAnswer((_) async => const ChatSuccess(<String>{}));
   });
 
   Map<String, dynamic> msgJson(String id) => {
@@ -102,14 +138,14 @@ void main() {
           after: any(named: 'after'),
         ),
       ).thenAnswer(
-        (_) async => [
+        (_) async => ChatSuccess(<ChatMessage>[
           ChatMessage(
             id: 'c1',
             from: 'u1',
             timestamp: DateTime(2026, 1, 1),
             text: 'cached',
           ),
-        ],
+        ]),
       );
 
       final r = await api.list('r1', cachePolicy: CachePolicy.cacheFirst);
@@ -121,7 +157,7 @@ void main() {
     test('list() respects clearedAt filtering', () async {
       when(
         () => cache.getClearedAt(any()),
-      ).thenAnswer((_) async => DateTime(2026, 6, 1));
+      ).thenAnswer((_) async => ChatSuccess(DateTime(2026, 6, 1)));
       when(
         () => rest.get(any(), queryParams: any(named: 'queryParams')),
       ).thenAnswer(
@@ -169,14 +205,14 @@ void main() {
 
     test('update() walks the cache to refresh the existing entry', () async {
       when(() => cache.getMessages(any())).thenAnswer(
-        (_) async => [
+        (_) async => ChatSuccess(<ChatMessage>[
           ChatMessage(
             id: 'm-edit',
             from: 'u1',
             timestamp: DateTime(2026, 1, 1),
             text: 'before',
           ),
-        ],
+        ]),
       );
       when(
         () => rest.putVoid(any(), data: any(named: 'data')),
@@ -244,30 +280,37 @@ void main() {
       },
     );
 
-    test('getReactions() with forceRefresh bypasses the cache', () async {
-      when(() => cache.getReactions(any(), any())).thenAnswer(
-        (_) async => [
-          const AggregatedReaction(emoji: '👍', count: 1, users: ['u1']),
-        ],
-      );
-      when(() => rest.get(any())).thenAnswer(
-        (_) async => {
-          'reactions': [
-            {
-              'emoji': '❤️',
-              'count': 2,
-              'userIds': ['u1', 'u2'],
-            },
-          ],
-        },
-      );
+    test(
+      'getReactions() with networkOnly cachePolicy bypasses the cache',
+      () async {
+        when(() => cache.getReactions(any(), any())).thenAnswer(
+          (_) async => const ChatSuccess(<AggregatedReaction>[
+            AggregatedReaction(emoji: '👍', count: 1, users: ['u1']),
+          ]),
+        );
+        when(() => rest.get(any())).thenAnswer(
+          (_) async => {
+            'reactions': [
+              {
+                'emoji': '❤️',
+                'count': 2,
+                'userIds': ['u1', 'u2'],
+              },
+            ],
+          },
+        );
 
-      final r = await api.getReactions('r1', 'm1', forceRefresh: true);
+        final r = await api.getReactions(
+          'r1',
+          'm1',
+          cachePolicy: CachePolicy.networkOnly,
+        );
 
-      expect(r.isSuccess, true);
-      // The forceRefresh path goes to network, so the new emoji takes over.
-      expect(r.dataOrNull!.first.emoji, '❤️');
-    });
+        expect(r.isSuccess, true);
+        // networkOnly bypasses the cache, so the new emoji takes over.
+        expect(r.dataOrThrow.first.emoji, '❤️');
+      },
+    );
 
     test('pinMessage() invalidates the pins cache on success', () async {
       when(() => rest.putVoid(any())).thenAnswer((_) async {});

@@ -39,12 +39,18 @@ void main() {
     });
 
     testWidgets('uses custom labels', (tester) async {
+      // Rows only render when their callback is non-null (      // sheet collapses unused slots so e.g. a Gallery-only composer
+      // looks intentional rather than half-empty). Pass no-op
+      // callbacks for the three labels under test.
       await tester.pumpWidget(
         wrap(
-          const AttachmentPickerSheet(
+          AttachmentPickerSheet(
             cameraLabel: 'Take Photo',
             galleryLabel: 'Choose Photo',
             fileLabel: 'Document',
+            onPickCamera: () {},
+            onPickGallery: () {},
+            onPickFile: () {},
           ),
         ),
       );

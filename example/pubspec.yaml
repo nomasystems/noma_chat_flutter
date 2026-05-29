@@ -9,5 +9,19 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  hive_ce_flutter: ^2.3.4
   noma_chat:
     path: ../
+  shared_preferences: ^2.3.0
+  url_launcher: ^6.3.1
+  uuid: ^4.5.0
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/avatars/
+    - assets/audio/

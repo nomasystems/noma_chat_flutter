@@ -1,11 +1,16 @@
-import 'package:flutter/foundation.dart';
+import 'package:freezed_annotation/freezed_annotation.dart';
+
+part 'contact.freezed.dart';
 
 /// A contact in the user's contact list, identified by user ID.
-@immutable
-class ChatContact {
-  final String userId;
+///
+/// Equality and hash are id-based so `Set<ChatContact>` deduplicates by
+/// `userId` regardless of any future extra fields.
+@Freezed(equal: false)
+abstract class ChatContact with _$ChatContact {
+  const ChatContact._();
 
-  const ChatContact({required this.userId});
+  const factory ChatContact({required String userId}) = _ChatContact;
 
   @override
   bool operator ==(Object other) =>

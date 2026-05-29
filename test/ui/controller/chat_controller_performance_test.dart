@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
 void main() {
-  final user = const ChatUser(id: 'u1', displayName: 'Alice');
+  const user = ChatUser(id: 'u1', displayName: 'Alice');
 
   ChatMessage makeMsg(String id, {DateTime? timestamp}) => ChatMessage(
     id: id,

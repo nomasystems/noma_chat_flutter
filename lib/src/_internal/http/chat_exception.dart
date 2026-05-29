@@ -73,10 +73,27 @@ final class ChatTimeoutException extends ChatException {
   const ChatTimeoutException([super.message = 'Operation timed out']);
 }
 
+final class ChatSseIdleTimeoutException extends ChatNetworkException {
+  const ChatSseIdleTimeoutException([
+    super.message = 'SSE stream idle (no chunks received)',
+  ]);
+}
+
 final class ChatWsOperationException extends ChatException {
   final String? action;
   final String reason;
 
   const ChatWsOperationException({this.action, required this.reason})
     : super('WS error: ${action ?? "unknown"} - $reason');
+}
+
+final class CertificatePinningException extends ChatException {
+  final String? presentedFingerprint;
+  final List<String> expectedPins;
+
+  const CertificatePinningException({
+    this.presentedFingerprint,
+    this.expectedPins = const [],
+    String message = 'Certificate pinning validation failed',
+  }) : super(message);
 }

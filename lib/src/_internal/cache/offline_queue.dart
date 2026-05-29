@@ -1,17 +1,59 @@
 import 'dart:collection';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart';
+
 import '../../models/message.dart';
-import 'local_datasource.dart';
+import '../../cache/local_datasource.dart';
+import 'cache_manager.dart' show MetricCallback;
 
 sealed class PendingOperation {
   final String id;
   final DateTime createdAt;
-  int attempts;
-  DateTime? nextRetryAt;
+  final int attempts;
+  final DateTime? nextRetryAt;
 
-  PendingOperation({required this.id, DateTime? createdAt, this.attempts = 0})
-    : createdAt = createdAt ?? DateTime.now();
+  PendingOperation({
+    required this.id,
+    DateTime? createdAt,
+    this.attempts = 0,
+    this.nextRetryAt,
+  }) : createdAt = createdAt ?? DateTime.now();
+
+  /// Returns a copy with bumped retry metadata. The drain loop calls
+  /// this after a failed attempt to re-enqueue the same operation
+  /// with `attempts + 1` and an optional `nextRetryAt` backoff
+  /// timestamp. Subclasses preserve every other field unchanged.
+  PendingOperation withRetry({int? attempts, DateTime? nextRetryAt});
+
+  /// Serializes this operation to a `Map` suitable for the
+  /// [ChatLocalDatasource.saveOfflineQueue] hand-off. Every concrete
+  /// subclass overrides this with its own payload, including a `'type'`
+  /// discriminator (`sendMessage`, `editMessage`, …) that
+  /// [PendingOperation.fromJson] reads back to construct the right class.
+  ///
+  /// Concrete subclasses should spread [baseJson] first so the shared
+  /// metadata (`id`, `createdAt`, `attempts`) lands at the top:
+  ///
+  /// ```dart
+  /// @override
+  /// Map<String, dynamic> toJson() => {
+  ///   ...baseJson(),
+  ///   'type': 'editMessage',
+  ///   'roomId': roomId,
+  ///   ...
+  /// };
+  /// ```
+  Map<String, dynamic> toJson();
+
+  /// Common fields shared by every concrete subclass. Spread at the top
+  /// of each [toJson] map. Kept as a method (not a getter) for symmetry
+  /// with the [toJson] override.
+  Map<String, dynamic> baseJson() => {
+    'id': id,
+    'createdAt': createdAt.toIso8601String(),
+    'attempts': attempts,
+  };
 }
 
 final class PendingSendMessage extends PendingOperation {
@@ -38,7 +80,41 @@ final class PendingSendMessage extends PendingOperation {
     this.tempId,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'sendMessage',
+    'roomId': roomId,
+    if (text != null) 'text': text,
+    'messageType': messageType.name,
+    if (referencedMessageId != null) 'referencedMessageId': referencedMessageId,
+    if (reaction != null) 'reaction': reaction,
+    if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+    if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
+    if (metadata != null) 'metadata': metadata,
+    if (tempId != null) 'tempId': tempId,
+  };
+
+  @override
+  PendingSendMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingSendMessage(
+        id: id,
+        roomId: roomId,
+        text: text,
+        messageType: messageType,
+        referencedMessageId: referencedMessageId,
+        reaction: reaction,
+        attachmentUrl: attachmentUrl,
+        sourceRoomId: sourceRoomId,
+        metadata: metadata,
+        tempId: tempId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingSendDirectMessage extends PendingOperation {
@@ -61,7 +137,37 @@ final class PendingSendDirectMessage extends PendingOperation {
     this.metadata,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'sendDirectMessage',
+    'contactUserId': contactUserId,
+    if (text != null) 'text': text,
+    'messageType': messageType.name,
+    if (referencedMessageId != null) 'referencedMessageId': referencedMessageId,
+    if (reaction != null) 'reaction': reaction,
+    if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+    if (metadata != null) 'metadata': metadata,
+  };
+
+  @override
+  PendingSendDirectMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingSendDirectMessage(
+        id: id,
+        contactUserId: contactUserId,
+        text: text,
+        messageType: messageType,
+        referencedMessageId: referencedMessageId,
+        reaction: reaction,
+        attachmentUrl: attachmentUrl,
+        metadata: metadata,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingEditMessage extends PendingOperation {
@@ -78,7 +184,31 @@ final class PendingEditMessage extends PendingOperation {
     this.metadata,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'editMessage',
+    'roomId': roomId,
+    'messageId': messageId,
+    'text': text,
+    if (metadata != null) 'metadata': metadata,
+  };
+
+  @override
+  PendingEditMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingEditMessage(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        text: text,
+        metadata: metadata,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingDeleteMessage extends PendingOperation {
@@ -91,7 +221,27 @@ final class PendingDeleteMessage extends PendingOperation {
     required this.messageId,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'deleteMessage',
+    'roomId': roomId,
+    'messageId': messageId,
+  };
+
+  @override
+  PendingDeleteMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingDeleteMessage(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingDeleteReaction extends PendingOperation {
@@ -104,7 +254,27 @@ final class PendingDeleteReaction extends PendingOperation {
     required this.messageId,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'deleteReaction',
+    'roomId': roomId,
+    'messageId': messageId,
+  };
+
+  @override
+  PendingDeleteReaction withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingDeleteReaction(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingCreateRoom extends PendingOperation {
@@ -123,7 +293,33 @@ final class PendingCreateRoom extends PendingOperation {
     this.subject,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'createRoom',
+    'name': name,
+    'audience': audience,
+    'members': members,
+    if (type != null) 'roomType': type,
+    if (subject != null) 'subject': subject,
+  };
+
+  @override
+  PendingCreateRoom withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingCreateRoom(
+        id: id,
+        name: name,
+        audience: audience,
+        members: members,
+        type: type,
+        subject: subject,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingUpdateRoomConfig extends PendingOperation {
@@ -142,7 +338,33 @@ final class PendingUpdateRoomConfig extends PendingOperation {
     this.allowInvitations,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'updateRoomConfig',
+    'roomId': roomId,
+    if (name != null) 'name': name,
+    if (subject != null) 'subject': subject,
+    if (avatar != null) 'avatar': avatar,
+    if (allowInvitations != null) 'allowInvitations': allowInvitations,
+  };
+
+  @override
+  PendingUpdateRoomConfig withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingUpdateRoomConfig(
+        id: id,
+        roomId: roomId,
+        name: name,
+        subject: subject,
+        avatar: avatar,
+        allowInvitations: allowInvitations,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingAddMember extends PendingOperation {
@@ -157,7 +379,29 @@ final class PendingAddMember extends PendingOperation {
     this.role,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'addMember',
+    'roomId': roomId,
+    'userId': userId,
+    if (role != null) 'role': role,
+  };
+
+  @override
+  PendingAddMember withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingAddMember(
+        id: id,
+        roomId: roomId,
+        userId: userId,
+        role: role,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
 final class PendingRemoveMember extends PendingOperation {
@@ -170,31 +414,87 @@ final class PendingRemoveMember extends PendingOperation {
     required this.userId,
     super.createdAt,
     super.attempts,
+    super.nextRetryAt,
   });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'removeMember',
+    'roomId': roomId,
+    'userId': userId,
+  };
+
+  @override
+  PendingRemoveMember withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingRemoveMember(
+        id: id,
+        roomId: roomId,
+        userId: userId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
 }
 
+/// Executes one pending operation against the server. Returns `true` on
+/// success (op is removed from the queue) or `false` on a transient
+/// failure (op is re-queued with exponential backoff). Throwing is
+/// treated the same as `false`. Set via [OfflineQueue.executor] at
+/// construction so the queue is self-contained and a caller never
+/// passes the closure on every `drain()`.
+typedef PendingOperationExecutor = Future<bool> Function(PendingOperation op);
+
 class OfflineQueue {
+  /// Upper bound on the exponential backoff between retry attempts.
+  /// Above this cap, each subsequent attempt waits the same duration
+  /// regardless of how many times the operation has failed.
+  static const int _maxBackoffSecs = 30;
+
+  /// Random jitter (in seconds) added on top of the exponential backoff
+  /// so a fleet of clients reconnecting at once does not stampede the
+  /// backend.
+  static const int _jitterRangeSecs = 3;
+
   final int maxRetries;
   final Duration maxAge;
   final int maxQueueSize;
   final void Function(PendingOperation op, String reason)? onOperationDropped;
   final void Function(String level, String message)? logger;
+  final MetricCallback? metricCallback;
   final Queue<PendingOperation> _queue = Queue();
   final ChatLocalDatasource? _store;
   bool _processing = false;
   final DateTime Function() _clock;
   final Random _random;
 
+  /// Injected executor for [drain]. Settable post-construction via
+  /// [bindExecutor] because the canonical wiring (`NomaChatClient`)
+  /// constructs the queue early and only knows how to execute pending
+  /// ops once its sub-APIs are wired. When `null` the queue can still
+  /// [enqueue], [restore], and persist; only [drain] requires it.
+  PendingOperationExecutor? _executor;
+
+  /// Binds the executor closure used by [drain]. Idempotent — calling
+  /// twice with the same closure is fine; a different closure replaces
+  /// the previous binding.
+  void bindExecutor(PendingOperationExecutor executor) {
+    _executor = executor;
+  }
+
   OfflineQueue({
+    PendingOperationExecutor? executor,
     this.maxRetries = 5,
     this.maxAge = const Duration(hours: 24),
     this.maxQueueSize = 100,
     this.onOperationDropped,
     this.logger,
+    this.metricCallback,
     ChatLocalDatasource? store,
     DateTime Function()? clock,
     Random? random,
-  }) : _store = store,
+  }) : _executor = executor,
+       _store = store,
        _clock = clock ?? (() => DateTime.now()),
        _random = random ?? Random();
 
@@ -205,7 +505,7 @@ class OfflineQueue {
 
   Future<void> restore() async {
     if (_store == null) return;
-    final maps = await _store.getOfflineQueue();
+    final maps = (await _store.getOfflineQueue()).dataOrNull ?? const [];
     for (final map in maps) {
       final op = _deserializeOperation(map);
       if (op != null) _queue.add(op);
@@ -218,12 +518,36 @@ class OfflineQueue {
       return;
     }
     _queue.add(operation);
-    _persist();
+    _persistSilent();
   }
 
-  Future<void> processQueue(
-    Future<bool> Function(PendingOperation op) executor,
-  ) async {
+  /// Drains the queue using the executor bound via [bindExecutor] (or
+  /// the constructor). Idempotent — a re-entrant call returns
+  /// immediately so the host can wire `drain()` to multiple triggers
+  /// (reconnect, app-resume, tick) without racing itself.
+  ///
+  /// Throws [StateError] when no executor is bound — the queue is in
+  /// "passive" mode and the caller is misusing it.
+  Future<void> drain() {
+    final exec = _executor;
+    if (exec == null) {
+      throw StateError(
+        'OfflineQueue.drain() called without an executor — use '
+        'bindExecutor() or pass one to the constructor.',
+      );
+    }
+    return _drainWith(exec);
+  }
+
+  /// Test-only escape hatch: drain with an ad-hoc executor (bypasses the
+  /// constructor-injected [executor]). Keeps the unit tests in
+  /// `offline_queue_test.dart` self-contained without forcing every
+  /// test to construct a full closure-bearing queue.
+  @visibleForTesting
+  Future<void> processQueue(PendingOperationExecutor executor) =>
+      _drainWith(executor);
+
+  Future<void> _drainWith(PendingOperationExecutor executor) async {
     if (_processing) return;
     _processing = true;
 
@@ -247,19 +571,26 @@ class OfflineQueue {
 
         processed++;
 
-        op.attempts++;
-
-        final success = await executor(op);
+        // Immutable retry — instead of mutating attempts/nextRetryAt
+        // on the existing op, copy with the bumped attempts and
+        // execute the new instance. Failed attempts re-enqueue a new
+        // copyWith carrying the backoff timestamp.
+        final attempting = op.withRetry(attempts: op.attempts + 1);
+        final success = await executor(attempting);
         if (success) {
           _persist();
           continue;
-        } else if (op.attempts >= maxRetries) {
-          onOperationDropped?.call(op, 'max_retries');
+        } else if (attempting.attempts >= maxRetries) {
+          onOperationDropped?.call(attempting, 'max_retries');
         } else {
           final delaySecs =
-              min(pow(2, op.attempts).toInt(), 30) + _random.nextInt(3);
-          op.nextRetryAt = _clock().add(Duration(seconds: delaySecs));
-          _queue.add(op);
+              min(pow(2, attempting.attempts).toInt(), _maxBackoffSecs) +
+              _random.nextInt(_jitterRangeSecs);
+          _queue.add(
+            attempting.withRetry(
+              nextRetryAt: _clock().add(Duration(seconds: delaySecs)),
+            ),
+          );
         }
       }
       _persist();
@@ -270,7 +601,7 @@ class OfflineQueue {
 
   void clear() {
     _queue.clear();
-    _persist();
+    _persistSilent();
   }
 
   Future<void> dispose() async {
@@ -283,105 +614,23 @@ class OfflineQueue {
     if (_queue.isEmpty) {
       await _store.clearOfflineQueue();
     } else {
-      await _store.saveOfflineQueue(_queue.map(_serializeOperation).toList());
+      await _store.saveOfflineQueue(_queue.map((op) => op.toJson()).toList());
     }
+    metricCallback?.call('offline_queue_depth', {'depth': _queue.length});
   }
 
-  static Map<String, dynamic> _serializeOperation(PendingOperation op) {
-    final base = {
-      'id': op.id,
-      'createdAt': op.createdAt.toIso8601String(),
-      'attempts': op.attempts,
-    };
-    switch (op) {
-      case PendingSendMessage():
-        return {
-          ...base,
-          'type': 'sendMessage',
-          'roomId': op.roomId,
-          if (op.text != null) 'text': op.text,
-          'messageType': op.messageType.name,
-          if (op.referencedMessageId != null)
-            'referencedMessageId': op.referencedMessageId,
-          if (op.reaction != null) 'reaction': op.reaction,
-          if (op.attachmentUrl != null) 'attachmentUrl': op.attachmentUrl,
-          if (op.sourceRoomId != null) 'sourceRoomId': op.sourceRoomId,
-          if (op.metadata != null) 'metadata': op.metadata,
-          if (op.tempId != null) 'tempId': op.tempId,
-        };
-      case PendingSendDirectMessage():
-        return {
-          ...base,
-          'type': 'sendDirectMessage',
-          'contactUserId': op.contactUserId,
-          if (op.text != null) 'text': op.text,
-          'messageType': op.messageType.name,
-          if (op.referencedMessageId != null)
-            'referencedMessageId': op.referencedMessageId,
-          if (op.reaction != null) 'reaction': op.reaction,
-          if (op.attachmentUrl != null) 'attachmentUrl': op.attachmentUrl,
-          if (op.metadata != null) 'metadata': op.metadata,
-        };
-      case PendingEditMessage():
-        return {
-          ...base,
-          'type': 'editMessage',
-          'roomId': op.roomId,
-          'messageId': op.messageId,
-          'text': op.text,
-          if (op.metadata != null) 'metadata': op.metadata,
-        };
-      case PendingDeleteMessage():
-        return {
-          ...base,
-          'type': 'deleteMessage',
-          'roomId': op.roomId,
-          'messageId': op.messageId,
-        };
-      case PendingDeleteReaction():
-        return {
-          ...base,
-          'type': 'deleteReaction',
-          'roomId': op.roomId,
-          'messageId': op.messageId,
-        };
-      case PendingCreateRoom():
-        return {
-          ...base,
-          'type': 'createRoom',
-          'name': op.name,
-          'audience': op.audience,
-          'members': op.members,
-          if (op.type != null) 'roomType': op.type,
-          if (op.subject != null) 'subject': op.subject,
-        };
-      case PendingUpdateRoomConfig():
-        return {
-          ...base,
-          'type': 'updateRoomConfig',
-          'roomId': op.roomId,
-          if (op.name != null) 'name': op.name,
-          if (op.subject != null) 'subject': op.subject,
-          if (op.avatar != null) 'avatar': op.avatar,
-          if (op.allowInvitations != null)
-            'allowInvitations': op.allowInvitations,
-        };
-      case PendingAddMember():
-        return {
-          ...base,
-          'type': 'addMember',
-          'roomId': op.roomId,
-          'userId': op.userId,
-          if (op.role != null) 'role': op.role,
-        };
-      case PendingRemoveMember():
-        return {
-          ...base,
-          'type': 'removeMember',
-          'roomId': op.roomId,
-          'userId': op.userId,
-        };
-    }
+  /// Fire-and-forget wrapper for [_persist]. Logs any error instead of
+  /// letting the unhandled async exception crash the host app. Use from
+  /// sync entry points (`enqueue`, `clear`) where awaiting would force
+  /// callers to `async`.
+  void _persistSilent() {
+    _persist().catchError((Object error, StackTrace stack) {
+      logger?.call(
+        'warn',
+        'OfflineQueue: persist failed ($error). Queue still in-memory; '
+            'next successful _persist() will catch up.',
+      );
+    });
   }
 
   static MessageType _parseMessageType(String? type) => switch (type) {

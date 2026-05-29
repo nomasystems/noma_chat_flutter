@@ -34,6 +34,7 @@ class LinksListView extends StatelessWidget {
     required this.messages,
     this.theme = ChatTheme.defaults,
     this.onTapLink,
+    this.senderNameResolver,
   }) : precomputedLinks = null;
 
   /// Bypasses the on-the-fly URL extraction by accepting an already-built
@@ -45,6 +46,7 @@ class LinksListView extends StatelessWidget {
     required List<SharedLink> links,
     this.theme = ChatTheme.defaults,
     this.onTapLink,
+    this.senderNameResolver,
   }) : messages = const [],
        precomputedLinks = links;
 
@@ -52,6 +54,14 @@ class LinksListView extends StatelessWidget {
   final List<SharedLink>? precomputedLinks;
   final ChatTheme theme;
   final ValueChanged<SharedLink>? onTapLink;
+
+  /// Optional resolver from `senderId` → display name. Used to render
+  /// the sender in the subtitle as "Alice" instead of a raw UUID.
+  /// Return `null` (or the same id back) to fall through to "no
+  /// name" — the sender chip is omitted when no friendly label is
+  /// available. Typically wired to
+  /// `ChatUiAdapter.displayNameFor`.
+  final String? Function(String userId)? senderNameResolver;
 
   static List<SharedLink> extract(List<ChatMessage> messages) {
     final seen = <String>{};
@@ -107,10 +117,23 @@ class LinksListView extends StatelessWidget {
             DateFormatter.formatRelative(link.timestamp!, l10n: theme.l10n),
           );
         }
+        // Resolve the sender id to a friendly display name when a
+        // resolver is wired. Treat "no resolver" or "resolved back to
+        // the raw id" both as "no name available" — surfacing a UUID
+        // in the subtitle reads as noise (the chip was useless), the
+        // contract here matches GroupMembersView's resolver path.
         if (link.senderId != null && link.senderId!.isNotEmpty) {
-          subtitleParts.add(link.senderId!);
+          final resolved = senderNameResolver?.call(link.senderId!)?.trim();
+          if (resolved != null &&
+              resolved.isNotEmpty &&
+              resolved != link.senderId) {
+            subtitleParts.add(resolved);
+          }
         }
         return ListTile(
+          // Stable identity per link so Flutter doesn't recycle tiles
+          // across renders of the same message gallery.
+          key: ValueKey('${link.url}-${link.timestamp}'),
           leading: CircleAvatar(
             backgroundColor: Colors.grey.shade200,
             foregroundColor: Colors.grey.shade700,

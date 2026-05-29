@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:noma_chat/noma_chat.dart';
+import '../controller/chat_controller.dart';
+import '../theme/chat_theme.dart';
 
 /// Displays a localized "X is typing..." label based on [ChatController.typingUserIds].
 ///

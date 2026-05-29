@@ -16,7 +16,7 @@ void main() {
     testWidgets('renders search input with hint', (tester) async {
       final controller = MessageSearchController(
         searchFn: (q, r, {pagination}) async =>
-            const Success(PaginatedResponse(items: [], hasMore: false)),
+            const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false)),
       );
 
       await tester.pumpWidget(
@@ -30,7 +30,7 @@ void main() {
     testWidgets('shows results after search', (tester) async {
       final controller = MessageSearchController(
         searchFn: (q, r, {pagination}) async =>
-            Success(PaginatedResponse(items: [msg1], hasMore: false)),
+            ChatSuccess(ChatPaginatedResponse(items: [msg1], hasMore: false)),
       );
 
       await tester.pumpWidget(
@@ -54,7 +54,7 @@ void main() {
     testWidgets('shows no results state', (tester) async {
       final controller = MessageSearchController(
         searchFn: (q, r, {pagination}) async =>
-            const Success(PaginatedResponse(items: [], hasMore: false)),
+            const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false)),
       );
 
       await tester.pumpWidget(
@@ -77,7 +77,7 @@ void main() {
       );
       final controller = MessageSearchController(
         searchFn: (q, r, {pagination}) async =>
-            Success(PaginatedResponse(items: [msg], hasMore: false)),
+            ChatSuccess(ChatPaginatedResponse(items: [msg], hasMore: false)),
       );
 
       await tester.pumpWidget(
@@ -113,7 +113,7 @@ void main() {
 
       final controller = MessageSearchController(
         searchFn: (q, r, {pagination}) async =>
-            Success(PaginatedResponse(items: [msg1], hasMore: false)),
+            ChatSuccess(ChatPaginatedResponse(items: [msg1], hasMore: false)),
       );
 
       await tester.pumpWidget(

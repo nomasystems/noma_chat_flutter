@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// Coverage for the load-paths of ChatUiAdapter (loadRooms, loadMessages,
 /// loadMoreMessages, loadThread, loadReceipts, loadPins) using the
@@ -21,9 +22,9 @@ void main() {
   });
 
   test('loadRooms with an empty mock succeeds and is idempotent', () async {
-    final r1 = await adapter.loadRooms();
+    final r1 = await adapter.rooms.load();
     expect(r1.isSuccess, true);
-    final r2 = await adapter.loadRooms();
+    final r2 = await adapter.rooms.load();
     expect(r2.isSuccess, true);
   });
 
@@ -38,9 +39,9 @@ void main() {
         text: 'hi',
       ),
     );
-    await adapter.loadRooms();
+    await adapter.rooms.load();
 
-    final r = await adapter.loadMessages('r1');
+    final r = await adapter.messages.load('r1');
 
     expect(r.isSuccess, true);
     final controller = adapter.getChatController('r1');
@@ -49,10 +50,10 @@ void main() {
 
   test('loadMoreMessages does nothing when there are no more pages', () async {
     client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    await adapter.loadRooms();
-    await adapter.loadMessages('r1');
+    await adapter.rooms.load();
+    await adapter.messages.load('r1');
 
-    final r = await adapter.loadMoreMessages('r1');
+    final r = await adapter.messages.loadMore('r1');
     expect(r.isSuccess, true);
   });
 
@@ -74,25 +75,25 @@ void main() {
     client.addMessage('r1', parent);
     client.addMessage('r1', reply);
 
-    final r = await adapter.loadThread('r1', 'parent');
+    final r = await adapter.messages.loadThread('r1', 'parent');
     expect(r.isSuccess, true);
   });
 
   test('loadReceipts succeeds against the mock', () async {
     client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    final r = await adapter.loadReceipts('r1');
+    final r = await adapter.messages.loadReceipts('r1');
     expect(r.isSuccess, true);
   });
 
   test('loadPins succeeds against the mock', () async {
     client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    final r = await adapter.loadPins('r1');
+    final r = await adapter.messages.loadPins('r1');
     expect(r.isSuccess, true);
   });
 
   test('getReactions delegates and propagates the result', () async {
     client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    final r = await adapter.getReactions('r1', 'm1');
+    final r = await adapter.messages.getReactions('r1', 'm1');
     expect(r.isSuccess, true);
   });
 
@@ -100,7 +101,7 @@ void main() {
     'searchMessages with an empty room returns empty paginated response',
     () async {
       client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-      final r = await adapter.searchMessages('hello', 'r1');
+      final r = await adapter.messages.search('hello', 'r1');
       expect(r.isSuccess, true);
       expect(r.dataOrNull!.items, isEmpty);
     },

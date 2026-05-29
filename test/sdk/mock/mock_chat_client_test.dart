@@ -1,4 +1,5 @@
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -135,7 +136,7 @@ void main() {
       expect(result.failureOrNull, isA<NotFoundFailure>());
     });
 
-    test('search messages accepts CursorPaginationParams', () async {
+    test('search messages accepts ChatCursorPaginationParams', () async {
       final createResult = await client.rooms.create(
         audience: RoomAudience.contacts,
         name: 'Search Room',
@@ -146,7 +147,7 @@ void main() {
       final result = await client.messages.search(
         'findme',
         roomId: roomId,
-        pagination: const PaginationParams(limit: 10),
+        pagination: const ChatPaginationParams(limit: 10),
       );
       expect(result.isSuccess, isTrue);
     });

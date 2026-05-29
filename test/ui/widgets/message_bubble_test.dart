@@ -140,7 +140,7 @@ void main() {
         text: '',
         timestamp: DateTime(2026),
         messageType: MessageType.location,
-        metadata: {'lat': '40.4168', 'lng': '-3.7038'},
+        metadata: const {'lat': '40.4168', 'lng': '-3.7038'},
       );
       await tester.pumpWidget(
         wrap(MessageBubble(message: msg, isOutgoing: false)),

@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../ui_debug_log.dart';
+
 class MessageDto {
   final String id;
   final String from;
@@ -32,9 +34,9 @@ class MessageDto {
   });
 
   factory MessageDto.fromJson(Map<String, dynamic> json) => MessageDto(
-    id: (json['id'] ?? json['messageId'] ?? '') as String,
-    from: (json['from'] ?? '') as String,
-    timestamp: (json['timestamp'] ?? '') as String,
+    id: _strOf(json['id'] ?? json['messageId']),
+    from: _strOf(json['from']),
+    timestamp: _strOf(json['timestamp']),
     text: json['text'] is String ? json['text'] as String : null,
     messageType: json['messageType'] is String
         ? json['messageType'] as String
@@ -79,13 +81,30 @@ class MessageDto {
     if (receipt != null) 'receipt': receipt,
   };
 
+  static String _strOf(Object? value) {
+    if (value == null) return '';
+    if (value is String) return value;
+    return value.toString();
+  }
+
   static Map<String, dynamic>? _parseMetadata(Object? raw) {
     if (raw is Map<String, dynamic>) return raw;
     if (raw is String && raw.isNotEmpty) {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map<String, dynamic>) return decoded;
-      } catch (_) {}
+      } catch (e) {
+        // Best-effort parse: the backend occasionally ships metadata
+        // as a JSON-encoded string instead of a Map, and very
+        // occasionally as malformed input. We swallow + log at debug
+        // level so /observa-noma sessions surface the culprit
+        // without crashing the message render. Caller falls back to
+        // `null` metadata, which the bubbles handle gracefully.
+        uiDebugLog(
+          'MessageDto',
+          '_parseMetadata: failed to decode "${raw.substring(0, raw.length > 60 ? 60 : raw.length)}…": $e',
+        );
+      }
     }
     return null;
   }

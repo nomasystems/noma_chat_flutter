@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// Wraps a [ChatClient] but routes `messages` through a sub-client whose
 /// `pinMessage` always fails. The rest delegates to the mock unchanged.
@@ -46,6 +47,13 @@ class _PinFailingClient implements ChatClient {
   @override
   Future<void> notifyTokenRotated() => _delegate.notifyTokenRotated();
   @override
+  Future<void> refresh() => _delegate.refresh();
+  @override
+  Future<void> refreshRoom(String roomId) => _delegate.refreshRoom(roomId);
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) =>
+      _delegate.cancelPendingRequests(reason);
+  @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _delegate.onOfflineMessageSent = value;
@@ -56,8 +64,8 @@ class _PinFailingMessagesApi implements ChatMessagesApi {
   final ChatMessagesApi _delegate;
 
   @override
-  Future<Result<void>> pinMessage(String roomId, String messageId) async =>
-      const Failure(ServerFailure(statusCode: 500));
+  Future<ChatResult<void>> pinMessage(String roomId, String messageId) async =>
+      const ChatFailureResult(ServerFailure(statusCode: 500));
 
   // Everything else: delegate.
   @override
@@ -71,7 +79,7 @@ class _PinFailingMessagesApi implements ChatMessagesApi {
 
 void main() {
   late MockChatClient mockClient;
-  final currentUser = const ChatUser(id: 'u1', displayName: 'Me');
+  const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
     mockClient = MockChatClient(currentUserId: 'u1');
@@ -94,7 +102,7 @@ void main() {
       addTearDown(sub.cancel);
 
       adapter.getChatController('room1');
-      final result = await adapter.pinMessage('room1', 'msg1');
+      final result = await adapter.messages.pin('room1', 'msg1');
       expect(result.isSuccess, true);
 
       await Future<void>.delayed(Duration.zero);
@@ -111,7 +119,7 @@ void main() {
       addTearDown(sub.cancel);
 
       adapter.getChatController('room1');
-      final result = await adapter.pinMessage('room1', 'msg42');
+      final result = await adapter.messages.pin('room1', 'msg42');
 
       expect(result.isFailure, true);
       await Future<void>.delayed(Duration.zero);
@@ -136,7 +144,7 @@ void main() {
       addTearDown(subB.cancel);
 
       adapter.getChatController('room1');
-      await adapter.pinMessage('room1', 'msg1');
+      await adapter.messages.pin('room1', 'msg1');
 
       await Future<void>.delayed(Duration.zero);
       expect(a, hasLength(1));

@@ -16,6 +16,18 @@ class _FakeFetcher implements LinkPreviewFetcher {
     callCount++;
     return response;
   }
+
+  @override
+  LinkPreviewCacheStats get cacheStats => const LinkPreviewCacheStats(
+    entries: 0,
+    capacity: 0,
+    failures: 0,
+    inFlight: 0,
+    hits: 0,
+    misses: 0,
+    failureRetries: 0,
+    evictions: 0,
+  );
 }
 
 void main() {
@@ -36,7 +48,7 @@ void main() {
     controller.setDraft('hello from draft');
 
     await tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessage: (_) {})),
+      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
     );
 
     expect(find.text('hello from draft'), findsOneWidget);
@@ -57,7 +69,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessage: (_) {},
+          onSendMessageRequest: (_) {},
           linkPreviewFetcher: fake,
         ),
       ),
@@ -85,7 +97,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessage: (_) {},
+          onSendMessageRequest: (_) {},
           linkPreviewFetcher: fake,
         ),
       ),
@@ -120,8 +132,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessage: (_) {},
-          onSendMessageRich: (text, metadata) => receivedMetadata = metadata,
+          onSendMessageRequest: (req) => receivedMetadata = req.metadata,
           linkPreviewFetcher: fake,
         ),
       ),
@@ -152,7 +163,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessage: (_) {},
+          onSendMessageRequest: (_) {},
           enableLinkPreview: false,
           linkPreviewFetcher: fake,
         ),

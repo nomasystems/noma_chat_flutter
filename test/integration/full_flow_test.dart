@@ -1,9 +1,18 @@
+@Tags(['slow'])
+library;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// End-to-end integration test: drives the SDK through a realistic flow
 /// using the `MockChatClient` so every layer (sub-APIs → adapter → UI
 /// controllers) is exercised together.
+///
+/// Tagged `slow` (filter via `dart test -x slow`). Full-flow tests
+/// build the entire SDK stack and exercise round-trip request
+/// pipelines; they dominate the suite's wall-clock time. Split CI
+/// runs them in a dedicated job so the main check returns faster.
 void main() {
   group('Full flow (MockChatClient + NomaChat + ChatUiAdapter)', () {
     late MockChatClient client;
@@ -52,7 +61,7 @@ void main() {
         currentUser: const ChatUser(id: 'u1', displayName: 'Me'),
       );
       await chat.connect();
-      await chat.adapter.loadRooms();
+      await chat.adapter.rooms.load();
     });
 
     tearDown(() async {
@@ -70,7 +79,7 @@ void main() {
 
     test('loadMessages populates ChatController for the opened room', () async {
       final controller = chat.adapter.getChatController('room-dm');
-      await chat.adapter.loadMessages('room-dm');
+      await chat.adapter.messages.load('room-dm');
 
       expect(controller.messages, isNotEmpty);
       expect(controller.messages.first.id, 'm1');
@@ -78,10 +87,10 @@ void main() {
 
     test('sendMessage adds an optimistic bubble and confirms', () async {
       final controller = chat.adapter.getChatController('room-dm');
-      await chat.adapter.loadMessages('room-dm');
+      await chat.adapter.messages.load('room-dm');
       final before = controller.messages.length;
 
-      final result = await chat.adapter.sendMessage(
+      final result = await chat.adapter.messages.send(
         'room-dm',
         text: 'Hey there',
       );
@@ -93,47 +102,58 @@ void main() {
 
     test('editMessage updates the bubble text', () async {
       final controller = chat.adapter.getChatController('room-dm');
-      await chat.adapter.loadMessages('room-dm');
+      await chat.adapter.messages.load('room-dm');
 
-      final sent = await chat.adapter.sendMessage(
+      final sent = await chat.adapter.messages.send(
         'room-dm',
         text: 'first version',
       );
       final sentId = sent.dataOrNull!.id;
 
-      await chat.adapter.editMessage('room-dm', sentId, text: 'edited version');
+      await chat.adapter.messages.edit(
+        'room-dm',
+        sentId,
+        text: 'edited version',
+      );
 
       final edited = controller.messages.firstWhere((m) => m.id == sentId);
       expect(edited.text, 'edited version');
     });
 
-    test('deleteMessage removes the bubble locally', () async {
+    test('deleteMessage marks the bubble as tombstone locally', () async {
+      // WhatsApp-style soft-delete: row stays in the list and the bubble
+      // flips to "You deleted this message" via the tombstone state.
       final controller = chat.adapter.getChatController('room-dm');
-      await chat.adapter.loadMessages('room-dm');
+      await chat.adapter.messages.load('room-dm');
 
-      final sent = await chat.adapter.sendMessage('room-dm', text: 'to delete');
+      final sent = await chat.adapter.messages.send(
+        'room-dm',
+        text: 'to delete',
+      );
       final sentId = sent.dataOrNull!.id;
       expect(controller.messages.any((m) => m.id == sentId), true);
 
-      await chat.adapter.deleteMessage('room-dm', sentId);
-      expect(controller.messages.any((m) => m.id == sentId), false);
+      await chat.adapter.messages.delete('room-dm', sentId);
+      final after = controller.messages.firstWhere((m) => m.id == sentId);
+      expect(after.isDeleted, true);
+      expect(after.text, isEmpty);
     });
 
     test('pinMessage stores the pin in the ChatController', () async {
       final controller = chat.adapter.getChatController('room-dm');
-      await chat.adapter.loadMessages('room-dm');
+      await chat.adapter.messages.load('room-dm');
 
-      await chat.adapter.pinMessage('room-dm', 'm1');
+      await chat.adapter.messages.pin('room-dm', 'm1');
 
       expect(controller.isPinned('m1'), true);
       expect(controller.pinnedMessages.first.messageId, 'm1');
     });
 
     test('mute/unmute round-trip on a room', () async {
-      await chat.adapter.muteRoom('room-group');
+      await chat.adapter.rooms.mute('room-group');
       expect(chat.roomListController.getRoomById('room-group')!.muted, true);
 
-      await chat.adapter.unmuteRoom('room-group');
+      await chat.adapter.rooms.unmute('room-group');
       expect(chat.roomListController.getRoomById('room-group')!.muted, false);
     });
 
@@ -143,9 +163,9 @@ void main() {
         final errors = <OperationError>[];
         final sub = chat.adapter.operationErrors.listen(errors.add);
 
-        await chat.adapter.loadMessages('room-dm');
-        await chat.adapter.sendMessage('room-dm', text: 'no errors expected');
-        await chat.adapter.muteRoom('room-dm');
+        await chat.adapter.messages.load('room-dm');
+        await chat.adapter.messages.send('room-dm', text: 'no errors expected');
+        await chat.adapter.rooms.mute('room-dm');
 
         await Future<void>.delayed(Duration.zero);
         await sub.cancel();

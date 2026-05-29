@@ -1,9 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
 /// Smoke tests covering the collaborator classes extracted from
-/// `ChatUiAdapter` in 0.3.0 (`_PresenceManager`, `_ChatEventRouter`,
-/// `_RoomEnricher`, `_OptimisticHandler`). The adapter facade delegates to
+/// `ChatUiAdapter` (`PresenceRegistry`, `ChatEventRouter`,
+/// `RoomEnricher`, `OptimisticHandler`). The adapter facade delegates to
 /// each; here we drive a handful of public methods that take a complete
 /// pass through the collaborator and back, so coverage of the new files
 /// reflects the work that is genuinely exercised in production.
@@ -26,13 +27,13 @@ void main() {
     await client.dispose();
   });
 
-  group('PresenceManager (via adapter)', () {
+  group('PresenceRegistry (via adapter)', () {
     test('presenceFor returns null for unknown user', () {
       expect(adapter.presenceFor('unknown'), isNull);
     });
 
     test('PresenceChangedEvent updates the cache and the DM row', () async {
-      adapter.registerDmRoom('u2', 'r1');
+      adapter.dm.registerRoom('u2', 'r1');
       adapter.roomListController.addRoom(
         const RoomListItem(id: 'r1', name: 'Room1', otherUserId: 'u2'),
       );
@@ -56,14 +57,14 @@ void main() {
 
   group('RoomEnricher (via adapter)', () {
     test('loadRooms populates the controller from the mock', () async {
-      final result = await adapter.loadRooms();
+      final result = await adapter.rooms.load();
       expect(result.isSuccess, isTrue);
       expect(adapter.roomListController.allRooms, isNotEmpty);
       expect(adapter.initializedNotifier.value, isTrue);
     });
 
     test('RoomDeletedEvent removes the row + cache', () async {
-      await adapter.loadRooms();
+      await adapter.rooms.load();
       expect(adapter.roomListController.getRoomById('r1'), isNotNull);
       client.emitEvent(const RoomDeletedEvent(roomId: 'r1'));
       await Future<void>.delayed(const Duration(milliseconds: 10));
@@ -74,7 +75,7 @@ void main() {
   group('OptimisticHandler (via adapter)', () {
     test('sendMessage takes the optimistic + confirm round-trip', () async {
       final controller = adapter.getChatController('r1');
-      final r = await adapter.sendMessage('r1', text: 'hi');
+      final r = await adapter.messages.send('r1', text: 'hi');
       expect(r.isSuccess, isTrue);
       // After confirm, the controller has the server-confirmed message.
       expect(controller.messages.where((m) => m.text == 'hi'), isNotEmpty);
@@ -92,14 +93,14 @@ void main() {
       );
       // The mock has no such message server-side, so the SDK returns a
       // failure. We just verify the rollback path runs without throwing.
-      await adapter.editMessage('r1', 'm-missing', text: 'edited');
+      await adapter.messages.edit('r1', 'm-missing', text: 'edited');
       // After rollback the original text is restored.
       final after = controller.messages.firstWhere((m) => m.id == 'm-missing');
       expect(after.text, 'original');
     });
 
     test('deleteReaction is a no-op when no reaction exists', () async {
-      final r = await adapter.deleteReaction(
+      final r = await adapter.messages.deleteReaction(
         'r1',
         messageId: 'm1',
         emoji: '👍',
@@ -109,9 +110,9 @@ void main() {
 
     test('pinMessage + unpinMessage roundtrip', () async {
       adapter.getChatController('r1'); // create controller
-      final pin = await adapter.pinMessage('r1', 'm1');
+      final pin = await adapter.messages.pin('r1', 'm1');
       expect(pin.isSuccess, isTrue);
-      final unpin = await adapter.unpinMessage('r1', 'm1');
+      final unpin = await adapter.messages.unpin('r1', 'm1');
       expect(unpin.isSuccess, isTrue);
     });
   });

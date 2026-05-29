@@ -1,4 +1,13 @@
-import 'package:noma_chat/noma_chat.dart';
+import '../models/contact.dart';
+import '../models/invited_room.dart';
+import '../models/message.dart';
+import '../models/pin.dart';
+import '../models/reaction.dart';
+import '../models/read_receipt.dart';
+import '../models/room.dart';
+import '../models/room_user.dart';
+import '../models/unread_room.dart';
+import '../models/user.dart';
 
 Map<String, dynamic> messageToMap(ChatMessage msg) => {
   'id': msg.id,
@@ -23,6 +32,13 @@ Map<String, dynamic> messageToMap(ChatMessage msg) => {
   if (msg.thumbnailUrl != null) 'thumbnailUrl': msg.thumbnailUrl,
 };
 
+/// Deserialises a cached message map back into a [ChatMessage].
+///
+/// Intentionally throws on a malformed/missing `timestamp` so the caller
+/// (`_safeDeserialize`) discards the entry. The TTL sweep then removes
+/// the corrupted row from the box instead of resurrecting it with a
+/// `DateTime.now()` placeholder, which would mask backend bugs and keep
+/// poisoned cache around forever.
 ChatMessage messageFromMap(
   Map<String, dynamic> map, {
   void Function(String)? onWarning,
@@ -239,6 +255,8 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.lastMessageIsDeleted) 'lastMessageIsDeleted': true,
   if (unread.lastMessageReactionEmoji != null)
     'lastMessageReactionEmoji': unread.lastMessageReactionEmoji,
+  if (unread.lastMessageReceipt != null)
+    'lastMessageReceipt': unread.lastMessageReceipt!.name,
   if (unread.name != null) 'name': unread.name,
   if (unread.avatarUrl != null) 'avatarUrl': unread.avatarUrl,
   if (unread.type != null) 'type': unread.type,
@@ -272,6 +290,10 @@ UnreadRoom unreadRoomFromMap(
   lastMessageDurationMs: (map['lastMessageDurationMs'] as num?)?.toInt(),
   lastMessageIsDeleted: map['lastMessageIsDeleted'] as bool? ?? false,
   lastMessageReactionEmoji: map['lastMessageReactionEmoji'] as String?,
+  lastMessageReceipt: _parseReceiptStatus(
+    map['lastMessageReceipt'] as String?,
+    onWarning: onWarning,
+  ),
   name: map['name'] as String?,
   avatarUrl: map['avatarUrl'] as String?,
   type: map['type'] as String?,

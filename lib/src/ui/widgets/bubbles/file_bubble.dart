@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/chat_theme.dart';
 import '../../utils/date_formatter.dart';
+import '_bubble_metadata.dart';
 
 /// Bubble for a generic file attachment: shows name + size + open action.
 class FileBubble extends StatelessWidget {
@@ -59,8 +60,13 @@ class FileBubble extends StatelessWidget {
             ),
             const SizedBox(width: 8),
             Flexible(
+              // `stretch` makes both the filename and the meta row span
+              // the full column width. Combined with the meta row's
+              // `mainAxisAlignment: end`, the size + time + ticks sit on
+              // the right edge of the bubble — matching the WhatsApp
+              // layout the text/image/audio bubbles already use.
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
@@ -75,7 +81,7 @@ class FileBubble extends StatelessWidget {
                         ),
                   ),
                   Row(
-                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       if (fileSize != null)
                         Text(
@@ -92,15 +98,10 @@ class FileBubble extends StatelessWidget {
                       if (timestamp != null)
                         Text(
                           DateFormatter.formatTime(timestamp!),
-                          style:
-                              (isOutgoing
-                                  ? theme.outgoingTimestampTextStyle
-                                  : theme.incomingTimestampTextStyle) ??
-                              theme.timestampTextStyle ??
-                              TextStyle(
-                                fontSize: 11,
-                                color: Colors.grey.shade600,
-                              ),
+                          style: BubbleMetadataRow.resolveTimestampStyle(
+                            theme,
+                            isOutgoing,
+                          ),
                         ),
                       if (statusWidget != null) ...[
                         const SizedBox(width: 4),

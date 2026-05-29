@@ -10,9 +10,15 @@ void main() {
 
   setUp(() {
     store = _MockStore();
-    when(() => store.getOfflineQueue()).thenAnswer((_) async => []);
-    when(() => store.saveOfflineQueue(any())).thenAnswer((_) async {});
-    when(() => store.clearOfflineQueue()).thenAnswer((_) async {});
+    when(
+      () => store.getOfflineQueue(),
+    ).thenAnswer((_) async => const ChatSuccess(<Map<String, dynamic>>[]));
+    when(
+      () => store.saveOfflineQueue(any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => store.clearOfflineQueue(),
+    ).thenAnswer((_) async => const ChatSuccess(null));
   });
 
   /// Round-trips an operation through the queue's persistence layer. Captures
@@ -31,7 +37,9 @@ void main() {
 
     // Restore using the captured payload.
     final restored = OfflineQueue(store: store);
-    when(() => store.getOfflineQueue()).thenAnswer((_) async => captured);
+    when(
+      () => store.getOfflineQueue(),
+    ).thenAnswer((_) async => ChatSuccess(captured));
     await restored.restore();
 
     return restored.pending.single as T;
@@ -161,14 +169,14 @@ void main() {
   group('OfflineQueue deserialization edge cases', () {
     test('unknown operation type is dropped, not crashed', () async {
       when(() => store.getOfflineQueue()).thenAnswer(
-        (_) async => [
+        (_) async => ChatSuccess(<Map<String, dynamic>>[
           {
             'id': 'op-x',
             'createdAt': DateTime.now().toIso8601String(),
             'attempts': 0,
             'type': 'definitely_unknown',
           },
-        ],
+        ]),
       );
       final queue = OfflineQueue(store: store);
       await queue.restore();
@@ -180,9 +188,9 @@ void main() {
       () async {
         String? warnLevel;
         when(() => store.getOfflineQueue()).thenAnswer(
-          (_) async => [
+          (_) async => const ChatSuccess(<Map<String, dynamic>>[
             {'no_id': true},
-          ],
+          ]),
         );
         final queue = OfflineQueue(
           store: store,
@@ -198,7 +206,7 @@ void main() {
 
     test('legacy snake_case types are also accepted', () async {
       when(() => store.getOfflineQueue()).thenAnswer(
-        (_) async => [
+        (_) async => ChatSuccess(<Map<String, dynamic>>[
           {
             'id': 'a',
             'createdAt': DateTime.now().toIso8601String(),
@@ -208,7 +216,7 @@ void main() {
             'audience': 'public',
             'members': <String>[],
           },
-        ],
+        ]),
       );
       final queue = OfflineQueue(store: store);
       await queue.restore();
