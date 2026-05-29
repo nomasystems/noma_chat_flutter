@@ -1,6 +1,6 @@
 import '../l10n/chat_ui_localizations.dart';
 
-/// Date/time formatting helpers used by the UI Kit (date separators,
+/// Date/time formatting helpers used by the UI components (date separators,
 /// timestamps in bubbles, last-message previews). Locale comes from
 /// [ChatUiLocalizations].
 class DateFormatter {

@@ -8,6 +8,17 @@ onwards, breaking changes require a **major version bump**.
 
 ## [Unreleased]
 
+## [0.9.2] - 2026-05-29
+
+### Docs
+
+- Documented that the SDK targets a **Nomasystems chat backend** defined by a public **OpenAPI 3.0 contract**; any backend that implements the spec works. The README now links a rendered API reference (Redoc) and the source spec.
+- Added the backend OpenAPI contract to the repository (`doc/user-openapi.yml`, OpenAPI 3.0.1). Kept on GitHub and linked from the README; excluded from the published tarball via `.pubignore` (consumers don't need it in their pub cache).
+- Noted that the Nomasystems chat backend is planned to be open-sourced but is not public yet; for commercial use contact `info@nomasystems.com`. Added the Nomasystems website.
+- Renamed "UI Kit" to "UI components" across the README, dartdoc API docs and developer docs.
+- Screenshots and the demo GIF now have transparent backgrounds so they render cleanly on pub.dev (light and dark themes).
+- Fixed a broken README link (`INTEGRATING.md` → `INTEGRATION.md`).
+
 ## [0.9.1] - 2026-05-29
 
 ### Dependencies
