@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
-/// Lightweight accessibility audit for the most prominent UI Kit widgets.
+/// Lightweight accessibility audit for the most prominent UI components widgets.
 /// Uses Flutter's built-in `AccessibilityGuideline` matchers — these check
 /// tap target sizes, label presence and Material text-contrast against the
 /// rendered theme. Failing any of them is a real regression worth fixing.

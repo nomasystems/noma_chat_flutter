@@ -86,7 +86,7 @@ typedef IsDmRoomPredicate = bool Function(RoomDetail detail);
 // `RoomEnricher` handler can import them without pulling in the
 // entire adapter library.
 
-/// Bridges the [ChatClient] SDK with the UI Kit's controllers and widgets.
+/// Bridges the [ChatClient] SDK with the UI components's controllers and widgets.
 ///
 /// Subscribes to real-time events and routes them to the appropriate
 /// [ChatController] or [RoomListController]. Provides high-level actions
