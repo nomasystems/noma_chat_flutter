@@ -275,6 +275,8 @@ void main() {
       'user_left',
       'user_role_changed',
       'receipt_updated',
+      'message_acked',
+      'message_delivered',
       'reaction_added',
       'reaction_deleted',
       'unknown_event_xyz',

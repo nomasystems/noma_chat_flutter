@@ -63,6 +63,8 @@ class RoomEnricher {
     void Function(List<RoomListItem> rooms)? onRoomsLoaded,
     void Function(String contactUserId, String roomId)? onDmContactResolved,
     RoomTitleResolver? roomTitleResolver,
+    Future<ChatResult<void>> Function(String roomId, String messageId)?
+    confirmDelivered,
   }) : _currentUser = currentUser,
        _l10n = l10n,
        _initializedNotifier = initializedNotifier,
@@ -77,7 +79,8 @@ class RoomEnricher {
        _logger = logger,
        _onRoomsLoaded = onRoomsLoaded,
        _onDmContactResolved = onDmContactResolved,
-       _roomTitleResolver = roomTitleResolver;
+       _roomTitleResolver = roomTitleResolver,
+       _confirmDelivered = confirmDelivered;
 
   final ChatClient client;
   final ChatControllerRegistry controllers;
@@ -105,6 +108,12 @@ class RoomEnricher {
   final void Function(String contactUserId, String roomId)?
   _onDmContactResolved;
   final RoomTitleResolver? _roomTitleResolver;
+
+  /// Consolidated delivered-cursor confirmation, injected by the
+  /// adapter when `autoConfirmDelivery` is on. `null` disables the
+  /// post-sync delivery catch-up entirely.
+  final Future<ChatResult<void>> Function(String roomId, String messageId)?
+  _confirmDelivered;
 
   /// Resolves [userId] to a human-readable name using the adapter's user
   /// cache. Returns `null` when the user is the current user, when [userId]
@@ -389,30 +398,26 @@ class RoomEnricher {
       unawaited(_ensureUserCachedFn(id));
     }
 
-    // Fire a `delivered` receipt for every room whose last message came
-    // from someone else AND is still unread. Mirrors WhatsApp: as soon
-    // as the recipient comes online (loadRooms resolves), the sender
-    // sees ✓✓ even if the recipient hasn't opened the chat yet. The
-    // existing `_onNewMessage` path already covers messages received
-    // during the live session — this catches the backlog accumulated
-    // while offline. Backend receipt writes are idempotent (per
-    // user+message) so re-delivering across reconnects is safe.
-    for (final room in roomList.allRooms) {
-      final lastId = room.lastMessageId;
-      final lastFrom = room.lastMessageUserId;
-      if (lastId == null) continue;
-      if (lastFrom == null) continue;
-      if (lastFrom == _currentUser().id) continue;
-      if (room.unreadCount <= 0) continue;
-      unawaited(
-        client.messages
-            .sendReceipt(room.id, lastId, status: ReceiptStatus.delivered)
-            .catchError(
-              (_) => const ChatFailureResult<void>(
-                UnexpectedFailure('delivery receipt failed'),
-              ),
-            ),
-      );
+    // Confirm delivery for every room whose last message came from
+    // someone else AND is still unread. Mirrors WhatsApp: as soon as
+    // the recipient comes online (loadRooms resolves), the sender sees
+    // ✓✓ even if the recipient hasn't opened the chat yet. The
+    // `_onNewMessage` path already covers messages received during the
+    // live session — this catches the backlog accumulated while
+    // offline. One consolidated cursor per room (≤1 confirmation per
+    // conversation per sync); the server max-merges, so re-confirming
+    // across reconnects is free.
+    final confirmDelivered = _confirmDelivered;
+    if (confirmDelivered != null) {
+      for (final room in roomList.allRooms) {
+        final lastId = room.lastMessageId;
+        final lastFrom = room.lastMessageUserId;
+        if (lastId == null) continue;
+        if (lastFrom == null) continue;
+        if (lastFrom == _currentUser().id) continue;
+        if (room.unreadCount <= 0) continue;
+        unawaited(confirmDelivered(room.id, lastId));
+      }
     }
 
     // Bootstrap presence BEFORE returning so any consumer that reads

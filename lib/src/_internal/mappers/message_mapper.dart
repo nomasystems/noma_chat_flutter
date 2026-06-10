@@ -154,6 +154,10 @@ class MessageMapper {
         lastReadAt: json['lastReadAt'] != null
             ? DateTime.tryParse(json['lastReadAt'] as String)
             : null,
+        lastDeliveredMessageId: json['lastDeliveredMessageId'] as String?,
+        lastDeliveredAt: json['lastDeliveredAt'] != null
+            ? DateTime.tryParse(json['lastDeliveredAt'] as String)
+            : null,
       );
 
   static ScheduledMessage scheduledFromJson(Map<String, dynamic> json) =>

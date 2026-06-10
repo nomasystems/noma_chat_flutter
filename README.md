@@ -83,6 +83,8 @@ RoomListView(controller: RoomListController(chat: chat))
 - Emoji reactions + reaction picker
 - @mentions with autocomplete overlay
 - Threaded replies
+- WhatsApp-style delivery ticks (sending → sent → delivered → read → failed),
+  cursor-based and confirmed automatically
 - Per-user read receipts (DM any-read → blue; group all-read → blue)
 - Typing indicators
 - Forward to multiple rooms

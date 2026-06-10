@@ -185,6 +185,9 @@ class TransportManager {
     ReceiptStatus status = ReceiptStatus.read,
   }) => _transport.sendReceipt(roomId, messageId, status: status);
 
+  void sendDelivered(String roomId, String messageId) =>
+      _transport.sendDelivered(roomId, messageId);
+
   Future<void> notifyTokenRotated() => _transport.notifyTokenRotated();
 
   /// Force a refresh on the active transport. Streaming modes are

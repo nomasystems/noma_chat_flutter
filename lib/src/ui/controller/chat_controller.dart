@@ -57,6 +57,17 @@ class ChatController extends ChangeNotifier {
   final Map<String, Set<String>> _readBy = {};
   final Map<String, Set<String>> _deliveredBy = {};
 
+  // Server-assigned seqs of messages, learned from `message_acked`
+  // events. Enables numeric coverage checks when a delivered cursor
+  // carries a seq (live path); messages without a known seq fall back
+  // to conversation-order comparison against the cursor message.
+  final Map<String, int> _seqByMessageId = {};
+
+  // Per-user delivered cursors (max-registers). Each entry doubles as
+  // the stash for cursors whose message is not loaded yet — cursors are
+  // re-applied after [setMessages]/[addMessages], which is idempotent.
+  final Map<String, ({String messageId, int? seq})> _deliveredCursors = {};
+
   // Pinned messages, latest first (per the backend's natural order).
   final List<MessagePin> _pinnedMessages = [];
 
@@ -148,6 +159,7 @@ class ChatController extends ChangeNotifier {
     _sortMessages();
     _trimMessages();
     _rebuildIndex();
+    _reapplyDeliveredCursors();
     notifyListeners();
   }
 
@@ -157,6 +169,7 @@ class ChatController extends ChangeNotifier {
       ..addAll(messages);
     _sortMessages();
     _rebuildIndex();
+    _reapplyDeliveredCursors();
     notifyListeners();
   }
 
@@ -183,6 +196,8 @@ class ChatController extends ChangeNotifier {
     _receiptStatuses.clear();
     _readBy.clear();
     _deliveredBy.clear();
+    _seqByMessageId.clear();
+    _deliveredCursors.clear();
     _pinnedMessages.clear();
     _pendingMessages.clear();
     _tempToServerId.clear();
@@ -470,6 +485,70 @@ class ChatController extends ChangeNotifier {
       (_readBy[messageId] ??= <String>{}).add(fromUserId);
     }
     _receiptStatuses[messageId] = _aggregateStatus(messageId);
+  }
+
+  /// Records the server-assigned [seq] of [messageId], learned from a
+  /// `message_acked` event. Seqs let [applyDeliveryCursor] decide
+  /// coverage numerically when the cursor message itself is not loaded.
+  void recordMessageSeq(String messageId, int seq) {
+    _seqByMessageId[messageId] = seq;
+  }
+
+  /// Applies [userId]'s delivered cursor (`message_delivered` event):
+  /// every message at-or-before [messageId] in conversation order — any
+  /// author — is now delivered to them, and the aggregated statuses are
+  /// recomputed.
+  ///
+  /// Cursors are max-registers: when [seq] is known and not newer than
+  /// the last applied cursor for [userId], the call is a silent no-op,
+  /// so duplicated or reordered events are harmless. When the cursor
+  /// message is not loaded yet, the cursor is stashed and re-applied as
+  /// soon as [setMessages]/[addMessages] bring it in.
+  void applyDeliveryCursor({
+    required String userId,
+    required String messageId,
+    int? seq,
+  }) {
+    final current = _deliveredCursors[userId];
+    final currentSeq = current?.seq;
+    if (currentSeq != null && seq != null && seq <= currentSeq) return;
+    _deliveredCursors[userId] = (messageId: messageId, seq: seq);
+    if (_applyDeliveredCursorFor(userId)) notifyListeners();
+  }
+
+  /// Marks every message covered by [userId]'s stashed cursor as
+  /// delivered by them. Coverage: numeric (`seq`) when both the cursor
+  /// and the message have a known seq; conversation order otherwise.
+  /// Returns `true` when at least one visible status changed.
+  bool _applyDeliveredCursorFor(String userId) {
+    final cursor = _deliveredCursors[userId];
+    if (cursor == null) return false;
+    final cursorIndex = _indexById[cursor.messageId];
+    final cursorSeq = cursor.seq;
+    if (cursorIndex == null && cursorSeq == null) return false;
+    var changed = false;
+    for (var i = 0; i < _messages.length; i++) {
+      final m = _messages[i];
+      final msgSeq = _seqByMessageId[m.id];
+      final covered = (cursorSeq != null && msgSeq != null)
+          ? msgSeq <= cursorSeq
+          : (cursorIndex != null && i <= cursorIndex);
+      if (!covered) continue;
+      final delivered = _deliveredBy[m.id] ??= <String>{};
+      if (!delivered.add(userId)) continue;
+      final aggregated = _aggregateStatus(m.id);
+      if (_rankReceipt(aggregated) > _rankReceipt(_receiptStatuses[m.id])) {
+        _receiptStatuses[m.id] = aggregated;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  void _reapplyDeliveredCursors() {
+    for (final userId in _deliveredCursors.keys) {
+      _applyDeliveredCursorFor(userId);
+    }
   }
 
   ReceiptStatus _aggregateStatus(String messageId) {

@@ -125,6 +125,9 @@ class ManualTransport implements RealtimeTransport {
   }) {}
 
   @override
+  void sendDelivered(String roomId, String messageId) {}
+
+  @override
   void sendMessage(
     String roomId, {
     String? text,

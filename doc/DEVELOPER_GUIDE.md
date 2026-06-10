@@ -217,6 +217,17 @@ await chat.client.messages.delete(roomId, messageId);
 await chat.client.messages.markAsRead(roomId, messageId);
 await chat.client.messages.batchMarkAsRead([roomId1, roomId2]);
 
+// Confirm delivery (double gray tick) — cursor semantics: one call per
+// conversation covers every message at-or-before the given one, for any
+// author. Idempotent (the server max-merges; older cursors are no-ops).
+// With `ChatUiAdapter.autoConfirmDelivery` (default true) the adapter
+// fires this automatically on live messages, chat load and the
+// post-login room sync; call it manually only when that flag is off.
+await chat.client.messages.markRoomAsDelivered(
+  roomId,
+  lastDeliveredMessageId: newestMessageId,
+);
+
 // Unread counts
 final counts = await chat.client.messages.batchGetUnread([roomId1, roomId2]);
 
@@ -343,6 +354,8 @@ chat.client.events.listen((event) {
 | `UserLeftEvent` | `userId`, `roomId` |
 | `UserRoleChangedEvent` | `userId`, `roomId`, `role: MemberRole` |
 | `ReceiptUpdatedEvent` | `roomId`, `receipts: List<ChatReceipt>` |
+| `MessageAckedEvent` | `roomId?`/`toUserId?` (room vs DM form), `messageId`, `seq: int`, `metadata?` — the server durably persisted an own message (single gray tick). Correlate WS sends by echoing a client id in the message `metadata`. |
+| `MessageDeliveredEvent` | `roomId?` (absent in the DM form), `userId` (the confirmer), `messageId`, `seq: int` — the confirmer's delivered cursor advanced: every message at-or-before `messageId` is delivered to them. |
 | `UserActivityEvent` | `userId`, `roomId`, `activity: UserActivity` |
 | `DmActivityEvent` | `userId`, `activity: UserActivity` |
 | `PresenceChangedEvent` | `userId`, `status: PresenceStatus` |
@@ -722,6 +735,29 @@ when(() => mockClient.rooms.list()).thenAnswer((_) async => [testRoom]);
 
 // Inject fake events
 mockClient.injectEvent(NewMessageEvent(message: testMessage));
+```
+
+To simulate delivery ticks, emit the cursor events the backend would send —
+a single `messageDelivered` flips every own message at-or-before the cursor:
+
+```dart
+// Single gray tick: the server acked the send (carries the seq).
+mockClient.emitEvent(
+  const ChatEvent.messageAcked(roomId: 'r1', messageId: 'm2', seq: 2),
+);
+
+// Double gray tick: bob's delivered cursor reached m2 (covers m1 too).
+mockClient.emitEvent(
+  const ChatEvent.messageDelivered(
+    roomId: 'r1',
+    userId: 'bob',
+    messageId: 'm2',
+    seq: 2,
+  ),
+);
+
+// Outbound confirmations are recorded for assertions:
+expect(mockClient.messages.markRoomAsDeliveredCalls, isNotEmpty);
 ```
 
 ### Fake adapter

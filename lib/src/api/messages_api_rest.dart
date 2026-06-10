@@ -298,6 +298,26 @@ class RestMessagesApi implements ChatMessagesApi {
   );
 
   @override
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
+  }) {
+    if (transport != null && transport!.isWsConnected) {
+      transport!.sendDelivered(roomId, lastDeliveredMessageId);
+      return Future.value(const ChatSuccess(null));
+    }
+    // REST fallback: the legacy per-message receipt endpoint with
+    // `status=delivered` is rerouted server-side to the same delivered
+    // cursor, preserving the consolidated semantics.
+    return safeVoidCall(
+      () => rest.putVoid(
+        '/rooms/$roomId/messages/$lastDeliveredMessageId/receipts',
+        data: {'status': ReceiptStatus.delivered.name},
+      ),
+    );
+  }
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,
   ) => safeApiCall(() async {

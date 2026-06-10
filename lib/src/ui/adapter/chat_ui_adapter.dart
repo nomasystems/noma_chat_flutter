@@ -41,6 +41,7 @@ import 'handlers/room_list_mutator.dart';
 import 'services/blocked_users_registry.dart';
 import 'services/chat_controller_registry.dart';
 import 'services/connection_lifecycle.dart';
+import 'services/delivered_confirmation_coordinator.dart';
 import 'services/dm_contact_registry.dart';
 import 'services/mark_as_read_coordinator.dart';
 import 'services/operation_hub.dart';
@@ -100,6 +101,7 @@ class ChatUiAdapter {
     this.isDmRoom,
     this.roomTitleResolver,
     this.autoMarkAsRead = true,
+    this.autoConfirmDelivery = true,
     ChatLocalDatasource? cache,
     AvatarStorage? avatarStorage,
   }) : _cache = cache,
@@ -199,6 +201,22 @@ class ChatUiAdapter {
   /// (e.g. tied to message visibility on screen rather than chat entry).
   final bool autoMarkAsRead;
 
+  /// When `true` (default), the adapter confirms message delivery
+  /// automatically — the sender's bubbles flip to the double gray tick
+  /// without the consumer wiring anything, exactly as WhatsApp behaves.
+  /// Confirmations fire on the three boundaries where the client
+  /// demonstrably holds the messages: a `new_message` event lands in a
+  /// non-active room, a room's messages finish loading (when
+  /// [autoMarkAsRead] doesn't already cover it — a read receipt implies
+  /// delivery), and the post-login/reconnect room sync finds rooms with
+  /// unread messages. All confirmations are consolidated per room
+  /// (cursor semantics, at most one in flight) and fire-and-forget.
+  ///
+  /// Disable when the host wants to drive delivery confirmation
+  /// manually via `client.messages.markRoomAsDelivered` (e.g. tie it to
+  /// local persistence rather than reception).
+  final bool autoConfirmDelivery;
+
   bool _isDmDetail(RoomDetail detail) {
     if (isDmRoom != null) return isDmRoom!(detail);
     if (detail.type != RoomType.oneToOne) return false;
@@ -296,6 +314,7 @@ class ChatUiAdapter {
     onRoomsLoaded: onRoomsLoaded,
     onDmContactResolved: onDmContactResolved,
     roomTitleResolver: roomTitleResolver,
+    confirmDelivered: autoConfirmDelivery ? _deliveredCoord.confirm : null,
   );
 
   /// Standalone handler — `handlers/room_list_mutator.dart`. Owns
@@ -441,6 +460,16 @@ class ChatUiAdapter {
           userId: userId,
         ),
   );
+
+  /// Coalescer for delivered-cursor confirmations — one in flight per
+  /// room max, follow-ups stash the newest cursor. Used by the event
+  /// router (live messages), `messages.load` and the room-sync catch-up
+  /// when [autoConfirmDelivery] is on.
+  late final DeliveredConfirmationCoordinator _deliveredCoord =
+      DeliveredConfirmationCoordinator(
+        messages: client.messages,
+        isDisposed: () => _disposed,
+      );
   StreamSubscription<ChatEvent>? _eventSub;
   StreamSubscription<ChatConnectionState>? _stateSub;
 
@@ -1614,6 +1643,7 @@ class ChatUiAdapter {
       connectionStateNotifier: connectionStateNotifier,
       l10n: l10n,
       autoMarkAsRead: autoMarkAsRead,
+      autoConfirmDelivery: autoConfirmDelivery,
       currentUser: () => _currentUser,
       setCurrentUser: (user) => _currentUser = user,
       activeRoomId: () => _activeRoomId,
@@ -1622,6 +1652,7 @@ class ChatUiAdapter {
       cacheUsersFn: cacheUsers,
       ensureUserCachedFn: _ensureUserCached,
       markAsReadFn: markAsRead,
+      confirmDeliveredFn: _deliveredCoord.confirm,
       refreshMessageFn: _refreshMessage,
       refreshReactionsFn: _refreshReactions,
       handleUserJoinedFn: _memberEventHandler.handleUserJoined,

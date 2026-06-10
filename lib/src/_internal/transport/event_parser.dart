@@ -33,6 +33,8 @@ class EventParser {
       'user_left' => _parseUserLeft(json),
       'user_role_changed' => _parseUserRoleChanged(json),
       'receipt_updated' => _parseReceiptUpdated(json),
+      'message_acked' => _parseMessageAcked(json),
+      'message_delivered' => _parseMessageDelivered(json),
       'reaction_added' => _parseReactionAddedNative(json),
       'reaction_deleted' => _parseReactionDeleted(json),
       'broadcast' => _parseBroadcast(json),
@@ -296,6 +298,57 @@ class EventParser {
       messageId: messageId,
       status: status,
       fromUserId: fromUserId,
+    );
+  }
+
+  static ChatEvent? _parseMessageAcked(Map<String, dynamic> json) {
+    final messageId = _asString(json['messageId']);
+    if (messageId == null) return null;
+    final seq = json['seq'];
+    if (seq is! int) {
+      logger?.call(
+        'warn',
+        'EventParser: "message_acked" event missing integer "seq" field',
+      );
+      return null;
+    }
+    final roomId = _asString(json['roomId']);
+    final toUserId = _asString(json['toUserId']);
+    if (roomId == null && toUserId == null) {
+      logger?.call(
+        'warn',
+        'EventParser: "message_acked" event missing both "roomId" and '
+            '"toUserId" fields',
+      );
+      return null;
+    }
+    final metadata = json['metadata'];
+    return ChatEvent.messageAcked(
+      roomId: roomId,
+      toUserId: toUserId,
+      messageId: messageId,
+      seq: seq,
+      metadata: metadata is Map<String, dynamic> ? metadata : null,
+    );
+  }
+
+  static ChatEvent? _parseMessageDelivered(Map<String, dynamic> json) {
+    final messageId = _asString(json['messageId']);
+    final userId = _asString(json['userId']);
+    if (messageId == null || userId == null) return null;
+    final seq = json['seq'];
+    if (seq is! int) {
+      logger?.call(
+        'warn',
+        'EventParser: "message_delivered" event missing integer "seq" field',
+      );
+      return null;
+    }
+    return ChatEvent.messageDelivered(
+      roomId: _asString(json['roomId']),
+      userId: userId,
+      messageId: messageId,
+      seq: seq,
     );
   }
 

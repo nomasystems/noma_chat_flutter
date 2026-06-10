@@ -58,6 +58,12 @@ abstract class RealtimeTransport {
   /// Outbound read/delivery receipt (WS frame).
   void sendReceipt(String roomId, String messageId, {ReceiptStatus status});
 
+  /// Outbound consolidated delivered-cursor confirmation (WS frame):
+  /// the current user holds every message of [roomId] up to and
+  /// including [messageId]. One frame covers any number of messages.
+  /// Transports without an outbound channel ignore silently.
+  void sendDelivered(String roomId, String messageId);
+
   /// Outbound message via WS (fire-and-forget). [MessagesApi.sendViaWs]
   /// also returns a synthetic [ChatMessage] for optimistic UI; the
   /// server-confirmed message arrives later via [NewMessageEvent].
