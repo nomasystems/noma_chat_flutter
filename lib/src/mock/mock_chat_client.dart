@@ -738,6 +738,27 @@ class MockMessagesApi implements ChatMessagesApi {
     return const ChatSuccess(null);
   }
 
+  /// Records each `markRoomAsDelivered` invocation as a `(roomId,
+  /// lastDeliveredMessageId)` tuple so tests can assert how the adapter
+  /// confirms delivery and with which cursor.
+  final List<({String roomId, String lastDeliveredMessageId})>
+  markRoomAsDeliveredCalls = [];
+
+  /// Clears the [markRoomAsDeliveredCalls] history.
+  void resetMarkRoomAsDeliveredCalls() => markRoomAsDeliveredCalls.clear();
+
+  @override
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
+  }) async {
+    markRoomAsDeliveredCalls.add((
+      roomId: roomId,
+      lastDeliveredMessageId: lastDeliveredMessageId,
+    ));
+    return const ChatSuccess(null);
+  }
+
   @override
   Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,

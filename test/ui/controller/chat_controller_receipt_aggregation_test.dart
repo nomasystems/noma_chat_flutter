@@ -158,6 +158,105 @@ void main() {
     });
   });
 
+  group('Delivered cursors (applyDeliveryCursor / recordMessageSeq)', () {
+    test('cursor covers every message at-or-before, cross-sender', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          ChatMessage(
+            id: 'm-foreign',
+            from: 'u2',
+            timestamp: t0.add(const Duration(seconds: 2)),
+            text: 'foreign',
+          ),
+          own('m3', offset: const Duration(seconds: 3)),
+          own('m4', offset: const Duration(seconds: 4)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      // u1's cursor lands on the FOREIGN message m-foreign: unlike the
+      // same-sender propagation of updateReceipt, the cursor must still
+      // cover m1 (own, older) even though the cursor message's author
+      // is someone else.
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm-foreign', seq: 2);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      // Messages after the cursor stay untouched.
+      expect(c.receiptStatuses['m3'], isNull);
+      expect(c.receiptStatuses['m4'], isNull);
+    });
+
+    test('stale cursor (lower seq) is an idempotent no-op', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+          own('m3', offset: const Duration(seconds: 3)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm3', seq: 3);
+      expect(c.receiptStatuses['m3'], ReceiptStatus.delivered);
+
+      // u1 then reads everything; a late/stale delivered cursor must
+      // not regress any status (max-register semantics).
+      c.updateReceipt('m3', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m3'], ReceiptStatus.read);
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm1', seq: 1);
+      expect(c.receiptStatuses['m3'], ReceiptStatus.read);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('numeric coverage by seq wins over list order', () {
+      // m-late sorts AFTER the cursor message by timestamp, but its
+      // acked seq (5) is <= the cursor seq (9): the live path must
+      // cover it numerically.
+      final c = ChatController(
+        initialMessages: [
+          own('m-late', offset: const Duration(seconds: 9)),
+          own('m-cursor', offset: const Duration(seconds: 1)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.recordMessageSeq('m-late', 5);
+      c.recordMessageSeq('m-cursor', 4);
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm-cursor', seq: 9);
+      expect(c.receiptStatuses['m-late'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m-cursor'], ReceiptStatus.delivered);
+    });
+
+    test('cursor on a not-yet-loaded message is stashed and re-applied '
+        'by setMessages', () {
+      final c = ChatController(
+        initialMessages: const [],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      // Cursor arrives before the history page (no seqs known either).
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm2');
+      expect(c.receiptStatuses, isEmpty);
+
+      c.setMessages([
+        own('m1', offset: const Duration(seconds: 1)),
+        own('m2', offset: const Duration(seconds: 2)),
+        own('m3', offset: const Duration(seconds: 3)),
+      ]);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m2'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m3'], isNull);
+    });
+  });
+
   group('clearMessages resets all per-user tracking', () {
     test('aggregated and per-user maps are wiped after clearMessages', () {
       final c = ChatController(

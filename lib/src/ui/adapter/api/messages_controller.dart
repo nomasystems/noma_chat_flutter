@@ -125,6 +125,15 @@ final class ChatMessagesController {
     // through the regular onError pipeline if the consumer wired it.
     if (_a.autoMarkAsRead && finalResult.isSuccess) {
       unawaited(markAsRead(roomId));
+    } else if (_a.autoConfirmDelivery && finalResult.isSuccess) {
+      // No read flush to piggyback on (a read receipt implies delivery
+      // server-side) — confirm the delivered cursor explicitly with the
+      // newest confirmed message the client now holds.
+      for (final m in controller.messages.reversed) {
+        if (controller.isPending(m.id) || controller.isFailed(m.id)) continue;
+        unawaited(_a._deliveredCoord.confirm(roomId, m.id));
+        break;
+      }
     }
 
     return _a._emitFailure(
@@ -810,11 +819,19 @@ final class ChatMessagesController {
     return items.where((m) => !test(m)).toList(growable: false);
   }
 
-  /// Applies room-level read receipts to outgoing messages already in
-  /// the controller — used post-login to restore ✓✓ marks that the
-  /// WS event stream can no longer replay. Fire-and-forget: any DB
-  /// failure simply leaves bubbles as ✓ (single tick), same as before
-  /// the rehydration was added.
+  /// Applies room-level receipts (read + delivered cursors) to
+  /// messages already in the controller — used post-login to restore
+  /// ✓✓ marks that the WS event stream can no longer replay.
+  /// Fire-and-forget: any failure simply leaves bubbles as ✓ (single
+  /// tick), same as before the rehydration was added.
+  ///
+  /// Read coverage uses conversation order against
+  /// `lastReadMessageId` when the backend provides it; the timestamp
+  /// comparison (`lastReadAt` records confirmation time, not message
+  /// time, and can over-mark) stays as the legacy fallback for
+  /// whole-room reads. Delivered coverage applies the
+  /// `lastDeliveredMessageId` cursor via
+  /// [ChatController.applyDeliveryCursor].
   ///
   /// Also propagates the resulting aggregate status of the room's
   /// LAST outgoing message into the room-list row so the ticks in the
@@ -830,12 +847,36 @@ final class ChatMessagesController {
     final currentUserId = _a.currentUser.id;
     for (final r in receipts) {
       if (r.userId == currentUserId) continue;
+      final lastDeliveredId = r.lastDeliveredMessageId;
+      if (lastDeliveredId != null) {
+        controller.applyDeliveryCursor(
+          userId: r.userId,
+          messageId: lastDeliveredId,
+        );
+      }
+      final lastReadId = r.lastReadMessageId;
       final lastReadAt = r.lastReadAt;
-      if (lastReadAt == null) continue;
-      for (final msg in controller.messages) {
+      if (lastReadId == null && lastReadAt == null) continue;
+      final messages = controller.messages;
+      int? readCutoff;
+      if (lastReadId != null) {
+        for (var i = 0; i < messages.length; i++) {
+          if (messages[i].id == lastReadId) {
+            readCutoff = i;
+            break;
+          }
+        }
+      }
+      for (var i = 0; i < messages.length; i++) {
+        final msg = messages[i];
         if (msg.from != currentUserId) continue;
         if (msg.receipt == ReceiptStatus.read) continue;
-        if (msg.timestamp.isAfter(lastReadAt)) continue;
+        final covered = readCutoff != null
+            ? i <= readCutoff
+            : (lastReadId == null &&
+                  lastReadAt != null &&
+                  !msg.timestamp.isAfter(lastReadAt));
+        if (!covered) continue;
         controller.updateReceipt(
           msg.id,
           ReceiptStatus.read,

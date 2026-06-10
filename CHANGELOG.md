@@ -8,6 +8,39 @@ onwards, breaking changes require a **major version bump**.
 
 ## [Unreleased]
 
+### Added
+
+- **Cursor-based delivery ticks (WhatsApp-style).** The SDK now consumes the
+  two new realtime events of the `1.0.0` backend: `message_acked` (the server
+  durably persisted an own message — single gray tick; surfaced as
+  `MessageAckedEvent` with the server-assigned `seq` and the message metadata
+  echoed for client-side correlation) and `message_delivered` (a user's
+  delivered cursor advanced — one event flips the double gray tick on every
+  message at-or-before the cursor, for any author). Cursors are max-registers:
+  duplicated or reordered events are harmless by construction.
+- **`ChatMessagesApi.markRoomAsDelivered(roomId, lastDeliveredMessageId:)`** —
+  consolidated delivered-cursor confirmation: one call per conversation covers
+  any number of messages, via the new WebSocket `delivered` frame when
+  connected and the receipts endpoint otherwise. Prefer it over
+  `sendReceipt(status: delivered)` (legacy per-message path, rerouted
+  server-side to the same cursor).
+- **`ChatUiAdapter.autoConfirmDelivery`** (default `true`): the adapter
+  confirms delivery automatically — on live messages in non-active rooms, on
+  chat load, and on the post-login/reconnect room sync — coalesced per room
+  (at most one confirmation in flight; a burst costs ≤2 calls). Turn it off to
+  drive confirmation manually through `markRoomAsDelivered`.
+- **`ReadReceipt` gains `lastDeliveredMessageId` / `lastDeliveredAt`**
+  (additive, nullable). Receipt rehydration on chat open now restores
+  delivered ticks too, and read coverage uses conversation order against
+  `lastReadMessageId` instead of the over-marking timestamp comparison
+  (kept only as fallback for whole-room reads).
+
+> Compatibility: 0.9.x clients keep working against a backend that emits the
+> new events (unknown types are ignored), but their live delivered tick stops
+> updating — the backend emits `message_delivered` instead of the legacy
+> `receipt_updated{status: delivered}`. Bubbles jump from sent to read; ticks
+> in listings stay correct. Upgrade to 0.10.0 to restore live delivered ticks.
+
 ### Changed
 
 - **Backend contract pinned to OpenAPI `1.0.0`.** The bundled spec

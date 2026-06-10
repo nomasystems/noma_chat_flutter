@@ -348,6 +348,10 @@ class WsTransport implements RealtimeTransport {
   });
 
   @override
+  void sendDelivered(String roomId, String messageId) =>
+      sendRaw({'type': 'delivered', 'roomId': roomId, 'messageId': messageId});
+
+  @override
   void sendMessage(
     String roomId, {
     String? text,

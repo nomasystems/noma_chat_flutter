@@ -32,6 +32,7 @@ class ChatEventRouterDeps {
     required this.connectionStateNotifier,
     required this.l10n,
     required this.autoMarkAsRead,
+    required this.autoConfirmDelivery,
     required this.currentUser,
     required this.setCurrentUser,
     required this.activeRoomId,
@@ -40,6 +41,7 @@ class ChatEventRouterDeps {
     required this.cacheUsersFn,
     required this.ensureUserCachedFn,
     required this.markAsReadFn,
+    required this.confirmDeliveredFn,
     required this.refreshMessageFn,
     required this.refreshReactionsFn,
     required this.handleUserJoinedFn,
@@ -71,6 +73,7 @@ class ChatEventRouterDeps {
   final ValueNotifier<ChatConnectionState> connectionStateNotifier;
   final ChatUiLocalizations l10n;
   final bool autoMarkAsRead;
+  final bool autoConfirmDelivery;
   final ChatUser Function() currentUser;
   final void Function(ChatUser user) setCurrentUser;
   final String? Function() activeRoomId;
@@ -83,6 +86,8 @@ class ChatEventRouterDeps {
     String? lastReadMessageId,
   })
   markAsReadFn;
+  final Future<ChatResult<void>> Function(String roomId, String messageId)
+  confirmDeliveredFn;
   final void Function(String roomId, String messageId) refreshMessageFn;
   final void Function(String roomId, String messageId) refreshReactionsFn;
   final void Function(String roomId, String userId) handleUserJoinedFn;
@@ -149,6 +154,7 @@ class ChatEventRouter {
       _deps.connectionStateNotifier;
   ChatUiLocalizations get _l10n => _deps.l10n;
   bool get _autoMarkAsRead => _deps.autoMarkAsRead;
+  bool get _autoConfirmDelivery => _deps.autoConfirmDelivery;
   bool _isDisposed() => _deps.isDisposed();
   ChatUser _currentUser() => _deps.currentUser();
   void _setCurrentUser(ChatUser user) => _deps.setCurrentUser(user);
@@ -161,6 +167,10 @@ class ChatEventRouter {
     String roomId, {
     String? lastReadMessageId,
   }) => _deps.markAsReadFn(roomId, lastReadMessageId: lastReadMessageId);
+  Future<ChatResult<void>> _confirmDeliveredFn(
+    String roomId,
+    String messageId,
+  ) => _deps.confirmDeliveredFn(roomId, messageId);
   void _refreshMessageFn(String roomId, String messageId) =>
       _deps.refreshMessageFn(roomId, messageId);
   void _refreshReactionsFn(String roomId, String messageId) =>
@@ -275,6 +285,10 @@ class ChatEventRouter {
           fromUserId: fromUserId,
         );
         _updateRoomListReceipt(roomId, messageId, status);
+      case MessageDeliveredEvent():
+        _onMessageDelivered(event);
+      case MessageAckedEvent():
+        _onMessageAcked(event);
       case ReactionAddedEvent(
         :final roomId,
         :final messageId,
@@ -351,6 +365,56 @@ class ChatEventRouter {
     }
   }
 
+  /// Applies a `message_delivered` cursor: flips delivered ticks on the
+  /// open controller (cursor semantics — every message at-or-before the
+  /// event's message) and mirrors the freshest aggregate onto the
+  /// room-list row. DM-form events (no roomId) resolve the conversation
+  /// through the confirmer's DM mapping; unresolvable events are
+  /// dropped — the next room sync re-derives the listing tick anyway.
+  void _onMessageDelivered(MessageDeliveredEvent event) {
+    final resolvedRoomId = event.roomId ?? _dmContacts.roomIdFor(event.userId);
+    if (resolvedRoomId == null) return;
+    final controller = _controllers[resolvedRoomId];
+    if (controller == null) {
+      // Room not open: best-effort freshness for the room-list tick.
+      // The mutator only applies it when the event's message IS the
+      // row's own last message; anything else rehydrates on open.
+      _updateRoomListReceipt(
+        resolvedRoomId,
+        event.messageId,
+        ReceiptStatus.delivered,
+      );
+      return;
+    }
+    controller.applyDeliveryCursor(
+      userId: event.userId,
+      messageId: event.messageId,
+      seq: event.seq,
+    );
+    // Mirror the aggregate of the newest own message onto the row so
+    // the chat-list tick moves in lockstep with the bubbles.
+    for (final m in controller.messages.reversed) {
+      if (m.from != _currentUser().id) continue;
+      final status = controller.receiptStatuses[m.id];
+      if (status != null) {
+        _updateRoomListReceipt(resolvedRoomId, m.id, status);
+      }
+      return;
+    }
+  }
+
+  /// Records the server-assigned seq of an own message (single gray
+  /// tick confirmation). The seq feeds numeric cursor coverage in the
+  /// controller; hosts correlate WS sends via the event's metadata.
+  void _onMessageAcked(MessageAckedEvent event) {
+    final toUserId = event.toUserId;
+    final resolvedRoomId =
+        event.roomId ??
+        (toUserId != null ? _dmContacts.roomIdFor(toUserId) : null);
+    if (resolvedRoomId == null) return;
+    _controllers[resolvedRoomId]?.recordMessageSeq(event.messageId, event.seq);
+  }
+
   void _onNewMessage(ChatMessage message, String roomId) {
     _controllers[roomId]?.addMessage(message);
     _cache?.saveMessages(roomId, [message]);
@@ -400,20 +464,15 @@ class ChatEventRouter {
     if (isActiveRoom) {
       // Read receipt with the just-arrived messageId as high-water mark.
       // The backend fans `receipt_updated` to the sender so their bubble
-      // flips ✓✓ → ✓✓-blue in real time, exactly as WhatsApp does.
+      // flips ✓✓ → ✓✓-blue in real time, exactly as WhatsApp does. The
+      // read receipt implies delivery server-side, so no separate
+      // delivered confirmation is needed here.
       unawaited(_markAsReadFn(roomId, lastReadMessageId: message.id));
-    } else {
-      // Fire-and-forget delivery receipt. Best-effort: failure here only
-      // means the sender will see the message in `sent` state for longer.
-      unawaited(
-        _client.messages
-            .sendReceipt(roomId, message.id, status: ReceiptStatus.delivered)
-            .catchError(
-              (_) => const ChatFailureResult<void>(
-                UnexpectedFailure('delivery receipt failed'),
-              ),
-            ),
-      );
+    } else if (_autoConfirmDelivery) {
+      // Fire-and-forget delivered-cursor confirmation, coalesced per
+      // room. Best-effort: failure here only means the sender sees the
+      // message in `sent` state for longer.
+      unawaited(_confirmDeliveredFn(roomId, message.id));
     }
   }
 

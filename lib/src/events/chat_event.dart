@@ -164,6 +164,32 @@ sealed class ChatEvent {
     String? fromUserId,
   }) = ReceiptUpdatedEvent;
 
+  /// The server durably persisted an own outgoing message (single gray
+  /// tick). [seq] is the server-assigned per-conversation sequence
+  /// number. Exactly one of [roomId] / [toUserId] is non-null (room vs
+  /// DM form). [metadata] echoes the message's metadata verbatim, so a
+  /// client-generated correlation id (e.g. `clientMsgId`) placed there
+  /// at send time comes back in the ack.
+  const factory ChatEvent.messageAcked({
+    String? roomId,
+    String? toUserId,
+    required String messageId,
+    required int seq,
+    Map<String, dynamic>? metadata,
+  }) = MessageAckedEvent;
+
+  /// [userId]'s delivered cursor advanced: every message at-or-before
+  /// [messageId] in conversation order is now delivered to them.
+  /// Consolidated by design — a single event can flip the ticks of
+  /// many messages. [roomId] is null in the DM form (the conversation
+  /// is identified by [userId], the peer).
+  const factory ChatEvent.messageDelivered({
+    String? roomId,
+    required String userId,
+    required String messageId,
+    required int seq,
+  }) = MessageDeliveredEvent;
+
   /// A reaction was removed from a message.
   const factory ChatEvent.reactionDeleted({
     required String roomId,
@@ -502,6 +528,54 @@ final class ReceiptUpdatedEvent extends ChatEvent {
           other.status == status;
   @override
   int get hashCode => Object.hash(roomId, messageId, status);
+}
+
+final class MessageAckedEvent extends ChatEvent {
+  final String? roomId;
+  final String? toUserId;
+  final String messageId;
+  final int seq;
+  final Map<String, dynamic>? metadata;
+  const MessageAckedEvent({
+    this.roomId,
+    this.toUserId,
+    required this.messageId,
+    required this.seq,
+    this.metadata,
+  });
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MessageAckedEvent &&
+          other.roomId == roomId &&
+          other.toUserId == toUserId &&
+          other.messageId == messageId &&
+          other.seq == seq;
+  @override
+  int get hashCode => Object.hash(roomId, toUserId, messageId, seq);
+}
+
+final class MessageDeliveredEvent extends ChatEvent {
+  final String? roomId;
+  final String userId;
+  final String messageId;
+  final int seq;
+  const MessageDeliveredEvent({
+    this.roomId,
+    required this.userId,
+    required this.messageId,
+    required this.seq,
+  });
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is MessageDeliveredEvent &&
+          other.roomId == roomId &&
+          other.userId == userId &&
+          other.messageId == messageId &&
+          other.seq == seq;
+  @override
+  int get hashCode => Object.hash(roomId, userId, messageId, seq);
 }
 
 final class ReactionDeletedEvent extends ChatEvent {

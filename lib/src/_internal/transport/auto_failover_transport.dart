@@ -143,6 +143,10 @@ class AutoFailoverTransport implements RealtimeTransport {
   }) => _primary.sendReceipt(roomId, messageId, status: status);
 
   @override
+  void sendDelivered(String roomId, String messageId) =>
+      _primary.sendDelivered(roomId, messageId);
+
+  @override
   Future<void> notifyTokenRotated() async {
     // Primary route: WS frame inline.
     if (_primary.state == ChatConnectionState.connected) {

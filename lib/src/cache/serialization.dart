@@ -447,6 +447,10 @@ Map<String, dynamic> receiptToMap(ReadReceipt r) => {
   'userId': r.userId,
   if (r.lastReadMessageId != null) 'lastReadMessageId': r.lastReadMessageId,
   if (r.lastReadAt != null) 'lastReadAt': r.lastReadAt!.toIso8601String(),
+  if (r.lastDeliveredMessageId != null)
+    'lastDeliveredMessageId': r.lastDeliveredMessageId,
+  if (r.lastDeliveredAt != null)
+    'lastDeliveredAt': r.lastDeliveredAt!.toIso8601String(),
 };
 
 ReadReceipt receiptFromMap(Map<String, dynamic> map) => ReadReceipt(
@@ -454,5 +458,9 @@ ReadReceipt receiptFromMap(Map<String, dynamic> map) => ReadReceipt(
   lastReadMessageId: map['lastReadMessageId'] as String?,
   lastReadAt: map['lastReadAt'] != null
       ? DateTime.tryParse(map['lastReadAt'] as String)
+      : null,
+  lastDeliveredMessageId: map['lastDeliveredMessageId'] as String?,
+  lastDeliveredAt: map['lastDeliveredAt'] != null
+      ? DateTime.tryParse(map['lastDeliveredAt'] as String)
       : null,
 );

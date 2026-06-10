@@ -679,11 +679,31 @@ abstract class ChatMessagesApi {
   /// the exact last-read message). For bulk "mark everything read"
   /// prefer [markRoomAsRead] — it's one round-trip and emits a single
   /// receipt event per recipient. Backend emits `receipt_updated` so
-  /// the original sender's checkmarks flip in real time.
+  /// the original sender's checkmarks flip in real time. For delivery
+  /// confirmations prefer [markRoomAsDelivered] — the server treats a
+  /// `delivered` receipt as a cursor anyway, and the dedicated call is
+  /// consolidated by design.
   Future<ChatResult<void>> sendReceipt(
     String roomId,
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
+  });
+
+  /// Confirms delivery of every message in [roomId] up to and including
+  /// [lastDeliveredMessageId] (the delivered cursor — WhatsApp's double
+  /// gray tick).
+  ///
+  /// Consolidated by design: one call per conversation covers any
+  /// number of messages. The backend advances the per-user delivered
+  /// cursor (a max-register, so re-confirming older messages is a
+  /// silent no-op) and fans out a single `message_delivered` event to
+  /// the other members only when the cursor actually moved. The UI
+  /// adapter calls this automatically when `autoConfirmDelivery` is on;
+  /// hosts driving ticks manually call it when their client has
+  /// rendered/stored the messages.
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
   });
 
   /// Marks all messages in a room as read, optionally up to a specific message.

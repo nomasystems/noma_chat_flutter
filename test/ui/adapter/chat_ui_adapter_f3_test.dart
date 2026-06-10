@@ -248,6 +248,15 @@ class _FailableMessagesApi implements ChatMessagesApi {
   }) => _delegate.markRoomAsRead(roomId, lastReadMessageId: lastReadMessageId);
 
   @override
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
+  }) => _delegate.markRoomAsDelivered(
+    roomId,
+    lastDeliveredMessageId: lastDeliveredMessageId,
+  );
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,
   ) => _delegate.getRoomReceipts(roomId);

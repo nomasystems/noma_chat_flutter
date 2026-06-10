@@ -307,6 +307,42 @@ void main() {
       expect(captured['status'], 'read');
     });
 
+    test('markRoomAsDelivered() sends the WS delivered frame when connected '
+        'and falls back to PUT receipts when not', () async {
+      // WS connected → one `delivered` frame, no REST.
+      final transport = _MockTransportManager();
+      when(() => transport.isWsConnected).thenReturn(true);
+      final apiWithWs = RestMessagesApi(rest: rest, transport: transport);
+
+      final wsResult = await apiWithWs.markRoomAsDelivered(
+        'r1',
+        lastDeliveredMessageId: 'msg-7',
+      );
+      expect(wsResult.isSuccess, isTrue);
+      verify(() => transport.sendDelivered('r1', 'msg-7')).called(1);
+      verifyNever(() => rest.putVoid(any(), data: any(named: 'data')));
+
+      // No WS → PUT receipts with status=delivered (server reroutes
+      // it to the same cursor path).
+      when(
+        () => rest.putVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
+      final restResult = await api.markRoomAsDelivered(
+        'r1',
+        lastDeliveredMessageId: 'msg-7',
+      );
+      expect(restResult.isSuccess, isTrue);
+      final captured =
+          verify(
+                () => rest.putVoid(
+                  '/rooms/r1/messages/msg-7/receipts',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['status'], 'delivered');
+    });
+
     test('send() returns ChatFailureResult on API exception', () async {
       when(
         () => rest.post(any(), data: any(named: 'data')),
