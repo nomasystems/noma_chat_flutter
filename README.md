@@ -130,6 +130,17 @@ theme: ChatTheme(
 )
 ```
 
+Even the delivery ticks are replaceable — per state, with SDK fallback:
+
+```dart
+bubble: ChatBubbleTheme(
+  statusIconBuilder: (context, data) =>
+      data.state == MessageDeliveryState.read
+      ? Icon(Icons.done_all, size: data.size, color: Colors.teal)
+      : null, // SDK default for the other states
+)
+```
+
 See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+ fields.
 
 ---
