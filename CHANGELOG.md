@@ -8,6 +8,27 @@ onwards, breaking changes require a **major version bump**.
 
 ## [Unreleased]
 
+### Changed
+
+- **Backend contract pinned to OpenAPI `1.0.0`.** The bundled spec
+  (`doc/user-openapi.yml`) now tracks the first stable version of the
+  Nomasystems chat API (previously an internal `2.10.0` numbering that never
+  shipped). The copy stays byte-identical to the backend source of truth.
+- **Managed-user webhook config speaks the `1.0.0` wire format.** It is now
+  serialized as `{ url, authMethod, authToken }` instead of the old nested
+  `auth` object. The public `WebhookConfig` model is unchanged (bearer token,
+  or basic username + password); basic credentials are sent as standard
+  base64 `user:pass`. Legacy nested `auth{}` payloads are still parsed for
+  resilience against stale servers or caches.
+
+### Fixed
+
+- **Direct message to a contact who has blocked you (HTTP 204) no longer yields
+  a phantom message.** Per the `1.0.0` contract the backend silently drops it
+  with an empty body (WhatsApp parity). The SDK now synthesizes a local `sent`
+  message instead of an empty, id-less one, so the bubble shows as sent and
+  never advances to delivered/read — exactly what a blocked sender sees.
+
 ## [0.9.2] - 2026-05-29
 
 ### Docs
