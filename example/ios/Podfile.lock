@@ -44,7 +44,7 @@ PODS:
     - TOCropViewController (~> 3.1.2)
   - image_picker_ios (0.0.1):
     - Flutter
-  - record_ios (1.2.0):
+  - record_ios (2.0.0):
     - Flutter
   - SDWebImage (5.21.7):
     - SDWebImage/Core (= 5.21.7)
@@ -111,7 +111,7 @@ SPEC CHECKSUMS:
   Flutter: cabc95a1d2626b1b06e7179b784ebcf0c0cde467
   image_cropper: d3ba338ce166ebe54a4e1de742829354b521d473
   image_picker_ios: 4f2f91b01abdb52842a8e277617df877e40f905b
-  record_ios: 26294aaa39e4bb7665b0fef78bdc23d723b432f2
+  record_ios: 41f9412c3311401689babe6d7ba69362f10b8325
   SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   shared_preferences_foundation: 5086985c1d43c5ba4d5e69a4e8083a389e2909e6
   sqflite_darwin: 5a7236e3b501866c1c9befc6771dfd73ffb8702d

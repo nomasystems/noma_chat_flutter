@@ -137,6 +137,25 @@ class ContactsApi implements ChatContactsApi {
           if (metadata != null) 'metadata': metadata,
         },
       );
+      // HTTP 204 (empty body): the backend accepted the message but silently
+      // dropped it because the recipient has blocked the sender (WhatsApp
+      // parity). Synthesize a local `sent` message instead of mapping an
+      // id-less phantom — it shows as sent and never advances to
+      // delivered/read, exactly what a blocked sender sees.
+      if (json.isEmpty) {
+        return ChatMessage(
+          id: 'local-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
+          from: _rest.userId ?? '',
+          timestamp: DateTime.now(),
+          text: text,
+          messageType: messageType,
+          referencedMessageId: referencedMessageId,
+          reaction: reaction,
+          attachmentUrl: attachmentUrl,
+          metadata: metadata,
+          receipt: ReceiptStatus.sent,
+        );
+      }
       return MessageMapper.fromJson(json);
     });
     if (result.isSuccess && _cache != null) {

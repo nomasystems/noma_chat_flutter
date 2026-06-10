@@ -22,6 +22,13 @@ info:
     `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` headers.
     When the limit is exceeded, the server responds `429 Too Many Requests`.
 
+    ## Error responses
+    Error bodies share the shape `{ "code": <int>, "detail": <string> }`. In addition to the
+    per-operation `4xx` responses documented below, **any endpoint may return
+    `500 Internal Server Error`** on an unexpected fault, and `503 Service Unavailable` when a
+    backing dependency (MongoDB, ejabberd) is transiently unreachable. These transversal `5xx`
+    responses are part of the contract but are not repeated on every operation to avoid noise.
+
     ## CORS
     CORS is not handled by the API itself. A reverse proxy or API gateway
     should be configured to add the appropriate CORS headers.
@@ -32,7 +39,7 @@ info:
     - **WebSocket**: `WS /ws` for bidirectional communication
 
     Both real-time channels can be enabled/disabled by configuration.
-  version: 2.10.0
+  version: 1.0.0
   contact:
     name: Nomasystems
   license:
@@ -114,7 +121,7 @@ paths:
       parameters:
         - name: q
           in: query
-          required: true
+          required: false
           schema:
             type: string
             minLength: 2
@@ -251,6 +258,11 @@ paths:
     delete:
       operationId: deleteUser
       summary: Delete a user
+      description: >
+        Deletes the authenticated user's own account. The endpoint always
+        operates on the authenticated account; the `userId` path parameter
+        is informational. Idempotent: returns 204 even if the account is
+        already gone.
       tags:
         - users
       parameters:
@@ -261,10 +273,6 @@ paths:
           description: User deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -286,6 +294,8 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ManagedUserResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -302,6 +312,8 @@ paths:
       responses:
         "201":
           $ref: "#/components/responses/ManagedUsersListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -326,6 +338,8 @@ paths:
           $ref: "#/components/responses/ManagedUsersListResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -369,6 +383,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
     put:
@@ -386,10 +402,14 @@ paths:
       responses:
         "204":
           description: Configuration updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -416,8 +436,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "409":
-          $ref: "#/components/responses/Conflict"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
@@ -479,6 +499,10 @@ paths:
       responses:
         "201":
           $ref: "#/components/responses/PostMessageResponse"
+        "204":
+          description: >-
+            Message accepted but not delivered because the recipient has blocked
+            the sender (silent drop, WhatsApp parity). No response body.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -556,8 +580,12 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/RoomsListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -719,6 +747,8 @@ paths:
           $ref: "#/components/responses/RoomUsersResponse"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -764,6 +794,8 @@ paths:
                     detail:
                       type: string
                       description: Error description (only present when result is "error")
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1288,6 +1320,8 @@ paths:
       responses:
         "204":
           description: Message updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1308,6 +1342,8 @@ paths:
       responses:
         "204":
           description: Message deleted
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1690,6 +1726,8 @@ paths:
                       properties:
                         reporterId:
                           type: string
+                        targetUserId:
+                          type: string
                         messageId:
                           type: string
                         roomId:
@@ -1774,8 +1812,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -1864,8 +1900,12 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/MessageListResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -2028,6 +2068,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -2179,6 +2221,8 @@ paths:
       responses:
         "204":
           description: Presence updated
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -2202,6 +2246,8 @@ paths:
                 $ref: "#/components/schemas/PresenceInfo"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
         "429":
@@ -2240,6 +2286,8 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -2476,6 +2524,13 @@ paths:
                     enum: [degraded]
                   checks:
                     type: object
+                    properties:
+                      memtabd:
+                        type: string
+                      db:
+                        type: string
+                      ejabberd:
+                        type: string
 
   # ============================================================
   # ADMIN
@@ -2686,6 +2741,9 @@ paths:
                       $ref: "#/components/schemas/User"
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2745,6 +2803,9 @@ paths:
                       $ref: "#/components/schemas/AdminSession"
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -2940,7 +3001,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/StatusOk"
         "400":
-          description: Announcement room not created
+          description: Missing required `message` field
           content:
             application/json:
               schema:
@@ -3030,6 +3091,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/StatusOk"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3110,6 +3173,11 @@ paths:
                     type: array
                     items:
                       $ref: "#/components/schemas/ContentFilter"
+                  hasMore:
+                    type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3185,6 +3253,9 @@ paths:
                       $ref: "#/components/schemas/AdminRoom"
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3211,6 +3282,19 @@ paths:
                 properties:
                   room:
                     $ref: "#/components/schemas/AdminRoom"
+                  stats:
+                    type: object
+                    properties:
+                      messageCount:
+                        type: integer
+                      lastMessageAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+                  recentMessages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminMessage"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3344,7 +3428,7 @@ paths:
         - name: q
           in: query
           description: Search query (minimum 2 characters)
-          required: true
+          required: false
           schema:
             type: string
         - name: roomId
@@ -3376,6 +3460,8 @@ paths:
                       $ref: "#/components/schemas/AdminMessage"
                   hasMore:
                     type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3624,6 +3710,9 @@ paths:
                       $ref: "#/components/schemas/AdminMute"
                   hasMore:
                     type: boolean
+                  totalGlobalBans:
+                    type: integer
+                    description: Count of globally banned (deactivated) users
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3667,6 +3756,9 @@ paths:
                       $ref: "#/components/schemas/AdminReport"
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3762,6 +3854,11 @@ paths:
                           format: date-time
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3840,6 +3937,9 @@ paths:
                       $ref: "#/components/schemas/AdminBan"
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -3968,6 +4068,9 @@ paths:
                       $ref: "#/components/schemas/AdminMute"
                   hasMore:
                     type: boolean
+                  total:
+                    type: integer
+                    description: Total number of items before pagination
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -4447,8 +4550,6 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -4865,9 +4966,8 @@ paths:
       summary: List user-to-user block records globally
       description: |
         Paginated list of all user-to-user block records. Each record links a
-        `blockerId` to a `blockedId` (external ids) plus the composite
-        document id used as key. Useful for support investigations and audits.
-        Requires admin role.
+        `blockerId` to a `blockedId` (external ids). Useful for support
+        investigations and audits. Requires admin role.
       tags:
         - admin
       parameters:
@@ -4905,9 +5005,6 @@ paths:
                     items:
                       type: object
                       properties:
-                        id:
-                          type: string
-                          description: Composite key (`userId::blockedUserId`).
                         blockerId:
                           type: string
                         blockedId:
@@ -5049,8 +5146,6 @@ paths:
           description: User deleted
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "404":
-          $ref: "#/components/responses/NotFound"
 
   /internal/rooms:
     post:
@@ -5073,8 +5168,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /internal/rooms/{roomId}:
     delete:
@@ -5130,10 +5227,12 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
+        "409":
+          $ref: "#/components/responses/Conflict"
 
   /internal/rooms/{roomId}/users/{userId}:
     delete:
@@ -5194,8 +5293,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
 
   /internal/rooms/{roomId}/config:
     put:
@@ -5225,12 +5322,11 @@ paths:
                   type: string
                 subject:
                   type: string
-                audience:
+                avatarUrl:
                   type: string
-                  enum:
-                    - public
-                    - contacts
-                    - unrestricted
+                custom:
+                  type: object
+                  additionalProperties: true
       responses:
         "204":
           description: Room configuration updated
@@ -5242,8 +5338,6 @@ paths:
           $ref: "#/components/responses/Forbidden"
         "404":
           $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
 
   /internal/rooms/{roomId}/messages:
     post:
@@ -5304,8 +5398,10 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /internal/contacts:
     post:
@@ -5376,6 +5472,8 @@ paths:
       responses:
         "204":
           description: User blocked
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
     delete:
@@ -5584,6 +5682,9 @@ components:
         pinned:
           type: boolean
           description: Whether the requesting user has pinned this room
+        selfMuted:
+          type: boolean
+          description: Whether an admin/owner has muted (silenced) the requesting user in this room
         config:
           type: object
           properties:
@@ -5623,7 +5724,7 @@ components:
     AdminBan:
       type: object
       properties:
-        id:
+        _id:
           type: string
           description: Document ID (format `userId::roomId`)
         userId:
@@ -5641,7 +5742,7 @@ components:
     AdminMute:
       type: object
       properties:
-        id:
+        _id:
           type: string
           description: Document ID (format `userId::roomId`)
         userId:
@@ -5697,6 +5798,33 @@ components:
         roomId:
           $ref: "#/components/schemas/RoomId"
           description: Room where the message was sent
+        id:
+          $ref: "#/components/schemas/MessageId"
+          description: Alias of messageId (admin-panel denormalisation)
+        body:
+          type: string
+          nullable: true
+          description: Alias of text (admin-panel denormalisation)
+        senderId:
+          $ref: "#/components/schemas/UserId"
+          description: Alias of from (admin-panel denormalisation)
+        time:
+          type: string
+          format: date-time
+          description: Alias of timestamp (admin-panel denormalisation)
+        deleted:
+          type: boolean
+          description: Alias of isDeleted (admin-panel denormalisation)
+        type:
+          $ref: "#/components/schemas/MessageType"
+          description: Derived message envelope type
+        attachmentUrl:
+          type: string
+          nullable: true
+        attachmentDownloadUrl:
+          type: string
+          nullable: true
+          description: Admin-proxy download URL that bypasses raw slot expiry
 
     AdminRoom:
       type: object
@@ -5730,6 +5858,14 @@ components:
           type: object
           nullable: true
           additionalProperties: true
+        displayNames:
+          type: object
+          additionalProperties: true
+          description: Map of member external id to display name
+        type:
+          type: string
+          nullable: true
+          description: Room type (e.g. announcement) or null
 
     AdminSession:
       type: object
@@ -5738,9 +5874,13 @@ components:
         userId:
           type: string
           description: External user ID
-        pid:
+        mode:
           type: string
-          description: Erlang process identifier
+          enum:
+            - realtime
+            - webhook
+            - unknown
+          description: Delivery mode of the active session callback
 
     AdminReport:
       type: object
@@ -5754,8 +5894,13 @@ components:
           description: User who filed the report
         messageId:
           type: string
+        targetUserId:
+          type: string
+          description: User the report targets (for user-level reports)
         roomId:
           type: string
+          nullable: true
+          description: Room the report targets; null for global/user-level reports
         reason:
           type: string
         reportedAt:
@@ -5898,18 +6043,12 @@ components:
         url:
           type: string
           format: uri
-        auth:
-          type: object
-          properties:
-            type:
-              type: string
-              enum: [bearer, basic]
-            token:
-              type: string
-            username:
-              type: string
-            password:
-              type: string
+        authToken:
+          type: string
+          description: Bearer token or basic credentials sent to the webhook.
+        authMethod:
+          type: string
+          enum: [bearer, basic]
 
     UserRole:
       type: string
@@ -6080,6 +6219,9 @@ components:
           type: boolean
           description: Whether the user has hidden this room
           default: false
+        selfMuted:
+          type: boolean
+          description: Whether an admin/owner has muted (silenced) the requesting user in this room
 
     UserRooms:
       type: object
@@ -6207,13 +6349,8 @@ components:
           items:
             $ref: "#/components/schemas/ReactionSummary"
           description: Aggregated reactions on this message
-        reply:
-          type: string
-          description: Reply text
         metadata:
           $ref: "#/components/schemas/Metadata"
-        receipt:
-          $ref: "#/components/schemas/ReceiptStatus"
         text_history:
           type: array
           items:
@@ -6236,7 +6373,6 @@ components:
         timestamp: "2026-03-27T10:30:00Z"
         text: "Hello team! Sprint planning starts now."
         messageType: "regular"
-        receipt: "delivered"
 
     NewMessage:
       type: object
@@ -6302,7 +6438,8 @@ components:
         lastSeen:
           type: string
           format: date-time
-          description: Last time the user was online
+          nullable: true
+          description: Last time the user was online; null if never/unknown
       example:
         userId: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
         status: "busy"
@@ -6335,6 +6472,7 @@ components:
         - reaction_added
         - reaction_deleted
         - broadcast
+        - user_updated
 
     ServerEvent:
       type: object
