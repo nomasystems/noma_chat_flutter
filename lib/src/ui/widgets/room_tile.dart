@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../models/message.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
@@ -235,11 +236,7 @@ class RoomTile extends StatelessWidget {
     if (showReceipt) {
       return Row(
         children: [
-          MessageStatusIcon(
-            status: room.lastMessageReceipt!,
-            theme: theme,
-            size: 12,
-          ),
+          _buildReceiptIcon(context, room.lastMessageReceipt!),
           const SizedBox(width: 4),
           Expanded(
             child: Text(
@@ -259,6 +256,23 @@ class RoomTile extends StatelessWidget {
       overflow: TextOverflow.ellipsis,
       style: style,
     );
+  }
+
+  /// Receipt tick next to the preview when the last message is mine.
+  /// Honors `theme.bubble.statusIconBuilder` (with `message: null` —
+  /// listings only know the receipt, not the full message) and falls
+  /// back to the default [MessageStatusIcon].
+  Widget _buildReceiptIcon(BuildContext context, ReceiptStatus receipt) {
+    final state = switch (receipt) {
+      ReceiptStatus.sent => MessageDeliveryState.sent,
+      ReceiptStatus.delivered => MessageDeliveryState.delivered,
+      ReceiptStatus.read => MessageDeliveryState.read,
+    };
+    return theme.bubble.statusIconBuilder?.call(
+          context,
+          MessageStatusIconData(state: state, size: 12),
+        ) ??
+        MessageStatusIcon(status: receipt, theme: theme, size: 12);
   }
 
   Widget _buildTypingSubtitle() {

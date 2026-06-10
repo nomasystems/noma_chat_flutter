@@ -34,6 +34,17 @@ onwards, breaking changes require a **major version bump**.
   delivered ticks too, and read coverage uses conversation order against
   `lastReadMessageId` instead of the over-marking timestamp comparison
   (kept only as fallback for whole-room reads).
+- **`ChatBubbleTheme.statusIconBuilder`** — per-state override of the
+  delivery-status icon, applied both at the bubble corner and next to the
+  room-list preview. The builder receives a `MessageStatusIconData`
+  (`MessageDeliveryState` — sending / sent / delivered / read / failed —
+  plus the suggested size and, in bubbles, the message); returning `null`
+  falls back to the SDK default for that state, so partial overrides are
+  one switch case away. The default rendering is unchanged.
+- **`ChatBubbleTheme.statusPendingColor`** — dedicated color for the
+  pending clock shown while a message is in flight (falls back to
+  `statusColor`, so existing themes look the same). The clock also gains
+  a "Sending" semantics label (`ChatUiLocalizations.statusSending`).
 
 > Compatibility: 0.9.x clients keep working against a backend that emits the
 > new events (unknown types are ignored), but their live delivered tick stops

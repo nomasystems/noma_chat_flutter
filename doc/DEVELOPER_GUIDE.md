@@ -593,6 +593,53 @@ ChatView(
 )
 ```
 
+### MessageStatusIconBuilder
+
+Replace the delivery-status icon (the WhatsApp-style ticks) per state. The
+builder lives in `ChatBubbleTheme` and is consulted at both render sites:
+the corner of outgoing bubbles and the last-message preview in the room
+list.
+
+```dart
+typedef MessageStatusIconBuilder =
+    Widget? Function(BuildContext context, MessageStatusIconData data);
+```
+
+`MessageStatusIconData` carries:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `state` | `MessageDeliveryState` | `sending` / `sent` / `delivered` / `read` / `failed` |
+| `size` | `double` | Suggested icon height (14 in bubbles, 12 in the room-list preview) |
+| `message` | `ChatMessage?` | The message the icon belongs to; `null` in room-list previews |
+
+Return `null` to fall back to the SDK default for that state — partial
+overrides are one switch case away:
+
+```dart
+theme: ChatTheme(
+  bubble: ChatBubbleTheme(
+    statusIconBuilder: (context, data) => switch (data.state) {
+      MessageDeliveryState.read =>
+          Icon(Icons.done_all, size: data.size, color: Colors.teal),
+      MessageDeliveryState.failed =>
+          Icon(Icons.sms_failed, size: data.size, color: Colors.orange),
+      _ => null, // SDK default for sending / sent / delivered
+    },
+  ),
+)
+```
+
+Notes:
+
+- The failed icon keeps the bubble's tap-to-retry behavior even when
+  overridden — the SDK wraps your widget with the retry gesture.
+- Only `sent` / `delivered` / `read` reach the room-list preview
+  (`sending` / `failed` are bubble-local states).
+- Color-only tweaks don't need the builder: `statusColor`,
+  `statusReadColor`, `statusPendingColor` and `failedIconColor` cover the
+  default icons.
+
 ### AvatarStorage
 
 Plug in your own storage backend for uploaded avatars:
@@ -637,7 +684,9 @@ ChatView(
 ```dart
 ChatTheme(
   // Sub-themes
-  bubble: ChatBubbleTheme(...),      // incoming/outgoing colors, radius, padding, text style
+  bubble: ChatBubbleTheme(...),      // incoming/outgoing colors, radius, text style,
+                                     // status tick colors (statusColor / statusReadColor /
+                                     // statusPendingColor) + statusIconBuilder override
   input: ChatInputTheme(...),        // background, hint, send button, attachment icon
   roomList: ChatRoomListTheme(...),  // tile, unread badge, separator
   markdown: ChatMarkdownTheme(...),  // bold, italic, code, link styles
