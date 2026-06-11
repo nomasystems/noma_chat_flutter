@@ -67,6 +67,11 @@ final class PendingSendMessage extends PendingOperation {
   final Map<String, dynamic>? metadata;
   final String? tempId;
 
+  /// Idempotency key reused across every retry of this queued send so a
+  /// delivery that actually reached the server (before the failure
+  /// surfaced) is not duplicated on drain. See [ChatMessagesApi.send].
+  final String? clientMessageId;
+
   PendingSendMessage({
     required super.id,
     required this.roomId,
@@ -78,6 +83,7 @@ final class PendingSendMessage extends PendingOperation {
     this.sourceRoomId,
     this.metadata,
     this.tempId,
+    this.clientMessageId,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -96,6 +102,7 @@ final class PendingSendMessage extends PendingOperation {
     if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
     if (metadata != null) 'metadata': metadata,
     if (tempId != null) 'tempId': tempId,
+    if (clientMessageId != null) 'clientMessageId': clientMessageId,
   };
 
   @override
@@ -111,6 +118,7 @@ final class PendingSendMessage extends PendingOperation {
         sourceRoomId: sourceRoomId,
         metadata: metadata,
         tempId: tempId,
+        clientMessageId: clientMessageId,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -503,12 +511,20 @@ class OfflineQueue {
   bool get isNotEmpty => _queue.isNotEmpty;
   List<PendingOperation> get pending => _queue.toList();
 
+  /// Reloads persisted operations into the in-memory queue. Deduplicates
+  /// by operation `id` against whatever is already queued, so a repeated
+  /// `restore()` — e.g. the documented background→foreground
+  /// disconnect/connect cycle calling it on every `connect()` — never
+  /// duplicates pending sends (N enqueued ops would otherwise become 2N
+  /// after the second restore and fire twice on reconnect).
   Future<void> restore() async {
     if (_store == null) return;
     final maps = (await _store.getOfflineQueue()).dataOrNull ?? const [];
+    final seenIds = _queue.map((op) => op.id).toSet();
     for (final map in maps) {
       final op = _deserializeOperation(map);
-      if (op != null) _queue.add(op);
+      if (op == null) continue;
+      if (seenIds.add(op.id)) _queue.add(op);
     }
   }
 
@@ -565,7 +581,13 @@ class OfflineQueue {
         }
 
         if (op.nextRetryAt != null && _clock().isBefore(op.nextRetryAt!)) {
+          // Still in backoff: defer to a later drain. Count it as processed so
+          // the loop always advances towards `snapshot` — otherwise, when every
+          // remaining op is in backoff, this while spins synchronously (no
+          // await on this path) until the clock passes nextRetryAt, freezing
+          // the isolate for up to the max backoff.
           _queue.add(op);
+          processed++;
           continue;
         }
 
@@ -663,6 +685,7 @@ class OfflineQueue {
             sourceRoomId: map['sourceRoomId'] as String?,
             metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
             tempId: map['tempId'] as String?,
+            clientMessageId: map['clientMessageId'] as String?,
           );
         case 'sendDirectMessage':
           return PendingSendDirectMessage(

@@ -6,10 +6,181 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
-## [Unreleased]
+## [0.10.0] - 2026-06-17
 
 ### Added
 
+- **Global message search — `messages.search()` `roomId` is now optional.**
+  `roomId` changed from a required to an optional named argument
+  (`String? roomId`). Call `messages.search(query)` to search **globally**
+  across every room the caller belongs to (the backend scopes results to the
+  authenticated user's rooms); `messages.search(query, roomId: 'x')` keeps the
+  single-room behaviour. The `roomId` query param is sent to
+  `GET /messages/search` only when non-null. Non-breaking for existing
+  single-room callers, who already pass `roomId:` by name. New `ChatMessagesApi`
+  interface contract — see the migration note for custom implementers.
+- **Unified room preferences — `rooms.patchPreferences()`.** New
+  `rooms.patchPreferences(roomId, {muted?, muteUntil?, pinned?, hidden?})`
+  sends a single partial `PATCH /rooms/{roomId}/preferences` and returns the
+  merged server-side state as a new `RoomPreferences` model (`muted`,
+  `pinned`, `hidden`, `muteUntil?`). Pass only the fields you want to change;
+  a non-null `muteUntil` is sent as an ISO-8601 string for WhatsApp-style
+  timed mutes. This is the single write path for room preferences on the data
+  API. `ChatResult` gains a `discardValue()` helper (plus a matching
+  `Future<ChatResult<T>>` extension) that drops a success value to
+  `ChatResult<void>` while preserving the outcome. New `ChatRoomsApi` interface
+  method — see the migration note for custom implementers.
+- **Stable error tokens — `ChatFailure.errorToken`.** Every `ChatFailure` now
+  exposes an optional `String? errorToken`: a stable snake_case symbolic code
+  from the server's vocabulary (`room_not_found`, `edit_window_expired`,
+  `blocked`, `rate_limited`, `cannot_delete_other_user`, …) surfaced alongside
+  the existing `{code, detail}`. Host apps should branch and localize on the
+  token instead of the English `message`. Well-known constants live on the new
+  `ChatErrorTokens` holder; the field is a `String?` (not an enum) so a new
+  server token never breaks the SDK. The token also rides on
+  `OperationError.failure.errorToken`. Purely additive.
+- **GDPR self-deletion — `users.deleteCurrentUser()`.** New method calling
+  `DELETE /users/me`, the robust default for self-service account erasure (the
+  server resolves the principal from the auth token, so it can't target the
+  wrong account). New `ChatUsersApi` interface method — see the migration note
+  for custom implementers.
+- **Member-list `users` expansion — no more N+1 for group rosters.**
+  `members.list` gains an `expand` param; passing
+  `[RoomMemberExpand.users]` sends `?expand=users` and the backend embeds each
+  member's `displayName` + `avatarUrl` straight in the row. `RoomUser` gains
+  nullable `displayName` / `avatarUrl` (populated only on an expanded
+  response). Rendering a group roster no longer needs a `GET /users/{id}` per
+  member — one `list` call carries everything. The built-in `GroupMembersView`
+  now requests this expansion and seeds the adapter user cache from the
+  embedded fields, eliminating the per-member profile fetch out of the box.
+  Backward-compatible: without `expand` the fields stay `null` and the
+  user-cache fallback is unchanged. Purely additive.
+- **Canonical reactions endpoint — `messages.addReaction()`.** New
+  `messages.addReaction(roomId, messageId, emoji: '👍')` POSTs the dedicated
+  `/rooms/{roomId}/messages/{messageId}/reactions` sub-resource (HTTP `201`)
+  instead of synthesising a reaction-typed message via
+  `send(messageType: MessageType.reaction)`. Modelling a reaction as a
+  first-class sub-resource keeps it out of the timeline and the offline send
+  queue. `messages.deleteReaction` gains an optional `emoji` — when supplied it
+  sends `?emoji=…` so a specific reaction can be removed (omit it to clear the
+  user's reaction wholesale, the historical behaviour). The built-in
+  optimistic UI reacts and un-reacts through these canonical calls.
+  `addReaction` / `deleteReaction` are the only supported reaction API; the SDK
+  no longer sends reactions via `send(messageType: MessageType.reaction)`. New
+  `ChatMessagesApi` methods — see the migration note for custom implementers.
+- **Bidirectional opaque cursor pagination.** `ChatCursorPaginationParams`
+  carries an opaque `cursor` (String) plus a `direction`
+  (`ChatCursorDirection.older` / `.newer`, emitted as the `direction` query
+  param; `null` lets the backend default to `newer`). `ChatPaginatedResponse`
+  exposes two seq-based cursors: `prevCursor` (parsed from the response `prev`
+  field, anchored on the oldest message of the page) and `nextCursor` (parsed
+  from `next`, anchored on the newest). To load older history pass `prevCursor`
+  with `direction: ChatCursorDirection.older`; to catch up on newer messages
+  pass `nextCursor` with `direction: ChatCursorDirection.newer`. `hasMore`
+  reports whether more pages exist in the requested direction. The cursors are
+  seq-based, so paging never skips or replays messages that share an exact
+  millisecond. The load-more, chat-export, media-gallery and polling/manual
+  realtime paths all run on these cursors.
+- **Signed attachment URLs — `attachments.signedUrl()` (primary download
+  path).** New `attachments.signedUrl(attachmentId, roomId: ...)` returns an
+  `AttachmentSignedUrl` whose `.url` is absolute, short-lived, and
+  self-authorizing (HMAC signature + expiry + user baked in) — it drops
+  straight into `Image.network` / `CachedNetworkImage` / a native viewer with
+  no auth headers to re-attach. Hits
+  `GET /attachments/{attachmentId}/signed-url?roomId=...`; the backend
+  authorizes by room membership fail-closed. `attachments.download` gained an
+  optional `roomId`: when present it takes this same signed-URL path under the
+  hood (falling back to a `roomId`-scoped header request only if the backend
+  returns no URL). New `ChatErrorTokens.notARoomMember` (`not_a_room_member`)
+  is surfaced on the resulting `ForbiddenFailure.errorToken` when the caller
+  isn't a member of the room. New `ChatAttachmentsApi.signedUrl` method — see
+  the migration note for custom implementers.
+- **Canonical managed-users list — `users.getManagedByParent()`.** New
+  `users.getManagedByParent(parentId, {pagination})` calls
+  `GET /users/{parentId}/managed-users`, the backend's canonical replacement
+  for the old `GET /managed-users/{userId}` list path (operationId
+  `getManagedUsersByParent`). Returns the paginated `{users, hasMore}` response
+  shape. The only managed-users list method; it replaces the removed
+  `getManaged` (see Removed). Wired through the `ChatUsersApi` interface, the
+  REST implementation, and the mock client. See the migration note for custom
+  implementers.
+
+- **`NomaChatView` — drop-in chat-room screen.** Wraps `ChatRoomAppBar` +
+  `ChatView` and auto-wires the seven per-room behaviors hosts used to
+  reimplement by hand (history + pin load, unread divider, group member
+  hydration, blocked / room-removed reactions, role-aware context menu, report
+  dialog, reaction-user fetcher). Additive — `ChatView` is unchanged and stays
+  available for fully custom screens. See the migration guide and the
+  Developer Guide for the override slots. A matching quickstart was added to the
+  README so the common case is `NomaChat.create(...)` + `NomaChatView(...)`,
+  with the persistent Hive cache initialized automatically (default
+  `enableCache: true` on `NomaChat.create` opens the store; no manual
+  `Hive.initFlutter()` needed for the default path).
+- **Group invite links — `members.joinWithToken` + `ChatInviteLink`.** Public
+  / invitable rooms can be joined via a shareable link: build one from a room's
+  `publicToken` with `ChatInviteLink(...).toUri(base)`, and self-join from an
+  incoming deep link with `members.joinWithToken(roomId, token: …)` (a wrapper
+  over `invite` with `inviteAndJoin` for the current user). `toUri` and
+  `ChatInviteLink.tryParse` accept custom query-parameter names. Surfaced in
+  the room menu via the new `ChatRoomOption.inviteViaLink` preset (copies the
+  link to the clipboard by default). `joinWithToken` is a new
+  `ChatMembersApi` interface method — see the migration note for custom
+  implementers.
+- **Export a chat — `adapter.messages.exportChat(roomId)`.** Returns a
+  `ChatExport` whose `text` is the room's full history as a WhatsApp-style
+  transcript; writing the file and sharing it is left to the host app (no new
+  dependency). Surfaced via `ChatRoomOption.exportChat`.
+- **"Message info" sheet — `MessageInfoSheet` + `MessageAction.info`.** Lists
+  who read / was delivered a message. `NomaChatView` wires it automatically:
+  `MessageAction.info` is in the default context-menu set and shows only on the
+  user's own messages. (`MessageAction` gained an `info` value — affects
+  exhaustive `switch`es on custom menus only.)
+- **Idempotent sends — `clientMessageId`.** `messages.send` accepts an optional
+  `clientMessageId` (≤128 chars); when set, the backend makes the send
+  idempotent over `(roomId, sender, clientMessageId)` and a POST retry that
+  replays the key returns the already-persisted message instead of a duplicate.
+  The key round-trips inside the response `metadata.clientMessageId`, which the
+  SDK reads back onto `ChatMessage.clientMessageId`. `NomaChatView` / the
+  adapter generate one per optimistic message and the offline queue reuses it
+  on every retry, so a send that actually landed before a network failure
+  surfaced is never duplicated. Pass your own only for custom send flows.
+- **Starred messages — `MessageAction.star` + `StarredMessagesView`.** Per-user
+  bookmarks (WhatsApp-style). `messages.starMessage` / `unstarMessage` and the
+  paginated cross-room `messages.listStarred` are new on `ChatMessagesApi`; the
+  adapter exposes `star` / `unstar` / `loadStarred`. `MessageAction.star` is in
+  the default context menu (wired in `NomaChatView`), and `StarredMessagesView`
+  (or `.fromAdapter(adapter)`) renders the list.
+- **Mute with a duration — `rooms.mute(roomId, until:)`.** Optional `until`
+  (a `DateTime`); omit it for a permanent mute. `ChatRoomOption.muteRoom` is now
+  duration-aware (`onMute(DateTime? until)` + `onUnmute()`) and the SDK presents
+  a `MuteDurationSheet` (8h / 1 week / always) on tap. `RoomDetail`,
+  `UnreadRoom` and `RoomListItem` gained a `muteUntil` field.
+- **"@" mention badge + Archived section.** `UnreadRoom` / `RoomListItem`
+  gained `unreadMentions`; `RoomTile` shows an "@" badge when it is `> 0`.
+  `RoomListView` renders a collapsible **Archived** section for hidden rooms
+  (backed by the existing `hidden` pref); `RoomListController` exposes
+  `archivedRooms` / `hasArchivedRooms`, and `ChatRoomOption.archiveChat` /
+  `unarchiveChat` map to `rooms.hide` / `unhide`.
+- **Edit / delete windows + typed `403` failures.** `ChatViewBehaviors` gained
+  `editWindow` (default 15 min) and `deleteWindow` (default 2 days):
+  `NomaChatView` hides the edit / delete context-menu actions on the user's own
+  messages once the window closes (`null` disables). A late attempt the backend
+  rejects now surfaces as the typed `EditWindowExpiredFailure` /
+  `DeleteWindowExpiredFailure` instead of a generic forbidden failure.
+- **`ChatConfig.actAsUserId` (managed-user delegation).** Set it to act on
+  behalf of a managed user — every REST request then injects
+  `X-From-User-Id: <actAsUserId>`. The backend enforces the parent→managed
+  relationship (`403` if not allowed). REST only; does not change the real-time
+  identity.
+- **`rooms.create(..., forceGroup: true)`.** By default a contacts room with a
+  single other member collapses to a DM-style room; pass `forceGroup: true` to
+  keep it a named group. Defaults to `false`, so existing calls are unchanged.
+- **`members.invite` now reports per-user outcomes.** It returns
+  `ChatResult<InviteResult>` (was `ChatResult<void>`) so callers can inspect
+  the per-user result when the backend answers `207 Multi-Status` (some users
+  banned / already members / etc.). The `userRole` parameter was removed (the
+  backend never accepted a per-invite role) and an optional `token` parameter
+  was added for public-room joins. See the migration guide for the before/after.
 - **Cursor-based delivery ticks (WhatsApp-style).** The SDK now consumes the
   two new realtime events of the `1.0.0` backend: `message_acked` (the server
   durably persisted an own message — single gray tick; surfaced as
@@ -54,8 +225,46 @@ onwards, breaking changes require a **major version bump**.
 
 ### Changed
 
+- **`lastUnreadMessage` preview is now object-or-null only.**
+  `RoomMapper.unreadRoomFromJson` reads the room preview exclusively from the
+  nested `lastUnreadMessage` object; when it is `null` or absent the room has
+  no unread preview (all `lastMessage*` fields stay null). The legacy flat
+  `lastMessage*` fallback fields and the "magic 0" handling are gone. No public
+  model change — `UnreadRoom` is unchanged.
+
+- **Typed-failure routing is now token-first.** The exception mapper prefers
+  the server's stable `error` token to choose the typed failure (e.g.
+  `edit_window_expired` → `EditWindowExpiredFailure`, account-deactivation
+  tokens → `AuthFailure`), keeping the legacy `detail` string-matching as a
+  fallback for older servers. No behavior change against existing backends.
+- **`users.delete(userId)` is own-account-only.** The backend tightened
+  `DELETE /users/{userId}` to the caller's own id; a non-own id returns a 403
+  that surfaces as a `ForbiddenFailure` carrying the
+  `cannot_delete_other_user` token. Prefer `deleteCurrentUser()`.
+- **`messages.send` now autogenerates a `clientMessageId` when omitted.** The
+  server-side dedup is a partial unique index over messages that carry a
+  `clientMessageId`, so a raw `send()` without one could be persisted twice if
+  retried after a transient 429/5xx. `send()` now generates a UUID v4 when the
+  caller doesn't pass `clientMessageId`, making retries safe for every consumer
+  (the canonical UI path already passed one). Pass your own value only to
+  correlate with an external id. The field is always sent now.
+- **Certificate pinning documented honestly as not-yet-enforced.**
+  `ChatConfig.certificatePins` and `CertificatePinningInterceptor` are an
+  experimental skeleton: the native handshake hook is **not** wired, so no
+  certificate is validated against the pins and there is no MITM protection
+  today. `SECURITY.md`, the `certificatePins` dartdoc and the audit history were
+  corrected to stop claiming otherwise, and the SDK now emits a `warn` log when
+  pins are configured. No behaviour change — pinning was already a no-op.
+
+- **`ChatConfig.ssePath` default changed from `/events` to `/eventsource`.**
+  The old default never worked against CHT/NRTE; this is a fix, not a
+  regression. Callers that override `ssePath` explicitly are unaffected.
+- **Dropped `json_annotation` / `json_serializable` dependencies.** The SDK no
+  longer uses these code-gen packages; they were never part of the public API
+  and removing them has no consumer impact (add them to your own `pubspec.yaml`
+  if you relied on them transitively).
 - **Backend contract pinned to OpenAPI `1.0.0`.** The bundled spec
-  (`doc/user-openapi.yml`) now tracks the first stable version of the
+  (`doc/chat-api-openapi.yml`) now tracks the first stable version of the
   Nomasystems chat API (previously an internal `2.10.0` numbering that never
   shipped). The copy stays byte-identical to the backend source of truth.
 - **Managed-user webhook config speaks the `1.0.0` wire format.** It is now
@@ -65,20 +274,144 @@ onwards, breaking changes require a **major version bump**.
   base64 `user:pass`. Legacy nested `auth{}` payloads are still parsed for
   resilience against stale servers or caches.
 
+### Deprecated
+
+- **Header-only attachment download.** Calling `attachments.download(id,
+  metadata: ...)` *without* `roomId` (the `x-attachment-metadata`
+  header-authorized flow) is deprecated. The backend now enforces room
+  membership and requires a `roomId`; the header alone no longer authorizes a
+  download and returns `403 not_a_room_member`. Pass `roomId` to take the
+  signed-URL path, or use `attachments.signedUrl(...)` directly. See
+  `MIGRATING.md`.
+
+### Removed
+
+- **Legacy XMPP sender/identity aliases.** The SDK no longer reads the
+  deprecated `jid` / `fromJid` (and the secondary `id`) fallbacks.
+  `UserMapper.contactFromJson` parses `userId` only and
+  `RoomMapper.unreadRoomFromJson` parses the preview sender from `from` only
+  (`EventParser` likewise drops the `fromJid` alias). Current backends emit the
+  canonical fields, so this is a no-op against them; servers that emit only the
+  dropped aliases are no longer supported.
+- **`users.getManaged(userId)`.** Removed. Use
+  `users.getManagedByParent(parentId)` (canonical
+  `GET /users/{parentId}/managed-users`) — same arguments and response shape.
+  Dropped from the `ChatUsersApi` interface, the REST implementation, and the
+  mock. See `MIGRATING.md`.
+- **Data-API room-preference toggles `rooms.mute` / `unmute` / `pin` /
+  `unpin` / `hide` / `unhide`.** Removed from `ChatRoomsApi` (interface, REST
+  implementation, and mock). Call `rooms.patchPreferences(...)` directly. The
+  optimistic single-flag wrappers on the UI adapter
+  (`adapter.rooms.mute/unmute/pin/unpin/hide/unhide`) are unchanged and now
+  drive `patchPreferences` internally. The user-moderation
+  `members.muteUser` / `unmuteUser` (a different endpoint) are unaffected. See
+  `MIGRATING.md`.
+- **Reaction-via-send path.** The SDK no longer issues reactions through
+  `send(messageType: MessageType.reaction)`; `messages.addReaction` /
+  `deleteReaction` are the only supported reaction API. The general
+  `messages.send` still accepts `messageType` / `reaction` for other uses.
+- **`ChatCursorPaginationParams.before` / `.after` (ISO-8601 timestamp
+  paging).** Removed entirely. They no longer exist as fields, are no longer
+  emitted as `before` / `after` query params, and the timestamp/id boundary
+  dedup that backed them in the polling realtime engine is gone. All paging is
+  now driven by the opaque `cursor` + `direction` (older/newer) against the
+  `prevCursor` / `nextCursor` anchors. See `MIGRATING.md`.
+
 ### Fixed
+
+- **User profile page now reflects the backend after its background refresh.**
+  `UserInfoPage` paints from the user cache for an instant first frame, then
+  always re-fetches the profile from the backend. The re-fetch wrote only local
+  widget state, so a cache entry seeded by a roster / members endpoint (which
+  may omit `bio`) kept shadowing the fresh record and the description never
+  appeared. The fetched record is now fed back into the shared user cache, so
+  the always-on refresh wins and the live `ListenableBuilder` repaints.
+- **Polling could skip messages sharing an exact millisecond.** The REST
+  polling/manual `RefreshEngine` tracked progress by last-seen timestamp plus a
+  boundary id set. When the backend now returns an opaque `next` cursor the
+  engine switches to seq-based cursor polling (and drops the timestamp dedup),
+  eliminating the identical-timestamp skip. Old backends without `next` keep
+  the timestamp path (soft degradation). Stale pagination state carried into a
+  freshly built engine is purged on its first tick so the upgrade can't replay
+  or skip across the scheme change.
+- **Realtime parser hardened against off-contract payloads.** Several
+  `EventParser` handlers read wire fields with raw `as String?` / `as int?`
+  casts (and one non-nullable `as String` for `lastSeen`), so a backend that
+  shipped a field with an unexpected type (e.g. a numeric `lastSeen`) threw an
+  uncaught `TypeError` out of the WebSocket stream callback and could stop
+  event delivery. Every field is now read through a safe type check and
+  degrades gracefully (the field, or the event, is dropped). As defense in
+  depth, `WsTransport` wraps event dispatch in a guard so no parser error can
+  tear down the stream — matching the SSE path, which already guarded
+  `parseNrte`. Re-enables and broadens the previously-skipped `FUZZ-BUG-2`
+  regression group to cover every handler.
+- **Quickstart room-list snippets now compile.** The README and Developer
+  Guide examples referenced a non-existent `RoomListController(chat: chat)`
+  constructor and omitted `currentUserId` (needed for own-message ticks and the
+  group "You:" prefix). They now use `chat.roomListController` with
+  `currentUserId`; the Developer Guide no longer shows a manual `dispose()` (the
+  SDK owns the controller) or non-existent `onInvitation*` setters, using the
+  real `RoomListView` `onAcceptInvitation` / `onRejectInvitation` callbacks.
+- **Media gallery and DM/conversation history now paginate older pages.**
+  `attachments.listInRoom`, `contacts.getDirectMessages` and
+  `contacts.getConversationMessages` built their `ChatPaginatedResponse` without
+  parsing the `next` / `prev` cursors from the response (a regression from the
+  opaque-cursor migration), so `prevCursor`/`nextCursor` were always `null` and
+  the "shared in this chat" gallery, DMs and conversation timelines stopped
+  after the first page even when `hasMore == true`. They now parse `json['next']`
+  / `json['prev']` like `messages.list` does.
+- **Timestamps and day separators now render in the device's local time
+  zone.** `DateFormatter.formatTime` / `formatSeparator` / `isSameDay` /
+  `isToday` / `isYesterday` formatted the backend's UTC `DateTime` directly, so
+  users outside UTC saw wrong clock times and could see a message land on the
+  wrong calendar day. All helpers now call `.toLocal()` first, matching the
+  export and starred-message formatters.
+- **Group delivery ticks no longer stick on "read by all" during member
+  hydration.** `ChatController` inferred 1:1-vs-group purely from
+  `otherUsers.length`, which is 0–1 before the member list loads; a group whose
+  members hadn't hydrated yet was treated as a 1:1, so a single peer's read flag
+  flipped every message to the blue "read by all" tick permanently. The group
+  flag is now pinned explicitly via `ChatController.setIsGroup(...)` (wired from
+  `RoomListItem.isGroup` the moment the room opens), `_aggregateStatus` never
+  collapses a known group to 1:1 (and stays at `sent` until members are known),
+  and `setOtherUsers` recomputes receipts whenever the member count changes.
+- **SSE reconnect / RefreshEngine re-entrancy races.** `SseTransport._doConnect`
+  now cancels any armed reconnect timer and prior request before connecting
+  (mirror of `WsTransport`), so a `connect()` racing a scheduled reconnect can no
+  longer open two parallel streams that double-emit events. `RefreshEngine.tick`
+  gained a `_ticking` re-entrancy guard (like `OfflineQueue`) so a fast poll
+  interval or a mid-tick `refreshRoom` can't interleave cursor/snapshot mutations.
 
 - **Direct message to a contact who has blocked you (HTTP 204) no longer yields
   a phantom message.** Per the `1.0.0` contract the backend silently drops it
   with an empty body (WhatsApp parity). The SDK now synthesizes a local `sent`
   message instead of an empty, id-less one, so the bubble shows as sent and
   never advances to delivered/read — exactly what a blocked sender sees.
+- **`RateLimitFailure.retryAfter` is now populated against CHT.** CHT's `429`
+  sends `X-RateLimit-Reset` (seconds until the window resets) and no
+  `Retry-After`; the SDK now reads `X-RateLimit-Reset` as a fallback, so
+  `retryAfter` (and the retry interceptor's back-off) reflect the real reset
+  window instead of being `null`. No code change required.
+- **Terminal auth close (`4005 too_many_auth_attempts`) suspends both
+  transports.** It stops the WebSocket and prevents the SSE failover from
+  reconnecting with the rejected token. The SDK emits a terminal
+  `ChatAuthException` (`exception.terminal == true`) and stays in `error` until
+  a fresh token is obtained and `connect()` is called again — listen for it to
+  drive a re-authentication prompt.
+
+### Confirmed
+
+- `message_acked` / `message_delivered` WebSocket events (`MessageAckedEvent`
+  / `MessageDeliveredEvent`) and `receipt_updated` (`ReceiptUpdatedEvent`) are
+  parsed and dispatched by the SDK — documented in the event catalogue. No code
+  change.
 
 ## [0.9.2] - 2026-05-29
 
 ### Docs
 
 - Documented that the SDK targets a **Nomasystems chat backend** defined by a public **OpenAPI 3.0 contract**; any backend that implements the spec works. The README now links a rendered API reference (Redoc) and the source spec.
-- Added the backend OpenAPI contract to the repository (`doc/user-openapi.yml`, OpenAPI 3.0.1). Kept on GitHub and linked from the README; excluded from the published tarball via `.pubignore` (consumers don't need it in their pub cache).
+- Added the backend OpenAPI contract to the repository (`doc/chat-api-openapi.yml`, OpenAPI 3.0.1). Kept on GitHub and linked from the README; excluded from the published tarball via `.pubignore` (consumers don't need it in their pub cache).
 - Noted that the Nomasystems chat backend is planned to be open-sourced but is not public yet; for commercial use contact `info@nomasystems.com`. Added the Nomasystems website.
 - Renamed "UI Kit" to "UI components" across the README, dartdoc API docs and developer docs.
 - Screenshots and the demo GIF now have transparent backgrounds so they render cleanly on pub.dev (light and dark themes).

@@ -37,16 +37,6 @@ void main() {
         expect(messages.length, 1);
       });
 
-      test('get with before cursor', () async {
-        await ds.saveMessages('room-1', [msg1, msg2]);
-        final messages = (await ds.getMessages(
-          'room-1',
-          before: 'msg-2',
-        )).dataOrNull!;
-        expect(messages.length, 1);
-        expect(messages.first.id, 'msg-1');
-      });
-
       test('delete message', () async {
         await ds.saveMessages('room-1', [msg1, msg2]);
         await ds.deleteMessage('room-1', 'msg-1');
@@ -141,6 +131,36 @@ void main() {
         expect(unreads.length, 1);
         expect(unreads.first.unreadMessages, 5);
       });
+
+      test(
+        'saveUnreads merges (keeps rooms absent from the new list)',
+        () async {
+          await ds.saveUnreads([
+            const UnreadRoom(roomId: 'r-1', unreadMessages: 5),
+            const UnreadRoom(roomId: 'r-2', unreadMessages: 3),
+          ]);
+          await ds.saveUnreads([
+            const UnreadRoom(roomId: 'r-2', unreadMessages: 1),
+          ]);
+          final unreads = (await ds.getUnreads()).dataOrNull!;
+          expect(unreads.map((u) => u.roomId).toSet(), {'r-1', 'r-2'});
+        },
+      );
+
+      test(
+        'reconcileUnreads replaces the set, evicting absent rooms',
+        () async {
+          await ds.saveUnreads([
+            const UnreadRoom(roomId: 'r-1', unreadMessages: 5),
+            const UnreadRoom(roomId: 'r-2', unreadMessages: 3),
+          ]);
+          await ds.reconcileUnreads([
+            const UnreadRoom(roomId: 'r-2', unreadMessages: 0),
+          ]);
+          final unreads = (await ds.getUnreads()).dataOrNull!;
+          expect(unreads.map((u) => u.roomId), ['r-2']);
+        },
+      );
     });
 
     test('clear removes everything', () async {

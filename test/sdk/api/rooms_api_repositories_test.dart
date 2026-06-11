@@ -90,8 +90,12 @@ void main() {
               {
                 'roomId': 'room-1',
                 'unreadMessages': 3,
-                'lastMessage': 'hi',
-                'lastMessageTime': '2025-01-01T00:00:00Z',
+                'lastUnreadMessage': {
+                  'messageId': 'm-1',
+                  'from': 'user-9',
+                  'timestamp': '2025-01-01T00:00:00Z',
+                  'text': 'hi',
+                },
               },
               {'roomId': 'room-2', 'unreadMessages': 0},
             ],

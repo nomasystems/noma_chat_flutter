@@ -11,6 +11,13 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Single source for the Flutter version across every job here and in
+# publish.yml / regen-goldens.yml. The matrix below still pins the same
+# value so its informational beta row can override it; the auxiliary jobs
+# read this so they never silently float onto a future major.
+env:
+  FLUTTER_VERSION: "3.x"
+
 jobs:
   analyze-and-test:
     name: Analyze + test (Flutter ${{ matrix.flutter }} / ${{ matrix.os }})
@@ -37,9 +44,9 @@ jobs:
             experimental: true
     continue-on-error: ${{ matrix.experimental == true }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: ${{ matrix.channel }}
           flutter-version: ${{ matrix.flutter }}
@@ -78,7 +85,7 @@ jobs:
       # / stable job uploads — running it from every matrix combo
       # would create duplicate reports.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && matrix.os == 'ubuntu-latest' && matrix.channel == 'stable'
         with:
           files: ./coverage/lcov.info
@@ -92,12 +99,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
-          flutter-version: "3.x"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Pub get (package)
         run: flutter pub get
@@ -119,12 +126,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
-          flutter-version: "3.x"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Install dependencies
         run: flutter pub get
@@ -136,20 +143,29 @@ jobs:
     name: pub.dev score (pana)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # pana is informational — the real publish gate is
+    # `dart pub publish --dry-run`. `continue-on-error` keeps a score nit
+    # from blocking CI without swallowing the result behind `|| true`, and
+    # the report is uploaded as an artifact instead of being discarded.
+    continue-on-error: true
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Install pana
         run: dart pub global activate pana
 
       - name: Run pana
-        run: |
-          dart pub global run pana --no-warning --exit-code-threshold 0 \
-            --json . > pana.json || true
-          # Print the human summary as well, never fail the job — pana is
-          # informational; the real gate is `dart pub publish --dry-run`.
-          dart pub global run pana --no-warning . || true
+        run: dart pub global run pana --no-warning --exit-code-threshold 0 --json . > pana.json
+
+      - name: Upload pana report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pana-report
+          path: pana.json
+          if-no-files-found: warn

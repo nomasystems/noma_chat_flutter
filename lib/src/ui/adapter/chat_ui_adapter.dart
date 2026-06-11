@@ -4,6 +4,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show NetworkImage;
+import 'package:intl/intl.dart';
 import '../../cache/cache_policy.dart';
 import '../../cache/local_datasource.dart';
 import '../../client/chat_client.dart';
@@ -19,14 +20,17 @@ import '../../models/reaction.dart';
 import '../../models/read_receipt.dart';
 import '../../models/room.dart';
 import '../../models/room_user.dart';
+import '../../models/starred_message.dart';
 import '../../models/user.dart';
 import '../../storage/avatar_storage.dart';
+import '../../utils/chat_export.dart';
 import '../controller/chat_controller.dart';
 import '../controller/room_list_controller.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../models/attachment_policy.dart';
 import '../models/room_list_item.dart';
 import '../services/attachment_pickers.dart';
+import '../utils/last_message_preview.dart';
 import '../widgets/chat_room_options_menu.dart';
 import '../widgets/chat_view.dart';
 import 'operation_error.dart';
@@ -179,6 +183,35 @@ class ChatUiAdapter {
   /// from [blockedUserIds].
   Listenable get blockedUsersListenable => _blockedUsersListenable;
   final _BroadcastNotifier _blockedUsersListenable = _BroadcastNotifier();
+
+  /// Fires whenever a room's membership changes in realtime (someone was
+  /// added or removed via `user_joined` / `user_left`). The notifier
+  /// carries no payload; callers read the id of the room that changed
+  /// from [lastMembersChangedRoomId] and compare it against the room
+  /// they care about. The push-update on `GroupMembersView` uses exactly
+  /// this to re-fetch its roster live instead of only on mount /
+  /// pull-to-refresh, mirroring the [userCacheListenable] avatar/name
+  /// push-update.
+  Listenable get roomMembersListenable => _roomMembersListenable;
+  final _BroadcastNotifier _roomMembersListenable = _BroadcastNotifier();
+
+  /// Id of the room whose membership most recently changed, set right
+  /// before [roomMembersListenable] fires. Consumers compare this to
+  /// their own room id inside the listener callback.
+  String? get lastMembersChangedRoomId => _lastMembersChangedRoomId;
+  String? _lastMembersChangedRoomId;
+
+  /// Records [roomId] as the most recently changed room and fires
+  /// [roomMembersListenable]. Invoked by [MemberEventHandler] on every
+  /// `user_joined` / `user_left` event, regardless of whether a chat
+  /// controller is open for the room, so a roster view that isn't the
+  /// active screen still refreshes.
+  void notifyRoomMembersChanged(String roomId) {
+    if (_disposed) return;
+    _lastMembersChangedRoomId = roomId;
+    _roomMembersListenable.emit();
+  }
+
   final ChatUiLocalizations l10n;
   final IsDmRoomPredicate? isDmRoom;
   final RoomTitleResolver? roomTitleResolver;
@@ -355,7 +388,6 @@ class ChatUiAdapter {
     currentUser: () => _currentUser,
     cache: _cache,
     ensureDmRoomMaterialized: ensureDmRoomMaterialized,
-    removeChatController: removeChatController,
     updateRoomLastMessage: (roomId, message) =>
         _roomListMutator.updateRoomLastMessage(roomId, message),
     updateRoomReactionPreview: (roomId, reaction, userId, messageId) =>
@@ -371,12 +403,6 @@ class ChatUiAdapter {
     // 403 "muted" on send → re-fetch the room detail so `selfMuted`
     // propagates and the composer locks behind the read-only banner.
     onModerationLock: _enrichRoomFromDetail,
-    // Forwarded so the optimistic handler can distinguish "I am the
-    // blocker" (drop the row, WhatsApp-style) from "I am the
-    // blockee" (a 403 blocked while sending should leave my chat
-    // visible — the blockee should not be silently expelled from
-    // their own conversation).
-    isUserBlocked: (userId) => _blockedUsers.isBlocked(userId),
     emitFailure: <T>(result, kind, {roomId, messageId, userId}) =>
         _emitFailure<T>(
           result,
@@ -412,6 +438,7 @@ class ChatUiAdapter {
     ensureUserCached: _ensureUserCached,
     addRoomFromDetail: _addRoomFromDetail,
     removeChatController: removeChatController,
+    notifyRoomMembersChanged: notifyRoomMembersChanged,
     isDisposed: () => _disposed,
     swallowCacheThrow: _swallowCacheThrow,
     logger: logger,
@@ -516,7 +543,9 @@ class ChatUiAdapter {
   /// `onBlockedUsersChanged` hook below.
   late final BlockedUsersRegistry _blockedUsers = BlockedUsersRegistry(
     onChanged: (ids) {
-      _roomListMutator.removeBlockedRooms();
+      // Blocking keeps the chat (Decision A): the blocked DM stays in the
+      // list and renders the read-only "blocked" composer state, matching
+      // WhatsApp. We no longer prune the row here.
       // Fan-out to derived state. The Listenable lets the SuggestionBar
       // controller refresh immediately on unblock (otherwise it had to
       // wait for the 10s poll tick before re-displaying the contact).
@@ -691,7 +720,9 @@ class ChatUiAdapter {
       final prev = _userCacheService.find(u.id);
       if (prev == null ||
           prev.displayName != u.displayName ||
-          prev.avatarUrl != u.avatarUrl) {
+          prev.avatarUrl != u.avatarUrl ||
+          prev.bio != u.bio ||
+          prev.email != u.email) {
         _userCacheService.insert(u);
         changed = true;
         if (prev == null || prev.displayName != u.displayName) {
@@ -782,7 +813,12 @@ class ChatUiAdapter {
   void setActiveRoom(String? roomId) {
     if (_activeRoomId == roomId) return;
     _activeRoomId = roomId;
-    if (roomId != null && autoMarkAsRead) {
+    // A draft DM has no backend room yet (it materializes on the first sent
+    // message), so mark-as-read would 403 with `not_member`. Skip it for
+    // drafts; the room is marked read normally once it materializes.
+    final isDraftRoom =
+        roomId != null && (_chatControllers[roomId]?.isDraft ?? false);
+    if (roomId != null && autoMarkAsRead && !isDraftRoom) {
       unawaited(markAsRead(roomId));
     }
   }
@@ -977,6 +1013,7 @@ class ChatUiAdapter {
     roomListController.dispose();
     _currentUserListenable.dispose();
     _userCacheListenable.dispose();
+    _roomMembersListenable.dispose();
     await _operations.dispose();
   }
 
@@ -1358,9 +1395,10 @@ class ChatUiAdapter {
     return _emitFailure(result, kind, roomId: roomId);
   }
 
-  /// Mutes a room with optimistic update.
+  /// Mutes a room with optimistic update. Pass [until] for a timed mute.
   @internal
-  Future<ChatResult<void>> muteRoom(String roomId) => rooms.mute(roomId);
+  Future<ChatResult<void>> muteRoom(String roomId, {DateTime? until}) =>
+      rooms.mute(roomId, until: until);
 
   /// Unmutes a room with optimistic update.
   @internal
@@ -1771,8 +1809,17 @@ class ChatUiAdapter {
           if (active == null) return;
           final updated = result.dataOrNull;
           if (updated != null) {
-            active.updateMessage(updated);
-            _cache?.updateMessage(roomId, updated);
+            // This helper is shared by the `message_updated` (edit) and
+            // `message_deleted` refresh paths. For an edit fallback the
+            // REST projection may omit `text_history`, dropping the
+            // "edited" marker; force it on so the tag survives — but only
+            // for a live (non-deleted) row, since a deleted message is
+            // never "edited" and the delete path must keep isEdited as-is.
+            final refreshed = updated.isDeleted
+                ? updated
+                : updated.copyWith(isEdited: true);
+            active.updateMessage(refreshed);
+            _cache?.updateMessage(roomId, refreshed);
           }
         })
         .catchError((Object e) {

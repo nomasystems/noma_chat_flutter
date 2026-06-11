@@ -325,6 +325,34 @@ void main() {
       }
     });
 
+    test('429 falls back to x-ratelimit-reset when no Retry-After', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenThrow(
+        dioErr(
+          statusCode: 429,
+          headers: {
+            'x-ratelimit-reset': ['12'],
+          },
+        ),
+      );
+
+      try {
+        await rest.get('/foo');
+        fail('should have thrown');
+      } on ChatRateLimitException catch (e) {
+        expect(e.retryAfter, const Duration(seconds: 12));
+      }
+    });
+
     test('timeouts → ChatTimeoutException', () async {
       await expectMaps<ChatTimeoutException>(
         dioErr(type: DioExceptionType.connectionTimeout),

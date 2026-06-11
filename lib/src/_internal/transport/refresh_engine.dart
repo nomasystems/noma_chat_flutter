@@ -42,8 +42,28 @@ class RefreshEngine {
   final void Function(String level, String message)? _logger;
 
   final Map<String, _RoomSnapshot> _snapshots = {};
-  final Map<String, DateTime> _lastSeenTimestamp = {};
+
+  /// Per-room opaque forward cursor (the `next` token from the previous poll).
+  /// Realtime catch-up resumes from this position with
+  /// `direction: ChatCursorDirection.newer`. Absent until the first page for a
+  /// room arrives; until then the room is polled with no cursor (most recent
+  /// page).
+  final Map<String, String> _nextCursor = {};
+
+  /// Set once on construction so the FIRST [tick] after a (re)build clears any
+  /// pagination cursors that may have been carried over from a previous build.
+  /// After that first tick the engine resumes incremental polling normally.
+  bool _staleStatePurgePending = true;
+
   final Set<String> _openRoomIds = {};
+
+  /// Re-entrancy guard. A tick performs several awaited round-trips
+  /// (`getUserRooms`, then per-room `messages.list`); without this a fast
+  /// poll interval — or a manual `refreshRoom` landing mid-tick — could start
+  /// a second concurrent tick that interleaves `_nextCursor`/`_snapshots`
+  /// mutations and emits duplicate `newMessage` events. Mirrors
+  /// `OfflineQueue._drainWith`'s `_processing` latch.
+  bool _ticking = false;
 
   RefreshEngine({
     required Future<ChatResult<UserRooms>> Function({String type}) getUserRooms,
@@ -78,6 +98,27 @@ class RefreshEngine {
   /// messages for that room only. Used by `chat.refreshRoom(roomId)`
   /// in manual mode.
   Future<void> tick({String? singleRoomId}) async {
+    // Re-entrancy guard: skip if a tick is already in flight so concurrent
+    // calls can't interleave cursor/snapshot mutations or double-emit events.
+    if (_ticking) return;
+    _ticking = true;
+    try {
+      await _tick(singleRoomId: singleRoomId);
+    } finally {
+      _ticking = false;
+    }
+  }
+
+  Future<void> _tick({String? singleRoomId}) async {
+    if (_staleStatePurgePending) {
+      // First tick of this engine instance: drop any forward cursors that
+      // might be stale relative to the current backend state. We keep
+      // `_snapshots`/`_openRoomIds` (they only drive room-list diffing) but
+      // reset the message-position state so the engine resumes cleanly from
+      // the most recent page.
+      _nextCursor.clear();
+      _staleStatePurgePending = false;
+    }
     if (singleRoomId != null) {
       await _pollRoomMessages(singleRoomId);
       return;
@@ -200,10 +241,20 @@ class RefreshEngine {
       prev.name != curr.name;
 
   Future<void> _pollRoomMessages(String roomId) async {
-    final after = _lastSeenTimestamp[roomId];
-    final pagination = after != null
-        ? ChatCursorPaginationParams(after: after.toIso8601String())
+    final storedCursor = _nextCursor[roomId];
+
+    // Realtime catch-up: resume from the stored forward cursor travelling
+    // `newer`. The seq-based opaque cursor encodes the precise position, so
+    // identical-timestamp messages can't be skipped or replayed and no id
+    // dedup is needed. Until a room has a cursor (first poll) we fetch the
+    // most recent page with no cursor and adopt the `next` it returns.
+    final pagination = storedCursor != null
+        ? ChatCursorPaginationParams(
+            cursor: storedCursor,
+            direction: ChatCursorDirection.newer,
+          )
         : null;
+
     final result = await _listMessages(roomId, pagination: pagination);
     if (result.isFailure) {
       _logger?.call(
@@ -213,23 +264,26 @@ class RefreshEngine {
       );
       return;
     }
-    final messages = result.dataOrThrow.items;
-    if (messages.isEmpty) return;
-    DateTime? maxTs;
-    for (final msg in messages) {
+    final page = result.dataOrThrow;
+
+    for (final msg in page.items) {
       _emit(ChatEvent.newMessage(roomId: roomId, message: msg));
-      if (maxTs == null || msg.timestamp.isAfter(maxTs)) {
-        maxTs = msg.timestamp;
-      }
     }
-    if (maxTs != null) _lastSeenTimestamp[roomId] = maxTs;
+
+    // Advance the forward cursor only when the backend hands us a fresh one;
+    // otherwise keep the current cursor so the next poll retries from the same
+    // position (an empty page yields no new cursor).
+    final nextCursor = page.nextCursor;
+    if (nextCursor != null) _nextCursor[roomId] = nextCursor;
   }
 
-  /// Reset all tracked state (used by the transport on reconnect to
-  /// guarantee no stale `_lastSeenTimestamp` survives a network gap).
+  /// Reset all tracked state (used by the transport on reconnect to guarantee
+  /// no stale `_nextCursor` survives a network gap — a cursor frozen before the
+  /// gap would resume from an outdated seq position and miss messages
+  /// delivered while disconnected).
   void reset() {
     _snapshots.clear();
-    _lastSeenTimestamp.clear();
+    _nextCursor.clear();
     // Don't clear `_openRoomIds` — the adapter still has live
     // controllers; we want to keep polling them after reconnect.
   }

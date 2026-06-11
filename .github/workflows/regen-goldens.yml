@@ -20,17 +20,23 @@ on:
     branches:
       - "release/**"
 
+# Same Flutter version as ci.yml / publish.yml so the regenerated
+# baselines match the runner that gates them.
+env:
+  FLUTTER_VERSION: "3.x"
+
 jobs:
   regen:
     name: Regenerate golden baselines (Linux)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Flutter version
         run: flutter --version
@@ -42,7 +48,7 @@ jobs:
         run: flutter test --update-goldens test/golden/
 
       - name: Upload regenerated goldens
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: goldens
           path: test/golden/goldens/

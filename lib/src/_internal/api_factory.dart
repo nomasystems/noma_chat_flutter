@@ -76,7 +76,6 @@ class ApiFactory {
     cache: cache,
     cacheManager: cacheManager,
     offlineQueue: offlineQueue,
-    logger: logger,
   );
 
   PresenceApi presence() => PresenceApi(rest: rest);

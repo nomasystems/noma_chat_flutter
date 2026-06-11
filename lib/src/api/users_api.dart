@@ -141,7 +141,7 @@ class UsersApi implements ChatUsersApi {
         if (active != null) 'active': active,
       };
       final json = await _rest.patch('/users/$userId', data: data);
-      return UserMapper.fromJson(json);
+      return UserMapper.fromJson(_unwrapUser(json));
     });
     if (result.isSuccess && _cache != null) {
       try {
@@ -155,7 +155,35 @@ class UsersApi implements ChatUsersApi {
   }
 
   @override
+  Future<ChatResult<void>> deleteCurrentUser() async {
+    // `DELETE /users/me` — the server resolves the principal from the auth
+    // token, so this can never target the wrong account. The robust
+    // default for GDPR self-deletion.
+    final result = await safeVoidCall(() => _rest.delete('/users/me'));
+    if (result.isSuccess && _cache != null) {
+      // Evict the principal's own cached profile when we know its id.
+      final ownId = _rest.userId;
+      if (ownId != null) {
+        try {
+          await _cache.deleteUser(ownId);
+          _cacheManager?.invalidate('user:$ownId');
+        } catch (e) {
+          _logger?.call(
+            'warn',
+            'users.deleteCurrentUser: cache update failed: $e',
+          );
+        }
+      }
+    }
+    return result;
+  }
+
+  @override
   Future<ChatResult<void>> delete(String userId) async {
+    // The backend only permits self-deletion: a non-own id returns 403
+    // with the `cannot_delete_other_user` token (surfaced as a
+    // ForbiddenFailure carrying ChatErrorTokens.cannotDeleteOtherUser).
+    // Prefer `deleteCurrentUser()` for self-service account deletion.
     final result = await safeVoidCall(() => _rest.delete('/users/$userId'));
     if (result.isSuccess && _cache != null) {
       try {
@@ -192,12 +220,19 @@ class UsersApi implements ChatUsersApi {
   });
 
   @override
-  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManaged(
-    String userId, {
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManagedByParent(
+    String parentId, {
+    ChatPaginationParams? pagination,
+  }) => _listManaged('/users/$parentId/managed-users', pagination: pagination);
+
+  /// Shared body for [getManagedByParent]: hits a paginated managed-users list
+  /// with a `{users, hasMore}` response shape.
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> _listManaged(
+    String path, {
     ChatPaginationParams? pagination,
   }) => safeApiCall(() async {
     final (json, totalCount) = await _rest.getWithTotalCount(
-      '/managed-users/$userId',
+      path,
       queryParams: pagination?.toQueryParams(),
     );
     return ChatPaginatedResponse(

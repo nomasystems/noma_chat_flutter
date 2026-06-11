@@ -385,8 +385,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<ChatResult<List<ChatMessage>>> getMessages(
     String roomId, {
     int? limit,
-    String? before,
-    String? after,
   }) {
     _checkNotDisposed();
     return _wrap(() async {
@@ -395,28 +393,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
 
       final clearedAt = (await getClearedAt(roomId)).dataOrNull;
       if (clearedAt != null) {
-        final cutoff = '${clearedAt.toUtc().toIso8601String()}_￿';
-        keys = keys.where((k) => k.compareTo(cutoff) > 0).toList();
-      }
-
-      if (before != null) {
-        final beforeTime = DateTime.tryParse(before);
-        if (beforeTime == null) {
-          onWarning?.call('Invalid before cursor (not a timestamp): $before');
-          return <ChatMessage>[];
-        }
-        final cutoffPrefix = beforeTime.toUtc().toIso8601String();
-        keys = keys.where((k) => k.compareTo(cutoffPrefix) < 0).toList();
-      }
-
-      if (after != null) {
-        final afterTime = DateTime.tryParse(after);
-        if (afterTime == null) {
-          onWarning?.call('Invalid after cursor (not a timestamp): $after');
-          return <ChatMessage>[];
-        }
-        // Pad with suffix to exclude keys at the exact timestamp (keys are {ts}_{id}).
-        final cutoff = '${afterTime.toUtc().toIso8601String()}_￿';
+        // Cutoffs must use the same millisecond-normalized prefix as the
+        // keys (MessageIdIndex.keyFor), or a microsecond-precision cursor
+        // would mis-compare against truncated keys.
+        final cutoff = '${MessageIdIndex.normalizedIso(clearedAt)}_￿';
         keys = keys.where((k) => k.compareTo(cutoff) > 0).toList();
       }
 
@@ -728,7 +708,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
               await receiptsBox.delete(roomId);
             },
             () async => clearPendingMessages(roomId),
-            () async => _metaBox.delete('clearedAt_$roomId'),
+            // NOTE: the `clearedAt_$roomId` cutoff is deliberately NOT
+            // deleted here. It is a never-evictable per-user marker (twin
+            // of `deletedRoomIds`): a deleted chat keeps its cutoff so it
+            // reappears EMPTY (not repopulated) if a peer writes again.
           ],
           onRollback: () async {
             if (roomSnapshot != null) {
@@ -896,6 +879,30 @@ class HiveChatDatasource implements ChatLocalDatasource {
   }
 
   @override
+  Future<ChatResult<void>> reconcileUnreads(List<UnreadRoom> unreads) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxUnreads);
+      final serverIds = unreads.map((u) => u.roomId).toSet();
+      final kicked = _readKickedRoomIds();
+      final stale = box.keys
+          .map((k) => k.toString())
+          .where((id) => !serverIds.contains(id) && !kicked.contains(id))
+          .toList();
+      await _safeWrite('reconcileUnreads evict', () async {
+        for (final id in stale) {
+          await box.delete(id);
+        }
+      });
+      final entries = <String, Map<dynamic, dynamic>>{};
+      for (final u in unreads) {
+        entries[u.roomId] = unreadRoomToMap(u);
+      }
+      await _safeWrite('reconcileUnreads putAll', () => box.putAll(entries));
+    });
+  }
+
+  @override
   Future<ChatResult<List<UnreadRoom>>> getUnreads() {
     _checkNotDisposed();
     return _wrap(() async {
@@ -1052,6 +1059,54 @@ class HiveChatDatasource implements ChatLocalDatasource {
   Future<ChatResult<Set<String>>> getKickedRoomIds() {
     _checkNotDisposed();
     return _wrap(() async => _readKickedRoomIds());
+  }
+
+  // Deleted-rooms registry — see [ChatLocalDatasource.addDeletedRoom].
+  // Stored in `_metaBox` under `deletedRoomIds`. Deliberately
+  // NEVER-EVICTABLE: `deleteRoom`'s cascade and `_evictRoomsIfNeeded`
+  // both leave this key (and the matching `clearedAt_*` cutoff)
+  // untouched, so a chat the user deleted does not silently reappear
+  // after room/message eviction. Cleared only by `clearDeletedRoom`
+  // (peer writes again / unarchive) or a full `clear()` (logout).
+  static const _deletedRoomIdsKey = 'deletedRoomIds';
+
+  Set<String> _readDeletedRoomIds() {
+    final data = _metaBox.get(_deletedRoomIdsKey);
+    if (data == null) return <String>{};
+    final ids = data['ids'];
+    if (ids is List) return ids.cast<String>().toSet();
+    return <String>{};
+  }
+
+  @override
+  Future<ChatResult<void>> addDeletedRoom(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final ids = _readDeletedRoomIds()..add(roomId);
+      await _safeWrite(
+        'addDeletedRoom',
+        () => _metaBox.put(_deletedRoomIdsKey, {'ids': ids.toList()}),
+      );
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> clearDeletedRoom(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final ids = _readDeletedRoomIds();
+      if (!ids.remove(roomId)) return;
+      await _safeWrite(
+        'clearDeletedRoom',
+        () => _metaBox.put(_deletedRoomIdsKey, {'ids': ids.toList()}),
+      );
+    });
+  }
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() {
+    _checkNotDisposed();
+    return _wrap(() async => _readDeletedRoomIds());
   }
 
   // Reactions
@@ -1214,10 +1269,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
           'evictRooms receipts',
           () => receiptsBox.delete(roomId),
         );
-        await _safeWrite(
-          'evictRooms clearedAt',
-          () => _metaBox.delete('clearedAt_$roomId'),
-        );
+        // The `clearedAt_$roomId` cutoff is intentionally preserved
+        // across eviction (never-evictable per-user marker, twin of
+        // `deletedRoomIds`) so a deleted chat reappears EMPTY rather
+        // than repopulated if the room is re-fetched later.
         await clearPendingMessages(roomId);
       });
     }

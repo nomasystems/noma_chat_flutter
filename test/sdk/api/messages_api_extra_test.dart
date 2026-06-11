@@ -12,6 +12,10 @@ void main() {
   late _MockRest rest;
   late RestMessagesApi api;
 
+  setUpAll(() {
+    registerFallbackValue(<String, dynamic>{});
+  });
+
   setUp(() {
     rest = _MockRest();
     api = RestMessagesApi(rest: rest);
@@ -26,16 +30,57 @@ void main() {
   };
 
   group('MessagesApi extra coverage', () {
-    test('get() hits GET /rooms/{r}/messages/{m}', () async {
-      when(
-        () => rest.get('/rooms/r1/messages/m1'),
-      ).thenAnswer((_) async => msgJson('m1'));
+    test(
+      'get() resolves by scanning the list endpoint (no unit GET)',
+      () async {
+        // The backend has no unit GET on /rooms/{r}/messages/{m}; the base
+        // layer scans the most recent page of the list endpoint.
+        when(
+          () => rest.getWithTotalCount(
+            '/rooms/r1/messages',
+            queryParams: any(named: 'queryParams'),
+          ),
+        ).thenAnswer(
+          (_) async => (
+            {
+              'messages': [msgJson('m1')],
+              'hasMore': false,
+            },
+            1,
+          ),
+        );
 
-      final r = await api.get('r1', 'm1');
+        final r = await api.get('r1', 'm1');
 
-      expect(r.isSuccess, true);
-      expect(r.dataOrNull!.id, 'm1');
-    });
+        expect(r.isSuccess, true);
+        expect(r.dataOrNull!.id, 'm1');
+      },
+    );
+
+    test(
+      'get() returns NotFound when the message is not in the page',
+      () async {
+        when(
+          () => rest.getWithTotalCount(
+            '/rooms/r1/messages',
+            queryParams: any(named: 'queryParams'),
+          ),
+        ).thenAnswer(
+          (_) async => (
+            {
+              'messages': [msgJson('other')],
+              'hasMore': false,
+            },
+            1,
+          ),
+        );
+
+        final r = await api.get('r1', 'm1');
+
+        expect(r.isFailure, true);
+        expect(r.failureOrNull, isA<NotFoundFailure>());
+      },
+    );
 
     test(
       'update() puts to /rooms/{r}/messages/{m} with text + metadata',

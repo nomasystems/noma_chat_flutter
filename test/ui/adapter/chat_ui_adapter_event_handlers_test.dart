@@ -109,10 +109,12 @@ void main() {
     expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 7);
   });
 
-  test('RoomDeletedEvent removes the room', () async {
+  test('RoomDeletedEvent keeps the room read-only (WhatsApp parity)', () async {
     client.emitEvent(const RoomDeletedEvent(roomId: 'r1'));
     await drain();
-    expect(adapter.roomListController.getRoomById('r1'), isNull);
+    final room = adapter.roomListController.getRoomById('r1');
+    expect(room, isNotNull);
+    expect(room!.isParticipating, isFalse);
   });
 
   test(

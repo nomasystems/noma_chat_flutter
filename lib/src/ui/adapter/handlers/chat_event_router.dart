@@ -231,9 +231,19 @@ class ChatEventRouter {
           // Server bundled the row inline — apply directly and skip the
           // REST follow-up. Used by `do_admin_put_message` and the
           // standard `user_client:put_messages` paths.
+          //
+          // A `message_updated` event is, by definition, an edit: the
+          // backend only emits it from the edit paths. The inline preview
+          // (`chat_engine_vo:format_nmsg/1`) omits `text_history`, so the
+          // parsed row would carry isEdited=false and clobber the sender's
+          // optimistic badge / hide it for other viewers. Force the flag
+          // here so the WhatsApp-style "edited" marker is consistent for
+          // everyone and survives a cache reload, independent of whether
+          // the payload happens to include the edit signal.
+          final edited = message.copyWith(isEdited: true);
           final controller = _controllers[roomId];
-          controller?.updateMessage(message);
-          _cache?.updateMessage(roomId, message);
+          controller?.updateMessage(edited);
+          _cache?.updateMessage(roomId, edited);
           // If the edited message is the room's CURRENT last message, refresh
           // the chat-list preview too — otherwise the open chat updates but
           // the list row keeps the pre-edit text (reported 2026-05-28: an
@@ -241,7 +251,7 @@ class ChatEventRouter {
           // the last message so editing older messages doesn't clobber the
           // preview with stale (earlier) content.
           if (_roomList.getRoomById(roomId)?.lastMessageId == messageId) {
-            _updateRoomLastMessage(roomId, message);
+            _updateRoomLastMessage(roomId, edited);
           }
         } else {
           _refreshMessageFn(roomId, messageId);
@@ -255,9 +265,35 @@ class ChatEventRouter {
       case UnreadUpdatedEvent(:final roomId, :final count):
         _updateRoomUnread(roomId, count);
       case RoomDeletedEvent(:final roomId, :final reason, :final adminReason):
-        _roomList.removeRoom(roomId);
-        _removeChatController(roomId);
-        _cache?.deleteRoom(roomId);
+        if (_roomList.deletedRoomIds.contains(roomId)) {
+          // The user already deleted this chat locally (WhatsApp "Delete
+          // chat"). A late membership-revocation echo (leave / kick /
+          // group deleted) must NOT resurrect it — drop the row and the
+          // cached rows so it stays gone.
+          _roomList.removeRoom(roomId);
+          _removeChatController(roomId);
+          _cache?.deleteRoom(roomId);
+        } else {
+          // Any other room_deleted — per-room ban, kick, voluntary leave,
+          // or the group being deleted — KEEPS the chat read-only with
+          // full history (WhatsApp parity) instead of pruning it. The
+          // backend strips event metadata on the wire (reason is usually
+          // null), and the polling list-diff synthesizes a reason-less
+          // room_deleted for any room that dropped out of the listing, so
+          // gating the read-only path on reason=='banned' wiped left and
+          // kicked rooms on the very next sync. Keeping every non-deleted
+          // room read-only is self-healing: even if some other path
+          // clears the marker, the next reason-less room_deleted re-marks
+          // it. `markKicked` persists the id so the room survives cold
+          // starts (the enricher re-hydrates it from cache since the
+          // backend stops returning it). An admin re-add clears the flag
+          // via `_handleUserRejoined`.
+          final room = _roomList.getRoomById(roomId);
+          if (room != null && room.isParticipating) {
+            _roomList.updateRoom(room.copyWith(isParticipating: false));
+          }
+          _cache?.markKicked(roomId);
+        }
         try {
           _onRoomRemoved?.call(roomId, reason, adminReason);
         } catch (_) {
@@ -438,6 +474,21 @@ class ChatEventRouter {
         // be allowed to break the event pipeline.
       }
     }
+    // Resurrection of a per-user DELETED chat. WhatsApp parity: deleting a
+    // chat removes it from both lists, but a fresh message from a 1:1 peer
+    // brings it back EMPTY (only the new message; prior history stays
+    // hidden behind the preserved `clearedAt` cutoff). Clearing the deleted
+    // marker BEFORE the re-add below lets the row surface again — the
+    // `clearedAt` cutoff is intentionally left in place. Archived (hidden)
+    // rooms are NOT touched here: they must STAY archived on a new message.
+    if (_roomList.deletedRoomIds.contains(roomId)) {
+      _roomList.clearDeleted(roomId);
+      unawaited(
+        (_cache?.clearDeletedRoom(roomId) ?? Future<void>.value()).catchError(
+          (_) {},
+        ),
+      );
+    }
     if (_roomList.getRoomById(roomId) == null) {
       // Don't add a placeholder RoomListItem(id:) yet. If we do, the UI
       // briefly shows a "ghost" room with the raw roomId as title (no
@@ -451,15 +502,28 @@ class ChatEventRouter {
     final isActiveRoom = _autoMarkAsRead && _activeRoomId() == roomId;
     final existing = _roomList.getRoomById(roomId);
     if (existing != null) {
-      if (existing.hidden) {
-        _roomList.updateRoom(existing.copyWith(hidden: false));
-        _client.rooms.unhide(roomId);
-      }
+      // Archived (hidden) rooms STAY archived when a new message arrives —
+      // WhatsApp parity. (Previously this un-hid the room, which conflated
+      // "Archive" with the now-separate "Delete" semantics.) The unread
+      // badge below still updates so the archived row reflects the new count.
+      //
       // If the user is right now looking at this conversation, treat the
       // message as instantly read — mirrors WhatsApp's "you're in the
       // chat, you saw it the moment it landed" behaviour. The chat list
       // unread badge never blips up to 1 just to drop back to 0.
       _updateRoomUnread(roomId, isActiveRoom ? 0 : existing.unreadCount + 1);
+      // Mention badge ("@"): bump the per-room mention counter when the
+      // incoming message tags the current user and the chat isn't already
+      // open. `_updateRoomUnread(…, 0)` clears it on read; the next
+      // `loadRooms` reconciles it against the authoritative server count.
+      if (!isActiveRoom && _messageMentionsMe(message)) {
+        final cur = _roomList.getRoomById(roomId);
+        if (cur != null) {
+          _roomList.updateRoom(
+            cur.copyWith(unreadMentions: cur.unreadMentions + 1),
+          );
+        }
+      }
     }
     if (isActiveRoom) {
       // Read receipt with the just-arrived messageId as high-water mark.
@@ -474,6 +538,15 @@ class ChatEventRouter {
       // message in `sent` state for longer.
       unawaited(_confirmDeliveredFn(roomId, message.id));
     }
+  }
+
+  /// True when [message] tags the current user via `metadata.mentions`
+  /// (the userId list the composer stamps, see [MessageInput]). Used to
+  /// light up the room tile's "@" badge in real time.
+  bool _messageMentionsMe(ChatMessage message) {
+    final raw = message.metadata?['mentions'];
+    if (raw is! List) return false;
+    return raw.contains(_currentUser().id);
   }
 
   void _onMessageDeleted(String roomId, String messageId) {

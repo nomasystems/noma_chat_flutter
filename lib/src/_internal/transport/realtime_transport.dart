@@ -27,6 +27,16 @@ abstract class RealtimeTransport {
   /// Current connection state.
   ChatConnectionState get state;
 
+  /// `true` once the transport hit a *terminal* auth failure (the server
+  /// rejected the credential and reconnecting with it is futile — e.g. WS
+  /// close 4005). Set synchronously, before the matching error event /
+  /// state change is delivered, so a composing transport
+  /// (`AutoFailoverTransport`) can decide not to fail over to a second
+  /// transport that would replay the rejected token without depending on
+  /// stream-delivery ordering. Defaults to `false`; only [WsTransport]
+  /// (the only auth-bearing primary) overrides it.
+  bool get authTerminated => false;
+
   /// `true` when this transport carries an outbound real-time channel
   /// (today only WS). [MessagesApi]/[ContactsApi] gate WS frame attempts
   /// on this getter combined with `state == connected`; everything else

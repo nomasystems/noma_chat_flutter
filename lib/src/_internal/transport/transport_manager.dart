@@ -115,11 +115,18 @@ class TransportManager {
     }
   }
 
+  /// Broadcast event stream. With `eventBufferSize > 0` a fresh
+  /// subscription first replays the last N buffered events, then receives
+  /// live ones. The returned stream is broadcast — the documented contract
+  /// — so saving the getter result and listening more than once is safe
+  /// (a non-broadcast controller here would throw "already listened to").
+  /// Replay reaches the subscribers attached when the buffer flushes;
+  /// listeners that join later only see live events.
   Stream<ChatEvent> get events {
     if (_bufferSize <= 0) return _eventController.stream;
     return _eventController.stream.transform(
       StreamTransformer.fromBind((stream) {
-        final controller = StreamController<ChatEvent>();
+        final controller = StreamController<ChatEvent>.broadcast();
         for (final event in _replayBuffer) {
           scheduleMicrotask(() {
             if (!controller.isClosed) controller.add(event);
@@ -159,7 +166,14 @@ class TransportManager {
   }
 
   void _emit(ChatEvent event) {
-    if (_bufferSize > 0) {
+    // Lifecycle events are excluded from the replay buffer on purpose: a
+    // late subscriber (e.g. a reconnect that re-listens to `events`)
+    // replaying a stale ConnectedEvent would be processed as fresh and
+    // re-trigger offline-queue drains and unread catch-up while still
+    // offline, burning retry attempts and risking dropped queued messages.
+    if (_bufferSize > 0 &&
+        event is! ConnectedEvent &&
+        event is! DisconnectedEvent) {
       _replayBuffer.add(event);
       while (_replayBuffer.length > _bufferSize) {
         _replayBuffer.removeFirst();

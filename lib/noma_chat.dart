@@ -60,12 +60,14 @@ export 'src/models/contact.dart';
 export 'src/models/user_rooms.dart';
 export 'src/models/unread_room.dart';
 export 'src/models/invited_room.dart';
+export 'src/models/invite_result.dart';
 export 'src/models/read_receipt.dart';
 export 'src/models/scheduled_message.dart';
 export 'src/models/health_status.dart';
 export 'src/models/room_user.dart';
 export 'src/models/reaction.dart';
 export 'src/models/pin.dart';
+export 'src/models/starred_message.dart';
 export 'src/models/report.dart';
 export 'src/models/managed_user_config.dart';
 export 'src/models/forward_info.dart';
@@ -91,6 +93,8 @@ export 'src/storage/avatar_storage.dart';
 
 // === SDK: Utils ===
 export 'src/utils/stable_user_id.dart';
+export 'src/utils/chat_invite_link.dart';
+export 'src/utils/chat_export.dart';
 
 // === UI: Models ===
 export 'src/ui/models/reaction_user.dart';
@@ -161,6 +165,11 @@ export 'src/ui/room_defaults.dart';
 export 'src/ui/widgets/chat_room_app_bar.dart';
 export 'src/ui/widgets/quick_replies_bar.dart';
 export 'src/ui/widgets/chat_view.dart';
+export 'src/ui/widgets/noma_chat_view.dart';
+export 'src/ui/widgets/report_message_dialog.dart';
+export 'src/ui/widgets/message_info_sheet.dart';
+export 'src/ui/widgets/starred_messages_view.dart';
+export 'src/ui/widgets/mute_duration_sheet.dart';
 export 'src/ui/widgets/chat_view_config.dart';
 export 'src/ui/widgets/operation_feedback_listener.dart';
 export 'src/ui/widgets/message_list.dart';
@@ -222,3 +231,4 @@ export 'src/ui/widgets/typing_status_text.dart';
 
 // === UI: Pages ===
 export 'src/ui/pages/media_gallery_page.dart';
+export 'src/ui/pages/starred_messages_page.dart';

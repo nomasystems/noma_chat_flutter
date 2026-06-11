@@ -68,10 +68,24 @@ class _PinnedMessagesPageState extends State<PinnedMessagesPage> {
                 trailing: IconButton(
                   icon: const Icon(Icons.close),
                   tooltip: l10n.unpin,
-                  onPressed: () => _chat.adapter.messages.unpin(
-                    widget.roomId,
-                    pin.messageId,
-                  ),
+                  onPressed: () async {
+                    final confirmed =
+                        await ChatRoomOptionsMenu.showConfirmation(
+                          context: context,
+                          confirmation: ChatRoomOptionConfirmation(
+                            title: l10n.unpinConfirmTitle,
+                            body: l10n.unpinConfirmBody,
+                            acceptLabel: l10n.unpin,
+                            cancelLabel: l10n.cancel,
+                          ),
+                          destructive: false,
+                        );
+                    if (!confirmed) return;
+                    await _chat.adapter.messages.unpin(
+                      widget.roomId,
+                      pin.messageId,
+                    );
+                  },
                 ),
               );
             },

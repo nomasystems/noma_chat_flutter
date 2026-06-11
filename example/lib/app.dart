@@ -86,9 +86,12 @@ class _NomaChatExampleAppState extends State<NomaChatExampleApp> {
     ExampleSettings settings,
     AvatarSnapshot? pickedAvatar,
   ) async {
-    await _storage.save(settings);
+    final merged = settings.copyWith(
+      languageCode: settings.languageCode ?? _settings.languageCode,
+    );
+    await _storage.save(merged);
     final outcome = await openChatSession(
-      settings,
+      merged,
       onAuthFailure: _onAuthFailure,
       pickedAvatar: pickedAvatar,
     );
@@ -97,7 +100,7 @@ class _NomaChatExampleAppState extends State<NomaChatExampleApp> {
       case LoginSuccess(:final chat):
         _wireRoomRemovedSnackbar(chat);
         setState(() {
-          _settings = settings;
+          _settings = merged;
           _chat = chat;
         });
         return null;

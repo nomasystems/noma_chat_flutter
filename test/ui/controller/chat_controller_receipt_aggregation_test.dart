@@ -276,4 +276,87 @@ void main() {
       expect(c.receiptStatuses['m1'], isNull);
     });
   });
+
+  group('Group flag while members hydrate (regression)', () {
+    test('a group with no members hydrated yet does NOT flip to read on one '
+        'peer read when setIsGroup(true) is set', () {
+      // Reproduces the bug: the controller opens before its member list
+      // loads, so `_otherUsers` is empty and the count heuristic would treat
+      // it as a 1:1, marking the message read-by-all on the first peer read.
+      // setIsGroup pins the group decision so that can't happen.
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      // Members unknown → can't be "read by all" → stays at sent.
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+    });
+
+    test('without the group flag, an unhydrated chat falls back to the 1:1 '
+        'heuristic (single peer read => read)', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      // No flag, no members → treated as 1:1 (legacy behaviour preserved).
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('setOtherUsers recomputes receipts: a group stuck at a wrong status '
+        'corrects once the member list arrives', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+
+      // Two of three peers read while the roster is still empty.
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+
+      // Member list arrives with three members — still not read-by-all.
+      c.setOtherUsers(const [
+        ChatUser(id: 'u1', displayName: 'Alice'),
+        ChatUser(id: 'u2', displayName: 'Bob'),
+        ChatUser(id: 'u3', displayName: 'Charlie'),
+      ]);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+
+      // The third peer reads → now genuinely read-by-all.
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u3');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('setIsGroup(false) forces the 1:1 rule even with several members', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test(
+      'isGroup getter reflects the explicit flag, then the member count',
+      () {
+        final c = ChatController(initialMessages: const [], currentUser: me);
+        addTearDown(c.dispose);
+        expect(c.isGroup, isFalse); // no flag, no members
+        c.setOtherUsers(const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+        ]);
+        expect(c.isGroup, isTrue); // inferred from count
+        c.setIsGroup(false);
+        expect(c.isGroup, isFalse); // explicit wins
+      },
+    );
+  });
 }

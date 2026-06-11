@@ -98,7 +98,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView> {
       // handling.
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
-          content: Text(result.failureOrNull?.toString() ?? 'Unblock failed'),
+          content: Text(result.failureOrNull?.toString() ?? l10n.unblockFailed),
         ),
       );
     }

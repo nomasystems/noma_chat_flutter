@@ -285,10 +285,20 @@ class _MessageInputState extends State<MessageInput> {
     _linkDebounce = Timer(_linkDebounceDuration, () => _fetchPreview(url));
   }
 
+  /// `UrlDetector` normalizes matches by prepending `https://`, so a bare
+  /// host typed without a scheme (e.g. `example.com`) is NOT a substring of
+  /// the normalized url (`https://example.com`). Compare scheme-insensitively
+  /// so the live preview isn't discarded for schemeless input.
+  bool _textContainsUrl(String text, String url) {
+    if (text.contains(url)) return true;
+    final stripped = url.replaceFirst(RegExp(r'^https?://'), '');
+    return stripped.isNotEmpty && text.contains(stripped);
+  }
+
   Future<void> _fetchPreview(String url) async {
     final fetcher = _linkFetcher;
     if (fetcher == null) return;
-    if (!mounted || !_textController.text.contains(url)) return;
+    if (!mounted || !_textContainsUrl(_textController.text, url)) return;
 
     final seq = ++_linkRequestSeq;
     setState(() {
@@ -324,7 +334,7 @@ class _MessageInputState extends State<MessageInput> {
         .then((preview) {
           spinnerTimer.cancel();
           if (!mounted || seq != _linkRequestSeq) return;
-          final stillTyped = _textController.text.contains(url);
+          final stillTyped = _textContainsUrl(_textController.text, url);
           setState(() {
             _previewLoading = false;
             _currentPreview = stillTyped ? preview : null;
@@ -369,7 +379,7 @@ class _MessageInputState extends State<MessageInput> {
     } else {
       Map<String, dynamic>? metadata;
       final preview = _currentPreview;
-      if (preview != null && text.contains(preview.url)) {
+      if (preview != null && _textContainsUrl(text, preview.url)) {
         metadata = preview.toMessageMetadata();
       } else if (widget.enableLinkPreview && _linkFetcher != null) {
         // The user typed an URL and hit Send before the debounced
@@ -396,7 +406,7 @@ class _MessageInputState extends State<MessageInput> {
               fetched = null;
             }
             if (!mounted) return;
-            if (fetched != null && text.contains(fetched.url)) {
+            if (fetched != null && _textContainsUrl(text, fetched.url)) {
               metadata = fetched.toMessageMetadata();
             }
           }
@@ -787,31 +797,28 @@ class _MessageInputState extends State<MessageInput> {
             const SizedBox(width: 16),
           ],
           Expanded(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 40),
-              child: TextField(
-                controller: _textController,
-                maxLines: widget.maxLines,
-                minLines: 1,
-                textCapitalization: TextCapitalization.sentences,
-                textAlignVertical: TextAlignVertical.center,
-                style: widget.theme.input.textStyle,
-                decoration: InputDecoration(
-                  hintText: widget.theme.l10n.writeMessage,
-                  hintStyle: widget.theme.input.hintStyle,
-                  border: _composerBorder(),
-                  enabledBorder: _composerBorder(),
-                  focusedBorder: _composerBorder(),
-                  disabledBorder: _composerBorder(),
-                  filled: true,
-                  fillColor:
-                      widget.theme.input.fillColor ?? Colors.grey.shade100,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 11,
-                  ),
-                  isDense: true,
+            child: TextField(
+              controller: _textController,
+              maxLines: widget.maxLines,
+              minLines: 1,
+              textCapitalization: TextCapitalization.sentences,
+              textAlignVertical: TextAlignVertical.center,
+              style: widget.theme.input.textStyle,
+              decoration: InputDecoration(
+                hintText: widget.theme.l10n.writeMessage,
+                hintStyle: widget.theme.input.hintStyle,
+                hintMaxLines: 1,
+                border: _composerBorder(),
+                enabledBorder: _composerBorder(),
+                focusedBorder: _composerBorder(),
+                disabledBorder: _composerBorder(),
+                filled: true,
+                fillColor: widget.theme.input.fillColor ?? Colors.grey.shade100,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
                 ),
+                isDense: true,
               ),
             ),
           ),

@@ -105,6 +105,17 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
     _emailController = TextEditingController(text: _originalEmail)
       ..addListener(_onFieldChanged);
     _refreshFromBackend();
+    // Reflect the WS `user_updated` echo / multi-device edits onto the field
+    // even when the change did not originate from this page's save path.
+    widget.adapter.currentUserListenable.addListener(_onCurrentUserChanged);
+  }
+
+  void _onCurrentUserChanged() {
+    if (!mounted) return;
+    final me = widget.adapter.currentUser;
+    setState(() {
+      if (!_avatarRemoved) _resolvedAvatarUrl = me.avatarUrl;
+    });
   }
 
   Future<void> _refreshFromBackend() async {
@@ -132,6 +143,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
 
   @override
   void dispose() {
+    widget.adapter.currentUserListenable.removeListener(_onCurrentUserChanged);
     _nameController.dispose();
     _bioController.dispose();
     _emailController.dispose();
@@ -204,6 +216,14 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
       _saving = false;
       if (result.isSuccess) {
         _avatarRemoved = false;
+        // Route the freshly-uploaded/cleared URL into the field so the small
+        // avatar AND the full-screen "View photo" viewer use the new URL
+        // instead of the one captured at page open.
+        if (newAvatar != null) {
+          _resolvedAvatarUrl = result.dataOrNull;
+        } else if (removeAvatar) {
+          _resolvedAvatarUrl = null;
+        }
       }
     });
     if (result.isFailure) {
@@ -304,9 +324,9 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: TextField(
                 controller: _emailController,
-                decoration: const InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(),
+                decoration: InputDecoration(
+                  labelText: l10n.email,
+                  border: const OutlineInputBorder(),
                 ),
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.done,

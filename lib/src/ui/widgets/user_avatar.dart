@@ -158,7 +158,7 @@ class UserAvatar extends StatelessWidget {
           ? '$displayName, $presenceLabel'
           : displayName!;
     } else {
-      semanticLabel = 'Avatar';
+      semanticLabel = theme.l10n.avatar;
     }
 
     if (isOnline == null && presenceStatus == null) {

@@ -115,13 +115,22 @@ void main() {
     expect(r.isSuccess, true);
   });
 
-  test('leaveRoom removes the room from the list on success', () async {
-    adapter.roomListController.addRoom(const RoomListItem(id: 'r1', name: 'R'));
+  test(
+    'leaveRoom keeps the room read-only on success (WhatsApp parity)',
+    () async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'r1', name: 'R'),
+      );
 
-    final r = await adapter.rooms.leave('r1');
-    expect(r.isSuccess, true);
-    expect(adapter.roomListController.getRoomById('r1'), isNull);
-  });
+      final r = await adapter.rooms.leave('r1');
+      expect(r.isSuccess, true);
+      // WhatsApp parity: leaving keeps the chat visible read-only with full
+      // history until the user explicitly deletes it.
+      final room = adapter.roomListController.getRoomById('r1');
+      expect(room, isNotNull);
+      expect(room!.isParticipating, isFalse);
+    },
+  );
 
   test('hideRoom + unhideRoom toggle the hidden flag', () async {
     adapter.roomListController.addRoom(const RoomListItem(id: 'r1', name: 'R'));

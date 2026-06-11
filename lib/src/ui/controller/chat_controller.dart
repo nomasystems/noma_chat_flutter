@@ -30,6 +30,15 @@ class ChatController extends ChangeNotifier {
   final Map<String, int> _indexById = {};
   final ChatUser _currentUser;
   final List<ChatUser> _otherUsers;
+
+  // Whether this conversation is a group. `null` means "not told yet" — the
+  // controller then infers it from `_otherUsers.length`, which is only safe
+  // once member hydration has completed. While members are still loading a
+  // group can momentarily look like a 1:1 (0–1 known members) and the receipt
+  // aggregate would wrongly flip to "read by all". Setting this flag
+  // explicitly (via [setIsGroup]) pins the group/1:1 decision so the aggregate
+  // never degrades during hydration.
+  bool? _isGroup;
   final Set<String> _typingUserIds = {};
   final Map<String, Timer> _typingTimers = {};
   String? _draft;
@@ -126,6 +135,10 @@ class ChatController extends ChangeNotifier {
   List<MessagePin> get pinnedMessages => List.unmodifiable(_pinnedMessages);
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMoreMessages => _hasMoreMessages;
+
+  /// Opaque older-history cursor: the [ChatPaginatedResponse.prevCursor] of the
+  /// most recent page loaded. Pass it back with
+  /// `direction: ChatCursorDirection.older` to fetch the next older page.
   String? get oldestMessageCursor => _oldestMessageCursor;
 
   // --- Messages ---
@@ -177,6 +190,18 @@ class ChatController extends ChangeNotifier {
     final index = _indexById[message.id];
     if (index == null) return;
     _messages[index] = message;
+    notifyListeners();
+  }
+
+  /// Flips the per-user starred flag on [messageId] in place. No-op when the
+  /// message isn't loaded or the flag already matches. Drives the in-bubble
+  /// star badge optimistically before the backend round-trip resolves.
+  void setMessageStarred(String messageId, bool starred) {
+    final index = _indexById[messageId];
+    if (index == null) return;
+    final msg = _messages[index];
+    if (msg.isStarred == starred) return;
+    _messages[index] = msg.copyWith(isStarred: starred);
     notifyListeners();
   }
 
@@ -257,11 +282,50 @@ class ChatController extends ChangeNotifier {
 
   // --- Users ---
 
+  /// Whether this conversation is a group, as resolved so far. Returns the
+  /// explicitly-set value when known (see [setIsGroup]); otherwise infers it
+  /// from the number of known other members.
+  bool get isGroup => _isGroup ?? _otherUsers.length > 1;
+
+  /// Pins whether this conversation is a group, independent of how many
+  /// members have been hydrated yet. The adapter sets this from the room's
+  /// type (`RoomListItem.isGroup`) as soon as the chat opens, so receipt
+  /// aggregation knows a group is a group even before its member list loads.
+  /// Recomputes every visible receipt because the group/1:1 distinction
+  /// changes the "read by all" rule.
+  void setIsGroup(bool value) {
+    if (_isGroup == value) return;
+    _isGroup = value;
+    if (_recomputeAllReceipts()) notifyListeners();
+  }
+
   void setOtherUsers(List<ChatUser> users) {
+    final prevCount = _otherUsers.length;
     _otherUsers
       ..clear()
       ..addAll(users);
+    // Member hydration changes the divisor used by the group "read by all"
+    // computation, so recompute the aggregate whenever the count moves.
+    // Without this a group that opened with an incomplete member list stays
+    // stuck on whatever status the wrong divisor produced.
+    if (_otherUsers.length != prevCount) {
+      _recomputeAllReceipts();
+    }
     notifyListeners();
+  }
+
+  /// Re-derives every cached receipt aggregate from the per-user breakdown.
+  /// Returns `true` when at least one visible status changed.
+  bool _recomputeAllReceipts() {
+    var changed = false;
+    for (final entry in {..._readBy.keys, ..._deliveredBy.keys}.toList()) {
+      final next = _aggregateStatus(entry);
+      if (_receiptStatuses[entry] != next) {
+        _receiptStatuses[entry] = next;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // --- Draft (lazy DM creation) ---
@@ -554,8 +618,14 @@ class ChatController extends ChangeNotifier {
   ReceiptStatus _aggregateStatus(String messageId) {
     final otherUserIds = _otherUsers.map((u) => u.id).toSet();
     final totalOthers = otherUserIds.length;
-    if (totalOthers <= 1) {
-      // 1:1 (or unresolved members): any read => read; any delivered => delivered.
+    // Treat the chat as 1:1 only when we KNOW it isn't a group. When the
+    // group flag hasn't been set we fall back to the member count, but a
+    // known group is never collapsed to 1:1 — otherwise a not-yet-hydrated
+    // group (0–1 known members) would mark messages "read by all" the instant
+    // a single peer read, and stay stuck there permanently.
+    final treatAsOneToOne = _isGroup == null ? totalOthers <= 1 : !_isGroup!;
+    if (treatAsOneToOne) {
+      // 1:1: any read => read; any delivered => delivered.
       final readers = _readBy[messageId];
       if (readers != null && readers.isNotEmpty) return ReceiptStatus.read;
       final delivered = _deliveredBy[messageId];
@@ -564,7 +634,10 @@ class ChatController extends ChangeNotifier {
       }
       return ReceiptStatus.sent;
     }
-    // Group: only mark as read once *every* other member has read.
+    // Group: only mark as read once *every* other member has read. Until the
+    // member list is hydrated (`totalOthers == 0`) we can't know "all", so the
+    // aggregate stays at `sent` rather than prematurely flipping to read.
+    if (totalOthers == 0) return ReceiptStatus.sent;
     final readers = _readBy[messageId] ?? const <String>{};
     final readByAll =
         readers.length >= totalOthers && otherUserIds.every(readers.contains);
@@ -662,6 +735,10 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records the load-more pagination state. [cursor] is the opaque
+  /// older-history cursor ([ChatPaginatedResponse.prevCursor]) anchored on the
+  /// oldest message of the page just loaded; [hasMore] reflects whether older
+  /// history remains.
   void setPaginationState({required bool hasMore, String? cursor}) {
     _hasMoreMessages = hasMore;
     _oldestMessageCursor = cursor;

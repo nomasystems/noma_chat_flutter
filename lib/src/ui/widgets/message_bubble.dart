@@ -156,6 +156,8 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isForwarded => message.isForwarded;
 
+  bool get _isStarred => message.isStarred;
+
   ReceiptStatus? get _effectiveStatus => status ?? message.receipt;
 
   bool get _isSystem => message.isSystem;
@@ -498,7 +500,18 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isPinned) _buildPinBadge(),
+            if (isPinned || _isStarred)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isPinned) _buildPinBadge(),
+                    if (isPinned && _isStarred) const SizedBox(width: 6),
+                    if (_isStarred) _buildStarBadge(),
+                  ],
+                ),
+              ),
             if (senderName != null && !isOutgoing) _buildSenderName(),
             _buildBubbleContent(context),
           ],
@@ -513,23 +526,32 @@ class MessageBubble extends StatelessWidget {
   /// "Pinned" label, italic grey, in line with the existing
   /// "edited" / "admin" microcopy.
   Widget _buildPinBadge() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
-          const SizedBox(width: 3),
-          Text(
-            theme.l10n.pinned.isNotEmpty ? theme.l10n.pinned : 'Pinned',
-            style: TextStyle(
-              fontSize: 11,
-              fontStyle: FontStyle.italic,
-              color: Colors.grey.shade600,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
+        const SizedBox(width: 3),
+        Text(
+          theme.l10n.pinned.isNotEmpty ? theme.l10n.pinned : 'Pinned',
+          style: TextStyle(
+            fontSize: 11,
+            fontStyle: FontStyle.italic,
+            color: Colors.grey.shade600,
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  /// Star badge: rendered alongside the pin badge at the top of the
+  /// bubble, mirroring the subtle "pinned" / "edited" microcopy. The star
+  /// is a private per-user bookmark, so a single icon (no label) keeps it
+  /// unobtrusive while still flagging starred rows while scrolling.
+  Widget _buildStarBadge() {
+    return Icon(
+      Icons.star,
+      size: 12,
+      color: theme.bubble.timestampStyle?.color ?? Colors.grey.shade600,
     );
   }
 

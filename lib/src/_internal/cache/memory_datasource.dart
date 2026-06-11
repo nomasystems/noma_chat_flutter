@@ -23,6 +23,7 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   List<InvitedRoom> _invitedRooms = [];
   List<Map<String, dynamic>> _offlineQueue = [];
   final Set<String> _kickedRoomIds = <String>{};
+  final Set<String> _deletedRoomIds = <String>{};
   final Map<String, Map<String, List<AggregatedReaction>>> _reactions = {};
   final Map<String, List<MessagePin>> _pins = {};
   final Map<String, List<ReadReceipt>> _receipts = {};
@@ -52,27 +53,16 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   Future<ChatResult<List<ChatMessage>>> getMessages(
     String roomId, {
     int? limit,
-    String? before,
-    String? after,
   }) async {
-    final messages = _messages[roomId] ?? [];
-    var filtered = messages;
-    if (before != null) {
-      final idx = messages.indexWhere((m) => m.id == before);
-      if (idx >= 0) {
-        filtered = messages.sublist(idx + 1);
-      }
+    var messages = _messages[roomId] ?? [];
+    final clearedAt = _clearedAt[roomId];
+    if (clearedAt != null) {
+      messages = messages.where((m) => m.timestamp.isAfter(clearedAt)).toList();
     }
-    if (after != null) {
-      final ts = DateTime.tryParse(after);
-      if (ts != null) {
-        filtered = filtered.where((m) => m.timestamp.isAfter(ts)).toList();
-      }
+    if (limit != null && messages.length > limit) {
+      return ChatSuccess(messages.sublist(0, limit));
     }
-    if (limit != null && filtered.length > limit) {
-      return ChatSuccess(filtered.sublist(0, limit));
-    }
-    return ChatSuccess(filtered);
+    return ChatSuccess(messages);
   }
 
   @override
@@ -167,7 +157,6 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
     _reactions.remove(roomId);
     _pins.remove(roomId);
     _receipts.remove(roomId);
-    _clearedAt.remove(roomId);
     return const ChatSuccess(null);
   }
 
@@ -228,6 +217,16 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   }
 
   @override
+  Future<ChatResult<void>> reconcileUnreads(List<UnreadRoom> unreads) async {
+    final serverIds = unreads.map((u) => u.roomId).toSet();
+    _unreads.removeWhere(
+      (id, _) => !serverIds.contains(id) && !_kickedRoomIds.contains(id),
+    );
+    _unreads.addEntries(unreads.map((u) => MapEntry(u.roomId, u)));
+    return const ChatSuccess(null);
+  }
+
+  @override
   Future<ChatResult<List<UnreadRoom>>> getUnreads() async =>
       ChatSuccess(_unreads.values.toList());
 
@@ -282,6 +281,22 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   @override
   Future<ChatResult<Set<String>>> getKickedRoomIds() async =>
       ChatSuccess(Set<String>.of(_kickedRoomIds));
+
+  @override
+  Future<ChatResult<void>> addDeletedRoom(String roomId) async {
+    _deletedRoomIds.add(roomId);
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<void>> clearDeletedRoom(String roomId) async {
+    _deletedRoomIds.remove(roomId);
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() async =>
+      ChatSuccess(Set<String>.of(_deletedRoomIds));
 
   // Reactions
   @override
@@ -359,6 +374,7 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
     _invitedRooms = [];
     _offlineQueue = [];
     _kickedRoomIds.clear();
+    _deletedRoomIds.clear();
     _reactions.clear();
     _pins.clear();
     _receipts.clear();

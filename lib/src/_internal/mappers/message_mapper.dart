@@ -4,6 +4,7 @@ import '../../models/scheduled_message.dart';
 import '../../models/pin.dart';
 import '../../models/report.dart';
 import '../../models/reaction.dart';
+import '../../models/starred_message.dart';
 import '../dto/message_dto.dart';
 
 class MessageMapper {
@@ -20,6 +21,9 @@ class MessageMapper {
     'fileSize',
     'thumbnailUrl',
     'attachmentUrl',
+    // Idempotency key — surfaced via [ChatMessage.clientMessageId], kept out
+    // of the public metadata map.
+    'clientMessageId',
   };
 
   static ChatMessage fromDto(MessageDto dto, {bool isEdited = false}) {
@@ -69,6 +73,7 @@ class MessageMapper {
           : _parseMessageType(dto.messageType),
       attachmentUrl: dto.attachmentUrl ?? metaAttachmentUrl,
       referencedMessageId: dto.referencedMessageId,
+      clientMessageId: dto.clientMessageId,
       reaction: dto.reaction,
       reply: dto.reply,
       metadata: cleanMeta,
@@ -183,6 +188,16 @@ class MessageMapper {
         DateTime.tryParse((json['pinnedAt'] ?? '') as String) ??
         DateTime.fromMillisecondsSinceEpoch(0),
   );
+
+  static StarredMessage starredFromJson(Map<String, dynamic> json) =>
+      StarredMessage(
+        userId: (json['userId'] ?? '') as String,
+        messageId: (json['messageId'] ?? '') as String,
+        roomId: (json['roomId'] ?? '') as String,
+        starredAt:
+            DateTime.tryParse((json['starredAt'] ?? '') as String) ??
+            DateTime.fromMillisecondsSinceEpoch(0),
+      );
 
   static MessageReport reportFromJson(Map<String, dynamic> json) =>
       MessageReport(

@@ -39,6 +39,9 @@ class ChatUiLocalizations {
     this.forward = 'Forward',
     this.pin = 'Pin',
     this.unpin = 'Unpin',
+    this.unpinConfirmTitle = 'Unpin message?',
+    this.unpinConfirmBody =
+        'This message will no longer be pinned in this chat.',
     this.react = 'React',
     this.reactions = 'Reactions',
     this.removeReaction = 'Remove reaction',
@@ -264,6 +267,48 @@ class ChatUiLocalizations {
     // Validation templates (interpolated with {n})
     this.minCharsTemplate = 'At least {n} characters',
     this.nameTooShortTemplate = 'Name must be at least {n} characters',
+    // Message info sheet (read by / delivered to) + group-invite link +
+    // export chat options.
+    this.messageInfo = 'Message info',
+    this.readBy = 'Read by',
+    this.deliveredTo = 'Delivered to',
+    this.noReceiptsYet = 'No read or delivery info yet',
+    this.exportChat = 'Export chat',
+    this.inviteViaLink = 'Invite via link',
+    this.inviteLinkCopied = 'Invite link copied',
+    // Starred messages, mute-duration selector and archived chats.
+    this.star = 'Star',
+    this.unstar = 'Unstar',
+    this.unstarConfirmTitle = 'Remove star?',
+    this.unstarConfirmBody =
+        'This message will no longer appear in your starred messages.',
+    this.starredMessages = 'Starred messages',
+    this.noStarredMessages = 'No starred messages yet',
+    this.muteDuration = 'Mute notifications',
+    this.mute8Hours = '8 hours',
+    this.mute1Week = '1 week',
+    this.muteAlways = 'Always',
+    this.archived = 'Archived',
+    this.archiveChat = 'Archive',
+    this.unarchiveChat = 'Unarchive',
+    // Presence labels (UserProfileView), profile email field, emoji
+    // picker search hint, group/role/block operation-failure fallbacks,
+    // generic error/reason fallbacks and a11y semantic labels.
+    this.presenceAvailable = 'Available',
+    this.presenceAway = 'Away',
+    this.presenceBusy = 'Busy',
+    this.presenceDnd = 'Do not disturb',
+    this.presenceOffline = 'Offline',
+    this.email = 'Email',
+    this.searchEmoji = 'Search emoji...',
+    this.unblockFailed = 'Unblock failed',
+    this.updateRoleFailed = 'Update role failed',
+    this.removeMemberFailed = 'Remove member failed',
+    this.error = 'Error',
+    this.reason = 'Reason',
+    this.dismissReactionPicker = 'Dismiss reaction picker',
+    this.locationMessage = 'Location message',
+    this.avatar = 'Avatar',
   });
 
   /// IETF / ISO 639-1 primary language subtag of this instance
@@ -296,6 +341,12 @@ class ChatUiLocalizations {
   final String forward;
   final String pin;
   final String unpin;
+
+  /// Title of the unpin-confirmation dialog ([PinnedMessagesPage]).
+  final String unpinConfirmTitle;
+
+  /// Body of the unpin-confirmation dialog ([PinnedMessagesPage]).
+  final String unpinConfirmBody;
   final String react;
   final String reactions;
   final String removeReaction;
@@ -592,6 +643,117 @@ class ChatUiLocalizations {
   final String minCharsTemplate;
   final String nameTooShortTemplate;
 
+  /// Title of the [MessageInfoSheet] long-press surface ("Message info").
+  final String messageInfo;
+
+  /// Section header in [MessageInfoSheet] listing members who read the
+  /// message.
+  final String readBy;
+
+  /// Section header in [MessageInfoSheet] listing members the message
+  /// reached but who have not read it yet.
+  final String deliveredTo;
+
+  /// Empty-state copy in [MessageInfoSheet] when no member has a read or
+  /// delivered cursor covering the message yet.
+  final String noReceiptsYet;
+
+  /// Room-options label for exporting the chat history to a text file.
+  final String exportChat;
+
+  /// Room-options label for sharing a public-room invitation link.
+  final String inviteViaLink;
+
+  /// Snackbar shown after the invitation link is copied to the clipboard.
+  final String inviteLinkCopied;
+
+  /// Context-menu label to star (bookmark) a message for the current user.
+  final String star;
+
+  /// Action label to remove the current user's star from a message.
+  final String unstar;
+
+  /// Title of the unstar-confirmation dialog ([StarredMessagesView]).
+  final String unstarConfirmTitle;
+
+  /// Body of the unstar-confirmation dialog ([StarredMessagesView]).
+  final String unstarConfirmBody;
+
+  /// Title of the starred-messages view ([StarredMessagesView]).
+  final String starredMessages;
+
+  /// Empty-state copy when the user has not starred any message yet.
+  final String noStarredMessages;
+
+  /// Title of the mute-duration selector sheet.
+  final String muteDuration;
+
+  /// Mute-duration option: silence notifications for 8 hours.
+  final String mute8Hours;
+
+  /// Mute-duration option: silence notifications for one week.
+  final String mute1Week;
+
+  /// Mute-duration option: silence notifications permanently.
+  final String muteAlways;
+
+  /// Collapsible section header grouping archived (hidden) chats.
+  final String archived;
+
+  /// Room-options label to archive (hide) a chat.
+  final String archiveChat;
+
+  /// Room-options label to unarchive (unhide) a chat.
+  final String unarchiveChat;
+
+  /// Presence label shown in [UserProfileView] when the peer is available.
+  final String presenceAvailable;
+
+  /// Presence label shown in [UserProfileView] when the peer is away.
+  final String presenceAway;
+
+  /// Presence label shown in [UserProfileView] when the peer is busy.
+  final String presenceBusy;
+
+  /// Presence label shown in [UserProfileView] when the peer is on
+  /// do-not-disturb.
+  final String presenceDnd;
+
+  /// Presence label shown in [UserProfileView] when the peer is offline.
+  final String presenceOffline;
+
+  /// Label for the optional email field in the profile settings page.
+  final String email;
+
+  /// Search hint shown inside the full emoji picker sheet.
+  final String searchEmoji;
+
+  /// Fallback snackbar text when unblocking a user fails and the failure
+  /// carries no message.
+  final String unblockFailed;
+
+  /// Fallback snackbar text when updating a member's role fails.
+  final String updateRoleFailed;
+
+  /// Fallback snackbar text when removing a group member fails.
+  final String removeMemberFailed;
+
+  /// Generic error fallback (e.g. the reaction-detail sheet load failure).
+  final String error;
+
+  /// Fallback hint for the report-message reason field.
+  final String reason;
+
+  /// Accessibility label for the barrier that dismisses the floating
+  /// reaction picker.
+  final String dismissReactionPicker;
+
+  /// Accessibility label fallback for a location message bubble.
+  final String locationMessage;
+
+  /// Accessibility label fallback for a user avatar with no display name.
+  final String avatar;
+
   String blockUserName(String name) =>
       blockUserNameTemplate.replaceAll('{name}', name);
   String unblockUserName(String name) =>
@@ -722,6 +884,8 @@ class ChatUiLocalizations {
     String? forward,
     String? pin,
     String? unpin,
+    String? unpinConfirmTitle,
+    String? unpinConfirmBody,
     String? react,
     String? reactions,
     String? removeReaction,
@@ -889,6 +1053,41 @@ class ChatUiLocalizations {
     String? uploadingPhoto,
     String? viewPhoto,
     String? yourName,
+    String? messageInfo,
+    String? readBy,
+    String? deliveredTo,
+    String? noReceiptsYet,
+    String? exportChat,
+    String? inviteViaLink,
+    String? inviteLinkCopied,
+    String? star,
+    String? unstar,
+    String? unstarConfirmTitle,
+    String? unstarConfirmBody,
+    String? starredMessages,
+    String? noStarredMessages,
+    String? muteDuration,
+    String? mute8Hours,
+    String? mute1Week,
+    String? muteAlways,
+    String? archived,
+    String? archiveChat,
+    String? unarchiveChat,
+    String? presenceAvailable,
+    String? presenceAway,
+    String? presenceBusy,
+    String? presenceDnd,
+    String? presenceOffline,
+    String? email,
+    String? searchEmoji,
+    String? unblockFailed,
+    String? updateRoleFailed,
+    String? removeMemberFailed,
+    String? error,
+    String? reason,
+    String? dismissReactionPicker,
+    String? locationMessage,
+    String? avatar,
   }) {
     return ChatUiLocalizations(
       localeCode: localeCode ?? this.localeCode,
@@ -915,6 +1114,8 @@ class ChatUiLocalizations {
       forward: forward ?? this.forward,
       pin: pin ?? this.pin,
       unpin: unpin ?? this.unpin,
+      unpinConfirmTitle: unpinConfirmTitle ?? this.unpinConfirmTitle,
+      unpinConfirmBody: unpinConfirmBody ?? this.unpinConfirmBody,
       react: react ?? this.react,
       reactions: reactions ?? this.reactions,
       removeReaction: removeReaction ?? this.removeReaction,
@@ -1165,6 +1366,42 @@ class ChatUiLocalizations {
       groupName: groupName ?? this.groupName,
       save: save ?? this.save,
       changeAvatar: changeAvatar ?? this.changeAvatar,
+      messageInfo: messageInfo ?? this.messageInfo,
+      readBy: readBy ?? this.readBy,
+      deliveredTo: deliveredTo ?? this.deliveredTo,
+      noReceiptsYet: noReceiptsYet ?? this.noReceiptsYet,
+      exportChat: exportChat ?? this.exportChat,
+      inviteViaLink: inviteViaLink ?? this.inviteViaLink,
+      inviteLinkCopied: inviteLinkCopied ?? this.inviteLinkCopied,
+      star: star ?? this.star,
+      unstar: unstar ?? this.unstar,
+      unstarConfirmTitle: unstarConfirmTitle ?? this.unstarConfirmTitle,
+      unstarConfirmBody: unstarConfirmBody ?? this.unstarConfirmBody,
+      starredMessages: starredMessages ?? this.starredMessages,
+      noStarredMessages: noStarredMessages ?? this.noStarredMessages,
+      muteDuration: muteDuration ?? this.muteDuration,
+      mute8Hours: mute8Hours ?? this.mute8Hours,
+      mute1Week: mute1Week ?? this.mute1Week,
+      muteAlways: muteAlways ?? this.muteAlways,
+      archived: archived ?? this.archived,
+      archiveChat: archiveChat ?? this.archiveChat,
+      unarchiveChat: unarchiveChat ?? this.unarchiveChat,
+      presenceAvailable: presenceAvailable ?? this.presenceAvailable,
+      presenceAway: presenceAway ?? this.presenceAway,
+      presenceBusy: presenceBusy ?? this.presenceBusy,
+      presenceDnd: presenceDnd ?? this.presenceDnd,
+      presenceOffline: presenceOffline ?? this.presenceOffline,
+      email: email ?? this.email,
+      searchEmoji: searchEmoji ?? this.searchEmoji,
+      unblockFailed: unblockFailed ?? this.unblockFailed,
+      updateRoleFailed: updateRoleFailed ?? this.updateRoleFailed,
+      removeMemberFailed: removeMemberFailed ?? this.removeMemberFailed,
+      error: error ?? this.error,
+      reason: reason ?? this.reason,
+      dismissReactionPicker:
+          dismissReactionPicker ?? this.dismissReactionPicker,
+      locationMessage: locationMessage ?? this.locationMessage,
+      avatar: avatar ?? this.avatar,
     );
   }
 
@@ -1270,6 +1507,13 @@ class ChatUiLocalizations {
     forward: 'Reenviar',
     pin: 'Fijar',
     unpin: 'Desfijar',
+    unpinConfirmTitle: '¿Desfijar mensaje?',
+    unpinConfirmBody: 'Este mensaje dejará de estar fijado en este chat.',
+    star: 'Destacar',
+    unstar: 'Quitar destacado',
+    unstarConfirmTitle: '¿Quitar destacado?',
+    unstarConfirmBody:
+        'Este mensaje dejará de aparecer en tus mensajes destacados.',
     react: 'Reaccionar',
     reactions: 'Reacciones',
     removeReaction: 'Eliminar reacción',
@@ -1473,6 +1717,37 @@ class ChatUiLocalizations {
     next: 'Siguiente',
     minCharsTemplate: 'Al menos {n} caracteres',
     nameTooShortTemplate: 'El nombre debe tener al menos {n} caracteres',
+    messageInfo: 'Info. del mensaje',
+    readBy: 'Leído por',
+    deliveredTo: 'Entregado a',
+    noReceiptsYet: 'Aún no hay información de entrega ni de lectura',
+    exportChat: 'Exportar chat',
+    inviteViaLink: 'Invitar con enlace',
+    inviteLinkCopied: 'Enlace de invitación copiado',
+    starredMessages: 'Mensajes destacados',
+    noStarredMessages: 'Aún no tienes mensajes destacados',
+    muteDuration: 'Silenciar notificaciones',
+    mute8Hours: '8 horas',
+    mute1Week: '1 semana',
+    muteAlways: 'Siempre',
+    archived: 'Archivados',
+    archiveChat: 'Archivar',
+    unarchiveChat: 'Desarchivar',
+    presenceAvailable: 'Disponible',
+    presenceAway: 'Ausente',
+    presenceBusy: 'Ocupado',
+    presenceDnd: 'No molestar',
+    presenceOffline: 'Desconectado',
+    email: 'Correo electrónico',
+    searchEmoji: 'Buscar emoji...',
+    unblockFailed: 'No se pudo desbloquear',
+    updateRoleFailed: 'No se pudo actualizar el rol',
+    removeMemberFailed: 'No se pudo eliminar al miembro',
+    error: 'Error',
+    reason: 'Motivo',
+    dismissReactionPicker: 'Cerrar selector de reacciones',
+    locationMessage: 'Mensaje de ubicación',
+    avatar: 'Avatar',
   );
 
   static const ChatUiLocalizations fr = ChatUiLocalizations(
@@ -1582,6 +1857,12 @@ class ChatUiLocalizations {
     forward: 'Transférer',
     pin: 'Épingler',
     unpin: 'Désépingler',
+    unpinConfirmTitle: 'Désépingler le message ?',
+    unpinConfirmBody: 'Ce message ne sera plus épinglé dans cette discussion.',
+    star: 'Suivre',
+    unstar: 'Ne plus suivre',
+    unstarConfirmTitle: 'Retirer le suivi ?',
+    unstarConfirmBody: 'Ce message n’apparaîtra plus dans vos messages suivis.',
     react: 'Réagir',
     reactions: 'Réactions',
     removeReaction: 'Supprimer la réaction',
@@ -1711,6 +1992,37 @@ class ChatUiLocalizations {
     next: 'Suivant',
     minCharsTemplate: 'Au moins {n} caractères',
     nameTooShortTemplate: 'Le nom doit faire au moins {n} caractères',
+    messageInfo: 'Infos du message',
+    readBy: 'Lu par',
+    deliveredTo: 'Remis à',
+    noReceiptsYet: 'Aucune info de remise ou de lecture pour le moment',
+    exportChat: 'Exporter la discussion',
+    inviteViaLink: 'Inviter via un lien',
+    inviteLinkCopied: 'Lien d\'invitation copié',
+    starredMessages: 'Messages favoris',
+    noStarredMessages: 'Aucun message favori pour le moment',
+    muteDuration: 'Couper les notifications',
+    mute8Hours: '8 heures',
+    mute1Week: '1 semaine',
+    muteAlways: 'Toujours',
+    archived: 'Archivés',
+    archiveChat: 'Archiver',
+    unarchiveChat: 'Désarchiver',
+    presenceAvailable: 'Disponible',
+    presenceAway: 'Absent',
+    presenceBusy: 'Occupé',
+    presenceDnd: 'Ne pas déranger',
+    presenceOffline: 'Hors ligne',
+    email: 'E-mail',
+    searchEmoji: 'Rechercher un émoji...',
+    unblockFailed: 'Échec du déblocage',
+    updateRoleFailed: 'Échec de la mise à jour du rôle',
+    removeMemberFailed: 'Échec du retrait du membre',
+    error: 'Erreur',
+    reason: 'Motif',
+    dismissReactionPicker: 'Fermer le sélecteur de réactions',
+    locationMessage: 'Message de position',
+    avatar: 'Avatar',
   );
 
   static const ChatUiLocalizations de = ChatUiLocalizations(
@@ -1821,6 +2133,14 @@ class ChatUiLocalizations {
     forward: 'Weiterleiten',
     pin: 'Anheften',
     unpin: 'Loslösen',
+    unpinConfirmTitle: 'Nachricht loslösen?',
+    unpinConfirmBody:
+        'Diese Nachricht wird in diesem Chat nicht mehr angeheftet.',
+    star: 'Markieren',
+    unstar: 'Markierung entfernen',
+    unstarConfirmTitle: 'Markierung entfernen?',
+    unstarConfirmBody:
+        'Diese Nachricht erscheint nicht mehr in deinen markierten Nachrichten.',
     react: 'Reagieren',
     reactions: 'Reaktionen',
     removeReaction: 'Reaktion entfernen',
@@ -1950,6 +2270,37 @@ class ChatUiLocalizations {
     next: 'Weiter',
     minCharsTemplate: 'Mindestens {n} Zeichen',
     nameTooShortTemplate: 'Der Name muss mindestens {n} Zeichen lang sein',
+    messageInfo: 'Nachrichteninfo',
+    readBy: 'Gelesen von',
+    deliveredTo: 'Zugestellt an',
+    noReceiptsYet: 'Noch keine Zustell- oder Leseinfo',
+    exportChat: 'Chat exportieren',
+    inviteViaLink: 'Per Link einladen',
+    inviteLinkCopied: 'Einladungslink kopiert',
+    starredMessages: 'Markierte Nachrichten',
+    noStarredMessages: 'Noch keine markierten Nachrichten',
+    muteDuration: 'Benachrichtigungen stummschalten',
+    mute8Hours: '8 Stunden',
+    mute1Week: '1 Woche',
+    muteAlways: 'Immer',
+    archived: 'Archiviert',
+    archiveChat: 'Archivieren',
+    unarchiveChat: 'Aus Archiv',
+    presenceAvailable: 'Verfügbar',
+    presenceAway: 'Abwesend',
+    presenceBusy: 'Beschäftigt',
+    presenceDnd: 'Nicht stören',
+    presenceOffline: 'Offline',
+    email: 'E-Mail',
+    searchEmoji: 'Emoji suchen...',
+    unblockFailed: 'Entsperren fehlgeschlagen',
+    updateRoleFailed: 'Rollenaktualisierung fehlgeschlagen',
+    removeMemberFailed: 'Mitglied entfernen fehlgeschlagen',
+    error: 'Fehler',
+    reason: 'Grund',
+    dismissReactionPicker: 'Reaktionsauswahl schließen',
+    locationMessage: 'Standortnachricht',
+    avatar: 'Avatar',
   );
 
   static const ChatUiLocalizations it = ChatUiLocalizations(
@@ -2057,6 +2408,13 @@ class ChatUiLocalizations {
     forward: 'Inoltra',
     pin: 'Fissa',
     unpin: 'Sblocca',
+    unpinConfirmTitle: 'Rimuovere il messaggio fissato?',
+    unpinConfirmBody: 'Questo messaggio non sarà più fissato in questa chat.',
+    star: 'Aggiungi a speciali',
+    unstar: 'Rimuovi da speciali',
+    unstarConfirmTitle: 'Rimuovere da speciali?',
+    unstarConfirmBody:
+        'Questo messaggio non comparirà più nei tuoi messaggi speciali.',
     react: 'Reagisci',
     reactions: 'Reazioni',
     removeReaction: 'Rimuovi reazione',
@@ -2186,6 +2544,37 @@ class ChatUiLocalizations {
     next: 'Avanti',
     minCharsTemplate: 'Almeno {n} caratteri',
     nameTooShortTemplate: 'Il nome deve essere lungo almeno {n} caratteri',
+    messageInfo: 'Info messaggio',
+    readBy: 'Letto da',
+    deliveredTo: 'Consegnato a',
+    noReceiptsYet: 'Ancora nessuna info di consegna o lettura',
+    exportChat: 'Esporta chat',
+    inviteViaLink: 'Invita tramite link',
+    inviteLinkCopied: 'Link di invito copiato',
+    starredMessages: 'Messaggi importanti',
+    noStarredMessages: 'Ancora nessun messaggio importante',
+    muteDuration: 'Silenzia notifiche',
+    mute8Hours: '8 ore',
+    mute1Week: '1 settimana',
+    muteAlways: 'Sempre',
+    archived: 'Archiviati',
+    archiveChat: 'Archivia',
+    unarchiveChat: 'Rimuovi dall\'archivio',
+    presenceAvailable: 'Disponibile',
+    presenceAway: 'Assente',
+    presenceBusy: 'Occupato',
+    presenceDnd: 'Non disturbare',
+    presenceOffline: 'Offline',
+    email: 'Email',
+    searchEmoji: 'Cerca emoji...',
+    unblockFailed: 'Sblocco non riuscito',
+    updateRoleFailed: 'Aggiornamento del ruolo non riuscito',
+    removeMemberFailed: 'Rimozione del membro non riuscita',
+    error: 'Errore',
+    reason: 'Motivo',
+    dismissReactionPicker: 'Chiudi selettore di reazioni',
+    locationMessage: 'Messaggio di posizione',
+    avatar: 'Avatar',
   );
 
   static const ChatUiLocalizations pt = ChatUiLocalizations(
@@ -2293,6 +2682,13 @@ class ChatUiLocalizations {
     forward: 'Reencaminhar',
     pin: 'Fixar',
     unpin: 'Desfixar',
+    unpinConfirmTitle: 'Desafixar mensagem?',
+    unpinConfirmBody: 'Esta mensagem deixará de estar fixada nesta conversa.',
+    star: 'Marcar com estrela',
+    unstar: 'Remover estrela',
+    unstarConfirmTitle: 'Remover estrela?',
+    unstarConfirmBody:
+        'Esta mensagem deixará de aparecer nas suas mensagens com estrela.',
     react: 'Reagir',
     reactions: 'Reações',
     removeReaction: 'Remover reação',
@@ -2422,6 +2818,37 @@ class ChatUiLocalizations {
     next: 'Avançar',
     minCharsTemplate: 'Pelo menos {n} caracteres',
     nameTooShortTemplate: 'O nome deve ter pelo menos {n} caracteres',
+    messageInfo: 'Info da mensagem',
+    readBy: 'Lida por',
+    deliveredTo: 'Entregue a',
+    noReceiptsYet: 'Ainda sem info de entrega ou leitura',
+    exportChat: 'Exportar conversa',
+    inviteViaLink: 'Convidar por link',
+    inviteLinkCopied: 'Link de convite copiado',
+    starredMessages: 'Mensagens com estrela',
+    noStarredMessages: 'Ainda não há mensagens com estrela',
+    muteDuration: 'Silenciar notificações',
+    mute8Hours: '8 horas',
+    mute1Week: '1 semana',
+    muteAlways: 'Sempre',
+    archived: 'Arquivadas',
+    archiveChat: 'Arquivar',
+    unarchiveChat: 'Desarquivar',
+    presenceAvailable: 'Disponível',
+    presenceAway: 'Ausente',
+    presenceBusy: 'Ocupado',
+    presenceDnd: 'Não perturbar',
+    presenceOffline: 'Offline',
+    email: 'E-mail',
+    searchEmoji: 'Pesquisar emoji...',
+    unblockFailed: 'Não foi possível desbloquear',
+    updateRoleFailed: 'Não foi possível atualizar o papel',
+    removeMemberFailed: 'Não foi possível remover o membro',
+    error: 'Erro',
+    reason: 'Motivo',
+    dismissReactionPicker: 'Fechar seletor de reações',
+    locationMessage: 'Mensagem de localização',
+    avatar: 'Avatar',
   );
 
   static const ChatUiLocalizations ca = ChatUiLocalizations(
@@ -2528,6 +2955,13 @@ class ChatUiLocalizations {
     forward: 'Reenviar',
     pin: 'Fixar',
     unpin: 'Desfixar',
+    unpinConfirmTitle: 'Voleu desfixar el missatge?',
+    unpinConfirmBody: 'Aquest missatge deixarà d’estar fixat en aquest xat.',
+    star: 'Destacar',
+    unstar: 'Treure destacat',
+    unstarConfirmTitle: 'Voleu treure el destacat?',
+    unstarConfirmBody:
+        'Aquest missatge deixarà d’aparèixer als teus missatges destacats.',
     react: 'Reaccionar',
     reactions: 'Reaccions',
     removeReaction: 'Eliminar reacció',
@@ -2657,6 +3091,37 @@ class ChatUiLocalizations {
     next: 'Següent',
     minCharsTemplate: 'Almenys {n} caràcters',
     nameTooShortTemplate: 'El nom ha de tenir almenys {n} caràcters',
+    messageInfo: 'Info del missatge',
+    readBy: 'Llegit per',
+    deliveredTo: 'Lliurat a',
+    noReceiptsYet: 'Encara no hi ha info de lliurament ni de lectura',
+    exportChat: 'Exporta el xat',
+    inviteViaLink: 'Convida amb un enllaç',
+    inviteLinkCopied: 'Enllaç d\'invitació copiat',
+    starredMessages: 'Missatges destacats',
+    noStarredMessages: 'Encara no tens missatges destacats',
+    muteDuration: 'Silencia les notificacions',
+    mute8Hours: '8 hores',
+    mute1Week: '1 setmana',
+    muteAlways: 'Sempre',
+    archived: 'Arxivats',
+    archiveChat: 'Arxiva',
+    unarchiveChat: 'Desarxiva',
+    presenceAvailable: 'Disponible',
+    presenceAway: 'Absent',
+    presenceBusy: 'Ocupat',
+    presenceDnd: 'No molestar',
+    presenceOffline: 'Fora de línia',
+    email: 'Correu electrònic',
+    searchEmoji: 'Cercar emoji...',
+    unblockFailed: 'No s\'ha pogut desbloquejar',
+    updateRoleFailed: 'No s\'ha pogut actualitzar el rol',
+    removeMemberFailed: 'No s\'ha pogut eliminar el membre',
+    error: 'Error',
+    reason: 'Motiu',
+    dismissReactionPicker: 'Tancar el selector de reaccions',
+    locationMessage: 'Missatge d\'ubicació',
+    avatar: 'Avatar',
   );
 
   // ----------------------------------------------------------------
@@ -2801,6 +3266,8 @@ class ChatUiLocalizations {
     String? forward,
     String? pin,
     String? unpin,
+    String? unpinConfirmTitle,
+    String? unpinConfirmBody,
     String? react,
     String? reactions,
     String? removeReaction,
@@ -3032,6 +3499,8 @@ class ChatUiLocalizations {
         forward: forward,
         pin: pin,
         unpin: unpin,
+        unpinConfirmTitle: unpinConfirmTitle,
+        unpinConfirmBody: unpinConfirmBody,
         react: react,
         reactions: reactions,
         removeReaction: removeReaction,

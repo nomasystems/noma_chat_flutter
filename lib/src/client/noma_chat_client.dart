@@ -10,11 +10,11 @@ import '../api/users_api.dart';
 import '../config/chat_config.dart';
 import '../events/chat_event.dart';
 import '../models/room.dart';
-import '../models/room_user.dart';
 import '../_internal/api_factory.dart';
 import '../_internal/cache/cache_manager.dart';
 import '../cache/local_datasource.dart';
 import '../_internal/cache/offline_queue.dart';
+import '../_internal/http/chat_exception.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/message_mapper.dart';
 import '../models/message.dart';
@@ -38,6 +38,7 @@ class NomaChatClient implements ChatClient {
   final OfflineQueue? _offlineQueue;
   final bool _enableCatchUp;
   final void Function(String level, String message)? _logger;
+  final void Function()? _onAuthFailure;
   StreamSubscription<ChatEvent>? _eventSub;
   DateTime? _disconnectedAt;
   bool _hasConnectedOnce = false;
@@ -88,7 +89,8 @@ class NomaChatClient implements ChatClient {
              )
            : null,
        _enableCatchUp = config.enableReconnectCatchUp,
-       _logger = config.logger {
+       _logger = config.logger,
+       _onAuthFailure = config.onAuthFailure {
     MessageMapper.logger = config.logger;
     UserMapper.logger = config.logger;
     EventParser.logger = config.logger;
@@ -164,6 +166,11 @@ class NomaChatClient implements ChatClient {
   @override
   Future<void> connect() async {
     await _offlineQueue?.restore();
+    // Cancel any prior subscription before re-subscribing: a repeated
+    // connect() (the documented background→foreground cycle) would
+    // otherwise stack duplicate _onTransportEvent handlers and leak the
+    // previous subscription.
+    await _eventSub?.cancel();
     _eventSub = _transport.events.listen(_onTransportEvent);
     await _transport.connect();
   }
@@ -227,6 +234,14 @@ class NomaChatClient implements ChatClient {
         _disconnectedAt = null;
       case DisconnectedEvent():
         _disconnectedAt ??= DateTime.now();
+      case ErrorEvent(exception: ChatAuthException(terminal: true)):
+        // The realtime transport reported a terminal auth failure — the
+        // account was globally banned / deactivated mid-session (WS close
+        // 4007 or an `account_deactivated` auth_error). The REST
+        // onAuthFailure path never fires here because an idle socket makes
+        // no HTTP request, so route to the host logout flow explicitly.
+        _logger?.call('warn', 'Realtime terminal auth failure, logging out');
+        _onAuthFailure?.call();
       default:
         break;
     }
@@ -270,6 +285,8 @@ class NomaChatClient implements ChatClient {
           attachmentUrl: op.attachmentUrl,
           sourceRoomId: op.sourceRoomId,
           metadata: op.metadata,
+          tempId: op.tempId,
+          clientMessageId: op.clientMessageId,
         );
       case PendingSendDirectMessage():
         return contacts.sendDirectMessage(
@@ -311,18 +328,9 @@ class NomaChatClient implements ChatClient {
           avatarUrl: op.avatar,
         );
       case PendingAddMember():
-        final userRole = op.role != null
-            ? switch (op.role!) {
-                'owner' => RoomRole.owner,
-                'admin' => RoomRole.admin,
-                _ => RoomRole.member,
-              }
-            : null;
-        return members.invite(
-          op.roomId,
-          userIds: [op.userId],
-          userRole: userRole,
-        );
+        // The backend assigns no per-invite role (see ChatMembersApi.invite);
+        // a role, if any, is applied separately via updateRole.
+        return members.invite(op.roomId, userIds: [op.userId]);
       case PendingRemoveMember():
         return members.remove(op.roomId, op.userId);
     }
