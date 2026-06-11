@@ -188,6 +188,73 @@ void main() {
       },
     );
 
+    test('getConversationMessages() parses next/prev cursors so the timeline '
+        'paginates older pages', () async {
+      when(
+        () => rest.getWithTotalCount(
+          any(),
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          {
+            'messages': [messageJson()],
+            'hasMore': true,
+            'next': 'conv-next',
+            'prev': 'conv-prev',
+          },
+          1,
+        ),
+      );
+
+      final result = await api.getConversationMessages('conv-1');
+      expect(result.isSuccess, isTrue);
+      final page = result.dataOrNull!;
+      expect(page.nextCursor, 'conv-next');
+      expect(page.prevCursor, 'conv-prev');
+    });
+
+    test('getDirectMessages() parses next/prev cursors so DMs paginate older '
+        'pages', () async {
+      // Regression: getDirectMessages dropped the cursor tokens, so a DM
+      // timeline could not load history beyond the most recent page.
+      when(
+        () => rest.get(
+          '/contacts/contact-1/messages',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'messages': [messageJson()],
+          'hasMore': true,
+          'next': 'dm-next',
+          'prev': 'dm-prev',
+        },
+      );
+
+      final result = await api.getDirectMessages('contact-1');
+      expect(result.isSuccess, isTrue);
+      final page = result.dataOrNull!;
+      expect(page.items.length, 1);
+      expect(page.hasMore, isTrue);
+      expect(page.nextCursor, 'dm-next');
+      expect(page.prevCursor, 'dm-prev');
+    });
+
+    test('getDirectMessages() leaves cursors null when absent', () async {
+      when(
+        () => rest.get(
+          '/contacts/contact-1/messages',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer((_) async => {'messages': <dynamic>[], 'hasMore': false});
+
+      final result = await api.getDirectMessages('contact-1');
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrNull!.nextCursor, isNull);
+      expect(result.dataOrNull!.prevCursor, isNull);
+    });
+
     test(
       'sendDirectMessage() returns ChatFailureResult on exception',
       () async {

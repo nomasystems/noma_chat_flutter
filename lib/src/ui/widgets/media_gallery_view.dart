@@ -131,7 +131,7 @@ class _MediaCell extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.fileName ?? 'File',
+                  item.fileName ?? theme.l10n.file,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,

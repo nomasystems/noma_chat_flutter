@@ -33,6 +33,21 @@ class ChatConfig {
   final String wsPath;
   final String ssePath;
   final String? userId;
+
+  /// Called when authentication fails terminally and the host app should
+  /// route the user to a logout / login flow. Wired into the auth
+  /// interceptor for the REST path (401 after refresh, or a 403
+  /// deactivation body) and also held here so the realtime client can
+  /// invoke it when the WebSocket delivers a deactivation / account-banned
+  /// signal (close code 4007 or an `account_deactivated` auth error) — a
+  /// path the REST interceptor never sees because an idle socket makes no
+  /// HTTP call. `null` when the host opted out of automatic logout.
+  final void Function()? onAuthFailure;
+
+  /// When set, every request injects `X-From-User-Id: <actAsUserId>` so the
+  /// SDK acts on behalf of a managed user (delegation). The backend enforces
+  /// the parent→managed relationship and responds 403 if it is not allowed.
+  final String? actAsUserId;
   final AuthInterceptor authInterceptor;
   final Duration wsReconnectDelay;
   final Duration authTimeout;
@@ -81,15 +96,23 @@ class ChatConfig {
   @experimental
   final MetricCallback? metricCallback;
 
-  /// SHA-256 fingerprints (hex, colons optional, case-insensitive) of
-  /// the leaf certificates the SDK is willing to talk to. When set
-  /// (and non-empty), [RestClient] attaches a
-  /// `CertificatePinningInterceptor` that fails any request whose
-  /// TLS handshake terminates at a certificate not in this list.
+  /// SHA-256 fingerprints (hex, colons optional, case-insensitive) of the
+  /// leaf certificates intended for pinning.
   ///
-  /// Default `null` → no pinning, the platform's trust store is used
-  /// directly. On web platforms pinning is a no-op (the browser owns
-  /// the TLS handshake); use HSTS + CT logs instead.
+  /// **Not enforced yet — experimental.** The
+  /// `CertificatePinningInterceptor` attached when this list is non-empty is
+  /// an `@experimental` skeleton: it normalises and records the pins and maps
+  /// a Dio-surfaced handshake error to a typed `CertificatePinningException`,
+  /// but it does **not** install the native `badCertificateCallback`/HTTP
+  /// adapter that would actually compare the presented certificate against
+  /// these pins. **Setting this list does NOT protect against MITM today.**
+  /// A `warn` log is emitted at construction to make that explicit. The field
+  /// exists so the public API stays stable while the platform plumbing
+  /// matures; treat it as a no-op until a release note says otherwise.
+  ///
+  /// Default `null` → the platform's trust store is used directly. On web
+  /// pinning will always be a no-op (the browser owns the TLS handshake);
+  /// use HSTS + CT logs instead.
   final List<String>? certificatePins;
 
   String get effectiveSseUrl => sseUrl ?? realtimeUrl;
@@ -145,8 +168,10 @@ class ChatConfig {
     required this.authInterceptor,
     this.sseUrl,
     this.wsPath = '/ws',
-    this.ssePath = '/events',
+    this.ssePath = '/eventsource',
     this.userId,
+    this.onAuthFailure,
+    this.actAsUserId,
     this.wsReconnectDelay = const Duration(seconds: 2),
     this.authTimeout = const Duration(seconds: 10),
     this.requestTimeout = const Duration(seconds: 30),
@@ -234,9 +259,11 @@ class ChatConfig {
   /// error counts, queue depth, etc.). Forward to Prometheus, Datadog,
   /// Firebase Performance, or any other telemetry backend. `null` by default.
   ///
-  /// [certificatePins] — SHA-256 fingerprints of trusted leaf certificates.
-  /// When set, TLS connections to any certificate not in this list are
-  /// rejected. `null` (default) uses the platform trust store. No-op on web.
+  /// [certificatePins] — SHA-256 fingerprints of leaf certificates for
+  /// pinning. **Experimental and not enforced yet** — see the field doc on
+  /// [ChatConfig.certificatePins]. Setting it records the pins and emits a
+  /// `warn` log but does not currently validate certificates or protect
+  /// against MITM. `null` (default) uses the platform trust store.
   ///
   /// **Other parameters:**
   ///
@@ -272,8 +299,9 @@ class ChatConfig {
     void Function()? onAuthFailure,
     String? sseUrl,
     String wsPath = '/ws',
-    String ssePath = '/events',
+    String ssePath = '/eventsource',
     String? userId,
+    String? actAsUserId,
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
@@ -303,6 +331,8 @@ class ChatConfig {
       wsPath: wsPath,
       ssePath: ssePath,
       userId: userId,
+      onAuthFailure: onAuthFailure,
+      actAsUserId: actAsUserId,
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
@@ -329,8 +359,10 @@ class ChatConfig {
     required AuthInterceptor authInterceptor,
     String? sseUrl,
     String wsPath = '/ws',
-    String ssePath = '/events',
+    String ssePath = '/eventsource',
     String? userId,
+    void Function()? onAuthFailure,
+    String? actAsUserId,
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
@@ -356,6 +388,8 @@ class ChatConfig {
       wsPath: wsPath,
       ssePath: ssePath,
       userId: userId,
+      onAuthFailure: onAuthFailure,
+      actAsUserId: actAsUserId,
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
@@ -383,8 +417,10 @@ class ChatConfig {
     required String password,
     String? sseUrl,
     String wsPath = '/ws',
-    String ssePath = '/events',
+    String ssePath = '/eventsource',
     String? userId,
+    void Function()? onAuthFailure,
+    String? actAsUserId,
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
@@ -413,6 +449,8 @@ class ChatConfig {
       wsPath: wsPath,
       ssePath: ssePath,
       userId: userId,
+      onAuthFailure: onAuthFailure,
+      actAsUserId: actAsUserId,
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,

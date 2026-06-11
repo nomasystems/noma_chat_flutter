@@ -290,7 +290,9 @@ as Map<String, dynamic>?,
 /// @nodoc
 mixin _$RoomDetail {
 
- String get id; String? get name; String? get subject; RoomType get type; int get memberCount; RoomRole get userRole; RoomConfig get config; bool get muted; bool get pinned; bool get hidden; bool get selfMuted; DateTime? get createdAt; String? get avatarUrl; Map<String, dynamic>? get custom;
+ String get id; String? get name; String? get subject; RoomType get type; int get memberCount; RoomRole get userRole; RoomConfig get config; bool get muted;/// When the notification mute expires (UTC). `null` means a permanent
+/// mute (or not muted — check [muted]).
+ DateTime? get muteUntil; bool get pinned; bool get hidden; bool get selfMuted; DateTime? get createdAt; String? get avatarUrl; Map<String, dynamic>? get custom;
 /// Create a copy of RoomDetail
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -301,16 +303,16 @@ $RoomDetailCopyWith<RoomDetail> get copyWith => _$RoomDetailCopyWithImpl<RoomDet
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is RoomDetail&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.type, type) || other.type == type)&&(identical(other.memberCount, memberCount) || other.memberCount == memberCount)&&(identical(other.userRole, userRole) || other.userRole == userRole)&&(identical(other.config, config) || other.config == config)&&(identical(other.muted, muted) || other.muted == muted)&&(identical(other.pinned, pinned) || other.pinned == pinned)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.selfMuted, selfMuted) || other.selfMuted == selfMuted)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.avatarUrl, avatarUrl) || other.avatarUrl == avatarUrl)&&const DeepCollectionEquality().equals(other.custom, custom));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is RoomDetail&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.type, type) || other.type == type)&&(identical(other.memberCount, memberCount) || other.memberCount == memberCount)&&(identical(other.userRole, userRole) || other.userRole == userRole)&&(identical(other.config, config) || other.config == config)&&(identical(other.muted, muted) || other.muted == muted)&&(identical(other.muteUntil, muteUntil) || other.muteUntil == muteUntil)&&(identical(other.pinned, pinned) || other.pinned == pinned)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.selfMuted, selfMuted) || other.selfMuted == selfMuted)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.avatarUrl, avatarUrl) || other.avatarUrl == avatarUrl)&&const DeepCollectionEquality().equals(other.custom, custom));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,name,subject,type,memberCount,userRole,config,muted,pinned,hidden,selfMuted,createdAt,avatarUrl,const DeepCollectionEquality().hash(custom));
+int get hashCode => Object.hash(runtimeType,id,name,subject,type,memberCount,userRole,config,muted,muteUntil,pinned,hidden,selfMuted,createdAt,avatarUrl,const DeepCollectionEquality().hash(custom));
 
 @override
 String toString() {
-  return 'RoomDetail(id: $id, name: $name, subject: $subject, type: $type, memberCount: $memberCount, userRole: $userRole, config: $config, muted: $muted, pinned: $pinned, hidden: $hidden, selfMuted: $selfMuted, createdAt: $createdAt, avatarUrl: $avatarUrl, custom: $custom)';
+  return 'RoomDetail(id: $id, name: $name, subject: $subject, type: $type, memberCount: $memberCount, userRole: $userRole, config: $config, muted: $muted, muteUntil: $muteUntil, pinned: $pinned, hidden: $hidden, selfMuted: $selfMuted, createdAt: $createdAt, avatarUrl: $avatarUrl, custom: $custom)';
 }
 
 
@@ -321,7 +323,7 @@ abstract mixin class $RoomDetailCopyWith<$Res>  {
   factory $RoomDetailCopyWith(RoomDetail value, $Res Function(RoomDetail) _then) = _$RoomDetailCopyWithImpl;
 @useResult
 $Res call({
- String id, String? name, String? subject, RoomType type, int memberCount, RoomRole userRole, RoomConfig config, bool muted, bool pinned, bool hidden, bool selfMuted, DateTime? createdAt, String? avatarUrl, Map<String, dynamic>? custom
+ String id, String? name, String? subject, RoomType type, int memberCount, RoomRole userRole, RoomConfig config, bool muted, DateTime? muteUntil, bool pinned, bool hidden, bool selfMuted, DateTime? createdAt, String? avatarUrl, Map<String, dynamic>? custom
 });
 
 
@@ -338,7 +340,7 @@ class _$RoomDetailCopyWithImpl<$Res>
 
 /// Create a copy of RoomDetail
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = freezed,Object? subject = freezed,Object? type = null,Object? memberCount = null,Object? userRole = null,Object? config = null,Object? muted = null,Object? pinned = null,Object? hidden = null,Object? selfMuted = null,Object? createdAt = freezed,Object? avatarUrl = freezed,Object? custom = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? name = freezed,Object? subject = freezed,Object? type = null,Object? memberCount = null,Object? userRole = null,Object? config = null,Object? muted = null,Object? muteUntil = freezed,Object? pinned = null,Object? hidden = null,Object? selfMuted = null,Object? createdAt = freezed,Object? avatarUrl = freezed,Object? custom = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: freezed == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -348,7 +350,8 @@ as RoomType,memberCount: null == memberCount ? _self.memberCount : memberCount /
 as int,userRole: null == userRole ? _self.userRole : userRole // ignore: cast_nullable_to_non_nullable
 as RoomRole,config: null == config ? _self.config : config // ignore: cast_nullable_to_non_nullable
 as RoomConfig,muted: null == muted ? _self.muted : muted // ignore: cast_nullable_to_non_nullable
-as bool,pinned: null == pinned ? _self.pinned : pinned // ignore: cast_nullable_to_non_nullable
+as bool,muteUntil: freezed == muteUntil ? _self.muteUntil : muteUntil // ignore: cast_nullable_to_non_nullable
+as DateTime?,pinned: null == pinned ? _self.pinned : pinned // ignore: cast_nullable_to_non_nullable
 as bool,hidden: null == hidden ? _self.hidden : hidden // ignore: cast_nullable_to_non_nullable
 as bool,selfMuted: null == selfMuted ? _self.selfMuted : selfMuted // ignore: cast_nullable_to_non_nullable
 as bool,createdAt: freezed == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
@@ -448,10 +451,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String? name,  String? subject,  RoomType type,  int memberCount,  RoomRole userRole,  RoomConfig config,  bool muted,  bool pinned,  bool hidden,  bool selfMuted,  DateTime? createdAt,  String? avatarUrl,  Map<String, dynamic>? custom)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String? name,  String? subject,  RoomType type,  int memberCount,  RoomRole userRole,  RoomConfig config,  bool muted,  DateTime? muteUntil,  bool pinned,  bool hidden,  bool selfMuted,  DateTime? createdAt,  String? avatarUrl,  Map<String, dynamic>? custom)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _RoomDetail() when $default != null:
-return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_that.userRole,_that.config,_that.muted,_that.pinned,_that.hidden,_that.selfMuted,_that.createdAt,_that.avatarUrl,_that.custom);case _:
+return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_that.userRole,_that.config,_that.muted,_that.muteUntil,_that.pinned,_that.hidden,_that.selfMuted,_that.createdAt,_that.avatarUrl,_that.custom);case _:
   return orElse();
 
 }
@@ -469,10 +472,10 @@ return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String? name,  String? subject,  RoomType type,  int memberCount,  RoomRole userRole,  RoomConfig config,  bool muted,  bool pinned,  bool hidden,  bool selfMuted,  DateTime? createdAt,  String? avatarUrl,  Map<String, dynamic>? custom)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String? name,  String? subject,  RoomType type,  int memberCount,  RoomRole userRole,  RoomConfig config,  bool muted,  DateTime? muteUntil,  bool pinned,  bool hidden,  bool selfMuted,  DateTime? createdAt,  String? avatarUrl,  Map<String, dynamic>? custom)  $default,) {final _that = this;
 switch (_that) {
 case _RoomDetail():
-return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_that.userRole,_that.config,_that.muted,_that.pinned,_that.hidden,_that.selfMuted,_that.createdAt,_that.avatarUrl,_that.custom);case _:
+return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_that.userRole,_that.config,_that.muted,_that.muteUntil,_that.pinned,_that.hidden,_that.selfMuted,_that.createdAt,_that.avatarUrl,_that.custom);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -489,10 +492,10 @@ return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String? name,  String? subject,  RoomType type,  int memberCount,  RoomRole userRole,  RoomConfig config,  bool muted,  bool pinned,  bool hidden,  bool selfMuted,  DateTime? createdAt,  String? avatarUrl,  Map<String, dynamic>? custom)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String? name,  String? subject,  RoomType type,  int memberCount,  RoomRole userRole,  RoomConfig config,  bool muted,  DateTime? muteUntil,  bool pinned,  bool hidden,  bool selfMuted,  DateTime? createdAt,  String? avatarUrl,  Map<String, dynamic>? custom)?  $default,) {final _that = this;
 switch (_that) {
 case _RoomDetail() when $default != null:
-return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_that.userRole,_that.config,_that.muted,_that.pinned,_that.hidden,_that.selfMuted,_that.createdAt,_that.avatarUrl,_that.custom);case _:
+return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_that.userRole,_that.config,_that.muted,_that.muteUntil,_that.pinned,_that.hidden,_that.selfMuted,_that.createdAt,_that.avatarUrl,_that.custom);case _:
   return null;
 
 }
@@ -504,7 +507,7 @@ return $default(_that.id,_that.name,_that.subject,_that.type,_that.memberCount,_
 
 
 class _RoomDetail extends RoomDetail {
-  const _RoomDetail({required this.id, this.name, this.subject, required this.type, required this.memberCount, required this.userRole, required this.config, this.muted = false, this.pinned = false, this.hidden = false, this.selfMuted = false, this.createdAt, this.avatarUrl, final  Map<String, dynamic>? custom}): _custom = custom,super._();
+  const _RoomDetail({required this.id, this.name, this.subject, required this.type, required this.memberCount, required this.userRole, required this.config, this.muted = false, this.muteUntil, this.pinned = false, this.hidden = false, this.selfMuted = false, this.createdAt, this.avatarUrl, final  Map<String, dynamic>? custom}): _custom = custom,super._();
   
 
 @override final  String id;
@@ -515,6 +518,9 @@ class _RoomDetail extends RoomDetail {
 @override final  RoomRole userRole;
 @override final  RoomConfig config;
 @override@JsonKey() final  bool muted;
+/// When the notification mute expires (UTC). `null` means a permanent
+/// mute (or not muted — check [muted]).
+@override final  DateTime? muteUntil;
 @override@JsonKey() final  bool pinned;
 @override@JsonKey() final  bool hidden;
 @override@JsonKey() final  bool selfMuted;
@@ -540,16 +546,16 @@ _$RoomDetailCopyWith<_RoomDetail> get copyWith => __$RoomDetailCopyWithImpl<_Roo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _RoomDetail&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.type, type) || other.type == type)&&(identical(other.memberCount, memberCount) || other.memberCount == memberCount)&&(identical(other.userRole, userRole) || other.userRole == userRole)&&(identical(other.config, config) || other.config == config)&&(identical(other.muted, muted) || other.muted == muted)&&(identical(other.pinned, pinned) || other.pinned == pinned)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.selfMuted, selfMuted) || other.selfMuted == selfMuted)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.avatarUrl, avatarUrl) || other.avatarUrl == avatarUrl)&&const DeepCollectionEquality().equals(other._custom, _custom));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _RoomDetail&&(identical(other.id, id) || other.id == id)&&(identical(other.name, name) || other.name == name)&&(identical(other.subject, subject) || other.subject == subject)&&(identical(other.type, type) || other.type == type)&&(identical(other.memberCount, memberCount) || other.memberCount == memberCount)&&(identical(other.userRole, userRole) || other.userRole == userRole)&&(identical(other.config, config) || other.config == config)&&(identical(other.muted, muted) || other.muted == muted)&&(identical(other.muteUntil, muteUntil) || other.muteUntil == muteUntil)&&(identical(other.pinned, pinned) || other.pinned == pinned)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.selfMuted, selfMuted) || other.selfMuted == selfMuted)&&(identical(other.createdAt, createdAt) || other.createdAt == createdAt)&&(identical(other.avatarUrl, avatarUrl) || other.avatarUrl == avatarUrl)&&const DeepCollectionEquality().equals(other._custom, _custom));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,id,name,subject,type,memberCount,userRole,config,muted,pinned,hidden,selfMuted,createdAt,avatarUrl,const DeepCollectionEquality().hash(_custom));
+int get hashCode => Object.hash(runtimeType,id,name,subject,type,memberCount,userRole,config,muted,muteUntil,pinned,hidden,selfMuted,createdAt,avatarUrl,const DeepCollectionEquality().hash(_custom));
 
 @override
 String toString() {
-  return 'RoomDetail(id: $id, name: $name, subject: $subject, type: $type, memberCount: $memberCount, userRole: $userRole, config: $config, muted: $muted, pinned: $pinned, hidden: $hidden, selfMuted: $selfMuted, createdAt: $createdAt, avatarUrl: $avatarUrl, custom: $custom)';
+  return 'RoomDetail(id: $id, name: $name, subject: $subject, type: $type, memberCount: $memberCount, userRole: $userRole, config: $config, muted: $muted, muteUntil: $muteUntil, pinned: $pinned, hidden: $hidden, selfMuted: $selfMuted, createdAt: $createdAt, avatarUrl: $avatarUrl, custom: $custom)';
 }
 
 
@@ -560,7 +566,7 @@ abstract mixin class _$RoomDetailCopyWith<$Res> implements $RoomDetailCopyWith<$
   factory _$RoomDetailCopyWith(_RoomDetail value, $Res Function(_RoomDetail) _then) = __$RoomDetailCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String? name, String? subject, RoomType type, int memberCount, RoomRole userRole, RoomConfig config, bool muted, bool pinned, bool hidden, bool selfMuted, DateTime? createdAt, String? avatarUrl, Map<String, dynamic>? custom
+ String id, String? name, String? subject, RoomType type, int memberCount, RoomRole userRole, RoomConfig config, bool muted, DateTime? muteUntil, bool pinned, bool hidden, bool selfMuted, DateTime? createdAt, String? avatarUrl, Map<String, dynamic>? custom
 });
 
 
@@ -577,7 +583,7 @@ class __$RoomDetailCopyWithImpl<$Res>
 
 /// Create a copy of RoomDetail
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = freezed,Object? subject = freezed,Object? type = null,Object? memberCount = null,Object? userRole = null,Object? config = null,Object? muted = null,Object? pinned = null,Object? hidden = null,Object? selfMuted = null,Object? createdAt = freezed,Object? avatarUrl = freezed,Object? custom = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? name = freezed,Object? subject = freezed,Object? type = null,Object? memberCount = null,Object? userRole = null,Object? config = null,Object? muted = null,Object? muteUntil = freezed,Object? pinned = null,Object? hidden = null,Object? selfMuted = null,Object? createdAt = freezed,Object? avatarUrl = freezed,Object? custom = freezed,}) {
   return _then(_RoomDetail(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,name: freezed == name ? _self.name : name // ignore: cast_nullable_to_non_nullable
@@ -587,7 +593,8 @@ as RoomType,memberCount: null == memberCount ? _self.memberCount : memberCount /
 as int,userRole: null == userRole ? _self.userRole : userRole // ignore: cast_nullable_to_non_nullable
 as RoomRole,config: null == config ? _self.config : config // ignore: cast_nullable_to_non_nullable
 as RoomConfig,muted: null == muted ? _self.muted : muted // ignore: cast_nullable_to_non_nullable
-as bool,pinned: null == pinned ? _self.pinned : pinned // ignore: cast_nullable_to_non_nullable
+as bool,muteUntil: freezed == muteUntil ? _self.muteUntil : muteUntil // ignore: cast_nullable_to_non_nullable
+as DateTime?,pinned: null == pinned ? _self.pinned : pinned // ignore: cast_nullable_to_non_nullable
 as bool,hidden: null == hidden ? _self.hidden : hidden // ignore: cast_nullable_to_non_nullable
 as bool,selfMuted: null == selfMuted ? _self.selfMuted : selfMuted // ignore: cast_nullable_to_non_nullable
 as bool,createdAt: freezed == createdAt ? _self.createdAt : createdAt // ignore: cast_nullable_to_non_nullable
@@ -860,6 +867,284 @@ class __$RoomConfigCopyWithImpl<$Res>
   return _then(_RoomConfig(
 allowInvitations: null == allowInvitations ? _self.allowInvitations : allowInvitations // ignore: cast_nullable_to_non_nullable
 as bool,
+  ));
+}
+
+
+}
+
+/// @nodoc
+mixin _$RoomPreferences {
+
+/// Whether room notifications are silenced. For a timed mute this is
+/// `true` until [muteUntil] passes; the backend derives it server-side.
+ bool get muted;/// Whether the room is pinned to the top of the room list.
+ bool get pinned;/// Whether the room is hidden (WhatsApp-style "archive") from the list.
+ bool get hidden;/// When a timed mute expires (UTC). `null` means a permanent mute (when
+/// [muted] is `true`) or no mute at all (when [muted] is `false`).
+ DateTime? get muteUntil;
+/// Create a copy of RoomPreferences
+/// with the given fields replaced by the non-null parameter values.
+@JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+$RoomPreferencesCopyWith<RoomPreferences> get copyWith => _$RoomPreferencesCopyWithImpl<RoomPreferences>(this as RoomPreferences, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is RoomPreferences&&(identical(other.muted, muted) || other.muted == muted)&&(identical(other.pinned, pinned) || other.pinned == pinned)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.muteUntil, muteUntil) || other.muteUntil == muteUntil));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,muted,pinned,hidden,muteUntil);
+
+@override
+String toString() {
+  return 'RoomPreferences(muted: $muted, pinned: $pinned, hidden: $hidden, muteUntil: $muteUntil)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class $RoomPreferencesCopyWith<$Res>  {
+  factory $RoomPreferencesCopyWith(RoomPreferences value, $Res Function(RoomPreferences) _then) = _$RoomPreferencesCopyWithImpl;
+@useResult
+$Res call({
+ bool muted, bool pinned, bool hidden, DateTime? muteUntil
+});
+
+
+
+
+}
+/// @nodoc
+class _$RoomPreferencesCopyWithImpl<$Res>
+    implements $RoomPreferencesCopyWith<$Res> {
+  _$RoomPreferencesCopyWithImpl(this._self, this._then);
+
+  final RoomPreferences _self;
+  final $Res Function(RoomPreferences) _then;
+
+/// Create a copy of RoomPreferences
+/// with the given fields replaced by the non-null parameter values.
+@pragma('vm:prefer-inline') @override $Res call({Object? muted = null,Object? pinned = null,Object? hidden = null,Object? muteUntil = freezed,}) {
+  return _then(_self.copyWith(
+muted: null == muted ? _self.muted : muted // ignore: cast_nullable_to_non_nullable
+as bool,pinned: null == pinned ? _self.pinned : pinned // ignore: cast_nullable_to_non_nullable
+as bool,hidden: null == hidden ? _self.hidden : hidden // ignore: cast_nullable_to_non_nullable
+as bool,muteUntil: freezed == muteUntil ? _self.muteUntil : muteUntil // ignore: cast_nullable_to_non_nullable
+as DateTime?,
+  ));
+}
+
+}
+
+
+/// Adds pattern-matching-related methods to [RoomPreferences].
+extension RoomPreferencesPatterns on RoomPreferences {
+/// A variant of `map` that fallback to returning `orElse`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeMap<TResult extends Object?>(TResult Function( _RoomPreferences value)?  $default,{required TResult orElse(),}){
+final _that = this;
+switch (_that) {
+case _RoomPreferences() when $default != null:
+return $default(_that);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// Callbacks receives the raw object, upcasted.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case final Subclass2 value:
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult map<TResult extends Object?>(TResult Function( _RoomPreferences value)  $default,){
+final _that = this;
+switch (_that) {
+case _RoomPreferences():
+return $default(_that);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `map` that fallback to returning `null`.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case final Subclass value:
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? mapOrNull<TResult extends Object?>(TResult? Function( _RoomPreferences value)?  $default,){
+final _that = this;
+switch (_that) {
+case _RoomPreferences() when $default != null:
+return $default(_that);case _:
+  return null;
+
+}
+}
+/// A variant of `when` that fallback to an `orElse` callback.
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return orElse();
+/// }
+/// ```
+
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool muted,  bool pinned,  bool hidden,  DateTime? muteUntil)?  $default,{required TResult orElse(),}) {final _that = this;
+switch (_that) {
+case _RoomPreferences() when $default != null:
+return $default(_that.muted,_that.pinned,_that.hidden,_that.muteUntil);case _:
+  return orElse();
+
+}
+}
+/// A `switch`-like method, using callbacks.
+///
+/// As opposed to `map`, this offers destructuring.
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case Subclass2(:final field2):
+///     return ...;
+/// }
+/// ```
+
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool muted,  bool pinned,  bool hidden,  DateTime? muteUntil)  $default,) {final _that = this;
+switch (_that) {
+case _RoomPreferences():
+return $default(_that.muted,_that.pinned,_that.hidden,_that.muteUntil);case _:
+  throw StateError('Unexpected subclass');
+
+}
+}
+/// A variant of `when` that fallback to returning `null`
+///
+/// It is equivalent to doing:
+/// ```dart
+/// switch (sealedClass) {
+///   case Subclass(:final field):
+///     return ...;
+///   case _:
+///     return null;
+/// }
+/// ```
+
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool muted,  bool pinned,  bool hidden,  DateTime? muteUntil)?  $default,) {final _that = this;
+switch (_that) {
+case _RoomPreferences() when $default != null:
+return $default(_that.muted,_that.pinned,_that.hidden,_that.muteUntil);case _:
+  return null;
+
+}
+}
+
+}
+
+/// @nodoc
+
+
+class _RoomPreferences extends RoomPreferences {
+  const _RoomPreferences({this.muted = false, this.pinned = false, this.hidden = false, this.muteUntil}): super._();
+  
+
+/// Whether room notifications are silenced. For a timed mute this is
+/// `true` until [muteUntil] passes; the backend derives it server-side.
+@override@JsonKey() final  bool muted;
+/// Whether the room is pinned to the top of the room list.
+@override@JsonKey() final  bool pinned;
+/// Whether the room is hidden (WhatsApp-style "archive") from the list.
+@override@JsonKey() final  bool hidden;
+/// When a timed mute expires (UTC). `null` means a permanent mute (when
+/// [muted] is `true`) or no mute at all (when [muted] is `false`).
+@override final  DateTime? muteUntil;
+
+/// Create a copy of RoomPreferences
+/// with the given fields replaced by the non-null parameter values.
+@override @JsonKey(includeFromJson: false, includeToJson: false)
+@pragma('vm:prefer-inline')
+_$RoomPreferencesCopyWith<_RoomPreferences> get copyWith => __$RoomPreferencesCopyWithImpl<_RoomPreferences>(this, _$identity);
+
+
+
+@override
+bool operator ==(Object other) {
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _RoomPreferences&&(identical(other.muted, muted) || other.muted == muted)&&(identical(other.pinned, pinned) || other.pinned == pinned)&&(identical(other.hidden, hidden) || other.hidden == hidden)&&(identical(other.muteUntil, muteUntil) || other.muteUntil == muteUntil));
+}
+
+
+@override
+int get hashCode => Object.hash(runtimeType,muted,pinned,hidden,muteUntil);
+
+@override
+String toString() {
+  return 'RoomPreferences(muted: $muted, pinned: $pinned, hidden: $hidden, muteUntil: $muteUntil)';
+}
+
+
+}
+
+/// @nodoc
+abstract mixin class _$RoomPreferencesCopyWith<$Res> implements $RoomPreferencesCopyWith<$Res> {
+  factory _$RoomPreferencesCopyWith(_RoomPreferences value, $Res Function(_RoomPreferences) _then) = __$RoomPreferencesCopyWithImpl;
+@override @useResult
+$Res call({
+ bool muted, bool pinned, bool hidden, DateTime? muteUntil
+});
+
+
+
+
+}
+/// @nodoc
+class __$RoomPreferencesCopyWithImpl<$Res>
+    implements _$RoomPreferencesCopyWith<$Res> {
+  __$RoomPreferencesCopyWithImpl(this._self, this._then);
+
+  final _RoomPreferences _self;
+  final $Res Function(_RoomPreferences) _then;
+
+/// Create a copy of RoomPreferences
+/// with the given fields replaced by the non-null parameter values.
+@override @pragma('vm:prefer-inline') $Res call({Object? muted = null,Object? pinned = null,Object? hidden = null,Object? muteUntil = freezed,}) {
+  return _then(_RoomPreferences(
+muted: null == muted ? _self.muted : muted // ignore: cast_nullable_to_non_nullable
+as bool,pinned: null == pinned ? _self.pinned : pinned // ignore: cast_nullable_to_non_nullable
+as bool,hidden: null == hidden ? _self.hidden : hidden // ignore: cast_nullable_to_non_nullable
+as bool,muteUntil: freezed == muteUntil ? _self.muteUntil : muteUntil // ignore: cast_nullable_to_non_nullable
+as DateTime?,
   ));
 }
 

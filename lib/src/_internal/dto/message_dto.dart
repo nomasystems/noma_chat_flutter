@@ -16,6 +16,7 @@ class MessageDto {
   final bool isDeleted;
   final String? receipt;
   final String? sourceRoomId;
+  final String? clientMessageId;
 
   const MessageDto({
     required this.id,
@@ -31,31 +32,40 @@ class MessageDto {
     this.isDeleted = false,
     this.receipt,
     this.sourceRoomId,
+    this.clientMessageId,
   });
 
-  factory MessageDto.fromJson(Map<String, dynamic> json) => MessageDto(
-    id: _strOf(json['id'] ?? json['messageId']),
-    from: _strOf(json['from']),
-    timestamp: _strOf(json['timestamp']),
-    text: json['text'] is String ? json['text'] as String : null,
-    messageType: json['messageType'] is String
-        ? json['messageType'] as String
-        : null,
-    attachmentUrl: json['attachmentUrl'] is String
-        ? json['attachmentUrl'] as String
-        : null,
-    referencedMessageId: json['referencedMessageId'] is String
-        ? json['referencedMessageId'] as String
-        : null,
-    reaction: json['reaction'] is String ? json['reaction'] as String : null,
-    reply: json['reply'] is String ? json['reply'] as String : null,
-    metadata: _parseMetadata(json['metadata']),
-    isDeleted: json['isDeleted'] == true,
-    receipt: json['receipt'] is String ? json['receipt'] as String : null,
-    sourceRoomId: json['sourceRoomId'] is String
-        ? json['sourceRoomId'] as String
-        : null,
-  );
+  factory MessageDto.fromJson(Map<String, dynamic> json) {
+    final metadata = _parseMetadata(json['metadata']);
+    // The idempotency key is echoed back INSIDE `metadata.clientMessageId`
+    // (never as a top-level Message field), per the OpenAPI contract — the
+    // backend persists the client-supplied key in the message metadata.
+    final cmid = metadata?['clientMessageId'];
+    return MessageDto(
+      id: _strOf(json['id'] ?? json['messageId']),
+      from: _strOf(json['from']),
+      timestamp: _strOf(json['timestamp']),
+      text: json['text'] is String ? json['text'] as String : null,
+      messageType: json['messageType'] is String
+          ? json['messageType'] as String
+          : null,
+      attachmentUrl: json['attachmentUrl'] is String
+          ? json['attachmentUrl'] as String
+          : null,
+      referencedMessageId: json['referencedMessageId'] is String
+          ? json['referencedMessageId'] as String
+          : null,
+      reaction: json['reaction'] is String ? json['reaction'] as String : null,
+      reply: json['reply'] is String ? json['reply'] as String : null,
+      metadata: metadata,
+      isDeleted: json['isDeleted'] == true,
+      receipt: json['receipt'] is String ? json['receipt'] as String : null,
+      sourceRoomId: json['sourceRoomId'] is String
+          ? json['sourceRoomId'] as String
+          : null,
+      clientMessageId: cmid is String ? cmid : null,
+    );
+  }
 
   Map<String, dynamic> toSendJson() => {
     if (text != null) 'text': text,
@@ -65,6 +75,7 @@ class MessageDto {
     if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
     if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
     if (metadata != null) 'metadata': metadata,
+    if (clientMessageId != null) 'clientMessageId': clientMessageId,
   };
 
   Map<String, dynamic> toJson() => {
@@ -79,6 +90,7 @@ class MessageDto {
     if (reply != null) 'reply': reply,
     if (metadata != null) 'metadata': metadata,
     if (receipt != null) 'receipt': receipt,
+    if (clientMessageId != null) 'clientMessageId': clientMessageId,
   };
 
   static String _strOf(Object? value) {

@@ -72,6 +72,13 @@ class _ReceiptsMessagesApi implements ChatMessagesApi {
 
   // Methods exercised by `messages.load` delegate explicitly; the rest
   // of the contract is satisfied by noSuchMethod (unused in this test).
+  // getClearedAt must be explicit (not via noSuchMethod): the wrapped
+  // MockMessagesApi declares it concretely, so it cannot be reached
+  // through noSuchMethod forwarding.
+  @override
+  Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>
+      _delegate.getClearedAt(roomId);
+
   @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> list(
     String roomId, {

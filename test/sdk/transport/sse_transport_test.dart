@@ -141,7 +141,7 @@ void main() {
       await transport.connect();
       await Future.delayed(const Duration(milliseconds: 50));
 
-      expect(fakeDio.requestedUrls.first, 'http://localhost:8077/events');
+      expect(fakeDio.requestedUrls.first, 'http://localhost:8077/eventsource');
 
       await transport.dispose();
     });

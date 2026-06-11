@@ -109,6 +109,48 @@ void main() {
       expect(callCount, 2);
     });
 
+    test('reuses the freshly cached token when a stale request 401s '
+        '(compare-and-invalidate, no redundant refresh)', () async {
+      var callCount = 0;
+      final interceptor = BearerAuthInterceptor(
+        tokenProvider: () async {
+          callCount++;
+          return 'token-$callCount';
+        },
+      );
+      final dio = _MockDio();
+      when(() => dio.fetch<dynamic>(any())).thenAnswer(
+        (inv) async => Response(
+          requestOptions: inv.positionalArguments.first as RequestOptions,
+          statusCode: 200,
+        ),
+      );
+      interceptor.bindDio(dio);
+
+      // Prime token-1, then simulate a concurrent refresh advancing the
+      // cache to token-2.
+      await interceptor.getAuthHeader();
+      interceptor.invalidateCache();
+      await interceptor.getAuthHeader();
+      expect(callCount, 2);
+
+      // A request that went out carrying the now-stale token-1 gets a 401.
+      final handler = _TrackingErrorHandler();
+      final opts = _opts();
+      opts.headers['Authorization'] = 'Bearer token-1';
+      final err = DioException(
+        requestOptions: opts,
+        response: Response(statusCode: 401, requestOptions: opts),
+      );
+
+      await interceptor.onError(err, handler);
+
+      // The cached token already moved on, so it is reused as-is — no
+      // third tokenProvider() call.
+      expect(callCount, 2);
+      expect(opts.headers['Authorization'], 'Bearer token-2');
+    });
+
     test(
       'does not leak unhandled error when tokenProvider throws and no concurrent caller listens',
       () async {

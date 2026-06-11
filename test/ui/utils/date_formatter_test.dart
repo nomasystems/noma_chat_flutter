@@ -61,4 +61,42 @@ void main() {
       expect(DateFormatter.isYesterday(now, now: now), false);
     });
   });
+
+  group('UTC to local conversion', () {
+    // Backend timestamps arrive in UTC. Every helper must convert to the
+    // device zone first, so the formatted wall-clock time and the day a
+    // message falls on match the user's phone regardless of zone. These
+    // assertions derive the expected output from `.toLocal()` so they hold in
+    // any CI timezone (including UTC, where they degenerate to identities).
+    final utc = DateTime.utc(2026, 3, 17, 23, 30);
+    final local = utc.toLocal();
+
+    test('formatTime renders the local wall-clock time of a UTC instant', () {
+      final expected =
+          '${local.hour.toString().padLeft(2, '0')}:'
+          '${local.minute.toString().padLeft(2, '0')}';
+      expect(DateFormatter.formatTime(utc), expected);
+    });
+
+    test('isSameDay compares local calendar days, not UTC days', () {
+      final sameLocalInstant = local;
+      expect(DateFormatter.isSameDay(utc, sameLocalInstant), true);
+      // A UTC instant and the same instant expressed in local time always
+      // share a local calendar day.
+      expect(
+        DateFormatter.isSameDay(utc, DateTime.utc(2026, 3, 17, 23, 30)),
+        true,
+      );
+    });
+
+    test('formatSeparator anchors Today on the local day', () {
+      // now == the local day of the UTC instant → must read as Today.
+      expect(DateFormatter.formatSeparator(utc, now: local), 'Today');
+    });
+
+    test('a UTC instant near midnight is not double-shifted', () {
+      // Comparing the instant against its own local form must be stable.
+      expect(DateFormatter.isToday(utc, now: utc), true);
+    });
+  });
 }

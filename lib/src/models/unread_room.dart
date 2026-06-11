@@ -17,6 +17,11 @@ abstract class UnreadRoom with _$UnreadRoom {
   const factory UnreadRoom({
     required String roomId,
     required int unreadMessages,
+
+    /// Count of unread messages in this room that mention the current user.
+    /// `0` when there are none. Drives the "@" badge on the room tile
+    /// without fetching message bodies.
+    @Default(0) int unreadMentions,
     String? lastMessage,
     DateTime? lastMessageTime,
     String? lastMessageUserId,
@@ -34,7 +39,13 @@ abstract class UnreadRoom with _$UnreadRoom {
     int? memberCount,
     RoomRole? userRole,
     @Default(false) bool muted,
+
+    /// When the notification mute expires (UTC). `null` means a permanent
+    /// mute (or not muted at all — check [muted]). Lets the UI show "muted
+    /// until 14:00" and the consumer re-derive [muted] after expiry.
+    DateTime? muteUntil,
     @Default(false) bool pinned,
     @Default(false) bool hidden,
+    @Default(false) bool selfMuted,
   }) = _UnreadRoom;
 }

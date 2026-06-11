@@ -17,10 +17,26 @@ import 'package:hive_ce/hive_ce.dart';
 /// Cohesion: this class also owns the key-encoding helpers
 /// ([keyFor] / [extractId]) so callers don't reach into internals.
 class MessageIdIndex {
+  /// Normalizes [ts] to a millisecond-precision UTC ISO-8601 string so
+  /// box keys and range cutoffs sort lexicographically == chronologically.
+  ///
+  /// `DateTime.toIso8601String()` omits the microsecond digits when they
+  /// are zero, so a backend millisecond timestamp (`…000Z`) would
+  /// otherwise sort AFTER a local microsecond one (`…000123Z`) because
+  /// `'Z'` (0x5A) > `'1'` (0x31), inverting chronological order in the
+  /// same millisecond. Truncating every timestamp to milliseconds keeps
+  /// the fraction a fixed three digits. Every key/cutoff builder must go
+  /// through this helper.
+  static String normalizedIso(DateTime ts) =>
+      DateTime.fromMillisecondsSinceEpoch(
+        ts.toUtc().millisecondsSinceEpoch,
+        isUtc: true,
+      ).toIso8601String();
+
   /// Encodes a (timestamp, id) pair as the box key. ISO 8601 prefix
   /// makes lexicographic ordering == chronological.
   static String keyFor(DateTime timestamp, String id) =>
-      '${timestamp.toUtc().toIso8601String()}_$id';
+      '${normalizedIso(timestamp)}_$id';
 
   /// Extracts the message id from a box key produced by [keyFor].
   /// Returns `null` if the key is malformed.

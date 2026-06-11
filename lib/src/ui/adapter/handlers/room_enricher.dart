@@ -174,7 +174,11 @@ class RoomEnricher {
       cachePolicy: CachePolicy.networkOnly,
     );
     if (networkResult.isSuccess) {
-      await _enrichAndSet(networkResult.dataOrThrow, awaitDmResolution: true);
+      await _enrichAndSet(
+        networkResult.dataOrThrow,
+        awaitDmResolution: true,
+        authoritative: true,
+      );
       if (_isDisposed()) return const ChatSuccess(null);
       _initializedNotifier.value = true;
       _onRoomsLoaded?.call(roomList.allRooms);
@@ -189,11 +193,27 @@ class RoomEnricher {
     UserRooms userRooms, {
     CachePolicy? detailPolicy,
     bool awaitDmResolution = false,
+    bool authoritative = false,
   }) async {
     final detailFutures = userRooms.rooms.map(
       (unread) => client.rooms.get(unread.roomId, cachePolicy: detailPolicy),
     );
     final details = await Future.wait(detailFutures);
+
+    // Per-user DELETED rooms (WhatsApp "Delete chat" parity). The set is
+    // never-evictable in the cache; a deleted room stays gone from BOTH
+    // lists until a peer writes again. We reconcile each one against its
+    // (preserved) `clearedAt` cutoff below: a message newer than the
+    // cutoff means the peer wrote again → resurrect (clear the marker,
+    // surface the row empty-but-for-the-new-message); otherwise skip the
+    // room entirely. `deletedRoomIds` tracks the survivors so the
+    // controller's getters keep them excluded after [setRooms].
+    final localCacheForDeleted = cache;
+    final deletedRoomIds = localCacheForDeleted == null
+        ? <String>{}
+        : ((await localCacheForDeleted.getDeletedRoomIds()).dataOrNull ??
+                  const <String>{})
+              .toSet();
 
     final items = <RoomListItem>[];
     for (var i = 0; i < userRooms.rooms.length; i++) {
@@ -206,6 +226,26 @@ class RoomEnricher {
           clearedAt != null &&
           unread.lastMessageTime != null &&
           !unread.lastMessageTime!.isAfter(clearedAt);
+
+      if (deletedRoomIds.contains(unread.roomId)) {
+        // Resurrect only when the backend reports a message strictly newer
+        // than the delete cutoff (a peer wrote again). Otherwise the chat
+        // stays deleted — drop it from this list build.
+        final resurrected =
+            clearedAt != null &&
+            unread.lastMessageTime != null &&
+            unread.lastMessageTime!.isAfter(clearedAt);
+        if (resurrected) {
+          deletedRoomIds.remove(unread.roomId);
+          unawaited(
+            (localCacheForDeleted?.clearDeletedRoom(unread.roomId) ??
+                    Future<void>.value())
+                .catchError((_) {}),
+          );
+        } else {
+          continue;
+        }
+      }
 
       final base = RoomListItem(
         id: unread.roomId,
@@ -240,7 +280,12 @@ class RoomEnricher {
             (isCleared || unread.lastMessageUserId == _currentUser().id)
             ? 0
             : unread.unreadMessages,
+        unreadMentions:
+            (isCleared || unread.lastMessageUserId == _currentUser().id)
+            ? 0
+            : unread.unreadMentions,
         muted: detail?.muted ?? false,
+        muteUntil: detail?.muteUntil ?? unread.muteUntil,
         selfMuted: detail?.selfMuted ?? false,
         pinned: detail?.pinned ?? false,
         hidden: detail?.hidden ?? false,
@@ -323,18 +368,30 @@ class RoomEnricher {
           final backendIds = items.map((r) => r.id).toSet();
           for (final kickedId in kickedIds) {
             if (backendIds.contains(kickedId)) {
-              // Backend returned this room → admin re-added the
-              // user. Clear the local kicked flag so it doesn't
-              // linger.
-              unawaited(
-                localCache
-                    .unmarkKicked(kickedId)
-                    .catchError(
-                      (Object _) => const ChatFailureResult<void>(
-                        UnexpectedFailure('cache mutator threw'),
+              if (authoritative) {
+                // Network pass: the backend authoritatively returned
+                // this room → admin re-added the user. Clear the local
+                // kicked flag so it doesn't linger.
+                unawaited(
+                  localCache
+                      .unmarkKicked(kickedId)
+                      .catchError(
+                        (Object _) => const ChatFailureResult<void>(
+                          UnexpectedFailure('cache mutator threw'),
+                        ),
                       ),
-                    ),
-              );
+                );
+              } else {
+                // Cache pass: a stale unreads box may still list the
+                // room — do NOT treat it as a re-add and do NOT clear
+                // the kicked flag. Keep the matched row read-only so the
+                // stale snapshot can't wipe the kicked state before the
+                // authoritative network pass reconciles.
+                final idx = items.indexWhere((r) => r.id == kickedId);
+                if (idx != -1 && items[idx].isParticipating) {
+                  items[idx] = items[idx].copyWith(isParticipating: false);
+                }
+              }
               continue;
             }
             final hydrated = await _hydrateKickedRoomFromCache(
@@ -354,6 +411,11 @@ class RoomEnricher {
 
     if (_isDisposed()) return;
     roomList.setRooms(items);
+    // Seed the controller's in-memory deleted set so its synchronous
+    // getters keep excluding any deleted room that some other path (a
+    // late `addFromDetail`, a polling re-add) might re-insert before the
+    // next live resurrection event clears it.
+    roomList.setDeletedRoomIds(deletedRoomIds);
 
     // Resolve DM contacts. The network pass awaits them so the room list
     // is internally consistent before `loadRooms` resolves: every DM has
@@ -447,8 +509,8 @@ class RoomEnricher {
       final members = membersResult.dataOrNull?.items ?? [];
       // Filter out empty userIds defensively. The backend sometimes
       // returns members with `userId: ""` for orphan owners (a user
-      // that was wiped from `user_client_service` but whose JID stayed
-      // in the room's whitelist). Trying to resolve an empty userId
+      // that was wiped from `user_client_service` but whose membership
+      // entry stayed in the room's member list). Trying to resolve an empty userId
       // pollutes `_dmRoomByContact[''] = roomId` and leaves the row
       // with no displayName / a "?" avatar. Skip those members so DM
       // resolution moves on to the next candidate.
@@ -457,16 +519,12 @@ class RoomEnricher {
           .firstOrNull;
       if (otherMember == null) return;
 
-      // If the other party is in the blocked set, drop the row entirely
-      // — matches the WB legacy `_onDmContactResolved` behaviour and the
-      // [ChatUiAdapter.blockedUserIds] contract. Done BEFORE caching the
-      // contact-to-room mapping so we don't surface a stale entry the
-      // consumer would have to wipe manually later.
-      if (blockedUsers.isBlocked(otherMember.userId)) {
-        roomList.removeRoom(roomId);
-        _removeChatController(roomId);
-        return;
-      }
+      // Blocking KEEPS the DM chat (read-only via the blocked composer
+      // banner), WhatsApp parity — so a blocked peer's row still resolves
+      // its title/avatar and stays in the list. (Previously the row was
+      // dropped here when the peer was blocked, which made the
+      // conversation vanish from the list entirely.) The block only
+      // affects the composer, handled elsewhere.
 
       // Dedupe ghost DM rooms. If we already mapped a different
       // roomId to this contact, the server has two conversations between
@@ -577,6 +635,7 @@ class RoomEnricher {
             subject: detail.subject,
             avatarUrl: detail.avatarUrl,
             muted: detail.muted,
+            muteUntil: detail.muteUntil,
             pinned: detail.pinned,
             hidden: detail.hidden,
             isGroup: !isOneToOne,
@@ -680,6 +739,7 @@ class RoomEnricher {
             // as authoritative (incl. null = avatar removed).
             avatarUrl: isOneToOne ? existing.avatarUrl : detail.avatarUrl,
             muted: detail.muted,
+            muteUntil: detail.muteUntil,
             // Admin-mute (read-only) state. Propagated here so a live
             // `RoomUpdatedEvent` / polling refresh — or a re-fetch triggered
             // right after a 403-muted send — flips the composer to the
@@ -808,8 +868,8 @@ class RoomEnricher {
     // 1. WhatsApp-style "Message yourself" (1-member room created on
     //    purpose by the current user as a personal notes channel).
     // 2. A DM where the other user was wiped from the user directory
-    //    (their JID stayed in the whitelist but `users.get` no longer
-    //    resolves them). Current user still owns the history.
+    //    (their membership entry stayed in the room but `users.get` no
+    //    longer resolves them). Current user still owns the history.
     // 3. A group where every other member left / was kicked / was
     //    wiped, leaving the current user alone. Same outcome.
     // Trigger: no resolvable other member AND the room has no
@@ -860,26 +920,27 @@ class RoomEnricher {
   ///                     (the user can keep browsing this); unread
   ///                     count irrelevant since they can't read more.
   ///
-  /// Returns `null` when the cache has no `ChatRoom` for the id —
-  /// in that pathological case we silently drop the kicked id (the
-  /// user reinstalled the app since being kicked, or the cache was
-  /// cleared). The flag stays in `kickedRoomIds` so we don't lose
-  /// it; on the next successful hydration the room comes back.
+  /// When the cache has no `ChatRoom` for the id (the kick landed right
+  /// after a fresh login/cold start, or the room was never opened and so
+  /// never persisted), we still synthesise a minimal stub from whatever
+  /// `RoomDetail`/`UnreadRoom` snapshot exists — falling back to bare
+  /// structural fields — so the kicked room never silently vanishes. The
+  /// flag stays in `kickedRoomIds` and the room comes back richer on the
+  /// next successful hydration.
   Future<RoomListItem?> _hydrateKickedRoomFromCache(
     ChatLocalDatasource cache,
     String roomId,
   ) async {
     final room = (await cache.getRoom(roomId)).dataOrNull;
-    if (room == null) return null;
     final detail = (await cache.getRoomDetail(roomId)).dataOrNull;
     final unreads =
         (await cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
     final unread = unreads.where((u) => u.roomId == roomId).firstOrNull;
     final base = RoomListItem(
       id: roomId,
-      name: room.name ?? detail?.name,
-      subject: room.subject ?? detail?.subject,
-      avatarUrl: room.avatarUrl ?? detail?.avatarUrl,
+      name: room?.name ?? detail?.name ?? detail?.subject,
+      subject: room?.subject ?? detail?.subject,
+      avatarUrl: room?.avatarUrl ?? detail?.avatarUrl,
       isGroup: detail?.type == RoomType.group,
       isAnnouncement: detail?.type == RoomType.announcement,
       memberCount: detail?.memberCount,
@@ -899,6 +960,7 @@ class RoomEnricher {
       lastMessageIsDeleted: unread?.lastMessageIsDeleted ?? false,
       lastMessageReactionEmoji: unread?.lastMessageReactionEmoji,
       muted: unread?.muted ?? false,
+      muteUntil: unread?.muteUntil,
       pinned: unread?.pinned ?? false,
       hidden: unread?.hidden ?? false,
       // The defining flag — composer is replaced by the

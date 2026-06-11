@@ -65,10 +65,10 @@ void main() {
       expect(result.dataOrNull![0].id, 'mu-1');
     });
 
-    test('getManaged() gets /managed-users/{userId}', () async {
+    test('getManagedByParent() gets /users/{parentId}/managed-users', () async {
       when(
         () => rest.getWithTotalCount(
-          '/managed-users/parent-1',
+          '/users/parent-1/managed-users',
           queryParams: any(named: 'queryParams'),
         ),
       ).thenAnswer(
@@ -83,10 +83,41 @@ void main() {
         ),
       );
 
-      final result = await api.getManaged('parent-1');
+      final result = await api.getManagedByParent('parent-1');
       expect(result.isSuccess, isTrue);
       expect(result.dataOrNull!.items.length, 1);
       expect(result.dataOrNull!.totalCount, 1);
+      verify(
+        () => rest.getWithTotalCount(
+          '/users/parent-1/managed-users',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).called(1);
+    });
+
+    test('getManagedByParent() forwards pagination params', () async {
+      when(
+        () => rest.getWithTotalCount(
+          '/users/parent-1/managed-users',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer((_) async => ({'users': <dynamic>[], 'hasMore': false}, 0));
+
+      await api.getManagedByParent(
+        'parent-1',
+        pagination: const ChatPaginationParams(limit: 10, offset: 20),
+      );
+
+      final captured =
+          verify(
+                () => rest.getWithTotalCount(
+                  '/users/parent-1/managed-users',
+                  queryParams: captureAny(named: 'queryParams'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['limit'], 10);
+      expect(captured['offset'], 20);
     });
 
     test(

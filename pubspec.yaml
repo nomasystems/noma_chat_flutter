@@ -3,7 +3,7 @@ description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and ready-to-use UI components for the Nomasystems chat
   backend.
-version: 0.9.2
+version: 0.10.0
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
@@ -12,9 +12,9 @@ documentation: https://pub.dev/documentation/noma_chat/latest/
 
 topics:
   - chat
+  - messaging
+  - realtime
   - websocket
-  - sdk
-  - flutter
   - ui-kit
 
 screenshots:
@@ -47,7 +47,6 @@ dependencies:
   dio: ^5.7.0
   web_socket_channel: ^3.0.0
   freezed_annotation: ^3.0.0
-  json_annotation: ^4.8.0
   hive_ce: ^2.19.0
   cached_network_image: ^3.4.1
   emoji_picker_flutter: ^4.3.0
@@ -55,6 +54,10 @@ dependencies:
   path_provider: ^2.1.5
   record: ^7.0.0
   url_launcher: ^6.3.1
+  # Default "open file/PDF attachment" handler. Opens a downloaded file by its
+  # on-disk extension via the OS viewer, independent of the HTTP Content-Type
+  # the server returns. Maintained fork of `open_file`.
+  open_filex: ^4.7.0
   html: ^0.15.5
   image_picker: ^1.1.0
   # Bumped to >=9.0.0 because v9 removed `FilePicker.platform.pickFiles`
@@ -63,7 +66,19 @@ dependencies:
   # conflicts. The narrow surface we use (`FilePicker.pickFiles` with
   # `type`, `allowedExtensions`, `withData`) is stable across 9.x → 11.x.
   file_picker: '>=11.0.0 <12.0.0'
-  image_cropper: ^12.2.1
+  # Capped below 12.x on purpose. Under Swift Package Manager (the Flutter
+  # 3.44 default), file_picker pulls DKImagePickerController whose SPM
+  # manifest pins `TOCropViewController` to >=2.6.0 <3.0.0, while
+  # image_cropper 12.x jumped to `TOCropViewController` ~>3.1.2 — the two are
+  # mutually exclusive and break the iOS build in any consumer that uses SPM
+  # (e.g. WB/mobile). image_cropper 11.x stays on TOCropViewController 2.8.x,
+  # which co-resolves cleanly, and exposes the identical Dart API (both 11 and
+  # 12 depend on image_cropper_platform_interface ^8.0.0 — cropImage /
+  # AndroidUiSettings / IOSUiSettings / CropStyle / CropAspectRatioPreset are
+  # unchanged). Do NOT bump to ^12 until file_picker's DKImagePickerController
+  # moves to TOCropViewController 3.x; otherwise consumers need an
+  # SPM-disabling workaround in their own pubspec, which defeats plug & play.
+  image_cropper: ^11.0.0
   characters: ^1.4.0
   shared_preferences: ^2.2.0
   uuid: ^4.0.0
@@ -78,6 +93,5 @@ dev_dependencies:
   fake_async: ^1.3.0
   build_runner: ^2.4.0
   freezed: ^3.1.0
-  json_serializable: ^6.6.1
   golden_toolkit: ^0.15.0
   benchmark_harness: ^2.3.0

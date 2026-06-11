@@ -24,7 +24,7 @@ class FloatingReactionPicker {
     final result = await showGeneralDialog<String>(
       context: context,
       barrierDismissible: true,
-      barrierLabel: 'Dismiss reaction picker',
+      barrierLabel: theme.l10n.dismissReactionPicker,
       barrierColor: Colors.black12,
       transitionDuration: const Duration(milliseconds: 200),
       transitionBuilder: (context, animation, _, child) {

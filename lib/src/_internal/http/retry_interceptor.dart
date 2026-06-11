@@ -30,6 +30,33 @@ class RetryInterceptor extends Interceptor {
       _registry?.forPath(options.path) ?? _circuitBreaker;
 
   @override
+  void onRequest(RequestOptions options, RequestInterceptorHandler handler) {
+    // Fail fast when this path group's circuit is open: a real circuit
+    // breaker sheds initial load off a failing backend instead of only
+    // suppressing retries (otherwise every new call still stampedes a
+    // service that already signalled distress). The rejection is shaped as
+    // a connection error so it maps to a NetworkFailure — a send then lands
+    // in the offline queue and replays once the circuit recovers. An open
+    // circuit transitions to half-open inside allowRequest() once
+    // openTimeout elapses, letting a trial request through.
+    if (_config.enabled) {
+      final breaker = _breakerFor(options);
+      if (breaker != null && !breaker.allowRequest()) {
+        handler.reject(
+          DioException(
+            requestOptions: options,
+            type: DioExceptionType.connectionError,
+            error: 'circuit_open',
+            message: 'Circuit breaker open for ${options.path}',
+          ),
+        );
+        return;
+      }
+    }
+    handler.next(options);
+  }
+
+  @override
   Future<void> onError(
     DioException err,
     ErrorInterceptorHandler handler,
@@ -124,10 +151,15 @@ class RetryInterceptor extends Interceptor {
 
   Duration? _parseRetryAfter(Response<dynamic>? response) {
     if (response == null) return null;
-    final header = response.headers.value('retry-after');
-    if (header == null) return null;
-    final seconds = int.tryParse(header);
-    if (seconds != null) return Duration(seconds: seconds);
+    // Prefer the standard `Retry-After`; fall back to CHT's
+    // `X-RateLimit-Reset` (seconds until the window resets), which the
+    // server sends instead of `Retry-After` on a 429.
+    for (final name in const ['retry-after', 'x-ratelimit-reset']) {
+      final header = response.headers.value(name);
+      if (header == null) continue;
+      final seconds = int.tryParse(header.trim());
+      if (seconds != null && seconds >= 0) return Duration(seconds: seconds);
+    }
     return null;
   }
 }

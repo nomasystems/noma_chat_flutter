@@ -103,3 +103,53 @@ String? buildLastMessagePreview(
       return hasCaption ? caption : null;
   }
 }
+
+/// WhatsApp-style preview for a single [ChatMessage] (used by the starred
+/// list). Returns the text verbatim for text messages and a sensible label
+/// for non-text (Photo / Voice / document name / Location / Forwarded), so
+/// the starred screen reads the same way the room list does. Never blank.
+String previewForMessage(ChatMessage m, ChatUiLocalizations l10n) {
+  if (m.isDeleted) return l10n.previewDeletedByOther;
+  final caption = m.text;
+  final hasCaption = caption != null && caption.isNotEmpty;
+  switch (m.messageType) {
+    case MessageType.audio:
+      return l10n.audioPreview;
+
+    case MessageType.attachment:
+      final mime = m.mimeType;
+      if (mime != null) {
+        final kind = classifyMime(mime);
+        if (kind == MimeKind.gif) return l10n.previewGif;
+        if (kind == MimeKind.image) {
+          return hasCaption
+              ? l10n.previewPhotoWithCaption(caption)
+              : l10n.previewPhoto;
+        }
+        if (kind == MimeKind.video) {
+          return hasCaption
+              ? l10n.previewVideoWithCaption(caption)
+              : l10n.previewVideo;
+        }
+        if (kind == MimeKind.audio) {
+          final name = m.fileName;
+          if (name != null && name.trim().isNotEmpty) {
+            return l10n.previewAudioFile(name);
+          }
+          return l10n.audioPreview;
+        }
+      }
+      return l10n.previewDocument(m.fileName ?? l10n.file);
+
+    case MessageType.forward:
+      return hasCaption ? caption : l10n.forwarded;
+
+    case MessageType.location:
+      return l10n.previewLocation;
+
+    case MessageType.reaction:
+    case MessageType.reply:
+    case MessageType.regular:
+      return hasCaption ? caption : l10n.attachmentPreview;
+  }
+}

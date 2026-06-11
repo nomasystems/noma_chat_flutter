@@ -35,6 +35,7 @@ void main() {
     when(() => mockWs.connect()).thenAnswer((_) async {});
     when(() => mockWs.disconnect()).thenAnswer((_) async {});
     when(() => mockWs.supportsOutboundFrames).thenReturn(true);
+    when(() => mockWs.authTerminated).thenReturn(false);
     when(() => mockWs.notifyTokenRotated()).thenAnswer((_) async {});
     when(() => mockWs.dispose()).thenAnswer((_) async {});
 
@@ -44,6 +45,7 @@ void main() {
     when(() => mockSse.connect()).thenAnswer((_) async {});
     when(() => mockSse.disconnect()).thenAnswer((_) async {});
     when(() => mockSse.supportsOutboundFrames).thenReturn(false);
+    when(() => mockSse.authTerminated).thenReturn(false);
     when(() => mockSse.notifyTokenRotated()).thenAnswer((_) async {});
     when(() => mockSse.dispose()).thenAnswer((_) async {});
 
@@ -56,6 +58,35 @@ void main() {
     await wsStates.close();
     await sseEvents.close();
     await sseStates.close();
+  });
+
+  test(
+    'events getter is broadcast: a saved instance allows multiple listeners',
+    () {
+      // With eventBufferSize > 0 the getter wraps the stream; the documented
+      // contract is broadcast, so listening twice on the SAME saved instance
+      // must not throw (a non-broadcast controller would).
+      final stream = manager.events;
+      final subA = stream.listen((_) {});
+      expect(() => stream.listen((_) {}), returnsNormally);
+      subA.cancel();
+    },
+  );
+
+  test('lifecycle events are excluded from the replay buffer', () async {
+    await manager.connect();
+    // A ConnectedEvent flows through but must NOT be replayed to a late
+    // subscriber (it would re-trigger offline drains / catch-up offline).
+    wsEvents.add(const ConnectedEvent());
+    wsEvents.add(const RoomCreatedEvent(roomId: 'r1'));
+    await Future<void>.delayed(Duration.zero);
+
+    final replayed = <ChatEvent>[];
+    manager.events.listen(replayed.add);
+    await Future<void>.delayed(Duration.zero);
+
+    expect(replayed.whereType<ConnectedEvent>(), isEmpty);
+    expect(replayed.whereType<RoomCreatedEvent>(), isNotEmpty);
   });
 
   test('WS connected sets state to connected', () async {

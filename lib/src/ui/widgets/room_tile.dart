@@ -117,6 +117,18 @@ class RoomTile extends StatelessWidget {
                       color: theme.roomList.pinnedIconColor ?? Colors.grey,
                     ),
                   ),
+                if (room.unreadMentions > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 4),
+                    child: Text(
+                      '@',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: theme.roomList.unreadBadgeColor ?? Colors.red,
+                      ),
+                    ),
+                  ),
                 if (room.unreadCount > 0)
                   UnreadBadge(count: room.unreadCount, theme: theme),
               ],

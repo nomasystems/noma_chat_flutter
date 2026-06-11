@@ -31,21 +31,16 @@ class UserMapper {
 
   /// Parses a single contact from `/v1/contacts`.
   ///
-  /// The backend (cht-noma `user_client_contacts`) emits each entry as
-  /// `{"jid": "<userId>"}` — `jid` is a legacy XMPP/Jabber identifier name
-  /// that survived in this single endpoint while the rest of the API uses
-  /// `id` (`/v1/users`) or `userId` (most other places). We accept all
-  /// three with a defined precedence: `jid` first (current backend
-  /// reality), `userId` (forward-compat if the backend standardises), then
-  /// `id`. Empty fallback only when none is present — surfaces a clear
+  /// `userId` is the canonical external user id of the contact. The empty
+  /// fallback only fires when it is absent — it surfaces a clear
   /// `ChatContact(userId: '')` that consumers can filter/log rather than
   /// silently swallowing a malformed row.
   static ChatContact contactFromJson(Map<String, dynamic> json) {
-    final id = (json['jid'] ?? json['userId'] ?? json['id'] ?? '') as String;
+    final id = (json['userId'] ?? '') as String;
     if (id.isEmpty) {
       logger?.call(
         'warn',
-        'UserMapper.contactFromJson: contact entry has no jid/userId/id field',
+        'UserMapper.contactFromJson: contact entry has no userId field',
       );
     }
     return ChatContact(userId: id);
@@ -57,7 +52,17 @@ class UserMapper {
     // call sites and the WS payload sometimes use `role`. Accept both
     // so the role badge + promote/demote actions render consistently.
     role: _parseRoomRole((json['userRole'] ?? json['role']) as String?),
+    // `displayName` / `avatarUrl` are present only when the list was
+    // requested with `?expand=users`. Without expansion the backend emits
+    // just `{userId, userRole}`, so the keys are absent and both stay null
+    // (backward-compatible parse). Coerce empty strings to null as well so a
+    // blank field never shadows a richer user-cache lookup downstream.
+    displayName: _nonEmpty(json['displayName'] as String?),
+    avatarUrl: _nonEmpty(json['avatarUrl'] as String?),
   );
+
+  static String? _nonEmpty(String? value) =>
+      (value == null || value.isEmpty) ? null : value;
 
   static ManagedUserConfiguration managedConfigFromJson(
     Map<String, dynamic> json,

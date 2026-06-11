@@ -9,6 +9,26 @@ import 'package:flutter_test/flutter_test.dart';
 
 class MockDio extends Mock implements Dio {}
 
+/// Captures the outcome of an `onRequest` call without completing the real
+/// dio future (the unit test only inspects which branch was taken).
+class _TrackingRequestHandler extends RequestInterceptorHandler {
+  DioException? rejectedError;
+  RequestOptions? nextOptions;
+
+  @override
+  void reject(
+    DioException error, [
+    bool callFollowingErrorInterceptor = false,
+  ]) {
+    rejectedError = error;
+  }
+
+  @override
+  void next(RequestOptions requestOptions) {
+    nextOptions = requestOptions;
+  }
+}
+
 RequestOptions _opts({Map<String, dynamic>? extra}) =>
     RequestOptions(path: '/test', extra: extra ?? {});
 
@@ -43,6 +63,37 @@ void main() {
 
       expect(handler.nextCalled, isTrue);
       verifyNever(() => dio.fetch<dynamic>(any()));
+    });
+
+    test('onRequest fast-fails when the circuit is open', () {
+      final breaker = CircuitBreaker(failureThreshold: 1);
+      breaker.recordFailure(); // opens the circuit (threshold = 1)
+      final interceptor = RetryInterceptor(
+        config: const RetryConfig(maxRetries: 3),
+        dio: dio,
+        circuitBreaker: breaker,
+      );
+
+      final handler = _TrackingRequestHandler();
+      interceptor.onRequest(_opts(), handler);
+
+      expect(handler.rejectedError, isNotNull);
+      expect(handler.rejectedError!.type, DioExceptionType.connectionError);
+      expect(handler.nextOptions, isNull);
+    });
+
+    test('onRequest lets the request through when the circuit is closed', () {
+      final interceptor = RetryInterceptor(
+        config: const RetryConfig(maxRetries: 3),
+        dio: dio,
+        circuitBreaker: CircuitBreaker(failureThreshold: 5),
+      );
+
+      final handler = _TrackingRequestHandler();
+      interceptor.onRequest(_opts(), handler);
+
+      expect(handler.nextOptions, isNotNull);
+      expect(handler.rejectedError, isNull);
     });
 
     test('does not retry 403 errors', () async {
@@ -151,6 +202,41 @@ void main() {
         requestOptions: opts,
         headers: Headers.fromMap({
           'retry-after': ['1'],
+        }),
+      );
+
+      when(() => dio.fetch<dynamic>(any())).thenAnswer(
+        (_) async => Response(statusCode: 200, requestOptions: opts),
+      );
+
+      final handler = _TrackingErrorHandler();
+      final start = DateTime.now();
+      await interceptor.onError(
+        DioException(requestOptions: opts, response: response429),
+        handler,
+      );
+      final elapsed = DateTime.now().difference(start);
+
+      expect(elapsed.inMilliseconds, greaterThanOrEqualTo(900));
+      expect(handler.resolvedResponse, isNotNull);
+    });
+
+    test('falls back to X-RateLimit-Reset when no Retry-After', () async {
+      final interceptor = RetryInterceptor(
+        config: const RetryConfig(
+          maxRetries: 1,
+          baseDelay: Duration(milliseconds: 1),
+        ),
+        dio: dio,
+        random: _FixedRandom(),
+      );
+
+      final opts = _opts();
+      final response429 = Response(
+        statusCode: 429,
+        requestOptions: opts,
+        headers: Headers.fromMap({
+          'x-ratelimit-reset': ['1'],
         }),
       );
 

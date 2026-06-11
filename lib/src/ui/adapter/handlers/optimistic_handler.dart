@@ -14,7 +14,8 @@ import '../services/pending_reactions_registry.dart';
 
 /// Optimistic-UI mutating operations the adapter exposes publicly
 /// (`sendMessage`, `editMessage`, `deleteMessage`, `sendReaction`,
-/// `deleteReaction`, `retrySend`, `pinMessage`, `unpinMessage`).
+/// `deleteReaction`, `retrySend`, `pinMessage`, `unpinMessage`,
+/// `starMessage`, `unstarMessage`).
 /// Each method follows the same pattern: paint the optimistic state,
 /// call the SDK, on success persist + finalise, on failure roll back.
 ///
@@ -30,7 +31,6 @@ class OptimisticHandler {
     required this.cache,
     required Future<ChatResult<String>> Function(String otherUserId)
     ensureDmRoomMaterialized,
-    required void Function(String roomId) removeChatController,
     required void Function(String roomId, ChatMessage message)
     updateRoomLastMessage,
     required void Function(
@@ -43,7 +43,6 @@ class OptimisticHandler {
     required ChatMessage Function(ChatMessage message) ensureSentReceipt,
     required bool Function(ChatFailure? failure) isBlockedError,
     required bool Function(ChatFailure? failure) isMutedError,
-    required bool Function(String userId) isUserBlocked,
     void Function(String roomId)? onModerationLock,
     required ChatResult<T> Function<T>(
       ChatResult<T> result,
@@ -63,13 +62,11 @@ class OptimisticHandler {
     required ChatResult<void> Function(Object _) swallowCacheThrow,
   }) : _currentUser = currentUser,
        _ensureDmRoomMaterialized = ensureDmRoomMaterialized,
-       _removeChatController = removeChatController,
        _updateRoomLastMessage = updateRoomLastMessage,
        _updateRoomReactionPreview = updateRoomReactionPreview,
        _ensureSentReceipt = ensureSentReceipt,
        _isBlockedError = isBlockedError,
        _isMutedError = isMutedError,
-       _isUserBlocked = isUserBlocked,
        _onModerationLock = onModerationLock,
        _emitFailure = emitFailure,
        _emitOperationSuccess = emitOperationSuccess,
@@ -84,7 +81,6 @@ class OptimisticHandler {
   final ChatUser Function() _currentUser;
   final Future<ChatResult<String>> Function(String otherUserId)
   _ensureDmRoomMaterialized;
-  final void Function(String roomId) _removeChatController;
   final void Function(String roomId, ChatMessage message)
   _updateRoomLastMessage;
   final void Function(
@@ -97,7 +93,6 @@ class OptimisticHandler {
   final ChatMessage Function(ChatMessage message) _ensureSentReceipt;
   final bool Function(ChatFailure? failure) _isBlockedError;
   final bool Function(ChatFailure? failure) _isMutedError;
-  final bool Function(String userId) _isUserBlocked;
 
   /// Invoked with the room id when a send is rejected with a 403 "muted".
   /// The adapter wires this to a room-detail refresh so `selfMuted` flips
@@ -140,6 +135,11 @@ class OptimisticHandler {
       text: text,
       messageType: messageType,
       referencedMessageId: referencedMessageId,
+      // The optimistic temp id doubles as the server idempotency key: it
+      // uniquely identifies this logical message, is reused on every
+      // offline-queue retry, and is echoed back on the persisted message
+      // so a POST that actually landed before failing is never duplicated.
+      clientMessageId: tempId,
       attachmentUrl: attachmentUrl,
       mimeType: metadata?['mimeType'] as String?,
       fileName: metadata?['fileName'] as String?,
@@ -189,7 +189,32 @@ class OptimisticHandler {
       metadata: metadata,
       attachmentUrl: attachmentUrl,
       tempId: tempId,
+      clientMessageId: tempId,
     );
+
+    // 403 "blocked" on send is swallowed (WhatsApp parity): a blocked
+    // sender sees NOTHING. The backend rejects delivery in both
+    // directions once either party blocks the other, but the sender must
+    // not be able to tell — no failed bubble, no error toast, the chat
+    // stays put. We mark the optimistic message as SENT locally (it will
+    // never be delivered, but the sender keeps typing into the void) and
+    // early-return success so the failure never reaches `_emitFailure`.
+    // The "I am the blocker → drop the row" pruning that used to live
+    // here is gone: blocking keeps the room (handled elsewhere).
+    if (result.isFailure && _isBlockedError(result.failureOrNull)) {
+      final sent = _ensureSentReceipt(optimistic);
+      if (controller != null) {
+        controller.confirmSent(tempId, sent);
+      }
+      unawaited(
+        cache
+                ?.deletePendingMessage(effectiveRoomId, tempId)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+      _updateRoomLastMessage(effectiveRoomId, sent);
+      return ChatSuccess<ChatMessage>(sent);
+    }
 
     final confirmed = result.isSuccess
         ? _ensureSentReceipt(result.dataOrThrow)
@@ -210,46 +235,6 @@ class OptimisticHandler {
             Future.value(),
       );
       _updateRoomLastMessage(effectiveRoomId, confirmed);
-    } else if (_isBlockedError(result.failureOrNull)) {
-      // 403 "blocked" on send is asymmetric. The backend rejects both
-      // directions once either party blocks the other:
-      //   - If WE are the blocker (peer is in our blocked set), the
-      //     WhatsApp-style behaviour is to drop the row from our chat
-      //     list immediately — we initiated the block, we don't want
-      //     to see them.
-      //   - If WE are the BLOCKEE (peer NOT in our blocked set), the
-      //     send still fails but the chat must stay visible. WhatsApp
-      //     just leaves the message as a failed bubble; the blockee
-      //     should not learn they were blocked AND should not be
-      //     silently expelled from their own conversation. The old
-      //     code removed the row in both cases, which surfaced as
-      //     "bob sends to alice → bob's chat with alice vanishes".
-      unawaited(
-        cache
-                ?.deletePendingMessage(effectiveRoomId, tempId)
-                .catchError(_swallowCacheThrow) ??
-            Future.value(),
-      );
-      final row = roomList.getRoomById(effectiveRoomId);
-      final peerId = row?.otherUserId;
-      final iAmBlocker = peerId != null && _isUserBlocked(peerId);
-      if (iAmBlocker) {
-        roomList.removeRoom(effectiveRoomId);
-        _removeChatController(effectiveRoomId);
-      } else {
-        // Persist the optimistic bubble as failed so the user sees a
-        // retry affordance instead of a silent disappearance.
-        unawaited(
-          cache
-                  ?.savePendingMessage(
-                    effectiveRoomId,
-                    optimistic,
-                    isFailed: true,
-                  )
-                  .catchError(_swallowCacheThrow) ??
-              Future.value(),
-        );
-      }
     } else {
       unawaited(
         cache
@@ -432,11 +417,13 @@ class OptimisticHandler {
     final controller = controllers[roomId];
     controller?.addOwnReaction(messageId, emoji);
 
-    final result = await client.messages.send(
+    // Canonical reactions endpoint: a reaction is a sub-resource of the
+    // message, not a synthetic reaction-typed message. This keeps the
+    // timeline and the offline send queue clean.
+    final result = await client.messages.addReaction(
       roomId,
-      messageType: MessageType.reaction,
-      reaction: emoji,
-      referencedMessageId: messageId,
+      messageId,
+      emoji: emoji,
     );
 
     if (result.isFailure) {
@@ -462,7 +449,11 @@ class OptimisticHandler {
     controller?.removeOwnReaction(messageId, emoji);
     pendingReactions.markPendingDelete(messageId);
 
-    final result = await client.messages.deleteReaction(roomId, messageId);
+    final result = await client.messages.deleteReaction(
+      roomId,
+      messageId,
+      emoji: emoji,
+    );
 
     pendingReactions.unmarkPendingDelete(messageId);
     if (result.isFailure) {
@@ -509,6 +500,10 @@ class OptimisticHandler {
       attachmentUrl: message.attachmentUrl,
       metadata: message.metadata,
       tempId: messageId,
+      // Reuse the original optimistic id as the idempotency key so a manual
+      // retry of a send that actually landed (lost response) returns the
+      // existing message instead of creating a duplicate.
+      clientMessageId: messageId,
     );
 
     if (result.isSuccess) {
@@ -595,6 +590,69 @@ class OptimisticHandler {
     return _emitFailure<void>(
       result,
       OperationKind.unpinMessage,
+      roomId: roomId,
+      messageId: messageId,
+    );
+  }
+
+  Future<ChatResult<void>> starMessage(String roomId, String messageId) async {
+    final controller = controllers[roomId];
+    final message = controller?.messages
+        .where((m) => m.id == messageId)
+        .firstOrNull;
+    final wasStarred = message?.isStarred ?? false;
+    if (controller != null && !wasStarred) {
+      controller.setMessageStarred(messageId, true);
+    }
+
+    final result = await client.messages.starMessage(roomId, messageId);
+
+    if (result.isFailure && controller != null && !wasStarred) {
+      controller.setMessageStarred(messageId, false);
+    }
+    if (result.isSuccess) {
+      _emitOperationSuccess(
+        OperationKind.starMessage,
+        roomId: roomId,
+        messageId: messageId,
+      );
+    }
+    return _emitFailure<void>(
+      result,
+      OperationKind.starMessage,
+      roomId: roomId,
+      messageId: messageId,
+    );
+  }
+
+  Future<ChatResult<void>> unstarMessage(
+    String roomId,
+    String messageId,
+  ) async {
+    final controller = controllers[roomId];
+    final message = controller?.messages
+        .where((m) => m.id == messageId)
+        .firstOrNull;
+    final wasStarred = message?.isStarred ?? false;
+    if (controller != null && wasStarred) {
+      controller.setMessageStarred(messageId, false);
+    }
+
+    final result = await client.messages.unstarMessage(roomId, messageId);
+
+    if (result.isFailure && controller != null && wasStarred) {
+      controller.setMessageStarred(messageId, true);
+    }
+    if (result.isSuccess) {
+      _emitOperationSuccess(
+        OperationKind.unstarMessage,
+        roomId: roomId,
+        messageId: messageId,
+      );
+    }
+    return _emitFailure<void>(
+      result,
+      OperationKind.unstarMessage,
       roomId: roomId,
       messageId: messageId,
     );

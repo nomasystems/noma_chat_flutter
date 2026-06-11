@@ -101,6 +101,64 @@ void main() {
       expect(captured['metadata'], {'key': 'value'});
     });
 
+    test('send() autogenerates a clientMessageId when the caller omits it '
+        '(retry-safe dedup)', () async {
+      when(
+        () => rest.post(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async => messageJson());
+
+      await api.send('r1', text: 'hello');
+
+      final captured =
+          verify(
+                () => rest.post(
+                  '/rooms/r1/messages',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      // A non-empty key must always be sent so the server-side partial unique
+      // index can dedup a retried 429/5xx send.
+      expect(captured['clientMessageId'], isA<String>());
+      expect((captured['clientMessageId'] as String).isNotEmpty, isTrue);
+    });
+
+    test('send() honours a caller-supplied clientMessageId', () async {
+      when(
+        () => rest.post(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async => messageJson());
+
+      await api.send('r1', text: 'hello', clientMessageId: 'my-key-123');
+
+      final captured =
+          verify(
+                () => rest.post(
+                  '/rooms/r1/messages',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['clientMessageId'], 'my-key-123');
+    });
+
+    test('send() autogenerates a distinct clientMessageId per call', () async {
+      when(
+        () => rest.post(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async => messageJson());
+
+      await api.send('r1', text: 'one');
+      await api.send('r1', text: 'two');
+
+      final captured = verify(
+        () => rest.post('/rooms/r1/messages', data: captureAny(named: 'data')),
+      ).captured.cast<Map<String, dynamic>>();
+      expect(captured.length, 2);
+      expect(
+        captured[0]['clientMessageId'],
+        isNot(captured[1]['clientMessageId']),
+      );
+    });
+
     test(
       'list() gets /rooms/{roomId}/messages and returns ChatPaginatedResponse',
       () async {
@@ -147,7 +205,8 @@ void main() {
       await api.list(
         'r1',
         pagination: const ChatCursorPaginationParams(
-          before: 'cur-1',
+          cursor: 'cur-1',
+          direction: ChatCursorDirection.older,
           limit: 10,
         ),
         unreadOnly: true,
@@ -161,9 +220,95 @@ void main() {
                 ),
               ).captured.single
               as Map<String, dynamic>;
-      expect(captured['before'], 'cur-1');
+      expect(captured['cursor'], 'cur-1');
+      expect(captured['direction'], 'older');
       expect(captured['limit'], 10);
       expect(captured['unreadOnly'], 'true');
+    });
+
+    test('list() parses next/prev into the page cursors', () async {
+      when(
+        () => rest.getWithTotalCount(
+          '/rooms/r1/messages',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          {
+            'messages': [messageJson()],
+            'hasMore': true,
+            'next': 'next-token',
+            'prev': 'prev-token',
+          },
+          null,
+        ),
+      );
+
+      final result = await api.list('r1');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrThrow.nextCursor, 'next-token');
+      expect(result.dataOrThrow.prevCursor, 'prev-token');
+    });
+
+    test('loadOlder feeds prevCursor back with direction=older', () async {
+      when(
+        () => rest.getWithTotalCount(
+          '/rooms/r1/messages',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => ({'messages': <dynamic>[], 'hasMore': false}, null),
+      );
+
+      await api.list(
+        'r1',
+        pagination: const ChatCursorPaginationParams(
+          cursor: 'prev-token',
+          direction: ChatCursorDirection.older,
+        ),
+      );
+
+      final captured =
+          verify(
+                () => rest.getWithTotalCount(
+                  '/rooms/r1/messages',
+                  queryParams: captureAny(named: 'queryParams'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['cursor'], 'prev-token');
+      expect(captured['direction'], 'older');
+    });
+
+    test('loadNewer feeds nextCursor back with direction=newer', () async {
+      when(
+        () => rest.getWithTotalCount(
+          '/rooms/r1/messages',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => ({'messages': <dynamic>[], 'hasMore': false}, null),
+      );
+
+      await api.list(
+        'r1',
+        pagination: const ChatCursorPaginationParams(
+          cursor: 'next-token',
+          direction: ChatCursorDirection.newer,
+        ),
+      );
+
+      final captured =
+          verify(
+                () => rest.getWithTotalCount(
+                  '/rooms/r1/messages',
+                  queryParams: captureAny(named: 'queryParams'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['cursor'], 'next-token');
+      expect(captured['direction'], 'newer');
     });
 
     test('sendViaWs() falls back to REST send when no transport', () async {

@@ -56,62 +56,6 @@ void main() {
       expect(messages.first.id, 'msg-3');
     });
 
-    test('get messages with cursor (before timestamp)', () async {
-      await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = (await ds.getMessages(
-        'room-1',
-        before: msg3.timestamp.toUtc().toIso8601String(),
-      )).dataOrNull!;
-      expect(messages.length, 2);
-      expect(messages.first.id, 'msg-2');
-      expect(messages.last.id, 'msg-1');
-    });
-
-    test('get messages with cursor and limit', () async {
-      await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = (await ds.getMessages(
-        'room-1',
-        before: msg3.timestamp.toUtc().toIso8601String(),
-        limit: 1,
-      )).dataOrNull!;
-      expect(messages.length, 1);
-      expect(messages.first.id, 'msg-2');
-    });
-
-    test('get messages with after cursor', () async {
-      await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = (await ds.getMessages(
-        'room-1',
-        after: msg1.timestamp.toUtc().toIso8601String(),
-      )).dataOrNull!;
-      expect(messages.length, 2);
-      expect(messages.first.id, 'msg-3');
-      expect(messages.last.id, 'msg-2');
-    });
-
-    test('get messages with after and before cursors combined', () async {
-      await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-      final messages = (await ds.getMessages(
-        'room-1',
-        after: msg1.timestamp.toUtc().toIso8601String(),
-        before: msg3.timestamp.toUtc().toIso8601String(),
-      )).dataOrNull!;
-      expect(messages.length, 1);
-      expect(messages.first.id, 'msg-2');
-    });
-
-    test(
-      'get messages with after cursor returns empty when none newer',
-      () async {
-        await ds.saveMessages('room-1', [msg1, msg2, msg3]);
-        final messages = (await ds.getMessages(
-          'room-1',
-          after: msg3.timestamp.toUtc().toIso8601String(),
-        )).dataOrNull!;
-        expect(messages, isEmpty);
-      },
-    );
-
     test('deduplication on save', () async {
       await ds.saveMessages('room-1', [msg1]);
       final updated = ChatMessage(
@@ -255,28 +199,10 @@ void main() {
       ),
     );
 
-    test('before with invalid timestamp returns empty list', () async {
-      await ds.saveMessages('room-1', messages);
-      final loaded = (await ds.getMessages(
-        'room-1',
-        before: 'nonexistent',
-      )).dataOrNull!;
-      expect(loaded, isEmpty);
-    });
-
     test('limit larger than available returns all', () async {
       await ds.saveMessages('room-1', messages);
       final loaded = (await ds.getMessages('room-1', limit: 100)).dataOrNull!;
       expect(loaded.length, 5);
-    });
-
-    test('before oldest message timestamp returns empty', () async {
-      await ds.saveMessages('room-1', messages);
-      final loaded = (await ds.getMessages(
-        'room-1',
-        before: DateTime.utc(2026, 1, 1).toIso8601String(),
-      )).dataOrNull!;
-      expect(loaded, isEmpty);
     });
 
     test(

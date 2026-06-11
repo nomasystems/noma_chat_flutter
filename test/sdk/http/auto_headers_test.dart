@@ -91,6 +91,42 @@ void main() {
       },
     );
 
+    test('X-From-User-Id is injected when actAsUserId is configured', () async {
+      final delegating = RestClient(
+        config: ChatConfig.withAuthInterceptor(
+          baseUrl: 'http://h/v1',
+          realtimeUrl: 'http://h',
+          authInterceptor: _NoopAuth(),
+          actAsUserId: 'managed-1',
+        ),
+        dio: dio,
+      );
+      await delegating.get('/foo');
+      expect(capturedHeaders.first['X-From-User-Id'], 'managed-1');
+    });
+
+    test('X-From-User-Id is absent without actAsUserId', () async {
+      await rest.get('/foo');
+      expect(capturedHeaders.first.containsKey('X-From-User-Id'), isFalse);
+    });
+
+    test(
+      'consumer-provided X-From-User-Id wins over the configured one',
+      () async {
+        final delegating = RestClient(
+          config: ChatConfig.withAuthInterceptor(
+            baseUrl: 'http://h/v1',
+            realtimeUrl: 'http://h',
+            authInterceptor: _NoopAuth(),
+            actAsUserId: 'managed-1',
+          ),
+          dio: dio,
+        );
+        await delegating.get('/foo', headers: {'X-From-User-Id': 'override'});
+        expect(capturedHeaders.first['X-From-User-Id'], 'override');
+      },
+    );
+
     test('lowercase user-agent in caller headers still wins', () async {
       await rest.get('/foo', headers: {'user-agent': 'mobile/1.0'});
 

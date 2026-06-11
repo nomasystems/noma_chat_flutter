@@ -76,8 +76,33 @@ class BearerAuthInterceptor extends AuthInterceptor {
     }
 
     try {
-      _cachedToken = null;
-      final newToken = await _refreshToken();
+      // Compare-and-invalidate. Only drop the cached token if it is still
+      // the exact token this request sent: with several requests failing a
+      // 401 in sequence, a later one whose 401 is handled after an earlier
+      // refresh already cached a fresh token must NOT wipe it and trigger a
+      // second tokenProvider() call (costly / rate-limited with Cognito).
+      // If the cache already moved on, reuse the fresh token instead.
+      final usedAuth = options.headers['Authorization'];
+      final usedToken = usedAuth is String && usedAuth.startsWith('Bearer ')
+          ? usedAuth.substring(7)
+          : usedAuth is String
+          ? usedAuth
+          : null;
+      final String newToken;
+      if (usedToken != null &&
+          _cachedToken != null &&
+          _cachedToken != usedToken) {
+        // The cache already moved past the token this request sent (a
+        // concurrent 401 refreshed it): reuse the fresh one, don't refresh
+        // again.
+        newToken = _cachedToken!;
+      } else {
+        // Either we know the failed token is still the cached one, or the
+        // request carried no recognizable token — invalidate (when it
+        // matches) and refresh.
+        if (_cachedToken == usedToken) _cachedToken = null;
+        newToken = await _refreshToken();
+      }
       options.headers['Authorization'] = 'Bearer $newToken';
       options.extra['_authRetried'] = true;
 

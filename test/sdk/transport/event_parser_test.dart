@@ -327,16 +327,16 @@ void main() {
       expect(event, isNull);
     });
 
-    test('parses new_message with server field names (fromJid, body)', () {
+    test('parses new_message with canonical field names (from, text)', () {
       final event = EventParser.parseJson({
         'type': 'new_message',
         'roomId': 'room-1',
         'timestamp': '2024-12-25T20:00:00Z',
         'message': {
           'messageId': 'msg-1',
-          'fromJid': 'user-1',
+          'from': 'user-1',
           'timestamp': '2024-12-25T20:00:00Z',
-          'body': 'Hello from server',
+          'text': 'Hello from server',
           'messageType': 'regular',
         },
       });

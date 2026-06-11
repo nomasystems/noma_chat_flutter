@@ -82,10 +82,11 @@ class MessageEvictionPolicy {
     required Future<Box<Map<dynamic, dynamic>>> Function(String roomId) boxFor,
   }) async {
     if (ttl == null) return;
-    final cutoffPrefix = DateTime.now()
-        .toUtc()
-        .subtract(ttl!)
-        .toIso8601String();
+    // Normalize to the same millisecond precision as the box keys
+    // (MessageIdIndex.keyFor) so the lexicographic cutoff is exact.
+    final cutoffPrefix = MessageIdIndex.normalizedIso(
+      DateTime.now().toUtc().subtract(ttl!),
+    );
     for (final roomId in trackedRoomIds) {
       final box = await boxFor(roomId);
       // Keys are `{timestamp}_{id}`, sorted ascending — every key

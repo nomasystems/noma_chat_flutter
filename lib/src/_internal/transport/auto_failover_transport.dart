@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../events/chat_event.dart';
 import '../../models/message.dart';
+import '../http/chat_exception.dart';
 import 'realtime_transport.dart';
 
 /// Real-time transport composed of a [primary] (typically WS) and a
@@ -26,6 +27,21 @@ class AutoFailoverTransport implements RealtimeTransport {
   StreamSubscription<ChatConnectionState>? _fallbackStateSub;
   bool _fallbackActive = false;
   bool _primaryHasConnected = false;
+  int _primaryInitialFailures = 0;
+
+  /// Latched when the primary reports a *terminal* auth failure (WS close
+  /// 4005). While set, the fallback is never promoted — failing over would
+  /// reuse the rejected token — and the transport stays in `error` until
+  /// the app re-authenticates and calls [connect] again. Cleared on
+  /// [connect] and on a fresh successful primary connection.
+  bool _authTerminated = false;
+
+  /// Consecutive failed initial primary (WS) connection attempts after
+  /// which the fallback (SSE) is promoted even though the primary never
+  /// connected once. Covers the canonical case `RealtimeMode.auto` exists
+  /// for: a proxy/firewall that blocks WebSocket from the first handshake,
+  /// where waiting for a "first successful connection" would loop forever.
+  static const int _initialFailureThreshold = 3;
 
   AutoFailoverTransport({
     required RealtimeTransport primary,
@@ -42,6 +58,9 @@ class AutoFailoverTransport implements RealtimeTransport {
   @override
   ChatConnectionState get state => _state;
 
+  @override
+  bool get authTerminated => _authTerminated;
+
   /// Outbound frames work whenever the primary supports them and is
   /// connected; while the fallback (SSE) is active outbound frames go
   /// to REST.
@@ -57,6 +76,8 @@ class AutoFailoverTransport implements RealtimeTransport {
     await _fallbackEventSub?.cancel();
     await _fallbackStateSub?.cancel();
     _primaryHasConnected = false;
+    _primaryInitialFailures = 0;
+    _authTerminated = false;
     _primaryEventSub = _primary.events.listen(_onPrimaryEvent);
     _primaryStateSub = _primary.stateChanges.listen(_onPrimaryStateChange);
     _fallbackEventSub = _fallback.events.listen(_onFallbackEvent);
@@ -64,19 +85,56 @@ class AutoFailoverTransport implements RealtimeTransport {
     await _primary.connect();
   }
 
-  void _onPrimaryEvent(ChatEvent event) => _emit(event);
+  void _onPrimaryEvent(ChatEvent event) {
+    // A terminal auth failure (WS 4005) must suspend BOTH transports: the
+    // cached token is rejected, so promoting the SSE fallback would just
+    // replay it. Latch the flag from the event (which the primary emits
+    // before its `error` state change) so the upcoming state transition
+    // can't start the fallback, and tear down any fallback already up.
+    if (event is ErrorEvent &&
+        event.exception is ChatAuthException &&
+        (event.exception as ChatAuthException).terminal) {
+      _authTerminated = true;
+      _stopFallback();
+      _setState(ChatConnectionState.error);
+    }
+    _emit(event);
+  }
 
   void _onPrimaryStateChange(ChatConnectionState newState) {
     switch (newState) {
       case ChatConnectionState.connected:
+        // A fresh successful primary connection clears the terminal latch
+        // (the app re-authenticated and reconnected).
+        _authTerminated = false;
         _primaryHasConnected = true;
+        _primaryInitialFailures = 0;
         _setState(ChatConnectionState.connected);
         _stopFallback();
       case ChatConnectionState.disconnected:
       case ChatConnectionState.reconnecting:
       case ChatConnectionState.error:
+        // Consult the primary's synchronous terminal flag in addition to the
+        // event-driven latch: the flag is set before either stream emits, so
+        // this holds even if the error STATE is delivered before the terminal
+        // EVENT. Either source means: never promote the fallback (it would
+        // replay the rejected token); stay in `error` until the app reconnects.
+        if (_authTerminated || _primary.authTerminated) {
+          _authTerminated = true;
+          _stopFallback();
+          _setState(ChatConnectionState.error);
+          return;
+        }
         if (_primaryHasConnected) {
           _startFallback();
+        } else if (!_fallbackActive) {
+          // Primary never connected yet — promote the fallback once the
+          // initial attempts have failed enough times, so a WS-blocking
+          // proxy doesn't trap us in an endless reconnect loop.
+          _primaryInitialFailures++;
+          if (_primaryInitialFailures >= _initialFailureThreshold) {
+            _startFallback();
+          }
         }
         if (_state == ChatConnectionState.connected) {
           _setState(ChatConnectionState.reconnecting);

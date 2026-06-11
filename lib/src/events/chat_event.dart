@@ -197,7 +197,10 @@ sealed class ChatEvent {
   }) = ReactionDeletedEvent;
 
   /// A server-wide broadcast message was received.
-  const factory ChatEvent.broadcast({required String message}) = BroadcastEvent;
+  const factory ChatEvent.broadcast({
+    required String message,
+    String? fromUserId,
+  }) = BroadcastEvent;
 
   /// A user's profile was updated (display name, avatar, bio, email).
   /// Only the fields the backend chose to broadcast are carried in the
@@ -594,13 +597,20 @@ final class ReactionDeletedEvent extends ChatEvent {
 
 final class BroadcastEvent extends ChatEvent {
   final String message;
-  const BroadcastEvent({required this.message});
+
+  /// The admin/sender that issued the announcement, when the backend
+  /// includes it. Lets the UI attribute the announcement ("Announcement
+  /// from X") or filter by sender.
+  final String? fromUserId;
+  const BroadcastEvent({required this.message, this.fromUserId});
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is BroadcastEvent && other.message == message;
+      other is BroadcastEvent &&
+          other.message == message &&
+          other.fromUserId == fromUserId;
   @override
-  int get hashCode => message.hashCode;
+  int get hashCode => Object.hash(message, fromUserId);
 }
 
 final class ConnectedEvent extends ChatEvent {

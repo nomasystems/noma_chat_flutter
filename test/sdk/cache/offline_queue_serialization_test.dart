@@ -245,5 +245,26 @@ void main() {
       await Future<void>.delayed(Duration.zero);
       expect(queue.pending, isEmpty);
     });
+
+    test('restore deduplicates by id across repeated calls', () async {
+      final persisted = PendingSendMessage(
+        id: 'dup-1',
+        roomId: 'r',
+        text: 'hi',
+      ).toJson();
+      when(
+        () => store.getOfflineQueue(),
+      ).thenAnswer((_) async => ChatSuccess([persisted]));
+
+      final queue = OfflineQueue(store: store);
+      // The documented background→foreground cycle calls restore() on every
+      // connect(); a second restore must not duplicate the pending op (which
+      // would fire it twice on reconnect).
+      await queue.restore();
+      await queue.restore();
+
+      expect(queue.length, 1);
+      expect(queue.pending.map((o) => o.id), ['dup-1']);
+    });
   });
 }

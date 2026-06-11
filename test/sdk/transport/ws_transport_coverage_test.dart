@@ -440,6 +440,52 @@ void main() {
         expect(auth.invalidateCalls, greaterThan(invalidatesBefore));
       });
     }
+
+    test(
+      'close code 4005 is terminal: no reconnect, emits auth error',
+      () async {
+        final auth = _TrackingAuthInterceptor();
+        final closingChannel = _FakeWebSocketChannel(
+          autoAuthOk: true,
+          closeCode: 4005,
+        );
+        final transport = WsTransport(
+          config: _config(
+            auth: auth,
+            wsReconnectDelay: const Duration(milliseconds: 5),
+          ),
+          channelFactory: (_) => closingChannel,
+        );
+        final states = <ChatConnectionState>[];
+        final events = <ChatEvent>[];
+        final ss = transport.stateChanges.listen(states.add);
+        final es = transport.events.listen(events.add);
+
+        await transport.connect();
+        await closingChannel.drop();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        // Terminal: ends in error, never schedules a reconnect.
+        expect(transport.state, ChatConnectionState.error);
+        expect(states, isNot(contains(ChatConnectionState.reconnecting)));
+        // Surfaces a TERMINAL auth error and drops the cached token. The
+        // terminal flag is what lets AutoFailoverTransport suspend the SSE
+        // fallback instead of replaying the rejected token.
+        expect(
+          events.whereType<ErrorEvent>().any(
+            (e) =>
+                e.exception is ChatAuthException &&
+                (e.exception as ChatAuthException).terminal,
+          ),
+          isTrue,
+        );
+        expect(auth.invalidateCalls, greaterThan(0));
+
+        await ss.cancel();
+        await es.cancel();
+        await transport.dispose();
+      },
+    );
   });
 
   group('WsTransport — _scheduleReconnect: max attempts', () {

@@ -59,6 +59,9 @@ class ManualTransport implements RealtimeTransport {
   ChatConnectionState get state => _state;
 
   @override
+  bool get authTerminated => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override

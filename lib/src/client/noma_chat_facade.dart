@@ -133,7 +133,13 @@ class NomaChat {
     HiveChatDatasource? hiveCache;
     ChatLocalDatasource? effectiveDatasource = localDatasource;
 
-    if (effectiveDatasource == null && enableCache) {
+    // A supplied `config` bypasses every convenience parameter (it is the
+    // documented escape hatch). Creating the convenience HiveChatDatasource
+    // here would open a second set of Hive boxes that the provided config
+    // never wires to the client, yet NomaChat.dispose() would close them —
+    // clashing with (and tearing down) the caller's own datasource on the
+    // same box names. Skip it entirely when `config` is provided.
+    if (config == null && effectiveDatasource == null && enableCache) {
       hiveCache = await HiveChatDatasource.create(
         maxMessagesPerRoom: maxMessagesPerRoom,
         maxRooms: maxRooms,
@@ -172,7 +178,10 @@ class NomaChat {
       client: client,
       currentUser: currentUser,
       l10n: l10n,
-      cache: effectiveDatasource,
+      // Share the client's datasource. With a supplied config that is the
+      // caller's config.localDatasource, not the convenience one (which is
+      // not created in that path), so adapter and client never diverge.
+      cache: config != null ? config.localDatasource : effectiveDatasource,
       isDmRoom: isDmRoom,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,

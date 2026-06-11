@@ -46,6 +46,10 @@ class RoomDetailDto {
   final String userRole;
   final Map<String, dynamic>? config;
   final bool muted;
+
+  /// ISO-8601 timestamp when the notification mute expires, or `null` for
+  /// a permanent mute / not muted.
+  final String? muteUntil;
   final bool pinned;
   final bool hidden;
 
@@ -65,6 +69,7 @@ class RoomDetailDto {
     required this.userRole,
     this.config,
     this.muted = false,
+    this.muteUntil,
     this.pinned = false,
     this.hidden = false,
     this.selfMuted = false,
@@ -82,6 +87,7 @@ class RoomDetailDto {
     userRole: (json['userRole'] ?? 'user') as String,
     config: json['config'] as Map<String, dynamic>?,
     muted: (json['muted'] ?? false) as bool,
+    muteUntil: json['muteUntil'] as String?,
     pinned: (json['pinned'] ?? false) as bool,
     hidden: (json['hidden'] ?? false) as bool,
     selfMuted: (json['selfMuted'] ?? false) as bool,

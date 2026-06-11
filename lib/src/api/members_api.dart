@@ -3,6 +3,7 @@ import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/user_mapper.dart';
 import '../core/pagination.dart';
 import '../core/result.dart';
+import '../models/invite_result.dart';
 import '../models/room.dart';
 import '../models/room_user.dart';
 
@@ -23,6 +24,13 @@ class MembersApi implements ChatMembersApi {
   /// its default page size. Pass the cursor from
   /// [ChatPaginatedResponse.nextCursor] to fetch subsequent pages.
   ///
+  /// [expand] — optional resource expansions sent as the `?expand=` query
+  /// param. Passing `[RoomMemberExpand.users]` makes the backend embed each
+  /// member's `displayName` + `avatarUrl` in the row, so a group roster
+  /// renders names and avatars from this single call with no per-member
+  /// `GET /users/{id}` round-trip (the N+1 it eliminates). When omitted, each
+  /// row is the bare `{userId, role}` and those fields are `null`.
+  ///
   /// Returns [ChatSuccess] holding a [ChatPaginatedResponse] of [RoomUser]
   /// items. [ChatPaginatedResponse.totalCount] reflects the full member count.
   ///
@@ -34,6 +42,7 @@ class MembersApi implements ChatMembersApi {
   /// final result = await chat.client.members.list(
   ///   roomId,
   ///   pagination: ChatPaginationParams(limit: 50),
+  ///   expand: const [RoomMemberExpand.users],
   /// );
   /// switch (result) {
   ///   case ChatSuccess(:final data): showMembers(data.items);
@@ -44,10 +53,15 @@ class MembersApi implements ChatMembersApi {
   Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
     ChatPaginationParams? pagination,
+    List<RoomMemberExpand> expand = const [],
   }) => safeApiCall(() async {
     final (json, totalCount) = await _rest.getWithTotalCount(
       '/rooms/$roomId/users',
-      queryParams: pagination?.toQueryParams(),
+      queryParams: {
+        ...?pagination?.toQueryParams(),
+        if (expand.isNotEmpty)
+          'expand': expand.map((e) => e.toJson()).join(','),
+      },
     );
     final users = (json['users'] as List? ?? [])
         .map((e) => UserMapper.roomUserFromJson(e as Map<String, dynamic>))
@@ -71,10 +85,17 @@ class MembersApi implements ChatMembersApi {
   /// - [RoomUserMode.acceptInvitation] / [RoomUserMode.declineInvitation] —
   ///   used by the invited user to respond to a pending invitation.
   ///
-  /// [userRole] — role assigned to the added users. When `null` the server
-  /// defaults to [RoomRole.member].
+  /// [token] — public-room invitation token, required with
+  /// [RoomUserMode.inviteAndJoin] when joining a public room by token.
   ///
-  /// Returns [ChatSuccess] with a `void` value on success.
+  /// Returns [ChatSuccess] holding an [InviteResult] with the per-user
+  /// outcome. A successful HTTP call does NOT mean every user was added:
+  /// inspect [InviteResult.hasFailures] / [InviteResult.failed] (the backend
+  /// returns 207 Multi-Status on mixed results). When every user fails the
+  /// call resolves to a [ChatFailureResult].
+  ///
+  /// Note: the backend does not accept a per-invite role; assign roles after
+  /// the invitation with [updateRole].
   ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
   /// Throws [ChatNetworkException] on network errors.
@@ -86,24 +107,72 @@ class MembersApi implements ChatMembersApi {
   ///   userIds: ['user-123'],
   ///   mode: RoomUserMode.inviteAndJoin,
   /// );
-  /// if (result.isFailure) showError(result.failureOrNull);
+  /// switch (result) {
+  ///   case ChatSuccess(:final data) when data.hasFailures:
+  ///     showPartial(data.failed);
+  ///   case ChatSuccess(): showOk();
+  ///   case ChatFailureResult(:final failure): showError(failure);
+  /// }
   /// ```
   @override
-  Future<ChatResult<void>> invite(
+  Future<ChatResult<InviteResult>> invite(
     String roomId, {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
-    RoomRole? userRole,
-  }) => safeVoidCall(
-    () => _rest.postVoid(
+    String? token,
+  }) => safeApiCall(() async {
+    final raw = await _rest.postRaw(
       '/rooms/$roomId/users',
       data: {
         'userIds': userIds,
         'mode': _modeToString(mode),
-        if (userRole != null) 'userRole': userRole.toJson(),
+        if (token != null) 'token': token,
       },
-    ),
-  );
+    );
+    if (raw is List) {
+      // 207 Multi-Status: one entry per user.
+      return InviteResult([
+        for (final e in raw)
+          if (e is Map)
+            InviteUserResult(
+              userId: (e['user'] ?? '') as String,
+              success: e['result'] == 'invited',
+              code: e['code'] as int?,
+              detail: e['detail'] as String?,
+            ),
+      ]);
+    }
+    // 204 No Content (every user invited) or any non-array 2xx body.
+    return InviteResult([
+      for (final id in userIds) InviteUserResult(userId: id, success: true),
+    ]);
+  });
+
+  /// Self-joins the current user to public [roomId] presenting [token].
+  ///
+  /// Thin wrapper over [invite] with `mode: inviteAndJoin` and the current
+  /// user as the sole target. Returns a [ValidationFailure] when this
+  /// [MembersApi] was built without a `userId` (there is no "self" to join).
+  @override
+  Future<ChatResult<InviteResult>> joinWithToken(
+    String roomId, {
+    required String token,
+  }) {
+    final self = _userId;
+    if (self == null) {
+      return Future.value(
+        const ChatFailureResult(
+          ValidationFailure(message: 'userId required to join with token'),
+        ),
+      );
+    }
+    return invite(
+      roomId,
+      userIds: [self],
+      mode: RoomUserMode.inviteAndJoin,
+      token: token,
+    );
+  }
 
   /// Removes the user identified by [userId] from the room identified by [roomId].
   ///

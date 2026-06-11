@@ -238,6 +238,7 @@ ChatContact contactFromMap(Map<String, dynamic> map) =>
 Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   'roomId': unread.roomId,
   'unreadMessages': unread.unreadMessages,
+  if (unread.unreadMentions > 0) 'unreadMentions': unread.unreadMentions,
   if (unread.lastMessage != null) 'lastMessage': unread.lastMessage,
   if (unread.lastMessageTime != null)
     'lastMessageTime': unread.lastMessageTime!.toIso8601String(),
@@ -263,8 +264,11 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.memberCount != null) 'memberCount': unread.memberCount,
   if (unread.userRole != null) 'userRole': unread.userRole!.name,
   if (unread.muted) 'muted': unread.muted,
+  if (unread.muteUntil != null)
+    'muteUntil': unread.muteUntil!.toIso8601String(),
   if (unread.pinned) 'pinned': unread.pinned,
   if (unread.hidden) 'hidden': true,
+  if (unread.selfMuted) 'selfMuted': true,
 };
 
 UnreadRoom unreadRoomFromMap(
@@ -273,6 +277,7 @@ UnreadRoom unreadRoomFromMap(
 }) => UnreadRoom(
   roomId: map['roomId'] as String,
   unreadMessages: map['unreadMessages'] as int? ?? 0,
+  unreadMentions: map['unreadMentions'] as int? ?? 0,
   lastMessage: map['lastMessage'] as String?,
   lastMessageTime: map['lastMessageTime'] != null
       ? DateTime.parse(map['lastMessageTime'] as String)
@@ -302,18 +307,28 @@ UnreadRoom unreadRoomFromMap(
       ? _parseRoomRole(map['userRole'] as String?, onWarning: onWarning)
       : null,
   muted: map['muted'] as bool? ?? false,
+  muteUntil: map['muteUntil'] != null
+      ? DateTime.tryParse(map['muteUntil'] as String)
+      : null,
   pinned: map['pinned'] as bool? ?? false,
   hidden: map['hidden'] as bool? ?? false,
+  selfMuted: map['selfMuted'] as bool? ?? false,
 );
 
 Map<String, dynamic> invitedRoomToMap(InvitedRoom invited) => {
   'roomId': invited.roomId,
   'invitedBy': invited.invitedBy,
+  if (invited.roomName != null) 'roomName': invited.roomName,
+  if (invited.subject != null) 'subject': invited.subject,
+  if (invited.roomType != null) 'roomType': invited.roomType,
 };
 
 InvitedRoom invitedRoomFromMap(Map<String, dynamic> map) => InvitedRoom(
   roomId: map['roomId'] as String,
   invitedBy: map['invitedBy'] as String,
+  roomName: map['roomName'] as String?,
+  subject: map['subject'] as String?,
+  roomType: map['roomType'] as String?,
 );
 
 MessageType _parseMessageType(

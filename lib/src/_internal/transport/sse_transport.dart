@@ -37,6 +37,11 @@ class SseTransport implements RealtimeTransport {
   @override
   ChatConnectionState get state => _state;
 
+  // SSE carries no auth handshake of its own (it sends the bearer header on
+  // each connect); terminal-auth suspension is driven by the WS primary.
+  @override
+  bool get authTerminated => false;
+
   @override
   bool get supportsOutboundFrames => false;
 
@@ -101,6 +106,15 @@ class SseTransport implements RealtimeTransport {
   }
 
   Future<void> _doConnect() async {
+    // Cancel any pending scheduled reconnect and tear down a prior request
+    // first (mirror of WsTransport._doConnect): a connect() entered while a
+    // reconnect timer is armed (e.g. foreground resume in error/reconnecting
+    // state) must not let that timer fire a second _doConnect() and leave two
+    // parallel SSE streams both consuming and emitting duplicate events.
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    _cancelToken?.cancel();
+    _cancelToken = null;
     _setState(ChatConnectionState.connecting);
     _dataBuffer.clear();
     final sseBase = _config.effectiveSseUrl;
