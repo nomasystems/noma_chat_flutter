@@ -234,6 +234,13 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 
 Common issues and fixes are documented in the [Developer Guide — Troubleshooting](./doc/DEVELOPER_GUIDE.md#troubleshooting) section.
 
+## Development
+
+- Tests: `flutter test -x golden`. Golden (snapshot) tests run on CI/Linux as the
+  source of truth — see [`test/golden/README.md`](test/golden/README.md).
+- Regenerate golden baselines after a UI change, without a Linux machine:
+  `tool/regen_goldens.sh` (drives the `regen-goldens` workflow and pulls the PNGs).
+
 ---
 
 ## Links
