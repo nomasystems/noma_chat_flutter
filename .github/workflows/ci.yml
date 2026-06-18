@@ -165,8 +165,13 @@ jobs:
       - name: Install WebP tools for pana's screenshot scoring
         run: sudo apt-get update && sudo apt-get install -y webp
 
+      # Tolerate up to 30 lost points (require >= 130/160). The routine
+      # deductions are a transitive platform caveat and "a dependency has a
+      # newer version" — the latter drifts red over time as deps publish
+      # releases, and chasing it would mean bumping pinned deps we keep on
+      # purpose. The full score is still uploaded as the pana-report artifact.
       - name: Run pana
-        run: dart pub global run pana --no-warning --exit-code-threshold 0 --json . > pana.json
+        run: dart pub global run pana --no-warning --exit-code-threshold 30 --json . > pana.json
 
       - name: Upload pana report
         if: always()
