@@ -159,6 +159,12 @@ jobs:
       - name: Install pana
         run: dart pub global activate pana
 
+      # pana scores the package screenshot (a GIF), converting it to WebP with
+      # cwebp / gif2webp / webpinfo. Those aren't on the runner by default, so
+      # without them pana aborts with exit 127 before producing a score.
+      - name: Install WebP tools for pana's screenshot scoring
+        run: sudo apt-get update && sudo apt-get install -y webp
+
       - name: Run pana
         run: dart pub global run pana --no-warning --exit-code-threshold 0 --json . > pana.json
 
