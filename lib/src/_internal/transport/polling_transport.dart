@@ -75,6 +75,9 @@ class PollingTransport implements RealtimeTransport {
   ChatConnectionState get state => _state;
 
   @override
+  bool get authTerminated => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
@@ -108,11 +111,11 @@ class PollingTransport implements RealtimeTransport {
     }
   }
 
-  Future<void> _runTick() async {
+  Future<void> _runTick({String? singleRoomId}) async {
     if (_tickInFlight) return; // overlap-guard: skip if previous still running
     _tickInFlight = true;
     try {
-      await _engine.tick();
+      await _engine.tick(singleRoomId: singleRoomId);
     } catch (e, st) {
       _logger?.call('warn', 'PollingTransport tick failed: $e\n$st');
     } finally {
@@ -122,10 +125,13 @@ class PollingTransport implements RealtimeTransport {
 
   /// Force an immediate tick. Used by `chat.refresh()` to advance the
   /// next poll on-demand, and by tests to deterministically observe
-  /// diffs without waiting for the timer.
+  /// diffs without waiting for the timer. Routed through [_runTick] so it
+  /// shares the `_tickInFlight` overlap guard: a pull-to-refresh racing the
+  /// timer tick can no longer run two ticks in parallel on the same engine
+  /// and emit every message twice.
   @override
   Future<void> refresh({String? singleRoomId}) =>
-      _engine.tick(singleRoomId: singleRoomId);
+      _runTick(singleRoomId: singleRoomId);
 
   /// Forwarded to [RefreshEngine.markRoomOpen]; the adapter calls this
   /// when a `ChatController` becomes active so the open chat gets
@@ -157,6 +163,9 @@ class PollingTransport implements RealtimeTransport {
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
   }) {}
+
+  @override
+  void sendDelivered(String roomId, String messageId) {}
 
   @override
   void sendMessage(

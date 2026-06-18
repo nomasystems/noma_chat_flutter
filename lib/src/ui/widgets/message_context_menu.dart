@@ -20,9 +20,30 @@ enum MessageAction {
   deleteForMe,
   react,
   pin,
+
+  /// "Unpin" — removes the pin from an already-pinned message. Shown
+  /// instead of [pin] when the controller reports the message is pinned
+  /// (controller.isPinned(id)). Pin-ness is not on the message, so the
+  /// menu is told via the `isPinned` flag rather than reading the model.
+  unpin,
+
+  /// "Star" — bookmarks the message for the current user only (private,
+  /// per-user; other members are not notified). Surfaced via the
+  /// "Starred messages" view ([StarredMessagesView]). Unlike [pin],
+  /// available to any member on any message.
+  star,
+
+  /// "Unstar" — removes the current user's star from an already-starred
+  /// message. Shown instead of [star] when `message.isStarred` is true.
+  unstar,
   forward,
   report,
   replyInThread,
+
+  /// "Message info" — opens a [MessageInfoSheet] listing which members
+  /// have read / been delivered the message. Surfaced only for the
+  /// current user's own (outgoing) messages, matching WhatsApp.
+  info,
 }
 
 /// Long-press context menu for a single message: returns the selected
@@ -32,6 +53,7 @@ class MessageContextMenu extends StatelessWidget {
     super.key,
     required this.message,
     required this.isOutgoing,
+    this.isPinned = false,
     this.enabledActions = const {
       MessageAction.reply,
       MessageAction.copy,
@@ -41,18 +63,35 @@ class MessageContextMenu extends StatelessWidget {
     },
     this.onAction,
     this.theme = ChatTheme.defaults,
+    this.editWindow,
+    this.deleteWindow,
   });
 
   final ChatMessage message;
   final bool isOutgoing;
+
+  /// Whether this message is currently pinned. The model has no isPinned
+  /// field, so this is supplied by the host from controller.isPinned(id),
+  /// the same source the bubble uses. Defaults to false.
+  final bool isPinned;
   final Set<MessageAction> enabledActions;
   final ValueChanged<MessageAction>? onAction;
   final ChatTheme theme;
+
+  /// When set, [MessageAction.edit] is hidden once
+  /// `now - message.timestamp` exceeds it (the edit window has closed).
+  /// `null` never hides edit on this basis.
+  final Duration? editWindow;
+
+  /// When set, [MessageAction.delete] is hidden once the delete window has
+  /// closed. `null` never hides delete on this basis.
+  final Duration? deleteWindow;
 
   static Future<MessageAction?> show(
     BuildContext context, {
     required ChatMessage message,
     required bool isOutgoing,
+    bool isPinned = false,
     Set<MessageAction> enabledActions = const {
       MessageAction.reply,
       MessageAction.copy,
@@ -62,6 +101,8 @@ class MessageContextMenu extends StatelessWidget {
     },
     Widget Function(BuildContext, ChatMessage, bool)? builder,
     ChatTheme theme = ChatTheme.defaults,
+    Duration? editWindow,
+    Duration? deleteWindow,
   }) async {
     const shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
@@ -90,8 +131,11 @@ class MessageContextMenu extends StatelessWidget {
       builder: (ctx) => MessageContextMenu(
         message: message,
         isOutgoing: isOutgoing,
+        isPinned: isPinned,
         enabledActions: enabledActions,
         theme: theme,
+        editWindow: editWindow,
+        deleteWindow: deleteWindow,
         onAction: (action) => Navigator.of(ctx).pop(action),
       ),
     );
@@ -139,7 +183,9 @@ class MessageContextMenu extends StatelessWidget {
         ),
       );
     }
-    if (enabledActions.contains(MessageAction.edit) && isOutgoing) {
+    if (enabledActions.contains(MessageAction.edit) &&
+        isOutgoing &&
+        !_windowClosed(editWindow)) {
       entries.add(
         _MenuEntry(
           icon: Icons.edit,
@@ -168,11 +214,32 @@ class MessageContextMenu extends StatelessWidget {
     }
     if (enabledActions.contains(MessageAction.pin)) {
       entries.add(
-        _MenuEntry(
-          icon: Icons.push_pin_outlined,
-          label: l10n.pin,
-          action: MessageAction.pin,
-        ),
+        isPinned
+            ? _MenuEntry(
+                icon: Icons.push_pin,
+                label: l10n.unpin,
+                action: MessageAction.unpin,
+              )
+            : _MenuEntry(
+                icon: Icons.push_pin_outlined,
+                label: l10n.pin,
+                action: MessageAction.pin,
+              ),
+      );
+    }
+    if (enabledActions.contains(MessageAction.star)) {
+      entries.add(
+        message.isStarred
+            ? _MenuEntry(
+                icon: Icons.star,
+                label: l10n.unstar,
+                action: MessageAction.unstar,
+              )
+            : _MenuEntry(
+                icon: Icons.star_outline,
+                label: l10n.star,
+                action: MessageAction.star,
+              ),
       );
     }
     if (enabledActions.contains(MessageAction.react)) {
@@ -181,6 +248,15 @@ class MessageContextMenu extends StatelessWidget {
           icon: Icons.emoji_emotions_outlined,
           label: l10n.react,
           action: MessageAction.react,
+        ),
+      );
+    }
+    if (enabledActions.contains(MessageAction.info) && isOutgoing) {
+      entries.add(
+        _MenuEntry(
+          icon: Icons.info_outline,
+          label: l10n.messageInfo,
+          action: MessageAction.info,
         ),
       );
     }
@@ -194,7 +270,9 @@ class MessageContextMenu extends StatelessWidget {
         ),
       );
     }
-    if (enabledActions.contains(MessageAction.delete) && isOutgoing) {
+    if (enabledActions.contains(MessageAction.delete) &&
+        isOutgoing &&
+        !_windowClosed(deleteWindow)) {
       entries.add(
         _MenuEntry(
           icon: Icons.delete_outline,
@@ -206,6 +284,14 @@ class MessageContextMenu extends StatelessWidget {
     }
 
     return entries;
+  }
+
+  /// `true` when [window] is set and the message is older than it — the
+  /// edit/delete window has closed, so the action is hidden. A `null`
+  /// window never closes (action always shown).
+  bool _windowClosed(Duration? window) {
+    if (window == null) return false;
+    return DateTime.now().difference(message.timestamp) >= window;
   }
 
   void _handleAction(MessageAction action) {

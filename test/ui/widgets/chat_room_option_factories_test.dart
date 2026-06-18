@@ -58,16 +58,18 @@ void main() {
       }
     });
 
-    test('muteRoom toggle: label and icon flip based on `muted`', () {
+    test('muteRoom: label and icon flip based on `muted`', () {
       final muted = ChatRoomOption.muteRoom(
         l10n: l10n,
         muted: true,
-        onToggle: () {},
+        onMute: (_) {},
+        onUnmute: () {},
       );
       final unmuted = ChatRoomOption.muteRoom(
         l10n: l10n,
         muted: false,
-        onToggle: () {},
+        onMute: (_) {},
+        onUnmute: () {},
       );
       expect(muted.label, l10n.unmute);
       expect(unmuted.label, l10n.mute);
@@ -97,6 +99,62 @@ void main() {
       expect(opt.label, contains('Bob'));
       expect(opt.destructive, isTrue);
     });
+
+    test(
+      'inviteViaLink: builds the deep link and hands it to onInvite',
+      () async {
+        Uri? captured;
+        final opt = ChatRoomOption.inviteViaLink(
+          l10n: l10n,
+          roomId: 'r1',
+          token: 'tok',
+          linkBase: Uri.parse('https://app.example.com/invite'),
+          onInvite: (link) => captured = link,
+        );
+        expect(opt.label, l10n.inviteViaLink);
+        expect(opt.destructive, isFalse);
+        await opt.onTap();
+        expect(captured, isNotNull);
+        expect(captured!.queryParameters['room'], 'r1');
+        expect(captured!.queryParameters['token'], 'tok');
+      },
+    );
+
+    test('exportChat: non-destructive row that fires onTap', () async {
+      var tapped = false;
+      final opt = ChatRoomOption.exportChat(
+        l10n: l10n,
+        onTap: () => tapped = true,
+      );
+      expect(opt.label, l10n.exportChat);
+      expect(opt.destructive, isFalse);
+      await opt.onTap();
+      expect(tapped, isTrue);
+    });
+
+    test(
+      'archiveChat / unarchiveChat: non-destructive rows that fire onTap',
+      () async {
+        var archived = false;
+        var unarchived = false;
+        final archive = ChatRoomOption.archiveChat(
+          l10n: l10n,
+          onTap: () => archived = true,
+        );
+        final unarchive = ChatRoomOption.unarchiveChat(
+          l10n: l10n,
+          onTap: () => unarchived = true,
+        );
+        expect(archive.label, l10n.archiveChat);
+        expect(unarchive.label, l10n.unarchiveChat);
+        expect(archive.destructive, isFalse);
+        expect(archive.confirmation, isNull);
+        await archive.onTap();
+        await unarchive.onTap();
+        expect(archived, isTrue);
+        expect(unarchived, isTrue);
+      },
+    );
   });
 
   group('ChatRoomOptionsMenu.showConfirmation', () {

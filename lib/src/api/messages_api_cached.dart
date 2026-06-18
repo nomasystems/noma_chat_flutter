@@ -61,15 +61,21 @@ class CachedMessagesApi extends RestMessagesApi {
       ttl: _cacheManager.config.ttlMessages,
       policy: cachePolicy,
       fromCache: () async {
+        // The opaque cursor is seq-based and cannot be mapped onto the local
+        // store's timestamp-keyed query, so the cache branch only honours
+        // `limit` and always returns the most recent rows it holds. The
+        // network branch is the source of truth for cursor-anchored pages;
+        // the cache is purely the instant-paint shortcut for the newest page.
         final cachedResult = await _cache.getMessages(
           roomId,
           limit: pagination?.limit,
-          before: pagination?.before,
-          after: pagination?.after,
         );
         final cached = cachedResult.dataOrNull ?? const <ChatMessage>[];
         if (cached.isEmpty) return null;
-        final visible = _stripHidden(cached, hiddenIds);
+        final visible = _stripHidden(
+          _filterByClearedAt(cached, clearedAt),
+          hiddenIds,
+        );
         if (visible.isEmpty) return null;
         // Conservative: assume more exist if cache returned as many as
         // requested.
@@ -96,6 +102,8 @@ class CachedMessagesApi extends RestMessagesApi {
         return ChatPaginatedResponse(
           items: filtered,
           hasMore: (json['hasMore'] ?? false) as bool,
+          nextCursor: json['next'] as String?,
+          prevCursor: json['prev'] as String?,
         );
       }),
       saveToCache: (data) => _cache.saveMessages(roomId, data.items),
@@ -135,6 +143,7 @@ class CachedMessagesApi extends RestMessagesApi {
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
+    String? clientMessageId,
   }) async {
     final result = await super.send(
       roomId,
@@ -146,6 +155,7 @@ class CachedMessagesApi extends RestMessagesApi {
       sourceRoomId: sourceRoomId,
       metadata: metadata,
       tempId: tempId,
+      clientMessageId: clientMessageId,
     );
     if (result.isSuccess) {
       try {
@@ -158,6 +168,17 @@ class CachedMessagesApi extends RestMessagesApi {
       }
     }
     return result;
+  }
+
+  @override
+  Future<ChatResult<ChatMessage>> get(String roomId, String messageId) async {
+    // No server-side unit GET exists; answer from the id-indexed local cache
+    // first, then fall back to the base list-scan.
+    final cached =
+        (await _cache.getMessages(roomId)).dataOrNull ?? const <ChatMessage>[];
+    final hit = cached.where((m) => m.id == messageId).firstOrNull;
+    if (hit != null) return ChatSuccess(hit);
+    return super.get(roomId, messageId);
   }
 
   @override
@@ -180,18 +201,14 @@ class CachedMessagesApi extends RestMessagesApi {
             const <ChatMessage>[];
         final existing = cached.where((m) => m.id == messageId).firstOrNull;
         if (existing != null) {
-          final updated = ChatMessage(
-            id: existing.id,
-            from: existing.from,
-            timestamp: existing.timestamp,
+          // copyWith preserves every field (isDeleted/isForwarded/isSystem,
+          // mimeType/fileName/fileSize/thumbnailUrl, …) that a hand-rolled
+          // ChatMessage(...) would drop, and stamps isEdited so a rehydrated
+          // attachment renders intact and flagged as edited.
+          final updated = existing.copyWith(
             text: text,
-            messageType: existing.messageType,
-            attachmentUrl: existing.attachmentUrl,
-            referencedMessageId: existing.referencedMessageId,
-            reaction: existing.reaction,
-            reply: existing.reply,
             metadata: metadata ?? existing.metadata,
-            receipt: existing.receipt,
+            isEdited: true,
           );
           await _cache.updateMessage(roomId, updated);
         }
@@ -297,11 +314,29 @@ class CachedMessagesApi extends RestMessagesApi {
   }
 
   @override
+  Future<ChatResult<void>> addReaction(
+    String roomId,
+    String messageId, {
+    required String emoji,
+  }) async {
+    final result = await super.addReaction(roomId, messageId, emoji: emoji);
+    if (result.isSuccess) {
+      // Drop the stale aggregated-reactions cache so the next
+      // `getReactions` re-fetches the authoritative counts the backend
+      // recomputed after the add. The `ReactionAddedEvent` already
+      // refreshes the live UI; this keeps a later cache-first read honest.
+      _cacheManager.invalidate('reactions:$roomId:$messageId');
+    }
+    return result;
+  }
+
+  @override
   Future<ChatResult<void>> deleteReaction(
     String roomId,
-    String messageId,
-  ) async {
-    final result = await super.deleteReaction(roomId, messageId);
+    String messageId, {
+    String? emoji,
+  }) async {
+    final result = await super.deleteReaction(roomId, messageId, emoji: emoji);
     if (result.isSuccess) {
       try {
         await _cache.deleteReactions(roomId, messageId);
@@ -352,13 +387,21 @@ class CachedMessagesApi extends RestMessagesApi {
   );
 
   @override
-  Future<ChatResult<void>> clearChat(String roomId) => safeVoidCall(() async {
-    final now = DateTime.now().toUtc();
-    await _cache.setClearedAt(roomId, now);
-    await _cache.clearMessages(roomId);
-    await _cache.clearPendingMessages(roomId);
-    await markRoomAsRead(roomId);
-  });
+  Future<ChatResult<void>> clearChat(String roomId) async {
+    // Local teardown runs first so the UI reflects the cleared chat
+    // immediately; a failure here is surfaced as the result.
+    final localResult = await safeVoidCall(() async {
+      final now = DateTime.now().toUtc();
+      await _cache.setClearedAt(roomId, now);
+      await _cache.clearMessages(roomId);
+      await _cache.clearPendingMessages(roomId);
+    });
+    if (localResult.isFailure) return localResult;
+    // The server-side read reset is authoritative: propagate its failure
+    // instead of swallowing it, otherwise the caller forces unreadCount=0
+    // locally while the backend unread stays set.
+    return markRoomAsRead(roomId);
+  }
 
   @override
   Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>

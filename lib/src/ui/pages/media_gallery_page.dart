@@ -1,13 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../client/chat_client.dart';
 import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../models/message.dart';
 import '../controller/chat_controller.dart';
 import '../theme/chat_theme.dart';
+import '../utils/attachment_opener.dart';
 import '../utils/mime_classifier.dart';
 import '../widgets/docs_list_view.dart';
 import '../widgets/empty_state.dart';
+import '../widgets/image_viewer.dart';
 import '../widgets/links_list_view.dart';
 import '../widgets/media_gallery_view.dart';
 
@@ -82,19 +85,23 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
   Future<void> _load() async {
     final media = <MediaItem>[];
     final docs = <MediaItem>[];
-    String? oldestTimestamp;
-    // Walk the cursor until the server reports no more pages so the user sees
-    // every shared file. The cursor is the oldest timestamp seen so far; we
-    // pass it as `before` to fetch the next older batch. A safety cap prevents
-    // an infinite loop if the server misreports `hasMore`.
+    // Walk older history until the server reports no more pages so the user
+    // sees every shared file. `null` on the first request returns the most
+    // recent page; each subsequent request travels `older` anchored on the
+    // page's opaque `prevCursor`. A safety cap prevents an infinite loop if
+    // the server misreports `hasMore`.
+    String? olderCursor;
     const maxPages = 50;
     var pages = 0;
     while (pages < maxPages) {
       final result = await widget.client.attachments.listInRoom(
         widget.roomId,
-        pagination: oldestTimestamp == null
+        pagination: olderCursor == null
             ? null
-            : ChatCursorPaginationParams(before: oldestTimestamp),
+            : ChatCursorPaginationParams(
+                cursor: olderCursor,
+                direction: ChatCursorDirection.older,
+              ),
       );
       if (!mounted) return;
       switch (result) {
@@ -123,17 +130,14 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
               media.add(item);
             }
           }
-          final lastBatchOldest = data.items.isEmpty
-              ? null
-              : data.items
-                    .map((m) => m.timestamp)
-                    .reduce((a, b) => a.isBefore(b) ? a : b);
-          // Stop when no more pages, the page is empty, or the cursor stops
-          // moving (defensive against backend bugs).
+          final nextOlderCursor = data.prevCursor;
+          // Stop when no more pages, the page is empty, the server hands back
+          // no older cursor, or the cursor stops moving (defensive against
+          // backend bugs).
           if (!data.hasMore ||
               data.items.isEmpty ||
-              lastBatchOldest == null ||
-              lastBatchOldest.toIso8601String() == oldestTimestamp) {
+              nextOlderCursor == null ||
+              nextOlderCursor == olderCursor) {
             media.sort((a, b) => _compareDesc(a.timestamp, b.timestamp));
             docs.sort((a, b) => _compareDesc(a.timestamp, b.timestamp));
             setState(() {
@@ -144,7 +148,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
             });
             return;
           }
-          oldestTimestamp = lastBatchOldest.toIso8601String();
+          olderCursor = nextOlderCursor;
           pages += 1;
         case ChatFailureResult(:final failure):
           setState(() {
@@ -186,6 +190,40 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     return b.compareTo(a);
   }
 
+  void _defaultOpenDoc(MediaItem item) {
+    if (item.url.isEmpty) return;
+    openAttachmentFile(
+      client: widget.client,
+      url: item.url,
+      fileName: item.fileName,
+      mimeType: item.mimeType,
+    );
+  }
+
+  void _defaultOpenMedia(BuildContext context, MediaItem item) {
+    if (item.type == MediaItemType.image) {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ImageViewer(imageUrl: item.url, theme: widget.theme),
+        ),
+      );
+      return;
+    }
+    // No in-SDK video player — hand videos to the platform opener like docs.
+    _defaultOpenDoc(item);
+  }
+
+  Future<void> _defaultOpenLink(SharedLink link) async {
+    var raw = link.url.trim();
+    if (raw.isEmpty) return;
+    if (!raw.contains('://')) {
+      raw = 'https://$raw';
+    }
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return;
+    await launchUrl(uri, mode: LaunchMode.externalApplication);
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = widget.theme.l10n;
@@ -216,20 +254,22 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
                 MediaGalleryView(
                   items: _media,
                   theme: widget.theme,
-                  onTapItem: widget.onTapMedia,
+                  onTapItem:
+                      widget.onTapMedia ??
+                      (item) => _defaultOpenMedia(context, item),
                   includeAudioFiles: widget.includeAudioFiles,
                 ),
                 _DocsTab(
                   items: _docs,
                   theme: widget.theme,
-                  onTap: widget.onTapDoc,
+                  onTap: widget.onTapDoc ?? _defaultOpenDoc,
                   includeAudioFiles: widget.includeAudioFiles,
                   senderNameResolver: widget.senderNameResolver,
                 ),
                 _LinksTab(
                   messages: widget.linkSourceMessages,
                   theme: widget.theme,
-                  onTap: widget.onTapLink,
+                  onTap: widget.onTapLink ?? _defaultOpenLink,
                   senderNameResolver: widget.senderNameResolver,
                 ),
               ],

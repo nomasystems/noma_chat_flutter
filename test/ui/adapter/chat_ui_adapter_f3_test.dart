@@ -12,33 +12,34 @@ class _FailableRoomsApi implements ChatRoomsApi {
   bool failUnpin = false;
 
   @override
-  Future<ChatResult<void>> mute(String roomId) async {
-    if (failMute) {
+  Future<ChatResult<RoomPreferences>> patchPreferences(
+    String roomId, {
+    bool? muted,
+    DateTime? muteUntil,
+    bool? pinned,
+    bool? hidden,
+  }) async {
+    final mutes = muted == true || muteUntil != null;
+    final unmutes = muted == false;
+    if (failMute && mutes) {
       return const ChatFailureResult(ServerFailure(statusCode: 500));
     }
-    return _delegate.mute(roomId);
-  }
-
-  @override
-  Future<ChatResult<void>> unmute(String roomId) async {
-    if (failUnmute) {
+    if (failUnmute && unmutes) {
       return const ChatFailureResult(ServerFailure(statusCode: 500));
     }
-    return _delegate.unmute(roomId);
-  }
-
-  @override
-  Future<ChatResult<void>> pin(String roomId) async {
-    if (failPin) return const ChatFailureResult(ServerFailure(statusCode: 500));
-    return _delegate.pin(roomId);
-  }
-
-  @override
-  Future<ChatResult<void>> unpin(String roomId) async {
-    if (failUnpin) {
+    if (failPin && pinned == true) {
       return const ChatFailureResult(ServerFailure(statusCode: 500));
     }
-    return _delegate.unpin(roomId);
+    if (failUnpin && pinned == false) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
+    return _delegate.patchPreferences(
+      roomId,
+      muted: muted,
+      muteUntil: muteUntil,
+      pinned: pinned,
+      hidden: hidden,
+    );
   }
 
   @override
@@ -50,6 +51,7 @@ class _FailableRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
+    bool forceGroup = false,
   }) => _delegate.create(
     audience: audience,
     allowInvitations: allowInvitations,
@@ -58,6 +60,7 @@ class _FailableRoomsApi implements ChatRoomsApi {
     members: members,
     avatarUrl: avatarUrl,
     custom: custom,
+    forceGroup: forceGroup,
   );
 
   @override
@@ -112,12 +115,6 @@ class _FailableRoomsApi implements ChatRoomsApi {
       _delegate.batchGetUnread(roomIds);
 
   @override
-  Future<ChatResult<void>> hide(String roomId) => _delegate.hide(roomId);
-
-  @override
-  Future<ChatResult<void>> unhide(String roomId) => _delegate.unhide(roomId);
-
-  @override
   Future<void> updateCachedRoomPreview(
     String roomId, {
     String? lastMessage,
@@ -152,6 +149,7 @@ class _FailableMessagesApi implements ChatMessagesApi {
   bool failUpdate = false;
   bool failDelete = false;
   bool failSend = false;
+  bool failAddReaction = false;
   bool failDeleteReaction = false;
   bool failPinMessage = false;
   bool failUnpinMessage = false;
@@ -191,6 +189,7 @@ class _FailableMessagesApi implements ChatMessagesApi {
     String? attachmentUrl,
     String? sourceRoomId,
     String? tempId,
+    String? clientMessageId,
     Map<String, dynamic>? metadata,
   }) async {
     if (failSend) {
@@ -248,6 +247,15 @@ class _FailableMessagesApi implements ChatMessagesApi {
   }) => _delegate.markRoomAsRead(roomId, lastReadMessageId: lastReadMessageId);
 
   @override
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
+  }) => _delegate.markRoomAsDelivered(
+    roomId,
+    lastDeliveredMessageId: lastDeliveredMessageId,
+  );
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,
   ) => _delegate.getRoomReceipts(roomId);
@@ -280,14 +288,27 @@ class _FailableMessagesApi implements ChatMessagesApi {
   );
 
   @override
+  Future<ChatResult<void>> addReaction(
+    String roomId,
+    String messageId, {
+    required String emoji,
+  }) async {
+    if (failAddReaction) {
+      return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
+    return _delegate.addReaction(roomId, messageId, emoji: emoji);
+  }
+
+  @override
   Future<ChatResult<void>> deleteReaction(
     String roomId,
-    String messageId,
-  ) async {
+    String messageId, {
+    String? emoji,
+  }) async {
     if (failDeleteReaction) {
       return const ChatFailureResult(ServerFailure(statusCode: 500));
     }
-    return _delegate.deleteReaction(roomId, messageId);
+    return _delegate.deleteReaction(roomId, messageId, emoji: emoji);
   }
 
   @override
@@ -313,9 +334,22 @@ class _FailableMessagesApi implements ChatMessagesApi {
   }) => _delegate.listPins(roomId, pagination: pagination);
 
   @override
+  Future<ChatResult<void>> starMessage(String roomId, String messageId) =>
+      _delegate.starMessage(roomId, messageId);
+
+  @override
+  Future<ChatResult<void>> unstarMessage(String roomId, String messageId) =>
+      _delegate.unstarMessage(roomId, messageId);
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<StarredMessage>>> listStarred({
+    ChatPaginationParams? pagination,
+  }) => _delegate.listStarred(pagination: pagination);
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> search(
     String query, {
-    required String roomId,
+    String? roomId,
     ChatPaginationParams? pagination,
   }) => _delegate.search(query, roomId: roomId, pagination: pagination);
 
@@ -558,7 +592,7 @@ void main() {
         ),
       );
 
-      failableClient.failableMessages.failSend = true;
+      failableClient.failableMessages.failAddReaction = true;
       final result = await adapter.messages.sendReaction(
         'room1',
         messageId: 'msg1',

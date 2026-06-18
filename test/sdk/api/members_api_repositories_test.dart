@@ -26,8 +26,8 @@ void main() {
       'invite() posts to /rooms/{roomId}/users with userIds and mode',
       () async {
         when(
-          () => rest.postVoid(any(), data: any(named: 'data')),
-        ).thenAnswer((_) async {});
+          () => rest.postRaw(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async => null);
 
         final result = await api.invite(
           'r1',
@@ -38,7 +38,7 @@ void main() {
         expect(result.isSuccess, isTrue);
         final captured =
             verify(
-                  () => rest.postVoid(
+                  () => rest.postRaw(
                     '/rooms/r1/users',
                     data: captureAny(named: 'data'),
                   ),
@@ -51,8 +51,8 @@ void main() {
 
     test('invite() sends correct mode strings for all modes', () async {
       when(
-        () => rest.postVoid(any(), data: any(named: 'data')),
-      ).thenAnswer((_) async {});
+        () => rest.postRaw(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async => null);
 
       for (final entry in {
         RoomUserMode.invite: 'invite',
@@ -63,7 +63,7 @@ void main() {
         await api.invite('r1', userIds: ['u1'], mode: entry.key);
         final captured =
             verify(
-                  () => rest.postVoid(
+                  () => rest.postRaw(
                     '/rooms/r1/users',
                     data: captureAny(named: 'data'),
                   ),
@@ -77,27 +77,51 @@ void main() {
       }
     });
 
-    test('invite() includes userRole when provided', () async {
+    test('invite() sends userIds + token (no role) and maps 204 to '
+        'all-success', () async {
       when(
-        () => rest.postVoid(any(), data: any(named: 'data')),
-      ).thenAnswer((_) async {});
+        () => rest.postRaw(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async => null); // 204 No Content
 
-      await api.invite(
+      final r = await api.invite(
         'r1',
         userIds: ['u1'],
-        mode: RoomUserMode.invite,
-        userRole: RoomRole.admin,
+        mode: RoomUserMode.inviteAndJoin,
+        token: 'tok',
       );
 
+      expect(r.isSuccess, true);
+      expect(r.dataOrNull!.allSucceeded, true);
       final captured =
           verify(
-                () => rest.postVoid(
+                () => rest.postRaw(
                   '/rooms/r1/users',
                   data: captureAny(named: 'data'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
-      expect(captured['userRole'], 'admin');
+      expect(captured['userIds'], ['u1']);
+      expect(captured['token'], 'tok');
+      expect(captured.containsKey('userRole'), false);
+    });
+
+    test('invite() parses 207 Multi-Status per-user results', () async {
+      when(() => rest.postRaw(any(), data: any(named: 'data'))).thenAnswer(
+        (_) async => [
+          {'user': 'u1', 'result': 'invited'},
+          {'user': 'u2', 'result': 'error', 'code': 403, 'detail': 'banned'},
+        ],
+      );
+
+      final r = await api.invite('r1', userIds: ['u1', 'u2']);
+
+      expect(r.isSuccess, true);
+      final res = r.dataOrNull!;
+      expect(res.hasFailures, true);
+      expect(res.succeeded.map((e) => e.userId), ['u1']);
+      expect(res.failed.single.userId, 'u2');
+      expect(res.failed.single.code, 403);
+      expect(res.failed.single.detail, 'banned');
     });
 
     test('leave() posts to /rooms/{roomId}/users/{userId}/leave', () async {
@@ -155,9 +179,42 @@ void main() {
       expect(captured['role'], 'owner');
     });
 
+    test(
+      'joinWithToken() self-joins via inviteAndJoin with the token',
+      () async {
+        when(
+          () => rest.postRaw(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async => null);
+
+        final result = await api.joinWithToken('r1', token: 'pub-tok');
+
+        expect(result.isSuccess, true);
+        expect(result.dataOrNull!.allSucceeded, true);
+        final captured =
+            verify(
+                  () => rest.postRaw(
+                    '/rooms/r1/users',
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(captured['userIds'], ['me-123']);
+        expect(captured['mode'], 'invite_and_join');
+        expect(captured['token'], 'pub-tok');
+      },
+    );
+
+    test('joinWithToken() fails when the api has no userId', () async {
+      final result = await apiNoUser.joinWithToken('r1', token: 'pub-tok');
+
+      expect(result.isFailure, true);
+      expect(result.failureOrNull, isA<ValidationFailure>());
+      verifyNever(() => rest.postRaw(any(), data: any(named: 'data')));
+    });
+
     test('invite() returns ChatFailureResult on API exception', () async {
       when(
-        () => rest.postVoid(any(), data: any(named: 'data')),
+        () => rest.postRaw(any(), data: any(named: 'data')),
       ).thenThrow(const ChatForbiddenException(message: 'Not allowed'));
 
       final result = await api.invite(

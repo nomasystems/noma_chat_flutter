@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:uuid/uuid.dart';
 
 import '../cache/cache_policy.dart';
 import '../_internal/http/exception_mapper.dart';
@@ -9,12 +10,15 @@ import '../client/chat_client.dart';
 import '../core/pagination.dart';
 import '../core/result.dart';
 import '../events/chat_event.dart';
+import '../models/starred_message.dart';
 import '../models/message.dart';
 import '../models/pin.dart';
 import '../models/reaction.dart';
 import '../models/read_receipt.dart';
 import '../models/report.dart';
 import '../models/scheduled_message.dart';
+
+const Uuid _uuid = Uuid();
 
 /// REST-only implementation of [ChatMessagesApi]. The plain network
 /// layer with no cache integration and no offline queue — both live
@@ -47,18 +51,32 @@ class RestMessagesApi implements ChatMessagesApi {
   @protected
   static int pendingSeq = 0;
 
+  /// Resolves a single message by id. The backend exposes no unit GET on
+  /// `/rooms/{roomId}/messages/{messageId}` (only PUT/DELETE), so this
+  /// scans the most recent page of the list endpoint. Older messages
+  /// outside that page are not found here; the cache decorator answers
+  /// from the id-indexed local store first.
   @override
-  Future<ChatResult<ChatMessage>> get(String roomId, String messageId) =>
-      safeApiCall(() async {
-        final json = await rest.get('/rooms/$roomId/messages/$messageId');
-        return MessageMapper.fromJson(json);
-      });
+  Future<ChatResult<ChatMessage>> get(String roomId, String messageId) async {
+    final page = await list(roomId);
+    switch (page) {
+      case ChatSuccess(:final data):
+        final found = data.items.where((m) => m.id == messageId).firstOrNull;
+        return found != null
+            ? ChatSuccess(found)
+            : const ChatFailureResult(NotFoundFailure('message not found'));
+      case ChatFailureResult(:final failure):
+        return ChatFailureResult(failure);
+    }
+  }
 
   /// Lists messages in the room identified by [roomId].
   ///
-  /// [pagination] — cursor-based paging params. Pass the cursor from
-  /// [ChatPaginatedResponse.nextCursor] to fetch the next page. When `null`
-  /// the server returns the most recent page (newest messages).
+  /// [pagination] — bidirectional cursor paging params. To load older history
+  /// pass [ChatPaginatedResponse.prevCursor] as the cursor with
+  /// `direction: ChatCursorDirection.older`; to catch up on newer messages pass
+  /// [ChatPaginatedResponse.nextCursor] with `direction: ChatCursorDirection.newer`.
+  /// When `null` the server returns the most recent page (newest messages).
   ///
   /// [unreadOnly] — when `true` returns only messages the current user has not
   /// read yet. Defaults to `null` (all messages).
@@ -105,6 +123,8 @@ class RestMessagesApi implements ChatMessagesApi {
       items: messages,
       hasMore: (json['hasMore'] ?? false) as bool,
       totalCount: totalCount,
+      nextCursor: json['next'] as String?,
+      prevCursor: json['prev'] as String?,
     );
   });
 
@@ -136,6 +156,13 @@ class RestMessagesApi implements ChatMessagesApi {
   /// [tempId] — client-generated optimistic ID. Ignored by the REST layer
   /// (used by the offline queue decorator to correlate pending items).
   ///
+  /// [clientMessageId] — idempotency key for the send. When omitted the SDK
+  /// generates a UUID v4 automatically, so a message retried after a transient
+  /// 429/5xx (see [RetryInterceptor]) is de-duplicated server-side instead of
+  /// creating a duplicate. Pass your own value only when you need to correlate
+  /// the send with an external id; passing the same value twice is safe and
+  /// returns the already-created message.
+  ///
   /// Returns [ChatSuccess] holding the server-confirmed [ChatMessage].
   ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
@@ -163,7 +190,14 @@ class RestMessagesApi implements ChatMessagesApi {
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
+    String? clientMessageId,
   }) => safeApiCall(() async {
+    // Always carry a clientMessageId. The server-side dedup is a partial
+    // unique index over docs that have one, so without it a message retried
+    // after a transient 429/5xx would be persisted twice. Autogenerating a
+    // UUID v4 when the caller omits the key makes retries safe for every
+    // consumer (defaults-sane, Stream/Sendbird style).
+    final effectiveClientMessageId = clientMessageId ?? _uuid.v4();
     final json = await rest.post(
       '/rooms/$roomId/messages',
       data: {
@@ -175,6 +209,7 @@ class RestMessagesApi implements ChatMessagesApi {
         if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
         if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
         if (metadata != null) 'metadata': metadata,
+        'clientMessageId': effectiveClientMessageId,
       },
     );
     return MessageMapper.fromJson(json);
@@ -298,6 +333,26 @@ class RestMessagesApi implements ChatMessagesApi {
   );
 
   @override
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
+  }) {
+    if (transport != null && transport!.isWsConnected) {
+      transport!.sendDelivered(roomId, lastDeliveredMessageId);
+      return Future.value(const ChatSuccess(null));
+    }
+    // REST fallback: the legacy per-message receipt endpoint with
+    // `status=delivered` is rerouted server-side to the same delivered
+    // cursor, preserving the consolidated semantics.
+    return safeVoidCall(
+      () => rest.putVoid(
+        '/rooms/$roomId/messages/$lastDeliveredMessageId/receipts',
+        data: {'status': ReceiptStatus.delivered.name},
+      ),
+    );
+  }
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,
   ) => safeApiCall(() async {
@@ -376,10 +431,28 @@ class RestMessagesApi implements ChatMessagesApi {
   });
 
   @override
-  Future<ChatResult<void>> deleteReaction(String roomId, String messageId) =>
-      safeVoidCall(
-        () => rest.delete('/rooms/$roomId/messages/$messageId/reactions'),
-      );
+  Future<ChatResult<void>> addReaction(
+    String roomId,
+    String messageId, {
+    required String emoji,
+  }) => safeVoidCall(
+    () => rest.postVoid(
+      '/rooms/$roomId/messages/$messageId/reactions',
+      data: {'emoji': emoji},
+    ),
+  );
+
+  @override
+  Future<ChatResult<void>> deleteReaction(
+    String roomId,
+    String messageId, {
+    String? emoji,
+  }) => safeVoidCall(
+    () => rest.delete(
+      '/rooms/$roomId/messages/$messageId/reactions',
+      queryParams: emoji != null ? {'emoji': emoji} : null,
+    ),
+  );
 
   @override
   Future<ChatResult<void>> pinMessage(String roomId, String messageId) =>
@@ -411,16 +484,46 @@ class RestMessagesApi implements ChatMessagesApi {
   });
 
   @override
+  Future<ChatResult<void>> starMessage(String roomId, String messageId) =>
+      safeVoidCall(
+        () => rest.putVoid('/rooms/$roomId/messages/$messageId/star'),
+      );
+
+  @override
+  Future<ChatResult<void>> unstarMessage(String roomId, String messageId) =>
+      safeVoidCall(
+        () => rest.delete('/rooms/$roomId/messages/$messageId/star'),
+      );
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<StarredMessage>>> listStarred({
+    ChatPaginationParams? pagination,
+  }) => safeApiCall(() async {
+    final (json, totalCount) = await rest.getWithTotalCount(
+      '/starred',
+      queryParams: pagination?.toQueryParams(),
+    );
+    final starred = (json['starred'] as List? ?? [])
+        .map((e) => MessageMapper.starredFromJson(e as Map<String, dynamic>))
+        .toList();
+    return ChatPaginatedResponse(
+      items: starred,
+      hasMore: (json['hasMore'] ?? false) as bool,
+      totalCount: totalCount,
+    );
+  });
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> search(
     String query, {
-    required String roomId,
+    String? roomId,
     ChatPaginationParams? pagination,
   }) => safeApiCall(() async {
     final (json, totalCount) = await rest.getWithTotalCount(
       '/messages/search',
       queryParams: {
         'q': query,
-        'roomId': roomId,
+        if (roomId != null) 'roomId': roomId,
         ...?pagination?.toQueryParams(),
       },
     );
@@ -503,12 +606,13 @@ class RestMessagesApi implements ChatMessagesApi {
         () => rest.delete('/rooms/$roomId/scheduled-messages/$scheduledId'),
       );
 
-  /// Best-effort clear of [roomId]'s message history. The REST layer
-  /// has no notion of "cleared" — the cache decorator overrides this
-  /// to also record the cleared-at marker locally.
+  /// Clears [roomId]'s message history. The REST layer has no notion of
+  /// "cleared", so it maps to a server-side read reset; the cache
+  /// decorator overrides this to also record the cleared-at marker
+  /// locally. The [markRoomAsRead] result is returned verbatim so a
+  /// failed read reset surfaces to the caller instead of being swallowed.
   @override
-  Future<ChatResult<void>> clearChat(String roomId) =>
-      safeVoidCall(() => markRoomAsRead(roomId).then((_) {}));
+  Future<ChatResult<void>> clearChat(String roomId) => markRoomAsRead(roomId);
 
   /// Returns `null` from the REST layer — the cache decorator
   /// overrides this with the locally stored cleared-at marker.

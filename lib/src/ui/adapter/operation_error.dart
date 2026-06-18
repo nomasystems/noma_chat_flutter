@@ -42,6 +42,8 @@ enum OperationKind {
   rejectInvitation,
   pinMessage,
   unpinMessage,
+  starMessage,
+  unstarMessage,
   loadPins,
   forwardMessage,
   reportMessage,

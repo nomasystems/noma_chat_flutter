@@ -14,6 +14,9 @@ abstract class InvitedRoom with _$InvitedRoom {
   const factory InvitedRoom({
     required String roomId,
     required String invitedBy,
+    String? roomName,
+    String? subject,
+    String? roomType,
   }) = _InvitedRoom;
 
   @override

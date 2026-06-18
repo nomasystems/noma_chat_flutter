@@ -172,6 +172,156 @@ void main() {
     });
   });
 
+  group('Signed-URL attachment access', () {
+    late AttachmentsApi api;
+
+    setUp(() {
+      api = AttachmentsApi(rest: rest);
+      when(
+        () => rest.resolveUrl(any()),
+      ).thenAnswer((inv) => inv.positionalArguments.first as String);
+    });
+
+    test(
+      'signedUrl() gets /signed-url with roomId and resolves the url',
+      () async {
+        when(
+          () => rest.get(
+            '/attachments/att-1/signed-url',
+            queryParams: any(named: 'queryParams'),
+          ),
+        ).thenAnswer(
+          (_) async => {'url': 'https://cdn.example.com/att-1?sig=abc&exp=123'},
+        );
+
+        final result = await api.signedUrl('att-1', roomId: 'r1');
+
+        expect(result.isSuccess, isTrue);
+        expect(
+          result.dataOrThrow.url,
+          'https://cdn.example.com/att-1?sig=abc&exp=123',
+        );
+        final captured =
+            verify(
+                  () => rest.get(
+                    '/attachments/att-1/signed-url',
+                    queryParams: captureAny(named: 'queryParams'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(captured['roomId'], 'r1');
+      },
+    );
+
+    test('signedUrl() accepts the downloadUrl alias', () async {
+      when(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => {'downloadUrl': 'https://cdn.example.com/dl'});
+
+      final result = await api.signedUrl('att-1', roomId: 'r1');
+
+      expect(result.dataOrThrow.url, 'https://cdn.example.com/dl');
+    });
+
+    test('signedUrl() fails when the response carries no url', () async {
+      when(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => <String, dynamic>{});
+
+      final result = await api.signedUrl('att-1', roomId: 'r1');
+
+      expect(result.isFailure, isTrue);
+    });
+
+    test(
+      'signedUrl() surfaces a 403 not_a_room_member as ForbiddenFailure',
+      () async {
+        when(
+          () => rest.get(any(), queryParams: any(named: 'queryParams')),
+        ).thenThrow(
+          const ChatForbiddenException(
+            message: 'Not a room member',
+            errorToken: ChatErrorTokens.notARoomMember,
+          ),
+        );
+
+        final result = await api.signedUrl('att-1', roomId: 'r1');
+
+        expect(result.isFailure, isTrue);
+        final failure = result.failureOrThrow;
+        expect(failure, isA<ForbiddenFailure>());
+        expect(failure.errorToken, ChatErrorTokens.notARoomMember);
+      },
+    );
+
+    test(
+      'download(roomId:) resolves a signed url then fetches its bytes',
+      () async {
+        final expectedBytes = Uint8List.fromList([1, 2, 3, 4]);
+        when(
+          () => rest.get(
+            '/attachments/att-1/signed-url',
+            queryParams: any(named: 'queryParams'),
+          ),
+        ).thenAnswer(
+          (_) async => {'url': 'https://cdn.example.com/att-1?sig=abc'},
+        );
+        when(
+          () => rest.downloadBinary(
+            'https://cdn.example.com/att-1?sig=abc',
+            onProgress: any(named: 'onProgress'),
+          ),
+        ).thenAnswer((_) async => expectedBytes);
+
+        final result = await api.download('att-1', roomId: 'r1');
+
+        expect(result.isSuccess, isTrue);
+        expect(result.dataOrThrow, expectedBytes);
+        verify(
+          () => rest.downloadBinary(
+            'https://cdn.example.com/att-1?sig=abc',
+            onProgress: any(named: 'onProgress'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test('download(roomId:) falls back to the membership-checked path when '
+        'no signed url is returned', () async {
+      final expectedBytes = Uint8List.fromList([9, 9]);
+      when(
+        () => rest.get(
+          '/attachments/att-1/signed-url',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer((_) async => <String, dynamic>{});
+      when(
+        () => rest.downloadBinary(
+          '/attachments/att-1',
+          queryParams: any(named: 'queryParams'),
+          headers: any(named: 'headers'),
+          onProgress: any(named: 'onProgress'),
+        ),
+      ).thenAnswer((_) async => expectedBytes);
+
+      final result = await api.download('att-1', roomId: 'r1');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrThrow, expectedBytes);
+      final captured =
+          verify(
+                () => rest.downloadBinary(
+                  '/attachments/att-1',
+                  queryParams: captureAny(named: 'queryParams'),
+                  headers: any(named: 'headers'),
+                  onProgress: any(named: 'onProgress'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['roomId'], 'r1');
+    });
+  });
+
   group('Attachments extended', () {
     late AttachmentsApi api;
 
@@ -196,6 +346,52 @@ void main() {
       expect(result.isSuccess, isTrue);
       expect(result.dataOrNull!.items.length, 1);
       expect(result.dataOrNull!.hasMore, isTrue);
+    });
+
+    test('listInRoom() parses next/prev cursors so the gallery paginates '
+        'older pages', () async {
+      // Regression: the media gallery anchors older-history loads on
+      // `prevCursor`. If listInRoom drops the `prev`/`next` tokens the gallery
+      // stops after the first page even when hasMore is true.
+      when(
+        () => rest.get(
+          '/rooms/r1/attachments',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'attachments': [messageJson(messageType: 'attachment')],
+          'hasMore': true,
+          'next': 'cursor-next-1',
+          'prev': 'cursor-prev-1',
+        },
+      );
+
+      final result = await api.listInRoom('r1');
+      expect(result.isSuccess, isTrue);
+      final page = result.dataOrNull!;
+      expect(page.hasMore, isTrue);
+      expect(page.nextCursor, 'cursor-next-1');
+      expect(page.prevCursor, 'cursor-prev-1');
+    });
+
+    test('listInRoom() leaves cursors null when absent', () async {
+      when(
+        () => rest.get(
+          '/rooms/r1/attachments',
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          'attachments': [messageJson(messageType: 'attachment')],
+          'hasMore': false,
+        },
+      );
+
+      final result = await api.listInRoom('r1');
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrNull!.nextCursor, isNull);
+      expect(result.dataOrNull!.prevCursor, isNull);
     });
 
     test(

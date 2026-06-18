@@ -317,9 +317,8 @@ class _HomePageState extends State<HomePage> {
         ChatRoomOption.muteRoom(
           l10n: l10n,
           muted: room.muted,
-          onToggle: () => room.muted
-              ? chat.adapter.rooms.unmute(roomId)
-              : chat.adapter.rooms.mute(roomId),
+          onMute: (until) => chat.adapter.rooms.mute(roomId, until: until),
+          onUnmute: () => chat.adapter.rooms.unmute(roomId),
         ),
         ChatRoomOption.pinRoom(
           l10n: l10n,
@@ -328,13 +327,23 @@ class _HomePageState extends State<HomePage> {
               ? chat.adapter.rooms.unpin(roomId)
               : chat.adapter.rooms.pin(roomId),
         ),
+        if (room.hidden)
+          ChatRoomOption.unarchiveChat(
+            l10n: l10n,
+            onTap: () => chat.adapter.rooms.unarchive(roomId),
+          )
+        else
+          ChatRoomOption.archiveChat(
+            l10n: l10n,
+            onTap: () => chat.adapter.rooms.hide(roomId),
+          ),
         ChatRoomOption.clearChat(
           l10n: l10n,
           onConfirm: () => chat.adapter.messages.clearChat(roomId),
         ),
         ChatRoomOption.deleteChat(
           l10n: l10n,
-          onConfirm: () => chat.adapter.rooms.hide(roomId),
+          onConfirm: () => chat.adapter.rooms.delete(roomId),
         ),
         if (isGroup)
           ChatRoomOption.leaveGroup(

@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:uuid/uuid.dart';
 
 import '../../config/chat_config.dart';
+import '../../core/result.dart' show ChatErrorTokens, TimeoutKind;
 import '../cache/cache_manager.dart' show MetricCallback;
 import 'bearer_auth_interceptor.dart';
 import 'cert_pinning_interceptor.dart';
@@ -15,10 +16,12 @@ import 'circuit_breaker_registry.dart';
 import 'retry_interceptor.dart';
 
 /// SDK semantic version surfaced via the `X-Noma-Chat-Version` header
-/// and the `User-Agent` string. Kept in sync with `pubspec.yaml`
-/// manually for now (a future build_runner-generated constant can drop
-/// in here without changing the call sites).
-const String nomaChatSdkVersion = '0.6.0';
+/// and the `User-Agent` string. Must match `version:` in `pubspec.yaml`;
+/// `test/sdk/version_sync_test.dart` fails the suite (and therefore CI)
+/// if the two drift, so bumping the package version forces an update here
+/// too. A future build_runner-generated constant can drop in without
+/// changing the call sites.
+const String nomaChatSdkVersion = '0.10.0';
 
 const String _requestIdExtraKey = 'requestId';
 const Uuid _uuid = Uuid();
@@ -26,6 +29,7 @@ const Uuid _uuid = Uuid();
 class RestClient {
   final Dio _dio;
   final String? _userId;
+  final String? _actAsUserId;
   final void Function(String level, String message)? _logger;
   final MetricCallback? _metricCallback;
   final Set<CancelToken> _pendingTokens = <CancelToken>{};
@@ -33,6 +37,7 @@ class RestClient {
   RestClient({required ChatConfig config, Dio? dio})
     : _dio = dio ?? Dio(),
       _userId = config.userId,
+      _actAsUserId = config.actAsUserId,
       _logger = config.logger,
       _metricCallback = config.metricCallback {
     _dio.options.baseUrl = config.baseUrl;
@@ -43,6 +48,15 @@ class RestClient {
     if (pins != null && pins.isNotEmpty) {
       final pinning = CertificatePinningInterceptor(pins)..attach(_dio);
       _dio.interceptors.add(pinning);
+      // The native handshake hook is not wired yet (see
+      // CertificatePinningInterceptor — @experimental skeleton). Warn loudly
+      // so a consumer who sets pins doesn't assume MITM protection is active.
+      config.logger?.call(
+        'warn',
+        'certificatePins is set but pinning is NOT enforced yet: the native '
+            'badCertificateCallback is an experimental no-op skeleton. Pins '
+            'are recorded but no certificate is validated against them.',
+      );
     }
     final authInterceptor = config.authInterceptor;
     _dio.interceptors.add(authInterceptor);
@@ -74,6 +88,21 @@ class RestClient {
   }
 
   String? get userId => _userId;
+
+  /// The configured REST base URL (`ChatConfig.baseUrl`). Used to resolve a
+  /// relative download URL (e.g. a signed attachment URL the backend returns
+  /// as a path) into an absolute one that can be handed to `<img>`, an image
+  /// cache, or a native viewer.
+  String get baseUrl => _dio.options.baseUrl;
+
+  /// Resolves [urlOrPath] against [baseUrl]. Absolute URLs are returned
+  /// unchanged; a relative path is joined onto the base origin + version
+  /// prefix the same way Dio routes a relative request path.
+  String resolveUrl(String urlOrPath) {
+    final target = Uri.parse(urlOrPath);
+    if (target.hasScheme) return urlOrPath;
+    return Uri.parse(baseUrl).resolveUri(target).toString();
+  }
 
   Future<Map<String, dynamic>> get(
     String path, {
@@ -159,6 +188,25 @@ class RestClient {
     );
   }
 
+  /// POSTs and returns the raw decoded body (`response.data`) without
+  /// coercing it to a `Map`. Needed for endpoints whose 2xx body is a JSON
+  /// array — e.g. the 207 Multi-Status per-user results of a batch invite.
+  Future<dynamic> postRaw(
+    String path, {
+    dynamic data,
+    Map<String, dynamic>? queryParams,
+    Map<String, String>? headers,
+  }) async {
+    final response = await _request(
+      'POST',
+      path,
+      data: data,
+      queryParams: queryParams,
+      headers: headers,
+    );
+    return response.data;
+  }
+
   Future<Map<String, dynamic>> put(
     String path, {
     dynamic data,
@@ -202,8 +250,12 @@ class RestClient {
     return const {};
   }
 
-  Future<void> delete(String path, {Map<String, String>? headers}) async {
-    await _request('DELETE', path, headers: headers);
+  Future<void> delete(
+    String path, {
+    Map<String, dynamic>? queryParams,
+    Map<String, String>? headers,
+  }) async {
+    await _request('DELETE', path, queryParams: queryParams, headers: headers);
   }
 
   Future<Map<String, dynamic>> uploadBinary(
@@ -228,12 +280,14 @@ class RestClient {
 
   Future<Uint8List> downloadBinary(
     String path, {
+    Map<String, dynamic>? queryParams,
     Map<String, String>? headers,
     void Function(int received, int total)? onProgress,
   }) async {
     final response = await _request(
       'GET',
       path,
+      queryParams: queryParams,
       headers: headers,
       options: Options(responseType: ResponseType.bytes),
       onReceiveProgress: onProgress,
@@ -283,9 +337,10 @@ class RestClient {
   }
 
   /// Computes the headers automatically injected on every request:
-  /// `X-Noma-Chat-Version` and `User-Agent`. Consumer-supplied values
-  /// for either header (case-insensitive) win, so apps with their own
-  /// `User-Agent` policy aren't overridden.
+  /// `X-Noma-Chat-Version`, `User-Agent` and — when [ChatConfig.actAsUserId]
+  /// is set — `X-From-User-Id` for managed-user delegation. Consumer-supplied
+  /// values for any of these headers (case-insensitive) win, so apps with
+  /// their own policy or a per-call override aren't overridden.
   Map<String, String> _autoHeaders(Map<String, dynamic>? existing) {
     final lower = <String>{
       for (final k in (existing ?? const <String, dynamic>{}).keys)
@@ -297,6 +352,9 @@ class RestClient {
     }
     if (!lower.contains('user-agent')) {
       out['User-Agent'] = 'noma_chat/$nomaChatSdkVersion (${_platformLabel()})';
+    }
+    if (_actAsUserId != null && !lower.contains('x-from-user-id')) {
+      out['X-From-User-Id'] = _actAsUserId;
     }
     return out;
   }
@@ -330,57 +388,82 @@ class RestClient {
   ChatException _mapDioException(DioException e) {
     final statusCode = e.response?.statusCode;
     final body = e.response?.data;
+    // Stable symbolic error token from the server's closed vocabulary
+    // (HTTP error body `error` field). Threaded onto every mapped
+    // exception so the consumer can branch/localize on a stable key
+    // instead of English prose. Absent / null on older servers.
+    final token = _extractErrorToken(body);
 
     if (statusCode == 400) {
       final detail = _extractMessage(body) ?? 'Bad request';
-      if (detail.toLowerCase().contains('content filter')) {
+      // Prefer the stable token; keep the English-prose substring match as
+      // a fallback for servers that don't yet emit the token.
+      if (token == ChatErrorTokens.messageBlockedByContentFilter ||
+          detail.toLowerCase().contains('content filter')) {
         return ChatContentFilterException(detail);
       }
       return ChatValidationException(
         message: detail,
         errors: body is Map<String, dynamic> ? body : null,
+        errorToken: token,
       );
     }
-    if (statusCode == 401) return const ChatAuthException();
+    if (statusCode == 401) {
+      return ChatAuthException('Authentication failed', token);
+    }
     if (statusCode == 403) {
-      // Account-level deactivation manifests as 403 with detail
-      // `user_deactivated` (server-side: `is_active(UserId) == false`).
-      // Surface as an auth exception so the consumer's `onAuthFailure`
-      // hook fires and the SDK can drive the example/host app back to
-      // the login flow. Other 403s (room ban, missing membership) stay
-      // as `ChatForbiddenException` so callers can keep handling them
-      // contextually (snackbar etc.).
+      // Account-level deactivation manifests as 403 with the
+      // `user_deactivated` token (server-side: `is_active(UserId) ==
+      // false`). Surface as an auth exception so the consumer's
+      // `onAuthFailure` hook fires and the SDK can drive the example/host
+      // app back to the login flow. Other 403s (room ban, missing
+      // membership) stay as `ChatForbiddenException` so callers can keep
+      // handling them contextually (snackbar etc.).
+      //
+      // Token-first: when the server tags one of the deactivation tokens
+      // we route on it directly. The detail-string match is retained as a
+      // fallback for older servers that only send the prose.
+      const deactivationTokens = {
+        ChatErrorTokens.userDeactivated,
+        ChatErrorTokens.accountDeactivated,
+        ChatErrorTokens.accountBanned,
+      };
       final detail = _extractMessage(body)?.toLowerCase() ?? '';
-      if (detail.contains('user_deactivated') ||
+      if ((token != null && deactivationTokens.contains(token)) ||
+          detail.contains('user_deactivated') ||
           detail.contains('account_deactivated') ||
           detail.contains('account_banned')) {
-        return const ChatAuthException('Account deactivated');
+        return ChatAuthException('Account deactivated', token);
       }
       return ChatForbiddenException(
         body: body,
         message: e.message ?? 'Forbidden',
+        errorToken: token,
       );
     }
-    if (statusCode == 404) return const ChatNotFoundException();
+    if (statusCode == 404) {
+      return ChatNotFoundException(_extractMessage(body) ?? 'Not found', token);
+    }
     if (statusCode == 409) {
-      return ChatConflictException(_extractMessage(body) ?? 'Conflict');
+      return ChatConflictException(_extractMessage(body) ?? 'Conflict', token);
     }
     if (statusCode == 429) {
-      final retryAfterHeader = e.response?.headers.value('retry-after');
-      Duration? retryAfter;
-      if (retryAfterHeader != null) {
-        final seconds = int.tryParse(retryAfterHeader);
-        if (seconds != null) retryAfter = Duration(seconds: seconds);
-      }
-      return ChatRateLimitException(retryAfter: retryAfter);
+      return ChatRateLimitException(
+        retryAfter: _parseRetryAfterHeaders(e.response?.headers),
+        errorToken: token,
+      );
     }
     if (e.error is CertificatePinningException) {
       return e.error as CertificatePinningException;
     }
-    if (e.type == DioExceptionType.connectionTimeout ||
-        e.type == DioExceptionType.receiveTimeout ||
-        e.type == DioExceptionType.sendTimeout) {
-      return const ChatTimeoutException();
+    if (e.type == DioExceptionType.connectionTimeout) {
+      return const ChatTimeoutException(kind: TimeoutKind.connection);
+    }
+    if (e.type == DioExceptionType.sendTimeout) {
+      return const ChatTimeoutException(kind: TimeoutKind.send);
+    }
+    if (e.type == DioExceptionType.receiveTimeout) {
+      return const ChatTimeoutException(kind: TimeoutKind.receive);
     }
     if (e.type == DioExceptionType.connectionError) {
       return const ChatNetworkException();
@@ -389,6 +472,7 @@ class RestClient {
       statusCode: statusCode ?? 0,
       body: body,
       message: e.message ?? 'Unknown error',
+      errorToken: token,
     );
   }
 
@@ -409,6 +493,39 @@ class RestClient {
     }
     return null;
   }
+
+  /// Extracts the server's stable symbolic error token from the error body
+  /// (`error` field). The token is a snake_case code from a server-owned,
+  /// closed vocabulary; it sits alongside `{code, detail}` and is absent
+  /// (or empty) on older servers, in which case this returns `null`. An
+  /// empty/whitespace token is normalized to `null` so callers never see
+  /// `''`.
+  String? _extractErrorToken(dynamic body) {
+    if (body is Map<String, dynamic>) {
+      final raw = body['error'];
+      if (raw is String) {
+        final trimmed = raw.trim();
+        if (trimmed.isNotEmpty) return trimmed;
+      }
+    }
+    return null;
+  }
+}
+
+/// Derives the rate-limit back-off [Duration] from a 429 response's
+/// headers. Prefers the standard `Retry-After` (seconds), then falls back
+/// to CHT's `X-RateLimit-Reset` — which the server sends *instead of*
+/// `Retry-After`, as the number of seconds until the rate-limit window
+/// resets. Returns `null` when neither header carries a usable integer.
+Duration? _parseRetryAfterHeaders(Headers? headers) {
+  if (headers == null) return null;
+  for (final name in const ['retry-after', 'x-ratelimit-reset']) {
+    final raw = headers.value(name);
+    if (raw == null) continue;
+    final seconds = int.tryParse(raw.trim());
+    if (seconds != null && seconds >= 0) return Duration(seconds: seconds);
+  }
+  return null;
 }
 
 /// Sanitizes the rendered URI in a log line by replacing any UUID

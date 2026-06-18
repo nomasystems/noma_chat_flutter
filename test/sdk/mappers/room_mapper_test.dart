@@ -47,15 +47,18 @@ void main() {
       expect(detail.createdAt, isNotNull);
     });
 
-    test('userRoomsFromJson maps rooms and invited rooms (flat format)', () {
+    test('userRoomsFromJson maps rooms and invited rooms', () {
       final userRooms = RoomMapper.userRoomsFromJson({
         'rooms': [
           {
             'roomId': 'r-1',
             'unreadMessages': 5,
-            'lastMessage': 'Hello',
-            'lastMessageTime': '2024-12-25T20:00:00Z',
-            'lastMessageUserId': 'u-1',
+            'lastUnreadMessage': {
+              'messageId': 'm-1',
+              'from': 'u-1',
+              'timestamp': '2024-12-25T20:00:00Z',
+              'text': 'Hello',
+            },
           },
         ],
         'invitedRooms': [
@@ -82,7 +85,7 @@ void main() {
         'unreadMessages': 3,
         'lastUnreadMessage': {
           'messageId': 'msg-1',
-          'fromJid': 'user-abc',
+          'from': 'user-abc',
           'timestamp': '2024-12-25T20:00:00Z',
           'body': 'Hello from server',
           'attachments': [],

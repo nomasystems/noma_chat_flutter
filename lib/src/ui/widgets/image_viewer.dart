@@ -56,7 +56,7 @@ class ImageViewer extends StatelessWidget {
         ),
       ),
       extendBodyBehindAppBar: true,
-      body: image,
+      body: Center(child: image),
     );
   }
 }

@@ -72,6 +72,7 @@ class _PredicateRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
+    bool forceGroup = false,
   }) => _delegate.create(
     audience: audience,
     allowInvitations: allowInvitations,
@@ -80,6 +81,7 @@ class _PredicateRoomsApi implements ChatRoomsApi {
     members: members,
     avatarUrl: avatarUrl,
     custom: custom,
+    forceGroup: forceGroup,
   );
 
   @override
@@ -109,16 +111,19 @@ class _PredicateRoomsApi implements ChatRoomsApi {
   );
 
   @override
-  Future<ChatResult<void>> mute(String roomId) => _delegate.mute(roomId);
-
-  @override
-  Future<ChatResult<void>> unmute(String roomId) => _delegate.unmute(roomId);
-
-  @override
-  Future<ChatResult<void>> pin(String roomId) => _delegate.pin(roomId);
-
-  @override
-  Future<ChatResult<void>> unpin(String roomId) => _delegate.unpin(roomId);
+  Future<ChatResult<RoomPreferences>> patchPreferences(
+    String roomId, {
+    bool? muted,
+    DateTime? muteUntil,
+    bool? pinned,
+    bool? hidden,
+  }) => _delegate.patchPreferences(
+    roomId,
+    muted: muted,
+    muteUntil: muteUntil,
+    pinned: pinned,
+    hidden: hidden,
+  );
 
   @override
   Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) =>
@@ -127,12 +132,6 @@ class _PredicateRoomsApi implements ChatRoomsApi {
   @override
   Future<ChatResult<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       _delegate.batchGetUnread(roomIds);
-
-  @override
-  Future<ChatResult<void>> hide(String roomId) => _delegate.hide(roomId);
-
-  @override
-  Future<ChatResult<void>> unhide(String roomId) => _delegate.unhide(roomId);
 
   @override
   Future<void> updateCachedRoomPreview(

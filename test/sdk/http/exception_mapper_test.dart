@@ -90,6 +90,97 @@ void main() {
     });
   });
 
+  group('errorToken threading (A1)', () {
+    test('threads the server token onto AuthFailure', () {
+      final f = mapExceptionToFailure(
+        const ChatAuthException('nope', ChatErrorTokens.accountBanned),
+      );
+      expect(f, isA<AuthFailure>());
+      expect(f.errorToken, ChatErrorTokens.accountBanned);
+    });
+
+    test('threads the server token onto ForbiddenFailure', () {
+      final f = mapExceptionToFailure(
+        const ChatForbiddenException(
+          errorToken: ChatErrorTokens.notARoomMember,
+        ),
+      );
+      expect(f, isA<ForbiddenFailure>());
+      expect(f.errorToken, ChatErrorTokens.notARoomMember);
+    });
+
+    test('routes the edit_window_expired token to its typed failure', () {
+      final f = mapExceptionToFailure(
+        const ChatForbiddenException(
+          errorToken: ChatErrorTokens.editWindowExpired,
+        ),
+      );
+      expect(f, isA<EditWindowExpiredFailure>());
+      expect(f.errorToken, ChatErrorTokens.editWindowExpired);
+    });
+
+    test('routes the delete_window_expired token to its typed failure', () {
+      final f = mapExceptionToFailure(
+        const ChatForbiddenException(
+          errorToken: ChatErrorTokens.deleteWindowExpired,
+        ),
+      );
+      expect(f, isA<DeleteWindowExpiredFailure>());
+      expect(f.errorToken, ChatErrorTokens.deleteWindowExpired);
+    });
+
+    test('falls back to the legacy detail string when the token is absent', () {
+      final f = mapExceptionToFailure(
+        const ChatForbiddenException(
+          body: {'detail': ChatErrorTokens.editWindowExpired},
+        ),
+      );
+      expect(f, isA<EditWindowExpiredFailure>());
+    });
+
+    test('threads the server token onto NotFoundFailure', () {
+      final f = mapExceptionToFailure(
+        const ChatNotFoundException('gone', ChatErrorTokens.roomNotFound),
+      );
+      expect(f, isA<NotFoundFailure>());
+      expect(f.errorToken, ChatErrorTokens.roomNotFound);
+    });
+
+    test('threads the server token onto ServerFailure', () {
+      final f = mapExceptionToFailure(
+        const ChatApiException(statusCode: 500, errorToken: 'internal_oops'),
+      );
+      expect(f, isA<ServerFailure>());
+      expect(f.errorToken, 'internal_oops');
+    });
+
+    test('defaults the rate-limit token when the server sends none', () {
+      final f = mapExceptionToFailure(const ChatRateLimitException());
+      expect(f, isA<RateLimitFailure>());
+      expect(f.errorToken, ChatErrorTokens.rateLimited);
+    });
+
+    test('keeps an unknown token verbatim (open vocabulary)', () {
+      final f = mapExceptionToFailure(
+        const ChatConflictException('clash', 'brand_new_server_token'),
+      );
+      expect(f, isA<ConflictFailure>());
+      expect(f.errorToken, 'brand_new_server_token');
+    });
+
+    test('errorToken is null when the server attached none', () {
+      final f = mapExceptionToFailure(const ChatNotFoundException());
+      expect(f.errorToken, isNull);
+    });
+
+    test('toString includes the token when present', () {
+      final f = mapExceptionToFailure(
+        const ChatConflictException('clash', 'already_member'),
+      );
+      expect(f.toString(), contains('already_member'));
+    });
+  });
+
   group('safeApiCall', () {
     test('returns ChatSuccess on success', () async {
       final result = await safeApiCall(() async => 42);

@@ -3,7 +3,8 @@ part of '../chat_ui_adapter.dart';
 /// Room-level operations exposed by [ChatUiAdapter.rooms].
 ///
 /// Covers list bootstrap (`load`), membership flags
-/// (`mute`/`unmute`, `pin`/`unpin`, `hide`/`unhide`), invitation
+/// (`mute`/`unmute`, `pin`/`unpin`), archive (`hide`/`unhide` /
+/// `unarchive`), per-user delete (`delete`), invitation
 /// lifecycle (`acceptInvitation` / `rejectInvitation`,
 /// `deleteKicked`), room metadata (`updateConfig`), member management
 /// (`addMembers`, `removeMember`, `updateMemberRole`), group creation
@@ -42,21 +43,35 @@ final class ChatRoomsController {
     return completer.future;
   }
 
-  /// Mutes [roomId] (optimistic).
-  Future<ChatResult<void>> mute(String roomId) => _a._toggleRoomFlag(
-    roomId,
-    (r, v) => r.copyWith(muted: v),
-    true,
-    _a.client.rooms.mute,
-    OperationKind.muteRoom,
-  );
+  /// Mutes [roomId] (optimistic). Pass [until] for a timed mute
+  /// (WhatsApp-style 8h / 1 week); omit it for a permanent mute. The room
+  /// tile reflects [RoomListItem.muteUntil] until the next list refresh.
+  Future<ChatResult<void>> mute(String roomId, {DateTime? until}) async {
+    final room = _a.roomListController.getRoomById(roomId);
+    if (room != null) {
+      _a.roomListController.updateRoom(
+        room.copyWith(muted: true, muteUntil: until),
+      );
+    }
+    final result = await _a.client.rooms
+        .patchPreferences(
+          roomId,
+          muted: until == null ? true : null,
+          muteUntil: until,
+        )
+        .discardValue();
+    if (result.isFailure && room != null) {
+      _a.roomListController.updateRoom(room);
+    }
+    return _a._emitFailure(result, OperationKind.muteRoom, roomId: roomId);
+  }
 
-  /// Reverts a mute on [roomId].
+  /// Reverts a mute on [roomId], clearing any timed-mute expiry.
   Future<ChatResult<void>> unmute(String roomId) => _a._toggleRoomFlag(
     roomId,
-    (r, v) => r.copyWith(muted: v),
+    (r, v) => r.copyWith(muted: v, muteUntil: v ? r.muteUntil : null),
     false,
-    _a.client.rooms.unmute,
+    (id) => _a.client.rooms.patchPreferences(id, muted: false).discardValue(),
     OperationKind.unmuteRoom,
   );
 
@@ -65,7 +80,7 @@ final class ChatRoomsController {
     roomId,
     (r, v) => r.copyWith(pinned: v),
     true,
-    _a.client.rooms.pin,
+    (id) => _a.client.rooms.patchPreferences(id, pinned: true).discardValue(),
     OperationKind.pinRoom,
   );
 
@@ -74,34 +89,82 @@ final class ChatRoomsController {
     roomId,
     (r, v) => r.copyWith(pinned: v),
     false,
-    _a.client.rooms.unpin,
+    (id) => _a.client.rooms.patchPreferences(id, pinned: false).discardValue(),
     OperationKind.unpinRoom,
   );
 
-  /// Hides [roomId] from the user's room list.
+  /// ARCHIVE — moves [roomId] into the collapsible "Archived" section of
+  /// the room list (sets the per-user `hidden` flag). WhatsApp parity: the
+  /// chat stays archived even when a new message arrives; only an explicit
+  /// [unarchive] (or [unhide]) brings it back to the main list. Distinct
+  /// from [delete], which removes the chat from BOTH sections.
   Future<ChatResult<void>> hide(String roomId) => _a._toggleRoomFlag(
     roomId,
     (r, v) => r.copyWith(hidden: v),
     true,
-    _a.client.rooms.hide,
+    (id) => _a.client.rooms.patchPreferences(id, hidden: true).discardValue(),
     OperationKind.hideRoom,
   );
 
-  /// Reveals a previously hidden [roomId].
+  /// Reveals a previously hidden [roomId] (clears the `hidden` flag).
   Future<ChatResult<void>> unhide(String roomId) => _a._toggleRoomFlag(
     roomId,
     (r, v) => r.copyWith(hidden: v),
     false,
-    _a.client.rooms.unhide,
+    (id) => _a.client.rooms.patchPreferences(id, hidden: false).discardValue(),
     OperationKind.unhideRoom,
   );
 
-  /// Removes the current user from [roomId].
+  /// UNARCHIVE — restores an archived [roomId] to the main list. Inverse
+  /// of [hide]; alias of [unhide] kept distinct so the in-chat three-dots
+  /// menu reads as "Unarchive" rather than the lower-level "Unhide".
+  Future<ChatResult<void>> unarchive(String roomId) => unhide(roomId);
+
+  /// DELETE — WhatsApp "Delete chat". Removes [roomId] from BOTH the main
+  /// list and the Archived section, permanently from the user's point of
+  /// view. It reappears EMPTY only if a 1:1 peer writes again (the
+  /// resurrection path in the event router clears the deleted marker but
+  /// leaves the `clearedAt` cutoff in place so prior history stays hidden).
+  ///
+  /// Unlike [hide] (archive) this is NOT just a `hidden` flag: it writes a
+  /// dedicated, never-evictable per-user `deletedRooms` marker to the cache
+  /// AND sets the `clearedAt` cutoff to now (reusing the same mechanism as
+  /// `messages.clearChat`), then drops the row from the controller. No
+  /// server membership change happens (use [leave] to leave a group).
+  Future<ChatResult<void>> delete(String roomId) async {
+    final cache = _a._cache;
+    final now = DateTime.now().toUtc();
+    // Persist the cutoff so any prior history stays hidden if the room is
+    // re-fetched later (twin of the never-evictable deleted marker).
+    if (cache != null) {
+      await cache.setClearedAt(roomId, now).catchError(_swallowCacheThrow);
+      await cache.clearMessages(roomId).catchError(_swallowCacheThrow);
+      await cache.clearPendingMessages(roomId).catchError(_swallowCacheThrow);
+      await cache.addDeletedRoom(roomId).catchError(_swallowCacheThrow);
+    }
+    // Also clear the open controller's in-memory history so re-opening the
+    // chat right after deleting shows it empty (mirrors clearChat).
+    _a._chatControllers[roomId]?.clearMessages();
+    _a.roomListController.markDeleted(roomId);
+    return const ChatSuccess<void>(null);
+  }
+
+  /// Removes the current user from [roomId]. The row is kept (flipped to
+  /// read-only via `isParticipating=false`) and a durable `markKicked`
+  /// marker is persisted, so a voluntary leave lands in the same
+  /// kicked-read-only mechanism as a server-side kick and survives sync.
+  /// The open chat controller is preserved so the chat stays browsable.
   Future<ChatResult<void>> leave(String roomId) async {
     final result = await _a.client.members.leave(roomId);
     if (result.isSuccess) {
-      _a.roomListController.removeRoom(roomId);
-      _a.removeChatController(roomId);
+      final room = _a.roomListController.getRoomById(roomId);
+      if (room != null && room.isParticipating) {
+        _a.roomListController.updateRoom(room.copyWith(isParticipating: false));
+      }
+      final cache = _a._cache;
+      if (cache != null) {
+        await cache.markKicked(roomId).catchError(_swallowCacheThrow);
+      }
     }
     return _a._emitFailure(result, OperationKind.leaveRoom, roomId: roomId);
   }
@@ -136,11 +199,14 @@ final class ChatRoomsController {
 
   /// Accepts a pending invitation to [roomId].
   Future<ChatResult<void>> acceptInvitation(String roomId) async {
-    final result = await _a.client.members.invite(
+    final inviteResult = await _a.client.members.invite(
       roomId,
       userIds: [_a.currentUser.id],
       mode: RoomUserMode.acceptInvitation,
     );
+    final result = inviteResult.isSuccess
+        ? const ChatSuccess<void>(null)
+        : ChatFailureResult<void>(inviteResult.failureOrNull!);
     if (result.isSuccess) {
       final existing = _a.roomListController.getRoomById(roomId);
       if (existing != null) {
@@ -177,17 +243,29 @@ final class ChatRoomsController {
     );
   }
 
-  /// Invites [userIds] to [roomId].
+  /// Invites [userIds] to [roomId]. A partial failure (some users added,
+  /// others rejected — banned, already a member) surfaces as a failure with
+  /// the per-user reasons, instead of being silently swallowed.
   Future<ChatResult<void>> addMembers(
     String roomId,
     List<String> userIds, {
     RoomUserMode mode = RoomUserMode.inviteAndJoin,
   }) async {
-    final result = await _a.client.members.invite(
+    final inviteResult = await _a.client.members.invite(
       roomId,
       userIds: userIds,
       mode: mode,
     );
+    final result = switch (inviteResult) {
+      ChatSuccess(:final data) when data.hasFailures => ChatFailureResult<void>(
+        ValidationFailure(
+          message: 'Some users could not be added',
+          errors: {for (final f in data.failed) f.userId: f.detail ?? 'failed'},
+        ),
+      ),
+      ChatSuccess() => const ChatSuccess<void>(null),
+      ChatFailureResult(:final failure) => ChatFailureResult<void>(failure),
+    };
     return _a._emitFailure(result, OperationKind.addMembers, roomId: roomId);
   }
 

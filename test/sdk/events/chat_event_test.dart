@@ -179,7 +179,20 @@ void main() {
         const BroadcastEvent(message: 'maintenance at 3am'),
         const BroadcastEvent(message: 'maintenance at 3am'),
       );
-      expect(const BroadcastEvent(message: 'a').hashCode, 'a'.hashCode);
+      // fromUserId participates in equality.
+      expect(
+        const BroadcastEvent(message: 'a', fromUserId: 'admin'),
+        const BroadcastEvent(message: 'a', fromUserId: 'admin'),
+      );
+      expect(
+        const BroadcastEvent(message: 'a', fromUserId: 'admin') ==
+            const BroadcastEvent(message: 'a', fromUserId: 'other'),
+        isFalse,
+      );
+      expect(
+        const BroadcastEvent(message: 'a').hashCode,
+        const BroadcastEvent(message: 'a').hashCode,
+      );
     });
 
     test('ConnectedEvent equality (singleton-ish)', () {

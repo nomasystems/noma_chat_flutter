@@ -130,6 +130,94 @@ void main() {
       expect(e.fromUserId, 'user-2');
     });
 
+    test('parses message_acked room form with metadata echo', () {
+      final event = EventParser.parseJson({
+        'type': 'message_acked',
+        'roomId': 'room-1',
+        'messageId': 'msg-42',
+        'seq': 42,
+        'metadata': {'clientMsgId': 'local-7f3a'},
+      });
+      expect(event, isA<MessageAckedEvent>());
+      final e = event as MessageAckedEvent;
+      expect(e.roomId, 'room-1');
+      expect(e.toUserId, isNull);
+      expect(e.messageId, 'msg-42');
+      expect(e.seq, 42);
+      expect(e.metadata, {'clientMsgId': 'local-7f3a'});
+    });
+
+    test('parses message_acked DM form (toUserId, null metadata)', () {
+      final event = EventParser.parseJson({
+        'type': 'message_acked',
+        'toUserId': 'user-2',
+        'messageId': 'msg-42',
+        'seq': 42,
+        'metadata': null,
+      });
+      expect(event, isA<MessageAckedEvent>());
+      final e = event as MessageAckedEvent;
+      expect(e.roomId, isNull);
+      expect(e.toUserId, 'user-2');
+      expect(e.metadata, isNull);
+    });
+
+    test('message_acked without integer seq is dropped with a warning', () {
+      final warnings = <String>[];
+      EventParser.logger = (level, message) {
+        if (level == 'warn') warnings.add(message);
+      };
+      addTearDown(() => EventParser.logger = null);
+      expect(
+        EventParser.parseJson({
+          'type': 'message_acked',
+          'roomId': 'room-1',
+          'messageId': 'msg-42',
+        }),
+        isNull,
+      );
+      expect(
+        EventParser.parseJson({
+          'type': 'message_acked',
+          'roomId': 'room-1',
+          'messageId': 'msg-42',
+          'seq': 'not-an-int',
+        }),
+        isNull,
+      );
+      expect(warnings, hasLength(2));
+    });
+
+    test('parses message_delivered room form', () {
+      final event = EventParser.parseJson({
+        'type': 'message_delivered',
+        'roomId': 'room-1',
+        'userId': 'user-2',
+        'messageId': 'msg-42',
+        'seq': 42,
+      });
+      expect(event, isA<MessageDeliveredEvent>());
+      final e = event as MessageDeliveredEvent;
+      expect(e.roomId, 'room-1');
+      expect(e.userId, 'user-2');
+      expect(e.messageId, 'msg-42');
+      expect(e.seq, 42);
+    });
+
+    test('parses message_delivered DM form (no roomId)', () {
+      final event = EventParser.parseJson({
+        'type': 'message_delivered',
+        'userId': 'user-2',
+        'messageId': 'msg-42',
+        'seq': 7,
+      });
+      expect(event, isA<MessageDeliveredEvent>());
+      final e = event as MessageDeliveredEvent;
+      expect(e.roomId, isNull);
+      expect(e.userId, 'user-2');
+      expect(e.seq, 7);
+    });
+
     test('parses reaction_added native event with emoji field', () {
       final event = EventParser.parseJson({
         'type': 'reaction_added',
@@ -239,16 +327,16 @@ void main() {
       expect(event, isNull);
     });
 
-    test('parses new_message with server field names (fromJid, body)', () {
+    test('parses new_message with canonical field names (from, text)', () {
       final event = EventParser.parseJson({
         'type': 'new_message',
         'roomId': 'room-1',
         'timestamp': '2024-12-25T20:00:00Z',
         'message': {
           'messageId': 'msg-1',
-          'fromJid': 'user-1',
+          'from': 'user-1',
           'timestamp': '2024-12-25T20:00:00Z',
-          'body': 'Hello from server',
+          'text': 'Hello from server',
           'messageType': 'regular',
         },
       });

@@ -79,16 +79,19 @@ void main() {
         },
         listMessages: (roomId, {pagination}) async {
           // Return the message only on the very first messages.list
-          // call; subsequent ones (after `_lastSeenTimestamp` is set)
-          // return empty.
-          return ChatSuccess(
-            ChatPaginatedResponse(
-              items: pagination?.after == null
-                  ? [_msg(id: 'm1', ts: ts)]
-                  : <ChatMessage>[],
-              hasMore: false,
-            ),
-          );
+          // call (no cursor yet); the catch-up poll resumes from the
+          // stored forward cursor and finds nothing new.
+          return pagination?.cursor == null
+              ? ChatSuccess(
+                  ChatPaginatedResponse(
+                    items: [_msg(id: 'm1', ts: ts)],
+                    hasMore: false,
+                    nextCursor: 'c1',
+                  ),
+                )
+              : const ChatSuccess(
+                  ChatPaginatedResponse(items: [], hasMore: false),
+                );
         },
         emit: emitted.add,
         config: const PollingConfig(),
@@ -124,11 +127,12 @@ void main() {
           );
         },
         listMessages: (roomId, {pagination}) async {
-          if (pagination?.after == null) {
+          if (pagination?.cursor == null) {
             return ChatSuccess(
               ChatPaginatedResponse(
                 items: [_msg(id: 'm1', ts: ts1)],
                 hasMore: false,
+                nextCursor: 'c1',
               ),
             );
           }
@@ -136,6 +140,7 @@ void main() {
             ChatPaginatedResponse(
               items: [_msg(id: 'm2', ts: ts2)],
               hasMore: false,
+              nextCursor: 'c2',
             ),
           );
         },
@@ -149,6 +154,59 @@ void main() {
 
       expect(emitted.whereType<NewMessageEvent>().length, 1);
       expect(emitted.whereType<NewMessageEvent>().first.message.id, 'm2');
+    });
+
+    test('seq cursor delivers same-timestamp messages exactly once via '
+        'forward catch-up (never lost nor duplicated)', () async {
+      // Both messages share the exact same millisecond. The opaque seq-based
+      // forward cursor encodes the precise position, so the catch-up poll
+      // resumes strictly after 'a' and surfaces 'b' once — no re-query, no id
+      // dedup.
+      final ts = DateTime.utc(2026, 6, 15, 10, 0, 0, 500);
+      final emitted = <ChatEvent>[];
+      final seenDirections = <ChatCursorDirection?>[];
+      final engine = RefreshEngine(
+        getUserRooms: ({String type = 'all'}) async => ChatSuccess(
+          UserRooms(
+            rooms: [
+              _room(id: 'r1', lastMsgId: 'a', lastMsgTime: ts, unread: 1),
+            ],
+          ),
+        ),
+        listMessages: (roomId, {pagination}) async {
+          if (pagination?.cursor == null) {
+            return ChatSuccess(
+              ChatPaginatedResponse(
+                items: [_msg(id: 'a', ts: ts)],
+                hasMore: false,
+                nextCursor: 'seq-a',
+              ),
+            );
+          }
+          seenDirections.add(pagination!.direction);
+          return ChatSuccess(
+            ChatPaginatedResponse(
+              items: [_msg(id: 'b', ts: ts)],
+              hasMore: false,
+              nextCursor: 'seq-b',
+            ),
+          );
+        },
+        emit: emitted.add,
+        config: const PollingConfig(),
+      );
+      engine.markRoomOpen('r1');
+
+      await engine.tick();
+      await engine.tick();
+
+      expect(seenDirections, [ChatCursorDirection.newer]);
+
+      final ids = emitted
+          .whereType<NewMessageEvent>()
+          .map((e) => e.message.id)
+          .toList();
+      expect(ids, ['a', 'b']);
     });
 
     test('vanished room emits RoomDeletedEvent', () async {
@@ -216,10 +274,11 @@ void main() {
           pollCalls.add(roomId);
           return ChatSuccess(
             ChatPaginatedResponse(
-              items: pagination?.after == null
+              items: pagination?.cursor == null
                   ? [_msg(id: 'm1', ts: ts)]
                   : <ChatMessage>[],
               hasMore: false,
+              nextCursor: pagination?.cursor == null ? 'c1' : null,
             ),
           );
         },
@@ -325,11 +384,12 @@ void main() {
           ),
         ),
         listMessages: (roomId, {pagination}) async {
-          pollCalls.add('${pagination?.after ?? 'null'}->$roomId');
+          pollCalls.add('${pagination?.cursor ?? 'null'}->$roomId');
           return ChatSuccess(
             ChatPaginatedResponse(
               items: [_msg(id: 'm1', ts: ts)],
               hasMore: false,
+              nextCursor: 'c1',
             ),
           );
         },
@@ -342,7 +402,7 @@ void main() {
       engine.reset();
       await engine.tick();
 
-      // After reset, lastSeenTimestamp is gone → poll has after=null.
+      // After reset, the stored forward cursor is gone → poll has cursor=null.
       expect(pollCalls.first.startsWith('null->'), isTrue);
     });
   });

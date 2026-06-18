@@ -108,37 +108,48 @@ void main() {
       },
     );
 
-    test('mute()/unmute() hit /rooms/{id}/mute', () async {
-      when(() => rest.putVoid(any())).thenAnswer((_) async {});
-      when(() => rest.delete(any())).thenAnswer((_) async {});
+    test('patchPreferences() patches /rooms/{id}/preferences', () async {
+      when(() => rest.patch(any(), data: any(named: 'data'))).thenAnswer(
+        (_) async => {'muted': true, 'pinned': true, 'hidden': false},
+      );
 
-      await api.mute('r1');
-      await api.unmute('r1');
+      final r = await api.patchPreferences('r1', muted: true, pinned: true);
 
-      verify(() => rest.putVoid('/rooms/r1/mute')).called(1);
-      verify(() => rest.delete('/rooms/r1/mute')).called(1);
+      expect(r.isSuccess, true);
+      expect(r.dataOrThrow.muted, true);
+      expect(r.dataOrThrow.pinned, true);
+      final captured =
+          verify(
+                () => rest.patch(
+                  '/rooms/r1/preferences',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['muted'], true);
+      expect(captured['pinned'], true);
+      expect(captured.containsKey('hidden'), false);
     });
 
-    test('pin()/unpin() hit /rooms/{id}/pin', () async {
-      when(() => rest.putVoid(any())).thenAnswer((_) async {});
-      when(() => rest.delete(any())).thenAnswer((_) async {});
+    test('patchPreferences() sends only the fields supplied', () async {
+      when(() => rest.patch(any(), data: any(named: 'data'))).thenAnswer(
+        (_) async => {'muted': false, 'pinned': false, 'hidden': true},
+      );
 
-      await api.pin('r1');
-      await api.unpin('r1');
+      final r = await api.patchPreferences('r1', hidden: true);
 
-      verify(() => rest.putVoid('/rooms/r1/pin')).called(1);
-      verify(() => rest.delete('/rooms/r1/pin')).called(1);
-    });
-
-    test('hide()/unhide() hit /rooms/{id}/hidden', () async {
-      when(() => rest.putVoid(any())).thenAnswer((_) async {});
-      when(() => rest.delete(any())).thenAnswer((_) async {});
-
-      await api.hide('r1');
-      await api.unhide('r1');
-
-      verify(() => rest.putVoid('/rooms/r1/hidden')).called(1);
-      verify(() => rest.delete('/rooms/r1/hidden')).called(1);
+      expect(r.isSuccess, true);
+      expect(r.dataOrThrow.hidden, true);
+      final captured =
+          verify(
+                () => rest.patch(
+                  '/rooms/r1/preferences',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured.keys.toList(), ['hidden']);
+      expect(captured['hidden'], true);
     });
 
     test('batchMarkAsRead() posts roomIds list', () async {

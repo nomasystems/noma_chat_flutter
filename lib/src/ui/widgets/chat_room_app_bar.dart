@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../models/user.dart';
 import '../controller/chat_controller.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
@@ -29,6 +30,8 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
     this.avatarBuilder,
     this.subtitleBuilder,
     this.avatarSize = 36,
+    this.userCacheListenable,
+    this.peerResolver,
   });
 
   /// Live controller for the room — provides typing indicators, draft
@@ -42,9 +45,10 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
   /// renders but falls back to the `controller`-only data.
   final RoomListItem? room;
 
-  /// Explicit title override. When non-null, takes precedence over
-  /// `room?.displayName` — useful for draft DMs whose name isn't on
-  /// the room list yet, or for tests.
+  /// Explicit title seed / fallback. Used only when neither the live
+  /// `peerResolver()` nor `room?.displayName` yields a non-empty name —
+  /// e.g. the first frame before the room/peer resolves, draft DMs not
+  /// yet on the room list, or tests. A live peer rename takes precedence.
   final String? title;
 
   final ChatTheme theme;
@@ -74,14 +78,29 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   final double avatarSize;
 
+  /// Optional live signal that drives a title/subtitle rebuild whenever the
+  /// shared user cache changes — e.g. a peer renaming themselves or updating
+  /// their avatar. Merged with the [controller] so the header stays in sync
+  /// without the host wiring a manual rebuild. `null` keeps the AppBar
+  /// reactive to the controller only.
+  final Listenable? userCacheListenable;
+
+  /// Optional resolver for the live peer of a 1:1 chat. When it returns a
+  /// user with a non-empty `displayName`, that name takes precedence over
+  /// the (possibly stale) `room?.displayName`, so a peer renaming themselves
+  /// updates the header live. `null` keeps the title/`room` logic untouched.
+  final ChatUser Function()? peerResolver;
+
   @override
   Size get preferredSize => const Size.fromHeight(kToolbarHeight);
 
   String _resolveTitle() {
-    final explicit = title?.trim();
-    if (explicit != null && explicit.isNotEmpty) return explicit;
+    final livePeerName = peerResolver?.call().displayName?.trim();
+    if (livePeerName != null && livePeerName.isNotEmpty) return livePeerName;
     final fromRoom = room?.displayName.trim();
     if (fromRoom != null && fromRoom.isNotEmpty) return fromRoom;
+    final explicit = title?.trim();
+    if (explicit != null && explicit.isNotEmpty) return explicit;
     // Never expose the UUID as a title.
     return '';
   }
@@ -132,8 +151,11 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
 
   @override
   Widget build(BuildContext context) {
+    final animation = userCacheListenable == null
+        ? controller
+        : Listenable.merge([controller, userCacheListenable]);
     return AnimatedBuilder(
-      animation: controller,
+      animation: animation,
       builder: (context, _) {
         final resolvedTitle = _resolveTitle();
         final subtitle = _resolveSubtitle();
@@ -180,14 +202,43 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        resolvedTitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              resolvedTitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (room?.pinned == true) ...[
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.push_pin,
+                              size: 16,
+                              color:
+                                  theme.roomList.pinnedIconColor ??
+                                  Colors.black54,
+                              semanticLabel: theme.l10n.pin,
+                            ),
+                          ],
+                          if (room?.muted == true) ...[
+                            const SizedBox(width: 6),
+                            Icon(
+                              Icons.notifications_off_outlined,
+                              size: 16,
+                              color:
+                                  theme.roomList.mutedIconColor ??
+                                  Colors.black54,
+                              semanticLabel: theme.l10n.mute,
+                            ),
+                          ],
+                        ],
                       ),
                       if (subtitleWidget != null) subtitleWidget,
                     ],

@@ -29,18 +29,20 @@ void main() {
     expect((await c.rooms.delete(id)).isSuccess, true);
   });
 
-  test('rooms mute/unmute/pin/unpin/hide/unhide/updateConfig', () async {
+  test('rooms patchPreferences (mute/pin/hide) + updateConfig', () async {
     final created = await c.rooms.create(
       audience: RoomAudience.public,
       name: 'R',
     );
     final id = created.dataOrNull!.id;
-    expect((await c.rooms.mute(id)).isSuccess, true);
-    expect((await c.rooms.unmute(id)).isSuccess, true);
-    expect((await c.rooms.pin(id)).isSuccess, true);
-    expect((await c.rooms.unpin(id)).isSuccess, true);
-    expect((await c.rooms.hide(id)).isSuccess, true);
-    expect((await c.rooms.unhide(id)).isSuccess, true);
+    expect((await c.rooms.patchPreferences(id, muted: true)).isSuccess, true);
+    expect((await c.rooms.patchPreferences(id, muted: false)).isSuccess, true);
+    expect((await c.rooms.patchPreferences(id, pinned: true)).isSuccess, true);
+    expect((await c.rooms.patchPreferences(id, pinned: false)).isSuccess, true);
+    expect((await c.rooms.patchPreferences(id, hidden: true)).isSuccess, true);
+    final reveal = await c.rooms.patchPreferences(id, hidden: false);
+    expect(reveal.isSuccess, true);
+    expect(reveal.dataOrThrow.hidden, false);
     expect((await c.rooms.updateConfig(id, name: 'Renamed')).isSuccess, true);
   });
 
@@ -110,12 +112,7 @@ void main() {
     expect((await c.messages.unpinMessage(id, msgId)).isSuccess, true);
 
     expect(
-      (await c.messages.send(
-        id,
-        messageType: MessageType.reaction,
-        reaction: '👍',
-        referencedMessageId: msgId,
-      )).isSuccess,
+      (await c.messages.addReaction(id, msgId, emoji: '👍')).isSuccess,
       true,
     );
     expect((await c.messages.getReactions(id, msgId)).isSuccess, true);

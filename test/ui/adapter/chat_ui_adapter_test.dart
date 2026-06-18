@@ -166,7 +166,7 @@ void main() {
     });
 
     test(
-      'roomDeleted event removes from list and disposes controller',
+      'roomDeleted (leave/kick) keeps the room read-only, not removed',
       () async {
         await adapter.connect();
         adapter.roomListController.addRoom(const RoomListItem(id: 'room1'));
@@ -175,7 +175,12 @@ void main() {
         mockClient.emitEvent(const ChatEvent.roomDeleted(roomId: 'room1'));
 
         await Future.delayed(Duration.zero);
-        expect(adapter.roomListController.allRooms, isEmpty);
+        // WhatsApp parity: leaving or being kicked from a room does NOT
+        // remove it; the chat stays visible read-only with full history
+        // until the user explicitly deletes it.
+        final room = adapter.roomListController.getRoomById('room1');
+        expect(room, isNotNull);
+        expect(room!.isParticipating, isFalse);
       },
     );
 

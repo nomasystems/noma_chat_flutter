@@ -158,6 +158,105 @@ void main() {
     });
   });
 
+  group('Delivered cursors (applyDeliveryCursor / recordMessageSeq)', () {
+    test('cursor covers every message at-or-before, cross-sender', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          ChatMessage(
+            id: 'm-foreign',
+            from: 'u2',
+            timestamp: t0.add(const Duration(seconds: 2)),
+            text: 'foreign',
+          ),
+          own('m3', offset: const Duration(seconds: 3)),
+          own('m4', offset: const Duration(seconds: 4)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      // u1's cursor lands on the FOREIGN message m-foreign: unlike the
+      // same-sender propagation of updateReceipt, the cursor must still
+      // cover m1 (own, older) even though the cursor message's author
+      // is someone else.
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm-foreign', seq: 2);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      // Messages after the cursor stay untouched.
+      expect(c.receiptStatuses['m3'], isNull);
+      expect(c.receiptStatuses['m4'], isNull);
+    });
+
+    test('stale cursor (lower seq) is an idempotent no-op', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+          own('m3', offset: const Duration(seconds: 3)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm3', seq: 3);
+      expect(c.receiptStatuses['m3'], ReceiptStatus.delivered);
+
+      // u1 then reads everything; a late/stale delivered cursor must
+      // not regress any status (max-register semantics).
+      c.updateReceipt('m3', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m3'], ReceiptStatus.read);
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm1', seq: 1);
+      expect(c.receiptStatuses['m3'], ReceiptStatus.read);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('numeric coverage by seq wins over list order', () {
+      // m-late sorts AFTER the cursor message by timestamp, but its
+      // acked seq (5) is <= the cursor seq (9): the live path must
+      // cover it numerically.
+      final c = ChatController(
+        initialMessages: [
+          own('m-late', offset: const Duration(seconds: 9)),
+          own('m-cursor', offset: const Duration(seconds: 1)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.recordMessageSeq('m-late', 5);
+      c.recordMessageSeq('m-cursor', 4);
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm-cursor', seq: 9);
+      expect(c.receiptStatuses['m-late'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m-cursor'], ReceiptStatus.delivered);
+    });
+
+    test('cursor on a not-yet-loaded message is stashed and re-applied '
+        'by setMessages', () {
+      final c = ChatController(
+        initialMessages: const [],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      // Cursor arrives before the history page (no seqs known either).
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm2');
+      expect(c.receiptStatuses, isEmpty);
+
+      c.setMessages([
+        own('m1', offset: const Duration(seconds: 1)),
+        own('m2', offset: const Duration(seconds: 2)),
+        own('m3', offset: const Duration(seconds: 3)),
+      ]);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m2'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m3'], isNull);
+    });
+  });
+
   group('clearMessages resets all per-user tracking', () {
     test('aggregated and per-user maps are wiped after clearMessages', () {
       final c = ChatController(
@@ -176,5 +275,88 @@ void main() {
       c.addMessage(own('m1'));
       expect(c.receiptStatuses['m1'], isNull);
     });
+  });
+
+  group('Group flag while members hydrate (regression)', () {
+    test('a group with no members hydrated yet does NOT flip to read on one '
+        'peer read when setIsGroup(true) is set', () {
+      // Reproduces the bug: the controller opens before its member list
+      // loads, so `_otherUsers` is empty and the count heuristic would treat
+      // it as a 1:1, marking the message read-by-all on the first peer read.
+      // setIsGroup pins the group decision so that can't happen.
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      // Members unknown → can't be "read by all" → stays at sent.
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+    });
+
+    test('without the group flag, an unhydrated chat falls back to the 1:1 '
+        'heuristic (single peer read => read)', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      // No flag, no members → treated as 1:1 (legacy behaviour preserved).
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('setOtherUsers recomputes receipts: a group stuck at a wrong status '
+        'corrects once the member list arrives', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+
+      // Two of three peers read while the roster is still empty.
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+
+      // Member list arrives with three members — still not read-by-all.
+      c.setOtherUsers(const [
+        ChatUser(id: 'u1', displayName: 'Alice'),
+        ChatUser(id: 'u2', displayName: 'Bob'),
+        ChatUser(id: 'u3', displayName: 'Charlie'),
+      ]);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+
+      // The third peer reads → now genuinely read-by-all.
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u3');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('setIsGroup(false) forces the 1:1 rule even with several members', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+        ],
+      );
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test(
+      'isGroup getter reflects the explicit flag, then the member count',
+      () {
+        final c = ChatController(initialMessages: const [], currentUser: me);
+        addTearDown(c.dispose);
+        expect(c.isGroup, isFalse); // no flag, no members
+        c.setOtherUsers(const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+        ]);
+        expect(c.isGroup, isTrue); // inferred from count
+        c.setIsGroup(false);
+        expect(c.isGroup, isFalse); // explicit wins
+      },
+    );
   });
 }

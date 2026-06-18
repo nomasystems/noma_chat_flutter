@@ -1,9 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
+import '../../utils/chat_invite_link.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../theme/chat_theme.dart';
+import 'mute_duration_sheet.dart';
 
 /// Confirmation dialog config attached to a [ChatRoomOption]. When present,
 /// [ChatRoomOptionsMenu] shows the dialog after the user taps the option;
@@ -33,6 +36,7 @@ class ChatRoomOption {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.onTapWithContext,
     this.destructive = false,
     this.confirmation,
   });
@@ -45,8 +49,14 @@ class ChatRoomOption {
   final String label;
 
   /// Invoked when the user taps the row (after the confirmation dialog, if
-  /// any). May be sync or async.
+  /// any). May be sync or async. Ignored when [onTapWithContext] is set.
   final FutureOr<void> Function() onTap;
+
+  /// Context-aware variant of [onTap], invoked with the page context that
+  /// opened the menu (after the sheet is dismissed). Takes precedence over
+  /// [onTap] when non-null — used by presets that need to show further UI,
+  /// e.g. [ChatRoomOption.muteRoom]'s duration picker.
+  final FutureOr<void> Function(BuildContext context)? onTapWithContext;
 
   /// `true` for destructive actions like clear/delete. Affects icon + text
   /// color via [ChatTheme.contextMenuDestructiveColor] and the accept
@@ -77,10 +87,14 @@ class ChatRoomOption {
     ),
   );
 
-  /// "Delete chat" preset — destructive option that hides the room from
-  /// the user's list (`adapter.rooms.hide(roomId)` on the consumer side).
-  /// Matches WhatsApp semantics: if a new message arrives later, the room
-  /// reappears. Includes a confirmation dialog.
+  /// "Delete chat" preset — destructive option that removes the chat from
+  /// the user's list entirely (`adapter.rooms.delete(roomId)` on the
+  /// consumer side). WhatsApp semantics: the chat is gone from BOTH the
+  /// main list and the Archived section; for a 1:1 it reappears EMPTY only
+  /// if the peer writes again (prior history stays hidden). This is
+  /// distinct from [archiveChat] (`adapter.rooms.hide`), which only moves
+  /// the room to the Archived section and keeps its history. Includes a
+  /// confirmation dialog.
   factory ChatRoomOption.deleteChat({
     required ChatUiLocalizations l10n,
     required FutureOr<void> Function() onConfirm,
@@ -173,22 +187,40 @@ class ChatRoomOption {
     );
   }
 
-  /// "Mute / Unmute" toggle preset. The label, icon and underlying call
-  /// flip based on [muted] (the current room state) — the consumer just
-  /// hands the SDK a single `onToggle` callback. Apps typically resolve
-  /// [muted] from `RoomListItem.muted` and toggle via
-  /// `adapter.rooms.mute(roomId)` / `unmuteRoom(roomId)`.
+  /// "Mute / Unmute" preset with a WhatsApp-style duration picker. When the
+  /// room is not [muted], tapping opens [MuteDurationSheet] (8h / 1 week /
+  /// always) and hands the chosen expiry to [onMute] — `null` means a
+  /// permanent mute. When already [muted], it calls [onUnmute] directly.
+  /// Apps resolve [muted] from `RoomListItem.muted` and wire
+  /// `adapter.rooms.mute(roomId, until: until)` / `unmute(roomId)`.
+  ///
+  /// The SDK shows the picker itself; the host only provides the two calls.
   factory ChatRoomOption.muteRoom({
     required ChatUiLocalizations l10n,
     required bool muted,
-    required FutureOr<void> Function() onToggle,
+    required FutureOr<void> Function(DateTime? until) onMute,
+    required FutureOr<void> Function() onUnmute,
+    ChatTheme theme = ChatTheme.defaults,
     Widget? icon,
   }) => ChatRoomOption(
     icon:
         icon ??
         Icon(muted ? Icons.volume_up_outlined : Icons.volume_off_outlined),
     label: muted ? l10n.unmute : l10n.mute,
-    onTap: onToggle,
+    onTap: () {},
+    onTapWithContext: (context) async {
+      if (muted) {
+        await onUnmute();
+        return;
+      }
+      final choice = await MuteDurationSheet.show(
+        context,
+        l10n: l10n,
+        theme: theme,
+      );
+      if (choice == null) return;
+      await onMute(choice.until(DateTime.now()));
+    },
   );
 
   /// "Pin / Unpin room" toggle preset. Pairs with `RoomListItem.pinned`
@@ -259,6 +291,73 @@ class ChatRoomOption {
     required FutureOr<void> Function() onTap,
     Widget icon = const Icon(Icons.image_outlined),
   }) => ChatRoomOption(icon: icon, label: l10n.galleryTitle, onTap: onTap);
+
+  /// "Starred messages" preset — links to the SDK's `StarredMessagesPage`,
+  /// the current user's bookmarked messages across every room. As with
+  /// [mediaGallery], the factory only handles labelling — the consumer
+  /// routes the tap to its preferred page.
+  factory ChatRoomOption.viewStarred({
+    required ChatUiLocalizations l10n,
+    required FutureOr<void> Function() onTap,
+    Widget icon = const Icon(Icons.star_outline),
+  }) => ChatRoomOption(icon: icon, label: l10n.starredMessages, onTap: onTap);
+
+  /// "Invite via link" preset for public / invitable group rooms. Builds a
+  /// deep link from [roomId] + the room's public [token] (its
+  /// `ChatRoom.publicToken`) attached to [linkBase], and by default copies
+  /// it to the clipboard. Pass [onInvite] to surface a share sheet instead
+  /// of copying. Only show this when the room actually carries a public
+  /// token — DMs and private groups don't.
+  factory ChatRoomOption.inviteViaLink({
+    required ChatUiLocalizations l10n,
+    required String roomId,
+    required String token,
+    required Uri linkBase,
+    void Function(Uri link)? onInvite,
+    Widget icon = const Icon(Icons.link),
+  }) {
+    final link = ChatInviteLink(roomId: roomId, token: token).toUri(linkBase);
+    return ChatRoomOption(
+      icon: icon,
+      label: l10n.inviteViaLink,
+      onTap: () async {
+        if (onInvite != null) {
+          onInvite(link);
+          return;
+        }
+        await Clipboard.setData(ClipboardData(text: link.toString()));
+      },
+    );
+  }
+
+  /// "Export chat" preset — labels the row that triggers a chat export.
+  /// The factory only handles the label/icon; the consumer's [onTap]
+  /// performs `adapter.messages.exportChat(roomId)` and writes / shares the
+  /// resulting [ChatExport].
+  factory ChatRoomOption.exportChat({
+    required ChatUiLocalizations l10n,
+    required FutureOr<void> Function() onTap,
+    Widget icon = const Icon(Icons.ios_share),
+  }) => ChatRoomOption(icon: icon, label: l10n.exportChat, onTap: onTap);
+
+  /// "Archive chat" preset — non-destructive option that hides the room
+  /// into the collapsible "Archived" section of the room list
+  /// (`adapter.rooms.hide(roomId)`). Reversible via [unarchiveChat], and
+  /// the room auto-unarchives when a new message arrives (WhatsApp parity).
+  /// No confirmation: archiving is cheap and undoable.
+  factory ChatRoomOption.archiveChat({
+    required ChatUiLocalizations l10n,
+    required FutureOr<void> Function() onTap,
+    Widget icon = const Icon(Icons.archive_outlined),
+  }) => ChatRoomOption(icon: icon, label: l10n.archiveChat, onTap: onTap);
+
+  /// "Unarchive chat" preset — restores an archived room to the main list
+  /// (`adapter.rooms.unhide(roomId)`).
+  factory ChatRoomOption.unarchiveChat({
+    required ChatUiLocalizations l10n,
+    required FutureOr<void> Function() onTap,
+    Widget icon = const Icon(Icons.unarchive_outlined),
+  }) => ChatRoomOption(icon: icon, label: l10n.unarchiveChat, onTap: onTap);
 
   /// "Report user" preset — destructive option for chat moderation
   /// flows. The factory does NOT embed a reason picker (apps differ a
@@ -335,7 +434,7 @@ class ChatRoomOption {
 ///       ChatRoomOption.deleteChat(
 ///         l10n: theme.l10n,
 ///         onConfirm: () async {
-///           await adapter.rooms.hide(roomId);
+///           await adapter.rooms.delete(roomId);
 ///           if (context.mounted) Navigator.of(context).pop();
 ///         },
 ///       ),
@@ -458,7 +557,13 @@ class _ChatRoomOptionTile extends StatelessWidget {
           );
           if (!confirmed) return;
         }
-        await option.onTap();
+        final ctxTap = option.onTapWithContext;
+        if (ctxTap != null) {
+          if (!pageContext.mounted) return;
+          await ctxTap(pageContext);
+        } else {
+          await option.onTap();
+        }
       },
     );
   }

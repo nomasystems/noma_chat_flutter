@@ -47,12 +47,7 @@ void main() {
 
     // Permissive defaults for cache calls.
     when(
-      () => cache.getMessages(
-        any(),
-        limit: any(named: 'limit'),
-        before: any(named: 'before'),
-        after: any(named: 'after'),
-      ),
+      () => cache.getMessages(any(), limit: any(named: 'limit')),
     ).thenAnswer((_) async => const ChatSuccess(<ChatMessage>[]));
     when(
       () => cache.saveMessages(any(), any()),
@@ -131,12 +126,7 @@ void main() {
 
     test('list() with cache hit returns cached items', () async {
       when(
-        () => cache.getMessages(
-          any(),
-          limit: any(named: 'limit'),
-          before: any(named: 'before'),
-          after: any(named: 'after'),
-        ),
+        () => cache.getMessages(any(), limit: any(named: 'limit')),
       ).thenAnswer(
         (_) async => ChatSuccess(<ChatMessage>[
           ChatMessage(

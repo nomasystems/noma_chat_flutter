@@ -45,7 +45,7 @@ doc/api/
 # and pub.dev rewrites that relative link to the repo, so it stays viewable
 # straight from the package page). Excluded from the published tarball: it's
 # ~220 KB of reference data that consumers never need in their pub cache.
-doc/user-openapi.yml
+doc/chat-api-openapi.yml
 
 # Workflows are part of the repo, not the package. pub.dev doesn't run
 # them and they only confuse the file listing.

@@ -43,7 +43,15 @@ abstract class RoomListItem with _$RoomListItem {
     @Default(false) bool lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
     @Default(0) int unreadCount,
+
+    /// Count of unread messages in this room that mention the current user.
+    /// Drives the "@" badge on the tile. `0` when none.
+    @Default(0) int unreadMentions,
     @Default(false) bool muted,
+
+    /// When the notification mute expires (UTC). `null` means a permanent
+    /// mute (or not muted — check [muted]).
+    DateTime? muteUntil,
     @Default(false) bool pinned,
     @Default(false) bool hidden,
 

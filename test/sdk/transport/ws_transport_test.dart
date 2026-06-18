@@ -45,9 +45,6 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   Future<void> simulateDrop() async {
     await _streamController.close();
   }
-
-  List<String> get sentMessages =>
-      _sinkController.stream.toList() as List<String>;
 }
 
 class _FakeWebSocketSink implements WebSocketSink {
@@ -104,6 +101,61 @@ void main() {
       // Must NOT use baseUrl host
       expect(capturedUri!.host, isNot(equals('api.example.com')));
 
+      await transport.dispose();
+    });
+
+    test('off-contract frame does not break event delivery', () async {
+      late _FakeWebSocketChannel fakeChannel;
+      final config = ChatConfig(
+        baseUrl: 'https://api.example.com',
+        realtimeUrl: 'https://realtime.example.com',
+        tokenProvider: () async => 'test-token',
+      );
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) {
+          fakeChannel = _FakeWebSocketChannel();
+          Future.microtask(() {
+            fakeChannel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
+          });
+          return fakeChannel;
+        },
+      );
+
+      final received = <ChatEvent>[];
+      final sub = transport.events.listen(received.add);
+      await transport.connect();
+      await Future<void>.delayed(Duration.zero);
+
+      // A backend field shipped off-contract (roomId as a number where a
+      // String is expected) must be dropped, not thrown out of the stream.
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'new_message',
+          'roomId': 42,
+          'message': {'messageId': 'm0', 'from': 'u0', 'text': 'x'},
+        }),
+      );
+      // The stream must still be alive: a subsequent valid frame is delivered.
+      fakeChannel.receiveMessage(
+        jsonEncode({
+          'type': 'new_message',
+          'roomId': 'room-1',
+          'message': {
+            'messageId': 'm1',
+            'from': 'user-1',
+            'text': 'hello',
+            'timestamp': '2024-01-01T00:00:00.000Z',
+          },
+        }),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final messages = received.whereType<NewMessageEvent>().toList();
+      expect(messages, hasLength(1));
+      expect(messages.single.roomId, equals('room-1'));
+
+      await sub.cancel();
       await transport.dispose();
     });
 
@@ -677,26 +729,30 @@ void main() {
           },
         );
 
+        Future<void> dropAndAwaitReconnect(int expectedTotal) async {
+          await channels.last.simulateDrop();
+          for (var i = 0; i < 200 && channels.length < expectedTotal; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 25));
+          }
+        }
+
         await transport.connect();
         expect(channels, hasLength(1));
 
-        await channels[0].simulateDrop();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
-        expect(channels.length, greaterThanOrEqualTo(2));
+        await dropAndAwaitReconnect(2);
+        expect(channels, hasLength(2));
 
-        await channels.last.simulateDrop();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
-        expect(channels.length, greaterThanOrEqualTo(3));
+        await dropAndAwaitReconnect(3);
+        expect(channels, hasLength(3));
 
-        await channels.last.simulateDrop();
-        await Future<void>.delayed(const Duration(milliseconds: 1500));
+        await dropAndAwaitReconnect(4);
         expect(
-          channels.length,
-          greaterThanOrEqualTo(4),
+          channels,
+          hasLength(4),
           reason:
-              'each successful auth_ok must reset the attempt counter, '
-              'so total reconnects can exceed maxReconnectAttempts when '
-              'auth succeeds in between',
+              'each successful auth_ok resets the attempt counter, so a '
+              'single drop after an authenticated session always yields '
+              'exactly one reconnect',
         );
 
         await transport.dispose();

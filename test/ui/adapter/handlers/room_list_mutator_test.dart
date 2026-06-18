@@ -299,14 +299,28 @@ void main() {
   });
 
   group('removeBlockedRooms', () {
-    test('drops DM rows whose other was blocked and disposes controllers', () {
-      roomList.addRoom(const RoomListItem(id: 'dm-with-u2', otherUserId: 'u2'));
-      roomList.addRoom(const RoomListItem(id: 'dm-with-u3', otherUserId: 'u3'));
-      blockedUserIds.add('u2');
-      mutator.removeBlockedRooms();
-      expect(roomList.allRooms.map((r) => r.id), ['dm-with-u3']);
-      expect(removedControllers, ['dm-with-u2']);
-    });
+    test(
+      'keeps DM rows whose other was blocked (read-only, WhatsApp parity)',
+      () {
+        // Decision A: blocking a contact must KEEP their DM chat in the list
+        // (read-only via the blocked composer banner). removeBlockedRooms() is
+        // gated behind _pruneBlockedDms (false) and is a no-op, so the row
+        // stays and its controller is NOT disposed.
+        roomList.addRoom(
+          const RoomListItem(id: 'dm-with-u2', otherUserId: 'u2'),
+        );
+        roomList.addRoom(
+          const RoomListItem(id: 'dm-with-u3', otherUserId: 'u3'),
+        );
+        blockedUserIds.add('u2');
+        mutator.removeBlockedRooms();
+        expect(roomList.allRooms.map((r) => r.id), [
+          'dm-with-u2',
+          'dm-with-u3',
+        ]);
+        expect(removedControllers, isEmpty);
+      },
+    );
 
     test('is a no-op when there are no blocked users', () {
       roomList.addRoom(const RoomListItem(id: 'dm-with-u2', otherUserId: 'u2'));

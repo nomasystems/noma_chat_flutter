@@ -21,6 +21,14 @@ abstract class ChatMessage with _$ChatMessage {
     @Default(MessageType.regular) MessageType messageType,
     String? attachmentUrl,
     String? referencedMessageId,
+
+    /// Echo of the client-supplied idempotency key sent with the message
+    /// (see [ChatMessagesApi.send]'s `clientMessageId`). The backend
+    /// round-trips it inside the response `metadata.clientMessageId`; the
+    /// SDK lifts it out to this field so it can reconcile the optimistic
+    /// temporary message with the server-assigned [id]. `null` when the
+    /// sender did not supply one (e.g. messages from other users).
+    String? clientMessageId,
     String? reaction,
     String? reply,
     Map<String, dynamic>? metadata,
@@ -28,6 +36,7 @@ abstract class ChatMessage with _$ChatMessage {
     @Default(false) bool isEdited,
     @Default(false) bool isDeleted,
     @Default(false) bool isForwarded,
+    @Default(false) bool isStarred,
     @Default(false) bool isSystem,
     String? mimeType,
     String? fileName,

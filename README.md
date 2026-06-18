@@ -28,30 +28,62 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^0.9.0
+  noma_chat: ^0.10.0
+  # The default persistent cache is Hive-backed; you initialise it (see below).
+  hive_ce_flutter: ^2.3.4
 ```
 
 ```dart
+import 'package:flutter/widgets.dart';
+import 'package:hive_ce_flutter/hive_flutter.dart';
 import 'package:noma_chat/noma_chat.dart';
 
-final chat = await NomaChat.create(
-  baseUrl: 'https://chat.myapp.com/v1',
-  realtimeUrl: 'https://chat.myapp.com',
-  tokenProvider: () => authService.getToken(),
-  currentUser: ChatUser(id: userId, displayName: name),
-);
-await chat.connect();
+Future<void> main() async {
+  // Required before NomaChat.create: the SDK's default Hive cache opens its
+  // boxes immediately, so Hive must be initialised first. Skip this only if
+  // you disable the cache (`enableCache: false`) or supply your own
+  // `localDatasource`.
+  WidgetsFlutterBinding.ensureInitialized();
+  await Hive.initFlutter();
+
+  final chat = await NomaChat.create(
+    baseUrl: 'https://chat.myapp.com/v1',
+    realtimeUrl: 'https://chat.myapp.com',
+    tokenProvider: () => authService.getToken(),
+    currentUser: ChatUser(id: userId, displayName: name),
+  );
+  await chat.connect();
+
+  runApp(MyApp(chat: chat));
+}
 ```
+
+> Cache disabled? If you pass `enableCache: false` (or your own
+> `localDatasource`), you don't need `hive_ce_flutter` or `Hive.initFlutter()`.
 
 Drop the UI into your widget tree:
 
 ```dart
-// Full chat screen
-ChatView(controller: ChatController(chat: chat, roomId: roomId))
+// Full chat-room screen — app bar + message list + every room behavior
+// (history & pin load, unread divider, group member hydration, blocked /
+// room-removed reactions, role-aware context menu, report dialog) auto-wired.
+NomaChatView(
+  roomId: roomId,
+  adapter: chat.adapter,
+  onRoomLeft: () => Navigator.of(context).maybePop(),
+)
 
-// Room list
-RoomListView(controller: RoomListController(chat: chat))
+// Room list — the SDK owns the controller; pass currentUserId so the
+// own-message ticks and the "You:" group prefix render correctly.
+RoomListView(
+  controller: chat.roomListController,
+  currentUserId: userId,
+)
 ```
+
+`NomaChatView` is the recommended way to render a room. For a fully custom
+screen, compose `ChatView` (with your own `ChatController`, app bar and
+callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.md#nomachatview).
 
 ---
 
@@ -76,6 +108,15 @@ RoomListView(controller: RoomListController(chat: chat))
 - Circuit breaker + exponential backoff + offline message queue
 - Token rotation without reconnecting
 - 8 sub-APIs: auth, users, rooms, members, messages, contacts, presence, attachments
+- Global or per-room message search — `messages.search(query)` spans every room the user belongs to; `messages.search(query, roomId:)` stays scoped
+- Bidirectional opaque-cursor pagination — page back through history and catch up on newer messages
+- Stable, localizable error tokens — branch and translate on `ChatFailure.errorToken` (a snake_case code such as `room_not_found` or `rate_limited`), never on an English string
+- GDPR self-service deletion — `users.deleteCurrentUser()` erases the authenticated account, token-scoped so it can't target the wrong user
+
+**Security & observability**
+- TLS certificate pinning — pass SHA-256 leaf fingerprints via `certificatePins`
+- Optional at-rest cache encryption — hand `NomaChat.create` a Hive AES cipher and the offline message / room store is encrypted on device
+- Structured `logger` + `metricCallback` hooks; an official OpenTelemetry adapter, `noma_chat_otel`, turns every WebSocket / HTTP / cache event into a span with zero boilerplate
 
 **UI components — messages**
 - Text, image, audio, video, file and link-preview bubbles
@@ -83,6 +124,8 @@ RoomListView(controller: RoomListController(chat: chat))
 - Emoji reactions + reaction picker
 - @mentions with autocomplete overlay
 - Threaded replies
+- WhatsApp-style delivery ticks (sending → sent → delivered → read → failed),
+  cursor-based and confirmed automatically
 - Per-user read receipts (DM any-read → blue; group all-read → blue)
 - Typing indicators
 - Forward to multiple rooms
@@ -128,6 +171,17 @@ theme: ChatTheme(
 )
 ```
 
+Even the delivery ticks are replaceable — per state, with SDK fallback:
+
+```dart
+bubble: ChatBubbleTheme(
+  statusIconBuilder: (context, data) =>
+      data.state == MessageDeliveryState.read
+      ? Icon(Icons.done_all, size: data.size, color: Colors.teal)
+      : null, // SDK default for the other states
+)
+```
+
 See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+ fields.
 
 ---
@@ -145,7 +199,7 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 
 ## Backend
 
-`noma_chat` is built to talk to a **Nomasystems chat backend**. That backend exposes a REST + WebSocket/SSE API described by a public **OpenAPI 3.0 contract** — [browse the rendered API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/user-openapi.yml) or read the [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/user-openapi.yml). The SDK speaks exactly that contract, so it runs against **any** backend that implements the spec — not only ours.
+`noma_chat` is built to talk to a **Nomasystems chat backend**. That backend exposes a REST + WebSocket/SSE API described by a public **OpenAPI 3.0 contract** — [browse the rendered API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/chat-api-openapi.yml) or read the [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/chat-api-openapi.yml). The SDK speaks exactly that contract, so it runs against **any** backend that implements the spec — not only ours.
 
 The Nomasystems chat backend is **planned to be open-sourced, but is not public yet**. To use it as part of a commercial product, get in touch: **[info@nomasystems.com](mailto:info@nomasystems.com)**.
 
@@ -161,7 +215,8 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 | [Developer Guide](./doc/DEVELOPER_GUIDE.md) | Architecture · all APIs · configuration · theming · customization · events · testing |
 | [ARCHITECTURE.md](./ARCHITECTURE.md) | Internal layers and data-flow diagrams |
 | [INTEGRATION.md](./INTEGRATION.md) | Backend contract (endpoints, auth, WS frames, S2S) |
-| [Backend API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/user-openapi.yml) | Rendered OpenAPI 3.0.1 (Redoc) · [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/user-openapi.yml) |
+| [Backend API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/chat-api-openapi.yml) | Rendered OpenAPI 3.0.1 (Redoc) · [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/chat-api-openapi.yml) |
+| [SECURITY.md](./SECURITY.md) | Threat model · what the SDK does and does not guarantee · consumer hardening checklist |
 | [MIGRATING.md](./MIGRATING.md) | Step-by-step upgrade guide for every breaking release |
 | [CHANGELOG.md](./CHANGELOG.md) | Version history |
 
@@ -169,8 +224,8 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 
 ## When NOT to use
 
-- **Custom backend with incompatible wire protocol** — the SDK speaks the [Nomasystems chat API contract](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/user-openapi.yml) (REST + WS/SSE, JWT, specific error codes). Any backend that implements that OpenAPI spec works out of the box; for anything else you can plug a custom `ChatClient` via `NomaChat.fromClient()`, but adapting the full contract is non-trivial. Consider whether it fits before adopting.
-- **End-to-end encryption** — TLS only. If E2EE is a hard requirement, use a different SDK.
+- **Custom backend with incompatible wire protocol** — the SDK speaks the [Nomasystems chat API contract](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/chat-api-openapi.yml) (REST + WS/SSE, JWT, specific error codes). Any backend that implements that OpenAPI spec works out of the box; for anything else you can plug a custom `ChatClient` via `NomaChat.fromClient()`, but adapting the full contract is non-trivial. Consider whether it fits before adopting.
+- **End-to-end encryption** — TLS in transit, with optional at-rest encryption of the on-device cache, but messages are **not** end-to-end encrypted. If E2EE is a hard requirement, use a different SDK.
 - **Hard latency SLO under ~100 ms** — the SDK is push-based but does not advertise a real-time SLO. For voice / video signalling, use a dedicated SDK.
 
 ---
@@ -178,6 +233,13 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 ## Troubleshooting
 
 Common issues and fixes are documented in the [Developer Guide — Troubleshooting](./doc/DEVELOPER_GUIDE.md#troubleshooting) section.
+
+## Development
+
+- Tests: `flutter test -x golden`. Golden (snapshot) tests run on CI/Linux as the
+  source of truth — see [`test/golden/README.md`](test/golden/README.md).
+- Regenerate golden baselines after a UI change, without a Linux machine:
+  `tool/regen_goldens.sh` (drives the `regen-goldens` workflow and pulls the PNGs).
 
 ---
 

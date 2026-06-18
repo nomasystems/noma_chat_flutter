@@ -13,6 +13,7 @@ class _FailableMembersApi implements ChatMembersApi {
   Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
     ChatPaginationParams? pagination,
+    List<RoomMemberExpand> expand = const [],
   }) {
     if (throwOnList) throw StateError('members.list threw synchronously');
     if (failList) {
@@ -20,21 +21,22 @@ class _FailableMembersApi implements ChatMembersApi {
         const ChatFailureResult(ServerFailure(statusCode: 500)),
       );
     }
-    return _delegate.list(roomId, pagination: pagination);
+    return _delegate.list(roomId, pagination: pagination, expand: expand);
   }
 
   @override
-  Future<ChatResult<void>> invite(
+  Future<ChatResult<InviteResult>> invite(
     String roomId, {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
-    RoomRole? userRole,
-  }) => _delegate.invite(
-    roomId,
-    userIds: userIds,
-    mode: mode,
-    userRole: userRole,
-  );
+    String? token,
+  }) => _delegate.invite(roomId, userIds: userIds, mode: mode, token: token);
+
+  @override
+  Future<ChatResult<InviteResult>> joinWithToken(
+    String roomId, {
+    required String token,
+  }) => _delegate.joinWithToken(roomId, token: token);
 
   @override
   Future<ChatResult<void>> remove(String roomId, String userId) =>
@@ -111,6 +113,7 @@ class _DmRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
+    bool forceGroup = false,
   }) => _delegate.create(
     audience: audience,
     allowInvitations: allowInvitations,
@@ -119,6 +122,7 @@ class _DmRoomsApi implements ChatRoomsApi {
     members: members,
     avatarUrl: avatarUrl,
     custom: custom,
+    forceGroup: forceGroup,
   );
 
   @override
@@ -175,16 +179,19 @@ class _DmRoomsApi implements ChatRoomsApi {
   );
 
   @override
-  Future<ChatResult<void>> mute(String roomId) => _delegate.mute(roomId);
-
-  @override
-  Future<ChatResult<void>> unmute(String roomId) => _delegate.unmute(roomId);
-
-  @override
-  Future<ChatResult<void>> pin(String roomId) => _delegate.pin(roomId);
-
-  @override
-  Future<ChatResult<void>> unpin(String roomId) => _delegate.unpin(roomId);
+  Future<ChatResult<RoomPreferences>> patchPreferences(
+    String roomId, {
+    bool? muted,
+    DateTime? muteUntil,
+    bool? pinned,
+    bool? hidden,
+  }) => _delegate.patchPreferences(
+    roomId,
+    muted: muted,
+    muteUntil: muteUntil,
+    pinned: pinned,
+    hidden: hidden,
+  );
 
   @override
   Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) =>
@@ -193,12 +200,6 @@ class _DmRoomsApi implements ChatRoomsApi {
   @override
   Future<ChatResult<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       _delegate.batchGetUnread(roomIds);
-
-  @override
-  Future<ChatResult<void>> hide(String roomId) => _delegate.hide(roomId);
-
-  @override
-  Future<ChatResult<void>> unhide(String roomId) => _delegate.unhide(roomId);
 
   @override
   Future<void> updateCachedRoomPreview(

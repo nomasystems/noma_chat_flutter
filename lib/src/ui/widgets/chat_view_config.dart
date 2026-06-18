@@ -224,6 +224,8 @@ class ChatViewBehaviors {
       MessageAction.delete,
       MessageAction.react,
     },
+    this.editWindow = const Duration(minutes: 15),
+    this.deleteWindow = const Duration(days: 2),
     this.attachmentExtraOptions = const [],
     this.forwardedSourceLabels = const {},
     this.emptyIcon,
@@ -259,6 +261,19 @@ class ChatViewBehaviors {
   final Map<ChatConnectionState, String> connectionLabels;
 
   final Set<MessageAction> contextMenuActions;
+
+  /// Time after a message is sent during which [MessageAction.edit] stays
+  /// available on the user's own messages (WhatsApp uses ~15 min). Past it
+  /// the edit row is hidden — the backend also rejects late edits with a
+  /// 403 `edit_window_expired`. `null` disables the gate (edit always
+  /// shown). Defaults to 15 minutes.
+  final Duration? editWindow;
+
+  /// Time after a message is sent during which [MessageAction.delete]
+  /// ("delete for everyone") stays available. Past it the delete row is
+  /// hidden — the backend also rejects late deletes with a 403
+  /// `delete_window_expired`. `null` disables the gate. Defaults to 2 days.
+  final Duration? deleteWindow;
 
   /// Extra rows appended to the built-in attachment sheet, after the
   /// SDK options. Convenient for app-specific actions without

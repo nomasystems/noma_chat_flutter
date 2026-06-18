@@ -7,6 +7,7 @@ import '../events/chat_event.dart';
 import '../models/attachment.dart';
 import '../models/contact.dart';
 import '../models/health_status.dart';
+import '../models/invite_result.dart';
 import '../models/managed_user_config.dart';
 import '../models/message.dart';
 import '../models/pin.dart';
@@ -17,6 +18,7 @@ import '../models/report.dart';
 import '../models/room.dart';
 import '../models/room_user.dart';
 import '../models/scheduled_message.dart';
+import '../models/starred_message.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
 import '../models/user_rooms.dart';
@@ -241,12 +243,46 @@ abstract class ChatUsersApi {
     bool? active,
   });
 
-  /// Deletes a user permanently.
+  /// Deletes the authenticated principal's **own** account permanently
+  /// (`DELETE /users/me`).
+  ///
+  /// This is the robust default for GDPR right-to-erasure: it cannot
+  /// target the wrong account because the server resolves "me" from the
+  /// auth token, so no caller-supplied id is involved. Irreversible — the
+  /// backend tombstones messages but removes the profile record; managed
+  /// users belonging to this principal are cascaded out too.
+  ///
+  /// Prefer this over [delete] for self-service account deletion. After it
+  /// succeeds you should tear the client down ([ChatClient.dispose]) and
+  /// drive the host app back to its sign-out / onboarding flow, since the
+  /// credential now points at a deleted account.
+  ///
+  /// ```dart
+  /// final res = await client.users.deleteCurrentUser();
+  /// res.fold(
+  ///   (failure) => showError(failure),
+  ///   (_) async {
+  ///     await chat.dispose();
+  ///     goToOnboarding();
+  ///   },
+  /// );
+  /// ```
+  Future<ChatResult<void>> deleteCurrentUser();
+
+  /// Deletes a user permanently by id.
+  ///
+  /// **The [userId] MUST be the caller's own id.** The backend tightened
+  /// `DELETE /users/{userId}` to own-account-only: passing any other id
+  /// returns a 403 that surfaces as a [ForbiddenFailure] carrying the
+  /// [ChatErrorTokens.cannotDeleteOtherUser] token. For self-service
+  /// account deletion prefer [deleteCurrentUser], which targets
+  /// `DELETE /users/me` and so can never hit the wrong account.
   ///
   /// Use for hard account deletion flows (GDPR right-to-erasure or
-  /// admin tools). Irreversible — the backend tombstones messages but
-  /// removes the profile record; managed users belonging to the
-  /// deleted parent are cascaded out too.
+  /// admin tools that genuinely operate on their own principal).
+  /// Irreversible — the backend tombstones messages but removes the
+  /// profile record; managed users belonging to the deleted parent are
+  /// cascaded out too.
   Future<ChatResult<void>> delete(String userId);
 
   /// Finds a managed user by its external ID.
@@ -267,12 +303,15 @@ abstract class ChatUsersApi {
     required List<String> externalIds,
   });
 
-  /// Lists managed users belonging to a parent user.
+  /// Lists managed users belonging to [parentId] (the parent user).
   ///
-  /// Use to power an admin/owner list of "users I manage". Always
-  /// paginated; backend defaults apply when [pagination] is omitted.
-  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManaged(
-    String userId, {
+  /// Use to power an admin/owner list of "users I manage". Calls
+  /// `GET /users/{parentId}/managed-users`, the path the backend treats as the
+  /// source of truth for "users I manage". Always paginated; backend defaults
+  /// apply when [pagination] is omitted. The caller must be the parent user;
+  /// otherwise the backend rejects the request with a forbidden failure.
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManagedByParent(
+    String parentId, {
     ChatPaginationParams? pagination,
   });
 
@@ -322,6 +361,11 @@ abstract class ChatRoomsApi {
   ///   members: [otherUserId],
   /// );
   /// ```
+  ///
+  /// [forceGroup] — when `true`, a 2-member room is always reported as a
+  /// `group` instead of collapsing into a 1:1 DM. Use it for "plan"-style
+  /// rooms that happen to have two participants but should not render as a
+  /// direct chat.
   Future<ChatResult<ChatRoom>> create({
     required RoomAudience audience,
     bool allowInvitations = false,
@@ -330,6 +374,7 @@ abstract class ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
+    bool forceGroup = false,
   });
 
   /// Lists the current user's rooms. Use type 'unread' to filter rooms with unread messages.
@@ -389,47 +434,46 @@ abstract class ChatRoomsApi {
     Map<String, dynamic>? custom,
   });
 
-  /// Mutes push notifications for a room.
+  /// Updates the current user's private room preferences in a single
+  /// request and returns the merged server-side state.
   ///
-  /// Per-user preference: only affects the calling user's push channel
-  /// — other members still receive notifications. Idempotent. Backend
-  /// emits no event for this; the local cache reflects the change for
-  /// this device, and other devices see the new state on their next
-  /// room-list fetch.
-  Future<ChatResult<void>> mute(String roomId);
-
-  /// Unmutes push notifications for a room.
+  /// All preferences are per-user: they only affect the calling user and
+  /// are invisible to other members. Pass only the fields you want to
+  /// change — omitted parameters are left untouched server-side.
   ///
-  /// Per-user preference, same multi-device caveat as [mute]. Idempotent.
-  Future<ChatResult<void>> unmute(String roomId);
-
-  /// Pins a room to the top of the room list.
+  /// - [muted] — `true` to silence notifications, `false` to unmute. For a
+  ///   timed mute pass [muteUntil] instead (which implies `muted: true`).
+  /// - [muteUntil] — mute only until that instant (WhatsApp-style 8h / 1
+  ///   week timed mutes). Sent as an ISO-8601 string; the backend derives
+  ///   `muted` by comparing it with the current time. Mutually exclusive
+  ///   with an explicit [muted] value.
+  /// - [pinned] — `true` to pin the room to the top of the list.
+  /// - [hidden] — `true` to hide (archive) the room from [getUserRooms].
   ///
-  /// Per-user preference — pins are private and not visible to other
-  /// members. Idempotent: pinning an already-pinned room is a no-op.
-  /// The UI adapter keeps pinned rooms ordered above the rest in the
-  /// room list controller.
-  Future<ChatResult<void>> pin(String roomId);
-
-  /// Unpins a room from the top of the room list.
+  /// On success the `roomDetail:<roomId>`, `rooms:all`, and `rooms:unread`
+  /// TTL keys are invalidated so the next read reflects the change.
   ///
-  /// Per-user preference, idempotent. The room reverts to its natural
-  /// position (last-activity order) in the room list.
-  Future<ChatResult<void>> unpin(String roomId);
-
-  /// Hides a room from the user's room list.
+  /// This is the canonical preferences endpoint; [mute], [unmute], [pin],
+  /// [unpin], [hide], and [unhide] are thin wrappers that delegate here.
   ///
-  /// Per-user preference — the room is filtered out of [getUserRooms]
-  /// results for this user only. Incoming messages still arrive and
-  /// un-hide the room implicitly (the next list fetch will include it
-  /// again). Use for WhatsApp-style "archive" UX.
-  Future<ChatResult<void>> hide(String roomId);
-
-  /// Unhides a room, making it visible again in the room list.
-  ///
-  /// Per-user preference, idempotent. Pair with [hide] for an
-  /// archive/unarchive toggle.
-  Future<ChatResult<void>> unhide(String roomId);
+  /// ```dart
+  /// final res = await client.rooms.patchPreferences(
+  ///   roomId,
+  ///   pinned: true,
+  ///   hidden: false,
+  /// );
+  /// switch (res) {
+  ///   case ChatSuccess(:final data): print(data.pinned); // true
+  ///   case ChatFailureResult(:final failure): showError(failure);
+  /// }
+  /// ```
+  Future<ChatResult<RoomPreferences>> patchPreferences(
+    String roomId, {
+    bool? muted,
+    DateTime? muteUntil,
+    bool? pinned,
+    bool? hidden,
+  });
 
   /// Marks multiple rooms as read in a single request.
   ///
@@ -480,10 +524,32 @@ abstract class ChatMembersApi {
   /// Use to populate the "participants" screen or @-mention
   /// autocomplete. Paginated — for large groups iterate with
   /// [pagination]. Each [RoomUser] carries the user id plus role
-  /// (member / admin / owner) and join timestamp.
+  /// (member / admin / owner).
+  ///
+  /// [expand] asks the backend to embed extra fields per row. Passing
+  /// `[RoomMemberExpand.users]` (the recommended default for rendering a
+  /// group roster) makes every [RoomUser] carry `displayName` + `avatarUrl`,
+  /// so the screen renders names and avatars straight from this one response
+  /// — no per-member `GET /users/{id}` round-trip (the N+1 it eliminates).
+  /// Without [expand] each row is the bare `{userId, role}` and the
+  /// expansion-only fields stay `null`; resolve them through the user cache
+  /// as before.
+  ///
+  /// ```dart
+  /// final res = await client.members.list(
+  ///   roomId,
+  ///   expand: const [RoomMemberExpand.users],
+  /// );
+  /// if (res case ChatSuccess(:final data)) {
+  ///   for (final m in data.items) {
+  ///     renderRow(m.displayName ?? m.userId, m.avatarUrl);
+  ///   }
+  /// }
+  /// ```
   Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
     ChatPaginationParams? pagination,
+    List<RoomMemberExpand> expand,
   });
 
   /// Invites users to a room. The [mode] controls the membership flow:
@@ -499,18 +565,49 @@ abstract class ChatMembersApi {
   /// backend emits `UserJoinedEvent` per added user so other members
   /// see the roster change in real time.
   ///
+  /// Resolves to an [InviteResult] with the per-user outcome — a successful
+  /// call may still contain per-user failures (banned, already a member), so
+  /// inspect [InviteResult.hasFailures] rather than assuming success. Pass
+  /// [token] to join a public room by its invitation token. The backend does
+  /// not accept a per-invite role; use [updateRole] afterwards.
+  ///
   /// ```dart
-  /// await client.members.invite(
+  /// final res = await client.members.invite(
   ///   roomId,
   ///   userIds: newMemberIds,
   ///   mode: RoomUserMode.inviteAndJoin,
   /// );
   /// ```
-  Future<ChatResult<void>> invite(
+  Future<ChatResult<InviteResult>> invite(
     String roomId, {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
-    RoomRole? userRole,
+    String? token,
+  });
+
+  /// Joins the current user to a public room using an invitation [token].
+  ///
+  /// The growth-link counterpart of [invite]: where [invite] adds *other*
+  /// users, this self-joins the authenticated user to [roomId] presenting
+  /// the room's public token (the `publicToken` the backend returns when a
+  /// public/invitable room is created, carried on [ChatRoom.publicToken]).
+  /// Convenience wrapper over `invite(roomId, userIds: [self],
+  /// mode: inviteAndJoin, token: token)`.
+  ///
+  /// Wire it to a deep-link handler: parse the incoming link with
+  /// [ChatInviteLink.tryParse] and call this with the extracted room id and
+  /// token. The backend still gates the join on ban/audience, so the
+  /// returned [InviteResult] may report a per-user failure even on a 2xx.
+  ///
+  /// ```dart
+  /// final link = ChatInviteLink.tryParse(incomingUri);
+  /// if (link != null) {
+  ///   await client.members.joinWithToken(link.roomId, token: link.token);
+  /// }
+  /// ```
+  Future<ChatResult<InviteResult>> joinWithToken(
+    String roomId, {
+    required String token,
   });
 
   /// Removes a user from a room.
@@ -581,19 +678,27 @@ abstract class ChatMessagesApi {
   /// see this room.
   Future<ChatResult<ChatMessage>> get(String roomId, String messageId);
 
-  /// Lists messages in a room with cursor-based pagination.
+  /// Lists messages in a room with bidirectional cursor pagination.
   ///
   /// Primary read path for the chat screen. The UI adapter calls this
   /// twice on chat open — once with `cacheFirst` for instant paint and
-  /// once with `networkOnly` to reconcile with the server. For
-  /// load-more (older messages) pass `pagination.before` set to the
-  /// timestamp of the oldest message you already have. `unreadOnly`
-  /// returns only the unread tail — useful for jump-to-unread flows.
+  /// once with `networkOnly` to reconcile with the server. Each page
+  /// carries two opaque cursors: [ChatPaginatedResponse.prevCursor] anchored
+  /// on the oldest message and [ChatPaginatedResponse.nextCursor] on the
+  /// newest. To load older history pass `prevCursor` with
+  /// `direction: ChatCursorDirection.older`; to catch up on newer messages
+  /// pass `nextCursor` with `direction: ChatCursorDirection.newer`.
+  /// `unreadOnly` returns only the unread tail — useful for jump-to-unread
+  /// flows.
   ///
   /// ```dart
-  /// final res = await client.messages.list(
+  /// final first = await client.messages.list(roomId);
+  /// final older = await client.messages.list(
   ///   roomId,
-  ///   pagination: ChatCursorPaginationParams(before: oldest.createdAt),
+  ///   pagination: ChatCursorPaginationParams(
+  ///     cursor: first.dataOrThrow.prevCursor,
+  ///     direction: ChatCursorDirection.older,
+  ///   ),
   /// );
   /// ```
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> list(
@@ -615,6 +720,17 @@ abstract class ChatMessagesApi {
   /// reconcile offline queue retries with the adapter's pending message
   /// tracking. [referencedMessageId] supports replies; [attachmentUrl]
   /// must already be uploaded via [ChatAttachmentsApi.upload].
+  ///
+  /// [clientMessageId] is an optional client-generated idempotency key
+  /// (max 128 chars). When supplied, the backend makes the send idempotent
+  /// over `(roomId, sender, clientMessageId)`: a POST retry that replays the
+  /// same key returns the already-persisted message (the same `201` as a
+  /// fresh send) instead of creating a duplicate. The backend round-trips
+  /// the key inside the response `metadata.clientMessageId`; the SDK reads
+  /// it back and surfaces it on [ChatMessage.clientMessageId] to reconcile
+  /// the optimistic temporary message. The adapter and the offline queue
+  /// generate and reuse one automatically; pass your own only for custom
+  /// send flows. Recommended on mobile/unreliable networks.
   Future<ChatResult<ChatMessage>> send(
     String roomId, {
     String? text,
@@ -625,6 +741,7 @@ abstract class ChatMessagesApi {
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
+    String? clientMessageId,
   });
 
   /// Sends a message preferring the WebSocket transport when available.
@@ -679,11 +796,31 @@ abstract class ChatMessagesApi {
   /// the exact last-read message). For bulk "mark everything read"
   /// prefer [markRoomAsRead] — it's one round-trip and emits a single
   /// receipt event per recipient. Backend emits `receipt_updated` so
-  /// the original sender's checkmarks flip in real time.
+  /// the original sender's checkmarks flip in real time. For delivery
+  /// confirmations prefer [markRoomAsDelivered] — the server treats a
+  /// `delivered` receipt as a cursor anyway, and the dedicated call is
+  /// consolidated by design.
   Future<ChatResult<void>> sendReceipt(
     String roomId,
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
+  });
+
+  /// Confirms delivery of every message in [roomId] up to and including
+  /// [lastDeliveredMessageId] (the delivered cursor — WhatsApp's double
+  /// gray tick).
+  ///
+  /// Consolidated by design: one call per conversation covers any
+  /// number of messages. The backend advances the per-user delivered
+  /// cursor (a max-register, so re-confirming older messages is a
+  /// silent no-op) and fans out a single `message_delivered` event to
+  /// the other members only when the cursor actually moved. The UI
+  /// adapter calls this automatically when `autoConfirmDelivery` is on;
+  /// hosts driving ticks manually call it when their client has
+  /// rendered/stored the messages.
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
   });
 
   /// Marks all messages in a room as read, optionally up to a specific message.
@@ -755,14 +892,40 @@ abstract class ChatMessagesApi {
     CachePolicy? cachePolicy,
   });
 
+  /// Adds [emoji] as the current user's reaction to [messageId] via the
+  /// canonical reactions endpoint (`POST
+  /// /rooms/{roomId}/messages/{messageId}/reactions`).
+  ///
+  /// This is the only supported way to react: the dedicated endpoint models
+  /// a reaction as a first-class sub-resource of the message instead of a
+  /// synthetic reaction-typed message, so it never pollutes the timeline or
+  /// the offline send queue. The backend emits `ReactionAddedEvent` so every
+  /// member's aggregated counters update in real time. Idempotent — re-adding
+  /// the same emoji the user already reacted with returns success.
+  ///
+  /// Removing the reaction is [deleteReaction].
+  Future<ChatResult<void>> addReaction(
+    String roomId,
+    String messageId, {
+    required String emoji,
+  });
+
   /// Removes the current user's reaction from a message.
   ///
-  /// Only the calling user's reaction is removed — other users'
-  /// reactions on the same message are unaffected. Backend emits
-  /// `ReactionRemovedEvent` so the message's aggregated reaction
-  /// counters update everywhere. Idempotent: calling when no
-  /// reaction is present returns success.
-  Future<ChatResult<void>> deleteReaction(String roomId, String messageId);
+  /// Pass [emoji] to remove a specific reaction (sends
+  /// `DELETE /rooms/{roomId}/messages/{messageId}/reactions?emoji=…`) when
+  /// the backend tracks more than one reaction per user; omit it to clear
+  /// the user's reaction on the message wholesale (the historical
+  /// single-reaction-per-user behaviour). Only the calling user's
+  /// reaction is removed — other users' reactions on the same message are
+  /// unaffected. Backend emits `ReactionRemovedEvent` so the message's
+  /// aggregated reaction counters update everywhere. Idempotent: calling
+  /// when no reaction is present returns success.
+  Future<ChatResult<void>> deleteReaction(
+    String roomId,
+    String messageId, {
+    String? emoji,
+  });
 
   /// Pins a message in a room so it appears in the pinned list.
   ///
@@ -790,15 +953,47 @@ abstract class ChatMessagesApi {
     ChatPaginationParams? pagination,
   });
 
-  /// Full-text search of messages within a room.
+  /// Stars (bookmarks) a message for the current user only.
   ///
-  /// Server-side full-text search — scope is always a single room
-  /// (cross-room search is not supported). Returns paginated results
-  /// ranked by relevance and recency; pair with a per-room search bar
-  /// that drives load-more via the returned `hasMore` flag.
+  /// A private, per-user bookmark — unlike [pinMessage], other members are
+  /// not notified and do not see it. Idempotent: starring an
+  /// already-starred message succeeds. Surface the starred set via
+  /// [listStarred] (e.g. a "Starred messages" screen, WhatsApp-style).
+  Future<ChatResult<void>> starMessage(String roomId, String messageId);
+
+  /// Removes the current user's star from a message.
+  ///
+  /// Idempotent: unstarring a message that was not starred returns
+  /// success.
+  Future<ChatResult<void>> unstarMessage(String roomId, String messageId);
+
+  /// Lists the current user's starred messages across all rooms, most
+  /// recent first.
+  ///
+  /// Each [StarredMessage] is a lightweight reference (ids + timestamp);
+  /// fetch the full body via its room when needed. Drives a "Starred
+  /// messages" view; page with [ChatPaginationParams] and the returned
+  /// `hasMore` / `totalCount`.
+  Future<ChatResult<ChatPaginatedResponse<StarredMessage>>> listStarred({
+    ChatPaginationParams? pagination,
+  });
+
+  /// Full-text search of messages, server-side.
+  ///
+  /// Scope is controlled by [roomId]:
+  ///
+  /// - Omit [roomId] (or pass `null`) to search **globally** across every
+  ///   room the caller belongs to. The backend scopes results to the
+  ///   authenticated user's rooms — there is no way to reach messages in
+  ///   rooms you are not a member of.
+  /// - Pass a [roomId] to restrict the search to that single room, e.g. to
+  ///   back a per-room search bar.
+  ///
+  /// Returns paginated results ranked by relevance and recency; drive
+  /// load-more via the returned `hasMore` flag.
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> search(
     String query, {
-    required String roomId,
+    String? roomId,
     ChatPaginationParams? pagination,
   });
 
@@ -930,7 +1125,8 @@ abstract class ChatContactsApi {
   /// Equivalent to [ChatMessagesApi.list] against the resolved 1:1
   /// room. Use this when the caller only has the contact's user id
   /// (no room id yet). For paginated load-more pass
-  /// `pagination.before` set to the oldest message timestamp.
+  /// [ChatPaginatedResponse.prevCursor] as the cursor with
+  /// `direction: ChatCursorDirection.older`.
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> getDirectMessages(
     String contactUserId, {
     ChatCursorPaginationParams? pagination,
@@ -1015,7 +1211,11 @@ abstract class ChatPresenceApi {
   /// to a manual status picker. Backend emits `presence_updated` to
   /// all contacts so their online indicator flips in real time.
   /// [statusText] is the free-form WhatsApp-style "Hey there, I'm
-  /// using…" line.
+  /// using…" line. NOTE: the current backend does not persist or echo
+  /// `statusText` — it validates and stores `status` only, and the
+  /// `presence_changed` event carries no status text — so a value passed
+  /// here is dropped server-side. Kept for forward-compatibility; do not
+  /// rely on it round-tripping until the presence contract adds it.
   Future<ChatResult<void>> update({
     required PresenceStatus status,
     String? statusText,
@@ -1043,16 +1243,66 @@ abstract class ChatAttachmentsApi {
     void Function(int sent, int total)? onProgress,
   });
 
+  /// Resolves a short-lived **signed download URL** for an attachment.
+  ///
+  /// This is the robust, primary way to access an attachment: the backend
+  /// checks that [roomId]'s caller is a member (fail-closed — a 403 with the
+  /// `not_a_room_member` token otherwise) and returns a URL carrying an HMAC
+  /// signature, an expiry, and the authorized user inline. The returned
+  /// [AttachmentSignedUrl.url] is absolute and self-authorizing, so it drops
+  /// straight into `<img>`, an image cache (`CachedNetworkImage`,
+  /// `NetworkImage`), or a native viewer without re-attaching auth headers.
+  ///
+  /// Calls `GET /attachments/{attachmentId}/signed-url?roomId={roomId}`.
+  /// Treat the URL as ephemeral: request a fresh one when it expires instead
+  /// of persisting it.
+  ///
+  /// ```dart
+  /// final res = await client.attachments.signedUrl(attId, roomId: roomId);
+  /// final url = res.dataOrNull?.url; // feed to Image.network / cache
+  /// ```
+  Future<ChatResult<AttachmentSignedUrl>> signedUrl(
+    String attachmentId, {
+    required String roomId,
+  });
+
   /// Downloads an attachment's binary data by ID.
   ///
   /// Returns the raw bytes — wrap in `MemoryImage` for images, write
   /// to a temp file for documents, decode via `audioplayers` for
-  /// voice notes. [metadata] is an optional opaque string the backend
-  /// uses for signed-URL renegotiation in some deployments; leave
-  /// null unless a previous SDK call gave you a value.
+  /// voice notes.
+  ///
+  /// Prefer passing [roomId]: it takes the robust **signed-URL** path
+  /// ([signedUrl] then a fetch of the returned URL), which the backend
+  /// authorizes by room membership (fail-closed, `not_a_room_member` → a
+  /// [ForbiddenFailure] carrying that token). The legacy [metadata]
+  /// header-only flow is **deprecated**: the backend now also requires a
+  /// membership-checked [roomId] for it, so it is only used as a fallback
+  /// when [roomId] is supplied alongside [metadata]; without [roomId] it can
+  /// no longer authorize and will 403. Pass [roomId] — the SDK knows it
+  /// wherever an attachment is displayed.
   Future<ChatResult<Uint8List>> download(
     String attachmentId, {
+    String? roomId,
     String? metadata,
+    void Function(int received, int total)? onProgress,
+  });
+
+  /// Downloads an attachment's binary data from a stored URL.
+  ///
+  /// Fetches the raw bytes from [url] — the value the backend already put on
+  /// `ChatMessage.attachmentUrl` (or `MediaItem.url`) — through the SDK's HTTP
+  /// client, so auth headers, retries and observability still apply. Relative
+  /// URLs are resolved against the configured base URL; absolute URLs are used
+  /// as-is.
+  ///
+  /// Unlike [download], this does not request a signed URL and never needs the
+  /// server's signing secret: the stored attachment URL serves the bytes
+  /// directly. Use it for the default "open this file" path where the message
+  /// already carries the URL and a round trip through [signedUrl] would only
+  /// add a failure mode.
+  Future<ChatResult<Uint8List>> downloadFromUrl(
+    String url, {
     void Function(int received, int total)? onProgress,
   });
 

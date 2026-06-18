@@ -38,6 +38,7 @@ class RoomMapper {
       allowInvitations: dto.config?['allowInvitations'] as bool? ?? false,
     ),
     muted: dto.muted,
+    muteUntil: dto.muteUntil != null ? DateTime.tryParse(dto.muteUntil!) : null,
     pinned: dto.pinned,
     hidden: dto.hidden,
     selfMuted: dto.selfMuted,
@@ -48,6 +49,19 @@ class RoomMapper {
 
   static RoomDetail detailFromJson(Map<String, dynamic> json) =>
       detailFromDto(RoomDetailDto.fromJson(json));
+
+  /// Parses the `200` body of `PATCH /rooms/{id}/preferences`:
+  /// `{muted, pinned, hidden, muteUntil?}`. `muteUntil` may be absent or a
+  /// non-string when not a timed mute.
+  static RoomPreferences preferencesFromJson(Map<String, dynamic> json) =>
+      RoomPreferences(
+        muted: (json['muted'] ?? false) as bool,
+        pinned: (json['pinned'] ?? false) as bool,
+        hidden: (json['hidden'] ?? false) as bool,
+        muteUntil: json['muteUntil'] is String
+            ? DateTime.tryParse(json['muteUntil'] as String)
+            : null,
+      );
 
   static DiscoveredRoom discoveredFromJson(Map<String, dynamic> json) =>
       DiscoveredRoom(
@@ -70,6 +84,9 @@ class RoomMapper {
       userRoomsFromDto(UserRoomsDto.fromJson(json));
 
   static UnreadRoom unreadRoomFromJson(Map<String, dynamic> json) {
+    // `lastUnreadMessage` is an object when the room has an unread preview, or
+    // `null`/absent when there is none. Anything that is not a JSON object is
+    // treated as "no unread" — all preview fields stay null.
     final lastMsg = json['lastUnreadMessage'];
     String? lastMessage;
     DateTime? lastMessageTime;
@@ -87,8 +104,8 @@ class RoomMapper {
       lastMessage = _asString(lastMsg['body']) ?? _asString(lastMsg['text']);
       final ts = _asString(lastMsg['timestamp']);
       lastMessageTime = ts != null ? DateTime.tryParse(ts) : null;
-      lastMessageUserId =
-          _asString(lastMsg['fromJid']) ?? _asString(lastMsg['from']);
+      // `from` is the canonical sender id.
+      lastMessageUserId = _asString(lastMsg['from']);
       lastMessageId =
           _asString(lastMsg['messageId']) ?? _asString(lastMsg['id']);
       lastMessageType = _parseMessageTypeNullable(
@@ -105,31 +122,14 @@ class RoomMapper {
         lastMessageMimeType ??= _asString(meta['mimeType']);
       }
       lastMessageIsDeleted = (lastMsg['isDeleted'] as bool?) ?? false;
-      lastMessageReactionEmoji = _asString(lastMsg['reaction']);
+      lastMessageReactionEmoji = _parseReactionEmoji(lastMsg['reaction']);
       lastMessageReceipt = _parseReceiptStatus(_asString(lastMsg['receipt']));
-    } else {
-      lastMessage = json['lastMessage'] as String?;
-      final ts = json['lastMessageTime'] as String?;
-      lastMessageTime = ts != null ? DateTime.tryParse(ts) : null;
-      lastMessageUserId = json['lastMessageUserId'] as String?;
-      lastMessageId = json['lastMessageId'] as String?;
-      lastMessageType = _parseMessageTypeNullable(
-        json['lastMessageType'] as String?,
-      );
-      lastMessageMimeType = json['lastMessageMimeType'] as String?;
-      lastMessageFileName = json['lastMessageFileName'] as String?;
-      final dur = json['lastMessageDurationMs'];
-      if (dur is num) lastMessageDurationMs = dur.toInt();
-      lastMessageIsDeleted = (json['lastMessageIsDeleted'] as bool?) ?? false;
-      lastMessageReactionEmoji = json['lastMessageReactionEmoji'] as String?;
-      lastMessageReceipt = _parseReceiptStatus(
-        json['lastMessageReceipt'] as String?,
-      );
     }
 
     return UnreadRoom(
       roomId: (json['roomId'] ?? '') as String,
       unreadMessages: (json['unreadMessages'] ?? 0) as int,
+      unreadMentions: (json['unreadMentions'] ?? 0) as int,
       lastMessage: lastMessage,
       lastMessageTime: lastMessageTime,
       lastMessageUserId: lastMessageUserId,
@@ -147,8 +147,12 @@ class RoomMapper {
       memberCount: json['memberCount'] as int?,
       userRole: _parseRoomRoleNullable(json['userRole'] as String?),
       muted: (json['muted'] ?? false) as bool,
+      muteUntil: json['muteUntil'] is String
+          ? DateTime.tryParse(json['muteUntil'] as String)
+          : null,
       pinned: (json['pinned'] ?? false) as bool,
       hidden: (json['hidden'] ?? false) as bool,
+      selfMuted: (json['selfMuted'] ?? false) as bool,
     );
   }
 
@@ -160,9 +164,26 @@ class RoomMapper {
     'reply' => MessageType.reply,
     'audio' => MessageType.audio,
     'forward' => MessageType.forward,
+    'location' => MessageType.location,
     'regular' => MessageType.regular,
     _ => null,
   };
+
+  /// Extracts a preview emoji from the `reaction` field of a last-unread
+  /// message. The backend ships an array of `ReactionSummary`
+  /// (`{from, reaction, time}`); the legacy/local cache path may ship a
+  /// plain string. Returns the last reaction's emoji for a list (most
+  /// recent), the value itself for a string, or null otherwise.
+  static String? _parseReactionEmoji(Object? raw) {
+    if (raw is String) return raw;
+    if (raw is List && raw.isNotEmpty) {
+      final last = raw.last;
+      if (last is Map) {
+        return _asString(last['reaction']) ?? _asString(last['emoji']);
+      }
+    }
+    return null;
+  }
 
   static ReceiptStatus? _parseReceiptStatus(String? value) => switch (value) {
     'sent' => ReceiptStatus.sent,
@@ -175,6 +196,9 @@ class RoomMapper {
       InvitedRoom(
         roomId: (json['roomId'] ?? '') as String,
         invitedBy: (json['invitedBy'] ?? '') as String,
+        roomName: json['roomName'] as String?,
+        subject: json['subject'] as String?,
+        roomType: json['roomType'] as String?,
       );
 
   static RoomAudience _parseAudience(String? audience) => switch (audience) {

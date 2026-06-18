@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/result.dart';
 import '../../models/room_user.dart';
+import '../../models/user.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../theme/chat_theme.dart';
 import 'chat_room_options_menu.dart';
@@ -100,16 +101,31 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     // is enough — the ListTile uses `widget.avatarUrlResolver(id)` which
     // already reads the fresh cache on every build.
     widget.adapter.userCacheListenable.addListener(_onUserCacheChanged);
+    // Subscribe to membership changes: when a member is added / removed
+    // in this room in realtime (`user_joined` / `user_left`), re-fetch
+    // the roster so it stays live instead of only refreshing on mount /
+    // pull-to-refresh.
+    widget.adapter.roomMembersListenable.addListener(_onRoomMembersChanged);
   }
 
   @override
   void dispose() {
     widget.adapter.userCacheListenable.removeListener(_onUserCacheChanged);
+    widget.adapter.roomMembersListenable.removeListener(_onRoomMembersChanged);
     super.dispose();
   }
 
   void _onUserCacheChanged() {
     if (mounted) setState(() {});
+  }
+
+  void _onRoomMembersChanged() {
+    if (!mounted) return;
+    // Only react to changes for the room we're showing. Guard against
+    // re-entrancy with the loading flag — a reload is already in flight.
+    if (widget.adapter.lastMembersChangedRoomId != widget.roomId) return;
+    if (_loading) return;
+    unawaited(_load());
   }
 
   Future<void> _load() async {
@@ -123,7 +139,16 @@ class _GroupMembersViewState extends State<GroupMembersView> {
       _loading = true;
       _error = null;
     });
-    final result = await widget.adapter.client.members.list(widget.roomId);
+    // Request the `users` expansion so the backend embeds each member's
+    // displayName + avatarUrl in the list response. This is the modern
+    // default for rendering a group roster: it eliminates the per-member
+    // `GET /users/{id}` N+1 that `_warmMissingUsers` would otherwise fire
+    // for every unknown id. On a backend that ignores the param the rows
+    // come back bare and we transparently fall back to the warm-up path.
+    final result = await widget.adapter.client.members.list(
+      widget.roomId,
+      expand: const [RoomMemberExpand.users],
+    );
     if (!mounted) return;
     result.fold(
       (failure) => setState(() {
@@ -131,20 +156,42 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         _error = failure.toString();
       }),
       (paginated) {
+        // Seed the adapter cache from the embedded fields BEFORE the first
+        // render so the sync resolvers (which read the cache) already have
+        // names + avatars on this same frame.
+        _seedCacheFromExpanded(paginated.items);
         setState(() {
           _loading = false;
           _members = _sort(paginated.items);
         });
-        // For any member the host resolver can't name yet, pull the
-        // profile and seed the adapter's user cache. Without this the
-        // row label falls back to the raw id ("9df87f95-…") — the
-        // resolver is sync and just reads cache, so we have to
-        // proactively warm it. Fire-and-forget; each successful
-        // `cacheUsers` triggers a `notifyMembersChanged` that the
-        // host's resolver re-evaluates on the next rebuild.
+        // Only members the expansion did NOT cover still need a profile
+        // fetch — typically none when the backend honours `?expand=users`.
+        // Fire-and-forget; each successful `cacheUsers` triggers a
+        // `notifyMembersChanged` that the host's resolver re-evaluates on
+        // the next rebuild.
         unawaited(_warmMissingUsers(paginated.items));
       },
     );
+  }
+
+  /// Seeds the adapter user cache from the `displayName` / `avatarUrl`
+  /// embedded by the `users` expansion, merging onto any richer cached
+  /// entry so we never clobber a previously fetched bio/email/config.
+  /// This is what makes the expanded list render names + avatars without
+  /// a single extra request.
+  void _seedCacheFromExpanded(List<RoomUser> members) {
+    final seed = <ChatUser>[];
+    for (final m in members) {
+      if (m.displayName == null && m.avatarUrl == null) continue;
+      final existing = widget.adapter.findCachedUser(m.userId);
+      seed.add(
+        (existing ?? ChatUser(id: m.userId)).copyWith(
+          displayName: m.displayName ?? existing?.displayName,
+          avatarUrl: m.avatarUrl ?? existing?.avatarUrl,
+        ),
+      );
+    }
+    if (seed.isNotEmpty) widget.adapter.cacheUsers(seed);
   }
 
   /// Fetches `users.get` for every member whose displayName isn't yet
@@ -152,9 +199,15 @@ class _GroupMembersViewState extends State<GroupMembersView> {
   /// the row label flips from the raw id to the friendly name on next
   /// rebuild. Also re-sorts and re-renders once at the end so the
   /// alphabetical ordering picks up the now-known names.
+  ///
+  /// With the `users` expansion in [_load] this normally finds nothing to
+  /// fetch — it stays as a resilient fallback for backends that ignore the
+  /// expansion or omit a particular member's profile.
   Future<void> _warmMissingUsers(List<RoomUser> members) async {
     final missing = <String>[];
     for (final m in members) {
+      // The expansion already gave us this member's name — skip the fetch.
+      if (m.displayName != null && m.displayName!.trim().isNotEmpty) continue;
       final name = widget.displayNameResolver?.call(m.userId)?.trim();
       if (name == null || name.isEmpty) missing.add(m.userId);
     }
@@ -254,7 +307,8 @@ class _GroupMembersViewState extends State<GroupMembersView> {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
-            result.failureOrNull?.toString() ?? 'Update role failed',
+            result.failureOrNull?.toString() ??
+                widget.theme.l10n.updateRoleFailed,
           ),
         ),
       );
@@ -276,7 +330,8 @@ class _GroupMembersViewState extends State<GroupMembersView> {
       ScaffoldMessenger.maybeOf(context)?.showSnackBar(
         SnackBar(
           content: Text(
-            result.failureOrNull?.toString() ?? 'Remove member failed',
+            result.failureOrNull?.toString() ??
+                widget.theme.l10n.removeMemberFailed,
           ),
         ),
       );

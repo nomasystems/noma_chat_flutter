@@ -97,6 +97,35 @@ void main() {
       expect(find.text('My message'), findsOneWidget);
     });
 
+    testWidgets('receipt icon honors statusIconBuilder in the preview', (
+      tester,
+    ) async {
+      const ownMsg = RoomListItem(
+        id: 'r3b',
+        name: 'Chat',
+        lastMessage: 'My message',
+        lastMessageUserId: 'me',
+        lastMessageReceipt: ReceiptStatus.delivered,
+      );
+      MessageStatusIconData? seen;
+      final theme = ChatTheme.defaults.copyWith(
+        bubble: ChatBubbleTheme(
+          statusIconBuilder: (context, data) {
+            seen = data;
+            return const Text('tile-tick');
+          },
+        ),
+      );
+      await tester.pumpWidget(
+        wrap(RoomTile(room: ownMsg, currentUserId: 'me', theme: theme)),
+      );
+      expect(find.text('tile-tick'), findsOneWidget);
+      expect(find.byType(MessageStatusIcon), findsNothing);
+      expect(seen?.state, MessageDeliveryState.delivered);
+      expect(seen?.size, 12);
+      expect(seen?.message, isNull);
+    });
+
     testWidgets('no receipt icon when last message is from other user', (
       tester,
     ) async {

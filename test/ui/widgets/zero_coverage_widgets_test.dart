@@ -179,8 +179,6 @@ void main() {
     });
   });
 
-  // FullEmojiPicker only exposes a static `show` that pops a modal sheet;
-  // we exercise it just enough to compile the bottom-sheet builder.
   group('FullEmojiPicker', () {
     testWidgets('show opens a modal bottom sheet', (tester) async {
       await tester.pumpWidget(
@@ -189,7 +187,6 @@ void main() {
             builder: (context) => Scaffold(
               body: ElevatedButton(
                 onPressed: () {
-                  // Fire-and-forget; the modal closes when the test tears down.
                   FullEmojiPicker.show(context);
                 },
                 child: const Text('open'),
@@ -199,10 +196,10 @@ void main() {
         ),
       );
       await tester.tap(find.text('open'));
-      // A single pump is enough to schedule the modal; we don't drive it
-      // further because the emoji picker package itself loads platform
-      // resources that we don't want to invoke in unit tests.
       await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(BottomSheet), findsOneWidget);
     });
   });
 }

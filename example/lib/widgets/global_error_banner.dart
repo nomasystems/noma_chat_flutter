@@ -38,6 +38,10 @@ class _GlobalErrorBannerState extends State<GlobalErrorBanner> {
   }
 
   void _onError(OperationError err) {
+    // Content-filter blocks are already surfaced by the in-room
+    // OperationFeedbackListener with a clean localized message, so skip them
+    // here to avoid a duplicate SnackBar.
+    if (err.failure is ContentFilterFailure) return;
     // The SDK emits these via `adapter.operationErrors` whenever an SDK call
     // from controllers (ChatController.send, RoomListController.refresh, …)
     // fails. Surface each one to the user as a SnackBar.

@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$InvitedRoom {
 
- String get roomId; String get invitedBy;
+ String get roomId; String get invitedBy; String? get roomName; String? get subject; String? get roomType;
 /// Create a copy of InvitedRoom
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,7 +27,7 @@ $InvitedRoomCopyWith<InvitedRoom> get copyWith => _$InvitedRoomCopyWithImpl<Invi
 
 @override
 String toString() {
-  return 'InvitedRoom(roomId: $roomId, invitedBy: $invitedBy)';
+  return 'InvitedRoom(roomId: $roomId, invitedBy: $invitedBy, roomName: $roomName, subject: $subject, roomType: $roomType)';
 }
 
 
@@ -38,7 +38,7 @@ abstract mixin class $InvitedRoomCopyWith<$Res>  {
   factory $InvitedRoomCopyWith(InvitedRoom value, $Res Function(InvitedRoom) _then) = _$InvitedRoomCopyWithImpl;
 @useResult
 $Res call({
- String roomId, String invitedBy
+ String roomId, String invitedBy, String? roomName, String? subject, String? roomType
 });
 
 
@@ -55,11 +55,14 @@ class _$InvitedRoomCopyWithImpl<$Res>
 
 /// Create a copy of InvitedRoom
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? roomId = null,Object? invitedBy = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? roomId = null,Object? invitedBy = null,Object? roomName = freezed,Object? subject = freezed,Object? roomType = freezed,}) {
   return _then(_self.copyWith(
 roomId: null == roomId ? _self.roomId : roomId // ignore: cast_nullable_to_non_nullable
 as String,invitedBy: null == invitedBy ? _self.invitedBy : invitedBy // ignore: cast_nullable_to_non_nullable
-as String,
+as String,roomName: freezed == roomName ? _self.roomName : roomName // ignore: cast_nullable_to_non_nullable
+as String?,subject: freezed == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
+as String?,roomType: freezed == roomType ? _self.roomType : roomType // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 
@@ -144,10 +147,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String roomId,  String invitedBy)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String roomId,  String invitedBy,  String? roomName,  String? subject,  String? roomType)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _InvitedRoom() when $default != null:
-return $default(_that.roomId,_that.invitedBy);case _:
+return $default(_that.roomId,_that.invitedBy,_that.roomName,_that.subject,_that.roomType);case _:
   return orElse();
 
 }
@@ -165,10 +168,10 @@ return $default(_that.roomId,_that.invitedBy);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String roomId,  String invitedBy)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String roomId,  String invitedBy,  String? roomName,  String? subject,  String? roomType)  $default,) {final _that = this;
 switch (_that) {
 case _InvitedRoom():
-return $default(_that.roomId,_that.invitedBy);case _:
+return $default(_that.roomId,_that.invitedBy,_that.roomName,_that.subject,_that.roomType);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -185,10 +188,10 @@ return $default(_that.roomId,_that.invitedBy);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String roomId,  String invitedBy)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String roomId,  String invitedBy,  String? roomName,  String? subject,  String? roomType)?  $default,) {final _that = this;
 switch (_that) {
 case _InvitedRoom() when $default != null:
-return $default(_that.roomId,_that.invitedBy);case _:
+return $default(_that.roomId,_that.invitedBy,_that.roomName,_that.subject,_that.roomType);case _:
   return null;
 
 }
@@ -200,11 +203,14 @@ return $default(_that.roomId,_that.invitedBy);case _:
 
 
 class _InvitedRoom extends InvitedRoom {
-  const _InvitedRoom({required this.roomId, required this.invitedBy}): super._();
+  const _InvitedRoom({required this.roomId, required this.invitedBy, this.roomName, this.subject, this.roomType}): super._();
   
 
 @override final  String roomId;
 @override final  String invitedBy;
+@override final  String? roomName;
+@override final  String? subject;
+@override final  String? roomType;
 
 /// Create a copy of InvitedRoom
 /// with the given fields replaced by the non-null parameter values.
@@ -218,7 +224,7 @@ _$InvitedRoomCopyWith<_InvitedRoom> get copyWith => __$InvitedRoomCopyWithImpl<_
 
 @override
 String toString() {
-  return 'InvitedRoom(roomId: $roomId, invitedBy: $invitedBy)';
+  return 'InvitedRoom(roomId: $roomId, invitedBy: $invitedBy, roomName: $roomName, subject: $subject, roomType: $roomType)';
 }
 
 
@@ -229,7 +235,7 @@ abstract mixin class _$InvitedRoomCopyWith<$Res> implements $InvitedRoomCopyWith
   factory _$InvitedRoomCopyWith(_InvitedRoom value, $Res Function(_InvitedRoom) _then) = __$InvitedRoomCopyWithImpl;
 @override @useResult
 $Res call({
- String roomId, String invitedBy
+ String roomId, String invitedBy, String? roomName, String? subject, String? roomType
 });
 
 
@@ -246,11 +252,14 @@ class __$InvitedRoomCopyWithImpl<$Res>
 
 /// Create a copy of InvitedRoom
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? roomId = null,Object? invitedBy = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? roomId = null,Object? invitedBy = null,Object? roomName = freezed,Object? subject = freezed,Object? roomType = freezed,}) {
   return _then(_InvitedRoom(
 roomId: null == roomId ? _self.roomId : roomId // ignore: cast_nullable_to_non_nullable
 as String,invitedBy: null == invitedBy ? _self.invitedBy : invitedBy // ignore: cast_nullable_to_non_nullable
-as String,
+as String,roomName: freezed == roomName ? _self.roomName : roomName // ignore: cast_nullable_to_non_nullable
+as String?,subject: freezed == subject ? _self.subject : subject // ignore: cast_nullable_to_non_nullable
+as String?,roomType: freezed == roomType ? _self.roomType : roomType // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

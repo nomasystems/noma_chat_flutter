@@ -14,7 +14,13 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ChatMessage {
 
- String get id; String get from; DateTime get timestamp; String? get text; MessageType get messageType; String? get attachmentUrl; String? get referencedMessageId; String? get reaction; String? get reply; Map<String, dynamic>? get metadata; ReceiptStatus? get receipt; bool get isEdited; bool get isDeleted; bool get isForwarded; bool get isSystem; String? get mimeType; String? get fileName; String? get fileSize; String? get thumbnailUrl;
+ String get id; String get from; DateTime get timestamp; String? get text; MessageType get messageType; String? get attachmentUrl; String? get referencedMessageId;/// Echo of the client-supplied idempotency key sent with the message
+/// (see [ChatMessagesApi.send]'s `clientMessageId`). The backend
+/// round-trips it inside the response `metadata.clientMessageId`; the
+/// SDK lifts it out to this field so it can reconcile the optimistic
+/// temporary message with the server-assigned [id]. `null` when the
+/// sender did not supply one (e.g. messages from other users).
+ String? get clientMessageId; String? get reaction; String? get reply; Map<String, dynamic>? get metadata; ReceiptStatus? get receipt; bool get isEdited; bool get isDeleted; bool get isForwarded; bool get isStarred; bool get isSystem; String? get mimeType; String? get fileName; String? get fileSize; String? get thumbnailUrl;
 /// Create a copy of ChatMessage
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -34,7 +40,7 @@ abstract mixin class $ChatMessageCopyWith<$Res>  {
   factory $ChatMessageCopyWith(ChatMessage value, $Res Function(ChatMessage) _then) = _$ChatMessageCopyWithImpl;
 @useResult
 $Res call({
- String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? referencedMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl
+ String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? referencedMessageId, String? clientMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isStarred, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl
 });
 
 
@@ -51,7 +57,7 @@ class _$ChatMessageCopyWithImpl<$Res>
 
 /// Create a copy of ChatMessage
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? referencedMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? referencedMessageId = freezed,Object? clientMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isStarred = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
@@ -60,6 +66,7 @@ as DateTime,text: freezed == text ? _self.text : text // ignore: cast_nullable_t
 as String?,messageType: null == messageType ? _self.messageType : messageType // ignore: cast_nullable_to_non_nullable
 as MessageType,attachmentUrl: freezed == attachmentUrl ? _self.attachmentUrl : attachmentUrl // ignore: cast_nullable_to_non_nullable
 as String?,referencedMessageId: freezed == referencedMessageId ? _self.referencedMessageId : referencedMessageId // ignore: cast_nullable_to_non_nullable
+as String?,clientMessageId: freezed == clientMessageId ? _self.clientMessageId : clientMessageId // ignore: cast_nullable_to_non_nullable
 as String?,reaction: freezed == reaction ? _self.reaction : reaction // ignore: cast_nullable_to_non_nullable
 as String?,reply: freezed == reply ? _self.reply : reply // ignore: cast_nullable_to_non_nullable
 as String?,metadata: freezed == metadata ? _self.metadata : metadata // ignore: cast_nullable_to_non_nullable
@@ -67,6 +74,7 @@ as Map<String, dynamic>?,receipt: freezed == receipt ? _self.receipt : receipt /
 as ReceiptStatus?,isEdited: null == isEdited ? _self.isEdited : isEdited // ignore: cast_nullable_to_non_nullable
 as bool,isDeleted: null == isDeleted ? _self.isDeleted : isDeleted // ignore: cast_nullable_to_non_nullable
 as bool,isForwarded: null == isForwarded ? _self.isForwarded : isForwarded // ignore: cast_nullable_to_non_nullable
+as bool,isStarred: null == isStarred ? _self.isStarred : isStarred // ignore: cast_nullable_to_non_nullable
 as bool,isSystem: null == isSystem ? _self.isSystem : isSystem // ignore: cast_nullable_to_non_nullable
 as bool,mimeType: freezed == mimeType ? _self.mimeType : mimeType // ignore: cast_nullable_to_non_nullable
 as String?,fileName: freezed == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
@@ -157,10 +165,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? referencedMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ChatMessage() when $default != null:
-return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.referencedMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl);case _:
+return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl);case _:
   return orElse();
 
 }
@@ -178,10 +186,10 @@ return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? referencedMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl)  $default,) {final _that = this;
 switch (_that) {
 case _ChatMessage():
-return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.referencedMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl);case _:
+return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -198,10 +206,10 @@ return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? referencedMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl)?  $default,) {final _that = this;
 switch (_that) {
 case _ChatMessage() when $default != null:
-return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.referencedMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl);case _:
+return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl);case _:
   return null;
 
 }
@@ -213,7 +221,7 @@ return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType
 
 
 class _ChatMessage extends ChatMessage {
-  const _ChatMessage({required this.id, required this.from, required this.timestamp, this.text, this.messageType = MessageType.regular, this.attachmentUrl, this.referencedMessageId, this.reaction, this.reply, final  Map<String, dynamic>? metadata, this.receipt, this.isEdited = false, this.isDeleted = false, this.isForwarded = false, this.isSystem = false, this.mimeType, this.fileName, this.fileSize, this.thumbnailUrl}): _metadata = metadata,super._();
+  const _ChatMessage({required this.id, required this.from, required this.timestamp, this.text, this.messageType = MessageType.regular, this.attachmentUrl, this.referencedMessageId, this.clientMessageId, this.reaction, this.reply, final  Map<String, dynamic>? metadata, this.receipt, this.isEdited = false, this.isDeleted = false, this.isForwarded = false, this.isStarred = false, this.isSystem = false, this.mimeType, this.fileName, this.fileSize, this.thumbnailUrl}): _metadata = metadata,super._();
   
 
 @override final  String id;
@@ -223,6 +231,13 @@ class _ChatMessage extends ChatMessage {
 @override@JsonKey() final  MessageType messageType;
 @override final  String? attachmentUrl;
 @override final  String? referencedMessageId;
+/// Echo of the client-supplied idempotency key sent with the message
+/// (see [ChatMessagesApi.send]'s `clientMessageId`). The backend
+/// round-trips it inside the response `metadata.clientMessageId`; the
+/// SDK lifts it out to this field so it can reconcile the optimistic
+/// temporary message with the server-assigned [id]. `null` when the
+/// sender did not supply one (e.g. messages from other users).
+@override final  String? clientMessageId;
 @override final  String? reaction;
 @override final  String? reply;
  final  Map<String, dynamic>? _metadata;
@@ -238,6 +253,7 @@ class _ChatMessage extends ChatMessage {
 @override@JsonKey() final  bool isEdited;
 @override@JsonKey() final  bool isDeleted;
 @override@JsonKey() final  bool isForwarded;
+@override@JsonKey() final  bool isStarred;
 @override@JsonKey() final  bool isSystem;
 @override final  String? mimeType;
 @override final  String? fileName;
@@ -263,7 +279,7 @@ abstract mixin class _$ChatMessageCopyWith<$Res> implements $ChatMessageCopyWith
   factory _$ChatMessageCopyWith(_ChatMessage value, $Res Function(_ChatMessage) _then) = __$ChatMessageCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? referencedMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl
+ String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? referencedMessageId, String? clientMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isStarred, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl
 });
 
 
@@ -280,7 +296,7 @@ class __$ChatMessageCopyWithImpl<$Res>
 
 /// Create a copy of ChatMessage
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? referencedMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? referencedMessageId = freezed,Object? clientMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isStarred = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,}) {
   return _then(_ChatMessage(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
@@ -289,6 +305,7 @@ as DateTime,text: freezed == text ? _self.text : text // ignore: cast_nullable_t
 as String?,messageType: null == messageType ? _self.messageType : messageType // ignore: cast_nullable_to_non_nullable
 as MessageType,attachmentUrl: freezed == attachmentUrl ? _self.attachmentUrl : attachmentUrl // ignore: cast_nullable_to_non_nullable
 as String?,referencedMessageId: freezed == referencedMessageId ? _self.referencedMessageId : referencedMessageId // ignore: cast_nullable_to_non_nullable
+as String?,clientMessageId: freezed == clientMessageId ? _self.clientMessageId : clientMessageId // ignore: cast_nullable_to_non_nullable
 as String?,reaction: freezed == reaction ? _self.reaction : reaction // ignore: cast_nullable_to_non_nullable
 as String?,reply: freezed == reply ? _self.reply : reply // ignore: cast_nullable_to_non_nullable
 as String?,metadata: freezed == metadata ? _self._metadata : metadata // ignore: cast_nullable_to_non_nullable
@@ -296,6 +313,7 @@ as Map<String, dynamic>?,receipt: freezed == receipt ? _self.receipt : receipt /
 as ReceiptStatus?,isEdited: null == isEdited ? _self.isEdited : isEdited // ignore: cast_nullable_to_non_nullable
 as bool,isDeleted: null == isDeleted ? _self.isDeleted : isDeleted // ignore: cast_nullable_to_non_nullable
 as bool,isForwarded: null == isForwarded ? _self.isForwarded : isForwarded // ignore: cast_nullable_to_non_nullable
+as bool,isStarred: null == isStarred ? _self.isStarred : isStarred // ignore: cast_nullable_to_non_nullable
 as bool,isSystem: null == isSystem ? _self.isSystem : isSystem // ignore: cast_nullable_to_non_nullable
 as bool,mimeType: freezed == mimeType ? _self.mimeType : mimeType // ignore: cast_nullable_to_non_nullable
 as String?,fileName: freezed == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable

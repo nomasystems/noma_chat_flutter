@@ -22,6 +22,7 @@ class WsTransport implements RealtimeTransport {
   WebSocketChannel? _channel;
   ChatConnectionState _state = ChatConnectionState.disconnected;
   bool _shouldReconnect = false;
+  bool _authTerminated = false;
   int _reconnectAttempts = 0;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
@@ -44,6 +45,9 @@ class WsTransport implements RealtimeTransport {
   ChatConnectionState get state => _state;
 
   @override
+  bool get authTerminated => _authTerminated;
+
+  @override
   bool get supportsOutboundFrames => true;
 
   @override
@@ -61,14 +65,33 @@ class WsTransport implements RealtimeTransport {
       return;
     }
     _shouldReconnect = true;
+    // A fresh connect implies the app re-authenticated — clear the
+    // terminal latch so failover and reconnect resume normally.
+    _authTerminated = false;
     await _doConnect();
   }
 
   Future<void> _doConnect() async {
+    // Cancel any pending scheduled reconnect first: a connect() entered while
+    // a reconnect timer is armed (foreground resume in error/reconnecting
+    // state) must not let that timer fire a second _doConnect() and open two
+    // parallel sockets that both authenticate and emit duplicate events.
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     _setState(ChatConnectionState.connecting);
     try {
       await _channelSubscription?.cancel();
       _channelSubscription = null;
+      // Close the previous channel before opening a new one — cancelling the
+      // subscription alone leaks the old socket and leaves a phantom
+      // authenticated session on the server. Best-effort: it may already be
+      // closed.
+      try {
+        await _channel?.sink.close();
+      } catch (_) {
+        // Old socket already closed/errored — nothing to clean up.
+      }
+      _channel = null;
       final realtimeUri = Uri.parse(_config.realtimeUrl);
       final wsScheme = realtimeUri.scheme == 'https' ? 'wss' : 'ws';
       final basePath = realtimeUri.path.endsWith('/')
@@ -134,7 +157,9 @@ class WsTransport implements RealtimeTransport {
     timeout = Timer(_config.authTimeout, () {
       sub.cancel();
       if (!completer.isCompleted) {
-        completer.completeError(const ChatTimeoutException('Auth timeout'));
+        completer.completeError(
+          const ChatTimeoutException(message: 'Auth timeout'),
+        );
       }
     });
 
@@ -163,6 +188,17 @@ class WsTransport implements RealtimeTransport {
     } catch (_) {
       return;
     }
+    // Defensive boundary: a malformed payload (e.g. a backend field typed
+    // off-contract) must never throw out of this stream callback and tear
+    // down event delivery. Mirrors the SSE path, which guards parseNrte.
+    try {
+      _dispatch(json);
+    } catch (e) {
+      _config.log('warn', 'WS: dropped malformed message: $e');
+    }
+  }
+
+  void _dispatch(Map<String, dynamic> json) {
     final type = json['type'] as String?;
     if (type == 'auth_ok') {
       _config.log('debug', 'WS auth successful');
@@ -173,12 +209,34 @@ class WsTransport implements RealtimeTransport {
       return;
     }
     if (type == 'auth_error') {
-      _config.log('error', 'WS auth failed: ${json['reason'] ?? 'unknown'}');
+      final reason = json['reason'] as String?;
+      _config.log('error', 'WS auth failed: ${reason ?? 'unknown'}');
+      if (_isDeactivationReason(reason)) {
+        // The account was globally banned / deactivated mid-session. This is
+        // terminal: the credential is no longer valid for any transport, so
+        // suspend reconnect, drop the cached token, and surface a terminal
+        // auth error the client routes to logout. Mirrors the 4005 path.
+        _terminateForDeactivation('Account deactivated');
+        return;
+      }
       _config.authInterceptor.invalidateCache();
       _eventController.add(
         const ChatEvent.error(exception: ChatAuthException()),
       );
       return;
+    }
+    if (type == 'event') {
+      // A deactivation may also arrive as a typed realtime event pushed to
+      // the user topic (backend force-disconnect signal) rather than an
+      // auth_error frame. Treat it as terminal before the generic event
+      // parser sees it.
+      final data = json['data'];
+      final eventName =
+          (data is Map<String, dynamic> ? data['type'] : null) as String?;
+      if (_isDeactivationReason(eventName)) {
+        _terminateForDeactivation('Account deactivated');
+        return;
+      }
     }
     if (type == 'auth_refreshed') {
       _config.log(
@@ -244,6 +302,24 @@ class WsTransport implements RealtimeTransport {
       'reason': closeReason ?? '',
       'attempts': _reconnectAttempts,
     });
+    if (closeCode == 4005) {
+      // too_many_auth_attempts: the server refused after too many failed
+      // auth attempts. Reconnecting would hammer it with the same bad
+      // credentials, so suspend the auto-reconnect loop, drop the cached
+      // token, and surface a terminal auth error for the app to
+      // re-authenticate.
+      _terminateForDeactivation('Too many authentication attempts');
+      return;
+    }
+    if (closeCode == 4007) {
+      // account_deactivated / account_banned: the server force-closed the
+      // socket because the account was globally banned mid-session. The
+      // credential is permanently invalid, so treat it as terminal exactly
+      // like 4005 — suspend reconnect, drop the token, and surface a
+      // terminal auth error the client routes to logout.
+      _terminateForDeactivation('Account deactivated');
+      return;
+    }
     if (_shouldReconnect) {
       _config.log(
         'warn',
@@ -263,6 +339,47 @@ class WsTransport implements RealtimeTransport {
         _eventController.add(const ChatEvent.disconnected());
       }
     }
+  }
+
+  /// `true` when [reason] names a terminal account-deactivation / global-ban
+  /// condition the backend reports either as an `auth_error` frame reason or
+  /// as a typed realtime event pushed to the user topic. Any of these means
+  /// the credential is permanently invalid and the app must log out.
+  static bool _isDeactivationReason(String? reason) =>
+      reason == 'account_deactivated' ||
+      reason == 'account_banned' ||
+      reason == 'user_deactivated';
+
+  /// Terminal-auth teardown shared by the WS close-code paths (4005, 4007)
+  /// and the in-band deactivation `auth_error` / event paths. Suspends the
+  /// reconnect loop, latches the terminal flag synchronously, drops the
+  /// cached token, and surfaces a [ChatAuthException.terminal] for the
+  /// client to route to logout — mirroring the original 4005 handling.
+  void _terminateForDeactivation(String message) {
+    _shouldReconnect = false;
+    // Set the terminal flag SYNCHRONOUSLY, before any stream emission, so
+    // a composing AutoFailoverTransport reading `authTerminated` in its
+    // state-change handler sees it regardless of which broadcast stream
+    // (events vs stateChanges) Dart schedules first.
+    _authTerminated = true;
+    _reconnectTimer?.cancel();
+    _channelSubscription?.cancel();
+    _channelSubscription = null;
+    _channel = null;
+    _config.authInterceptor.invalidateCache();
+    // Emit the terminal-auth error BEFORE the state change so a
+    // composing transport (AutoFailoverTransport) latches the terminal
+    // flag from the event stream before it observes the `error` state —
+    // otherwise the state transition could promote the SSE fallback,
+    // reusing the very token the server just rejected. Both streams are
+    // async broadcast controllers, so adding to the event controller
+    // first guarantees its listener runs first (FIFO microtask order).
+    if (!_eventController.isClosed) {
+      _eventController.add(
+        ChatEvent.error(exception: ChatAuthException.terminal(message)),
+      );
+    }
+    _setState(ChatConnectionState.error);
   }
 
   Future<void> sendAuthRefresh() async {
@@ -346,6 +463,10 @@ class WsTransport implements RealtimeTransport {
     'messageId': messageId,
     'status': status.name,
   });
+
+  @override
+  void sendDelivered(String roomId, String messageId) =>
+      sendRaw({'type': 'delivered', 'roomId': roomId, 'messageId': messageId});
 
   @override
   void sendMessage(
