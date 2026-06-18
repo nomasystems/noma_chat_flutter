@@ -144,7 +144,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
         height: height,
         child: Center(
           child: Text(
-            _error ?? 'Error',
+            _error ?? widget.theme.l10n.error,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),

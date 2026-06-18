@@ -51,6 +51,10 @@ abstract class RoomDetail with _$RoomDetail {
     required RoomRole userRole,
     required RoomConfig config,
     @Default(false) bool muted,
+
+    /// When the notification mute expires (UTC). `null` means a permanent
+    /// mute (or not muted — check [muted]).
+    DateTime? muteUntil,
     @Default(false) bool pinned,
     @Default(false) bool hidden,
     @Default(false) bool selfMuted,
@@ -73,6 +77,33 @@ abstract class RoomDetail with _$RoomDetail {
 abstract class RoomConfig with _$RoomConfig {
   const factory RoomConfig({@Default(false) bool allowInvitations}) =
       _RoomConfig;
+}
+
+/// The current user's private preferences for a room: notification mute,
+/// pin-to-top, and hide-from-list.
+///
+/// These are per-user and never visible to other members. Returned by
+/// [ChatRoomsApi.patchPreferences] as the merged server-side state after a
+/// partial update, and embedded in [RoomDetail] for the room info panel.
+@freezed
+abstract class RoomPreferences with _$RoomPreferences {
+  const RoomPreferences._();
+
+  const factory RoomPreferences({
+    /// Whether room notifications are silenced. For a timed mute this is
+    /// `true` until [muteUntil] passes; the backend derives it server-side.
+    @Default(false) bool muted,
+
+    /// Whether the room is pinned to the top of the room list.
+    @Default(false) bool pinned,
+
+    /// Whether the room is hidden (WhatsApp-style "archive") from the list.
+    @Default(false) bool hidden,
+
+    /// When a timed mute expires (UTC). `null` means a permanent mute (when
+    /// [muted] is `true`) or no mute at all (when [muted] is `false`).
+    DateTime? muteUntil,
+  }) = _RoomPreferences;
 }
 
 /// A public room found via discovery search.

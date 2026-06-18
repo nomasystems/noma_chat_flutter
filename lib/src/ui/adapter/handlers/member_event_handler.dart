@@ -28,8 +28,10 @@ import '../services/user_cache_service.dart';
 ///    clears the kicked flag.
 ///
 /// `addSystemMessage` posts the i18n banner ("Alice joined", "You
-/// removed Bob", etc.) into the appropriate [ChatController]. Owns the
-/// monotonic counter used to mint the synthetic message ids.
+/// removed Bob", etc.) into the open [ChatController] when one exists and
+/// always persists it to the cache so participants whose room is closed
+/// still see the banner on next open. Synthetic message ids are minted
+/// from the room/event/user tuple plus a microsecond timestamp.
 ///
 /// `deleteKickedChat` powers the WhatsApp-style "delete this chat"
 /// option exposed when the local user is no longer a participant — it
@@ -49,6 +51,7 @@ class MemberEventHandler {
     required void Function(String roomId, {ChatMessage? lastMessage})
     addRoomFromDetail,
     required void Function(String roomId) removeChatController,
+    required void Function(String roomId) notifyRoomMembersChanged,
     required bool Function() isDisposed,
     required ChatResult<void> Function(Object _) swallowCacheThrow,
     this.logger,
@@ -57,6 +60,7 @@ class MemberEventHandler {
        _ensureUserCached = ensureUserCached,
        _addRoomFromDetail = addRoomFromDetail,
        _removeChatController = removeChatController,
+       _notifyRoomMembersChanged = notifyRoomMembersChanged,
        _isDisposed = isDisposed,
        _swallowCacheThrow = swallowCacheThrow;
 
@@ -73,14 +77,17 @@ class MemberEventHandler {
   final void Function(String roomId, {ChatMessage? lastMessage})
   _addRoomFromDetail;
   final void Function(String roomId) _removeChatController;
+  final void Function(String roomId) _notifyRoomMembersChanged;
   final bool Function() _isDisposed;
   final ChatResult<void> Function(Object _) _swallowCacheThrow;
 
   final void Function(String level, String message)? logger;
 
-  int _systemCounter = 0;
-
   void handleUserJoined(String roomId, String userId) {
+    // Fire the roster-changed signal first and unconditionally — a
+    // GroupMembersView open on this room must refresh even when no chat
+    // controller exists (the chat screen isn't the active one).
+    _notifyRoomMembersChanged(roomId);
     final me = _currentUser();
     if (userId == me.id) {
       if (roomListController.getRoomById(roomId) == null) {
@@ -111,6 +118,10 @@ class MemberEventHandler {
   }
 
   void handleUserLeft(String roomId, String userId, {String? actorUserId}) {
+    // Fire the roster-changed signal first and unconditionally — a
+    // GroupMembersView open on this room must refresh even when no chat
+    // controller exists (the chat screen isn't the active one).
+    _notifyRoomMembersChanged(roomId);
     final me = _currentUser();
     final isKick = actorUserId != null && actorUserId != userId;
     if (userId == me.id) {
@@ -155,7 +166,6 @@ class MemberEventHandler {
     String? actorUserId,
   }) {
     final controller = chatControllers[roomId];
-    if (controller == null) return;
     final me = _currentUser();
     if (userId != me.id && !userCacheService.contains(userId)) {
       unawaited(_ensureUserCached(userId));
@@ -182,20 +192,28 @@ class MemberEventHandler {
       'user_role_changed' => l10n.userRoleChanged(label),
       _ => eventType,
     };
-    controller.addMessage(
-      ChatMessage(
-        id: '_system_${_systemCounter++}',
-        from: 'system',
-        timestamp: DateTime.now(),
-        text: text,
-        isSystem: true,
-        metadata: {
-          'event': eventType,
-          'userId': userId,
-          if (actorUserId != null) 'actorUserId': actorUserId,
-        },
-      ),
+    final systemMsg = ChatMessage(
+      id: '_system_${roomId}_${eventType}_${userId}_${DateTime.now().microsecondsSinceEpoch}',
+      from: 'system',
+      timestamp: DateTime.now(),
+      text: text,
+      isSystem: true,
+      metadata: {
+        'event': eventType,
+        'userId': userId,
+        if (actorUserId != null) 'actorUserId': actorUserId,
+      },
     );
+    controller?.addMessage(systemMsg);
+    final c = cache;
+    if (c != null) {
+      unawaited(
+        c.saveMessages(roomId, [systemMsg]).catchError(_swallowCacheThrow),
+      );
+    }
+    if (roomListController.getRoomById(roomId) == null) {
+      _addRoomFromDetail(roomId);
+    }
   }
 
   @internal

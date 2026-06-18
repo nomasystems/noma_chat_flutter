@@ -156,6 +156,8 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isForwarded => message.isForwarded;
 
+  bool get _isStarred => message.isStarred;
+
   ReceiptStatus? get _effectiveStatus => status ?? message.receipt;
 
   bool get _isSystem => message.isSystem;
@@ -170,7 +172,56 @@ class MessageBubble extends StatelessWidget {
     return null;
   }
 
-  Widget _buildBubbleContent() {
+  MessageDeliveryState? get _deliveryState {
+    if (!isOutgoing) return null;
+    if (isFailed) return MessageDeliveryState.failed;
+    if (isPending) return MessageDeliveryState.sending;
+    return switch (_effectiveStatus ?? ReceiptStatus.sent) {
+      ReceiptStatus.sent => MessageDeliveryState.sent,
+      ReceiptStatus.delivered => MessageDeliveryState.delivered,
+      ReceiptStatus.read => MessageDeliveryState.read,
+    };
+  }
+
+  Widget _buildStatusIcon(BuildContext context, MessageDeliveryState state) {
+    final override = theme.bubble.statusIconBuilder?.call(
+      context,
+      MessageStatusIconData(state: state, size: 14, message: message),
+    );
+    return switch (state) {
+      MessageDeliveryState.failed => GestureDetector(
+        onTap: onRetry,
+        child:
+            override ??
+            Icon(
+              Icons.error_outline,
+              size: 14,
+              color: theme.bubble.failedIconColor ?? Colors.red,
+            ),
+      ),
+      MessageDeliveryState.sending =>
+        override ??
+            Icon(
+              Icons.access_time,
+              size: 14,
+              color:
+                  theme.bubble.statusPendingColor ??
+                  theme.bubble.statusColor ??
+                  Colors.grey,
+            ),
+      MessageDeliveryState.sent ||
+      MessageDeliveryState.delivered ||
+      MessageDeliveryState.read =>
+        override ??
+            MessageStatusIcon(
+              status: _effectiveStatus ?? ReceiptStatus.sent,
+              theme: theme,
+              size: 14,
+            ),
+    };
+  }
+
+  Widget _buildBubbleContent(BuildContext context) {
     if (message.isDeleted) {
       return _DeletedBubbleContent(
         isOutgoing: isOutgoing,
@@ -184,32 +235,14 @@ class MessageBubble extends StatelessWidget {
     // Bumped from 12 → 14 + stroke 1.5 → 2 inside MessageStatusIcon.
     // The user reported "no se ven los ticks" on a real device; the
     // previous values were too thin on a phone display. WhatsApp uses
-    // ~14px ticks with a slightly thicker stroke. Still configurable
-    // via `theme.bubble.statusColor` / `theme.bubble.statusReadColor`
-    // (and the size can be overridden by consumers replacing
-    // `outgoingStatusWidget` via the bubble's statusWidget slot).
-    final Widget? statusIcon = isOutgoing
-        ? (isFailed
-              ? GestureDetector(
-                  onTap: onRetry,
-                  child: Icon(
-                    Icons.error_outline,
-                    size: 14,
-                    color: theme.bubble.failedIconColor ?? Colors.red,
-                  ),
-                )
-              : isPending
-              ? Icon(
-                  Icons.access_time,
-                  size: 14,
-                  color: theme.bubble.statusColor ?? Colors.grey,
-                )
-              : MessageStatusIcon(
-                  status: _effectiveStatus ?? ReceiptStatus.sent,
-                  theme: theme,
-                  size: 14,
-                ))
-        : null;
+    // ~14px ticks with a slightly thicker stroke. Configurable via
+    // `theme.bubble.statusColor` / `theme.bubble.statusReadColor` /
+    // `theme.bubble.statusPendingColor`, or replaced wholesale per
+    // state through `theme.bubble.statusIconBuilder`.
+    final deliveryState = _deliveryState;
+    final Widget? statusIcon = deliveryState == null
+        ? null
+        : _buildStatusIcon(context, deliveryState);
 
     final outgoingStatusWidget = statusIcon == null
         ? null
@@ -467,9 +500,20 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (isPinned) _buildPinBadge(),
+            if (isPinned || _isStarred)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isPinned) _buildPinBadge(),
+                    if (isPinned && _isStarred) const SizedBox(width: 6),
+                    if (_isStarred) _buildStarBadge(),
+                  ],
+                ),
+              ),
             if (senderName != null && !isOutgoing) _buildSenderName(),
-            _buildBubbleContent(),
+            _buildBubbleContent(context),
           ],
         ),
       ),
@@ -482,23 +526,32 @@ class MessageBubble extends StatelessWidget {
   /// "Pinned" label, italic grey, in line with the existing
   /// "edited" / "admin" microcopy.
   Widget _buildPinBadge() {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
-          const SizedBox(width: 3),
-          Text(
-            theme.l10n.pinned.isNotEmpty ? theme.l10n.pinned : 'Pinned',
-            style: TextStyle(
-              fontSize: 11,
-              fontStyle: FontStyle.italic,
-              color: Colors.grey.shade600,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
+        const SizedBox(width: 3),
+        Text(
+          theme.l10n.pinned.isNotEmpty ? theme.l10n.pinned : 'Pinned',
+          style: TextStyle(
+            fontSize: 11,
+            fontStyle: FontStyle.italic,
+            color: Colors.grey.shade600,
           ),
-        ],
-      ),
+        ),
+      ],
+    );
+  }
+
+  /// Star badge: rendered alongside the pin badge at the top of the
+  /// bubble, mirroring the subtle "pinned" / "edited" microcopy. The star
+  /// is a private per-user bookmark, so a single icon (no label) keeps it
+  /// unobtrusive while still flagging starred rows while scrolling.
+  Widget _buildStarBadge() {
+    return Icon(
+      Icons.star,
+      size: 12,
+      color: theme.bubble.timestampStyle?.color ?? Colors.grey.shade600,
     );
   }
 
@@ -571,10 +624,13 @@ class MessageBubble extends StatelessWidget {
     final semanticBody = message.isDeleted
         ? theme.l10n.messageDeleted
         : (message.text ?? '');
-    final statusForSemantics = isOutgoing && !message.isDeleted
+    final announceSending = isOutgoing && !message.isDeleted && isPending;
+    final statusForSemantics = isOutgoing && !message.isDeleted && !isPending
         ? _effectiveStatus
         : null;
-    final statusSuffix = statusForSemantics == null
+    final statusSuffix = announceSending
+        ? ', ${theme.l10n.statusSending}'
+        : statusForSemantics == null
         ? ''
         : ', ${switch (statusForSemantics) {
             ReceiptStatus.sent => theme.l10n.statusSent,

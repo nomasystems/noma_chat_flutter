@@ -81,13 +81,14 @@ void main() {
       );
       expect(p1, equals(p2));
       expect(p1 == p3, isFalse);
-      expect(p1.hashCode, isA<int>());
+      expect(p1.hashCode, p2.hashCode);
+      expect(p1.hashCode == p3.hashCode, isFalse);
       expect(p1.toString(), contains('u1'));
 
       const bulk = BulkPresenceResponse(own: p1, contacts: [p3]);
       const bulk2 = BulkPresenceResponse(own: p1, contacts: []);
       expect(bulk, equals(bulk2));
-      expect(bulk.hashCode, isA<int>());
+      expect(bulk.hashCode, bulk2.hashCode);
       expect(bulk.toString(), contains('contacts'));
 
       expect(PresenceStatus.available.toJson(), 'available');

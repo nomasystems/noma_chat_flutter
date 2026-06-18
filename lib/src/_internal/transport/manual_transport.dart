@@ -59,6 +59,9 @@ class ManualTransport implements RealtimeTransport {
   ChatConnectionState get state => _state;
 
   @override
+  bool get authTerminated => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
@@ -123,6 +126,9 @@ class ManualTransport implements RealtimeTransport {
     String messageId, {
     ReceiptStatus status = ReceiptStatus.read,
   }) {}
+
+  @override
+  void sendDelivered(String roomId, String messageId) {}
 
   @override
   void sendMessage(

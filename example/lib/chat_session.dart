@@ -127,6 +127,14 @@ Future<LoginOutcome> openChatSession(
   // used as the displayName the rest of the app surface uses.
   final userId = await StableUserId.forDisplayName(displayName);
 
+  // Persistent local cache so cleared/deleted/left/kicked conversations survive
+  // an app restart (Hive self-initialises inside create()). Swap to
+  // MemoryChatLocalDatasource() for a session-only store.
+  final hiveCache = await HiveChatDatasource.create(
+    maxMessagesPerRoom: 500,
+    maxRooms: 100,
+  );
+
   final config = ChatConfig.withAuthInterceptor(
     baseUrl: settings.baseUrl,
     realtimeUrl: settings.realtimeUrl,
@@ -177,6 +185,13 @@ Future<LoginOutcome> openChatSession(
     // easy to diagnose during development. Production apps typically leave
     // this false.
     enableHttpLog: true,
+    // Enable the local cache so client.messages resolves to CachedMessagesApi.
+    // Without it the SDK falls back to RestMessagesApi, where clearChat only
+    // marks the room read and never records a clearedAt watermark — so cleared
+    // and deleted conversations reappear in full on re-entry. The Hive store
+    // (above) makes those watermarks survive an app restart.
+    cacheConfig: const CacheConfig(maxMessagesPerRoom: 500, maxRooms: 100),
+    localDatasource: hiveCache,
   );
 
   // NomaChat.create requires baseUrl/realtimeUrl/tokenProvider as positional
@@ -188,6 +203,7 @@ Future<LoginOutcome> openChatSession(
     tokenProvider: () async => '',
     config: config,
     currentUser: ChatUser(id: userId, displayName: displayName),
+    l10n: ChatUiLocalizations.forLanguageCode(settings.languageCode),
     // Cache is always enabled (default in NomaChat.create). The
     // previous `enableCache: settings.enableCache` toggle was retired
     // 2026-05-25 — 99% of apps want the cache and the noisy "off"

@@ -35,8 +35,8 @@ class FullEmojiPicker {
               bottomActionBarConfig: const BottomActionBarConfig(
                 enabled: false,
               ),
-              searchViewConfig: const SearchViewConfig(
-                hintText: 'Search emoji...',
+              searchViewConfig: SearchViewConfig(
+                hintText: theme.l10n.searchEmoji,
               ),
             ),
           ),

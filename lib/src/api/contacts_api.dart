@@ -26,7 +26,6 @@ class ContactsApi implements ChatContactsApi {
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
   final OfflineQueue? _offlineQueue;
-  final void Function(String level, String message)? _logger;
 
   ContactsApi({
     required RestClient rest,
@@ -34,13 +33,11 @@ class ContactsApi implements ChatContactsApi {
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     OfflineQueue? offlineQueue,
-    void Function(String level, String message)? logger,
   }) : _rest = rest,
        _transport = transport,
        _cache = cache,
        _cacheManager = cacheManager,
-       _offlineQueue = offlineQueue,
-       _logger = logger;
+       _offlineQueue = offlineQueue;
 
   @override
   Future<ChatResult<ChatPaginatedResponse<ChatContact>>> list({
@@ -137,23 +134,48 @@ class ContactsApi implements ChatContactsApi {
           if (metadata != null) 'metadata': metadata,
         },
       );
-      return MessageMapper.fromJson(json);
-    });
-    if (result.isSuccess && _cache != null) {
-      try {
-        final msg = result.dataOrThrow;
-        await _cache.saveMessages(contactUserId, [msg]);
-        _cacheManager?.invalidatePrefix('messages:$contactUserId');
-        _cacheManager?.invalidate('rooms:all');
-        _cacheManager?.invalidate('rooms:unread');
-      } catch (e) {
-        _logger?.call(
-          'warn',
-          'contacts.sendDirectMessage: cache update failed: $e',
+      // HTTP 204 (empty body): the backend accepted the message but silently
+      // dropped it because the recipient has blocked the sender (WhatsApp
+      // parity). Synthesize a local `sent` message instead of mapping an
+      // id-less phantom — it shows as sent and never advances to
+      // delivered/read, exactly what a blocked sender sees.
+      if (json.isEmpty) {
+        return ChatMessage(
+          id: 'local-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
+          from: _rest.userId ?? '',
+          timestamp: DateTime.now(),
+          text: text,
+          messageType: messageType,
+          referencedMessageId: referencedMessageId,
+          reaction: reaction,
+          attachmentUrl: attachmentUrl,
+          metadata: metadata,
+          receipt: ReceiptStatus.sent,
         );
       }
+      return MessageMapper.fromJson(json);
+    });
+    final failure = result.failureOrNull;
+    // A DM send is non-idempotent, so only enqueue when the request
+    // provably never reached the server: a network failure, or a
+    // pre-response timeout. A receive timeout might already have created
+    // the message server-side; re-sending it would duplicate.
+    final canQueueDirectSend =
+        failure is NetworkFailure ||
+        (failure is TimeoutFailure && failure.kind.isPreResponse);
+    if (result.isSuccess && _cache != null) {
+      // The DM timeline is keyed by the backend-resolved 1:1 roomId,
+      // which the POST /contacts/{id}/messages response does not carry
+      // (see map_nmessage_for_dm_send in CHT). Caching the message under
+      // contactUserId only creates an orphan box nothing reads and leaves
+      // the real messages:<roomId> entry stale, so we skip the per-room
+      // write-through and let the WS NewMessageEvent — which carries the
+      // roomId — populate it. We still bust the room-list previews so the
+      // conversation surfaces and reorders immediately.
+      _cacheManager?.invalidate('rooms:all');
+      _cacheManager?.invalidate('rooms:unread');
     } else if (result.isFailure &&
-        result.failureOrNull is NetworkFailure &&
+        canQueueDirectSend &&
         _offlineQueue != null) {
       _offlineQueue.enqueue(
         PendingSendDirectMessage(
@@ -183,6 +205,8 @@ class ContactsApi implements ChatContactsApi {
     return ChatPaginatedResponse(
       items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
       hasMore: (json['hasMore'] ?? false) as bool,
+      nextCursor: json['next'] as String?,
+      prevCursor: json['prev'] as String?,
     );
   });
 
@@ -200,6 +224,8 @@ class ContactsApi implements ChatContactsApi {
       items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
       hasMore: (json['hasMore'] ?? false) as bool,
       totalCount: totalCount,
+      nextCursor: json['next'] as String?,
+      prevCursor: json['prev'] as String?,
     );
   });
 

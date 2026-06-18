@@ -76,8 +76,16 @@ class _UserInfoPageState extends State<UserInfoPage> {
       }
       return;
     }
+    final fresh = result.dataOrThrow;
+    // Feed the authoritative backend record back into the shared user
+    // cache so the cache (which `_buildBody` reads via `findCachedUser`,
+    // and which `userCacheListenable` repaints on) reflects the freshly
+    // fetched profile — including a `bio` a roster / members endpoint may
+    // have omitted. Without this, the stale cached entry would shadow the
+    // fetch and the description would never update.
+    widget.adapter.cacheUsers([fresh]);
     setState(() {
-      _user = result.dataOrThrow;
+      _user = fresh;
       _loading = false;
     });
   }
@@ -87,7 +95,10 @@ class _UserInfoPageState extends State<UserInfoPage> {
     final l10n = widget.theme.l10n;
     return Scaffold(
       appBar: AppBar(title: Text(l10n.profile)),
-      body: _buildBody(),
+      body: ListenableBuilder(
+        listenable: widget.adapter.userCacheListenable,
+        builder: (context, _) => _buildBody(),
+      ),
     );
   }
 
@@ -104,7 +115,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
         ),
       );
     }
-    final user = _user;
+    final user = widget.adapter.findCachedUser(widget.userId) ?? _user;
     if (user == null) {
       return const SizedBox.shrink();
     }

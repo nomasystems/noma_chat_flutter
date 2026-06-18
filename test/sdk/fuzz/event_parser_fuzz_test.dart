@@ -258,9 +258,8 @@ void main() {
       }
     }
 
-    // Types whose handlers do NOT trip FUZZ-BUG-2 when given a schema-shaped
-    // map with a Map-typed `message` field. `broadcast`/`room_deleted`/
-    // `user_updated` are tested separately in the skipped bug group.
+    // Event types exercised by the schema-shaped fuzz below. Off-contract
+    // (cross-type) values are exercised by the adversarial test further down.
     const eventTypes = [
       'new_message',
       'message_updated',
@@ -275,6 +274,8 @@ void main() {
       'user_left',
       'user_role_changed',
       'receipt_updated',
+      'message_acked',
+      'message_delivered',
       'reaction_added',
       'reaction_deleted',
       'unknown_event_xyz',
@@ -283,8 +284,8 @@ void main() {
     test('100 random parseJson inputs (schema-shaped)', () {
       // Schema-shaped: fields keep their declared type (String? / int? / Map),
       // but values are adversarial (empty, garbage content, unicode, huge).
-      // Cross-type fuzzing (e.g. List where a String? is expected) surfaces
-      // additional bugs — see FUZZ-BUG-2 in skip list at bottom.
+      // Cross-type fuzzing (e.g. List where a String? is expected) is covered
+      // by the 'cross-type adversarial inputs' test below.
       for (var i = 0; i < 100; i++) {
         final map = <String, dynamic>{
           'type': eventTypes[random.nextInt(eventTypes.length)],
@@ -316,35 +317,82 @@ void main() {
       }
     });
 
-    test(
-      'cross-type adversarial inputs reveal known parser bugs',
-      () {
-        // FUZZ-BUG-2: When backend ships a field declared as String?
-        // with a non-string value (List, int, Map), several handlers
-        // crash with TypeError because they use `as String?` instead
-        // of `is String ? ... : null`. Examples:
-        //   - _parseBroadcast: json['message'] as String?
-        //   - _parseRoomDeleted: json['reason'] as String?
-        //   - _parseUserUpdated: avatarUrl/displayName/bio/email
-        //   - _parseRoomCreated/_parseRoomUpdated: roomId fallback chain
-        // Re-enable this group once parser hardens these casts.
-        final bugTriggeringInputs = <Map<String, dynamic>>[
-          {'type': 'broadcast', 'message': <dynamic>[]},
-          {'type': 'broadcast', 'message': 42},
-          {'type': 'room_deleted', 'roomId': 'r', 'reason': 42},
-          {'type': 'room_deleted', 'roomId': 'r', 'adminReason': <dynamic>[]},
-          {'type': 'user_updated', 'userId': 'u', 'displayName': 42},
-        ];
-        for (final input in bugTriggeringInputs) {
-          expect(
-            () => EventParser.parseJson(input),
-            returnsNormally,
-            reason: 'should not throw: $input',
-          );
-        }
-      },
-      skip: 'documents known parser bugs — see FUZZ-BUG-2',
-    );
+    test('cross-type adversarial inputs never throw (parser hardened)', () {
+      // Regression for the former FUZZ-BUG-2: when the backend ships a field
+      // declared as String?/int?/bool? with an off-contract value (List, int,
+      // Map, String), the parser must degrade gracefully (drop the field or
+      // the event) instead of throwing TypeError out of the transport
+      // callback. Covers every handler, not only the three originally found.
+      final adversarialInputs = <Map<String, dynamic>>[
+        {'type': 42},
+        {'type': 'broadcast', 'message': <dynamic>[]},
+        {'type': 'broadcast', 'message': 42},
+        {'type': 'broadcast', 'fromUserId': 42},
+        {'type': 'room_deleted', 'roomId': 'r', 'reason': 42},
+        {'type': 'room_deleted', 'roomId': 'r', 'adminReason': <dynamic>[]},
+        {'type': 'user_updated', 'userId': 'u', 'displayName': 42},
+        {'type': 'user_updated', 'userId': <dynamic>[], 'email': 42},
+        {'type': 'new_message', 'roomId': 42},
+        {'type': 'new_message', 'roomId': 'r', 'message': 'not-a-map'},
+        {'type': 'message_updated', 'roomId': 42, 'messageId': <dynamic>[]},
+        {'type': 'message_deleted', 'roomId': <dynamic>[], 'messageId': 7},
+        {'type': 'room_created', 'roomId': 99},
+        {'type': 'room_updated', 'room': 'not-a-map'},
+        {'type': 'typing', 'userId': 5, 'roomId': <dynamic>[]},
+        {'type': 'typing', 'userId': 'u', 'contactId': 9},
+        {'type': 'presence', 'userId': 1},
+        {
+          'type': 'presence_changed',
+          'userId': 'u',
+          'online': 'yes',
+          'lastSeen': 123,
+          'statusText': 7,
+        },
+        {
+          'type': 'unread_updated',
+          'roomId': 'r',
+          'count': 'five',
+          'unreadMessages': <dynamic>[],
+        },
+        {'type': 'user_joined', 'roomId': 3, 'userId': 4},
+        {
+          'type': 'user_left',
+          'roomId': 'r',
+          'userId': 'u',
+          'actorUserId': <dynamic>[],
+        },
+        {'type': 'user_role_changed', 'roomId': 5, 'userId': 6, 'role': 9},
+        {
+          'type': 'receipt_updated',
+          'roomId': 'r',
+          'messageId': 'm',
+          'fromUserId': 8,
+          'status': 3,
+        },
+        {
+          'type': 'message_acked',
+          'messageId': <dynamic>[],
+          'seq': 1,
+          'roomId': 'r',
+        },
+        {'type': 'message_delivered', 'messageId': 7, 'userId': 8, 'seq': 1},
+        {
+          'type': 'reaction_added',
+          'roomId': 'r',
+          'messageId': 'm',
+          'userId': 'u',
+          'emoji': 1,
+        },
+        {'type': 'reaction_deleted', 'roomId': <dynamic>[], 'messageId': 2},
+      ];
+      for (final input in adversarialInputs) {
+        expect(
+          () => EventParser.parseJson(input),
+          returnsNormally,
+          reason: 'should not throw: $input',
+        );
+      }
+    });
 
     test('100 random parseNrte raw strings', () {
       for (var i = 0; i < 100; i++) {

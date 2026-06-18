@@ -124,7 +124,11 @@ void main() {
     tester,
   ) async {
     final fake = _FakeFetcher(
-      const LinkPreviewMetadata(url: 'https://example.com', title: 'Example'),
+      const LinkPreviewMetadata(
+        url: 'https://example.com',
+        title: 'Example',
+        description: 'It works',
+      ),
     );
     Map<String, dynamic>? receivedMetadata;
 
@@ -142,16 +146,15 @@ void main() {
     await tester.pump(const Duration(milliseconds: 600));
     await tester.pump();
 
-    // Tap the send button (icon button with an arrow/send icon).
-    final sendButton = find.byIcon(Icons.send_rounded);
-    if (sendButton.evaluate().isNotEmpty) {
-      await tester.tap(sendButton);
-      await tester.pumpAndSettle();
-      // Either metadata was attached (preview fully loaded) or rich callback
-      // was invoked with null — both paths exercise the dispatch logic.
-      // We only assert the callback fired.
-      expect(receivedMetadata?['linkUrl'] ?? 'fired', isNotNull);
-    }
+    final sendButton = find.bySemanticsLabel('Send');
+    expect(sendButton, findsOneWidget);
+    await tester.tap(sendButton);
+    await tester.pumpAndSettle();
+
+    expect(receivedMetadata, isNotNull);
+    expect(receivedMetadata!['linkUrl'], 'https://example.com');
+    expect(receivedMetadata!['linkTitle'], 'Example');
+    expect(receivedMetadata!['linkDescription'], 'It works');
   });
 
   testWidgets('enableLinkPreview=false skips the fetcher entirely', (

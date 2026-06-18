@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
+import '../widgets/message_status_icon.dart';
+
 part 'bubble_theme.freezed.dart';
 
 /// Theme for the message bubble surface — the rounded card that wraps every
@@ -64,5 +66,14 @@ abstract class ChatBubbleTheme with _$ChatBubbleTheme {
 
     /// Tint for the warning icon attached to messages that failed to send.
     Color? failedIconColor,
+
+    /// Color of the pending clock shown while a message is in flight.
+    /// Falls back to [statusColor].
+    Color? statusPendingColor,
+
+    /// Per-state override of the delivery-status icon (bubble corner and
+    /// room-list preview). Return `null` for SDK default. Covers all five
+    /// states: sending / sent / delivered / read / failed.
+    MessageStatusIconBuilder? statusIconBuilder,
   }) = _ChatBubbleTheme;
 }

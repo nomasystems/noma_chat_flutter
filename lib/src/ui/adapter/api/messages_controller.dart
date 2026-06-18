@@ -51,22 +51,18 @@ final class ChatMessagesController {
       _a._loadReactionsFromMessages(controller, visible);
       controller.setPaginationState(
         hasMore: cachedData.hasMore,
-        cursor: cachedData.items.isNotEmpty ? cachedData.items.last.id : null,
+        cursor: cachedData.prevCursor,
       );
     }
 
-    // Phase 2: Sync from network — delta if cache had data, full page otherwise
-    final networkPagination = hasCached
-        ? ChatCursorPaginationParams(
-            after: cachedResult.dataOrThrow.items.first.timestamp
-                .toUtc()
-                .toIso8601String(),
-            limit: limit,
-          )
-        : pagination;
+    // Phase 2: Sync from network — always fetch the most recent page so the
+    // controller reconciles against the server. Opaque cursors are seq-based
+    // and can't be derived from cached rows, so there's no timestamp-delta
+    // shortcut: the cursor scheme already makes the full recent page cheap and
+    // de-duplicates against what's already in the controller.
     final networkResult = await _a.client.messages.list(
       roomId,
-      pagination: networkPagination,
+      pagination: pagination,
       cachePolicy: CachePolicy.networkOnly,
     );
     if (_a._disposed) return const ChatSuccess(<ChatMessage>[]);
@@ -76,15 +72,10 @@ final class ChatMessagesController {
       final visible = _filterHidden(networkData.items, hideTest);
       controller.addMessages(visible);
       _a._loadReactionsFromMessages(controller, visible);
-      // Use full-page pagination state only when no cache (fresh load)
-      if (!hasCached) {
-        controller.setPaginationState(
-          hasMore: networkData.hasMore,
-          cursor: networkData.items.isNotEmpty
-              ? networkData.items.last.id
-              : null,
-        );
-      }
+      controller.setPaginationState(
+        hasMore: networkData.hasMore,
+        cursor: networkData.prevCursor,
+      );
       finalResult = ChatSuccess(networkData.items);
     } else if (hasCached) {
       finalResult = ChatSuccess(cachedResult.dataOrThrow.items);
@@ -125,6 +116,15 @@ final class ChatMessagesController {
     // through the regular onError pipeline if the consumer wired it.
     if (_a.autoMarkAsRead && finalResult.isSuccess) {
       unawaited(markAsRead(roomId));
+    } else if (_a.autoConfirmDelivery && finalResult.isSuccess) {
+      // No read flush to piggyback on (a read receipt implies delivery
+      // server-side) — confirm the delivered cursor explicitly with the
+      // newest confirmed message the client now holds.
+      for (final m in controller.messages.reversed) {
+        if (controller.isPending(m.id) || controller.isFailed(m.id)) continue;
+        unawaited(_a._deliveredCoord.confirm(roomId, m.id));
+        break;
+      }
     }
 
     return _a._emitFailure(
@@ -152,8 +152,11 @@ final class ChatMessagesController {
     // controller would stay `isLoadingMore: true` forever and every later
     // call would early-return — a permanent UX dead-end.
     try {
+      // Load older history: anchor on the stored opaque older-history cursor
+      // ([ChatPaginatedResponse.prevCursor]) and travel `older`.
       final pagination = ChatCursorPaginationParams(
-        before: controller.oldestMessageCursor,
+        cursor: controller.oldestMessageCursor,
+        direction: ChatCursorDirection.older,
         limit: limit,
       );
 
@@ -172,7 +175,7 @@ final class ChatMessagesController {
         _a._loadReactionsFromMessages(controller, cachedData.items);
         controller.setPaginationState(
           hasMore: cachedData.hasMore,
-          cursor: cachedData.items.isNotEmpty ? cachedData.items.last.id : null,
+          cursor: cachedData.prevCursor,
         );
       }
 
@@ -189,9 +192,7 @@ final class ChatMessagesController {
         _a._loadReactionsFromMessages(controller, networkData.items);
         controller.setPaginationState(
           hasMore: networkData.hasMore,
-          cursor: networkData.items.isNotEmpty
-              ? networkData.items.last.id
-              : null,
+          cursor: networkData.prevCursor,
         );
         return ChatSuccess(networkData.items);
       }
@@ -443,6 +444,7 @@ final class ChatMessagesController {
         'waveform': waveform,
       },
       tempId: tempId,
+      clientMessageId: tempId,
     );
 
     final confirmedVoice = sendResult.isSuccess
@@ -625,6 +627,7 @@ final class ChatMessagesController {
         timestamp: DateTime.now(),
         messageType: MessageType.forward,
         referencedMessageId: messageId,
+        clientMessageId: tempId,
         metadata: extraMetadata,
       );
 
@@ -678,6 +681,7 @@ final class ChatMessagesController {
         sourceRoomId: sourceRoomId,
         metadata: extraMetadata,
         tempId: tempId,
+        clientMessageId: tempId,
       );
       if (res.isSuccess) {
         final confirmed = _a._ensureSentReceipt(res.dataOrThrow);
@@ -786,12 +790,18 @@ final class ChatMessagesController {
   /// is nothing to hide so callers can skip the walk entirely. Both lists
   /// live in the local datasource so they survive chat re-open and restart.
   Future<bool Function(ChatMessage)?> _localHideTest(String roomId) async {
+    // Read the clear cutoff from the CLIENT surface (CachedMessagesApi
+    // overrides getClearedAt; plain REST returns null = no-op) so the
+    // filter survives even when the adapter was built without a `cache:`
+    // arg. Hidden-ids still come from the adapter cache when present.
+    final clearedAt = (await _a.client.messages.getClearedAt(
+      roomId,
+    )).dataOrNull;
     final cache = _a._cache;
-    if (cache == null) return null;
-    final clearedAt = (await cache.getClearedAt(roomId)).dataOrNull;
-    final hiddenIds =
-        (await cache.getHiddenMessageIds(roomId)).dataOrNull ??
-        const <String>{};
+    final hiddenIds = cache == null
+        ? const <String>{}
+        : ((await cache.getHiddenMessageIds(roomId)).dataOrNull ??
+              const <String>{});
     if (clearedAt == null && hiddenIds.isEmpty) return null;
     return (ChatMessage msg) =>
         hiddenIds.contains(msg.id) ||
@@ -810,11 +820,19 @@ final class ChatMessagesController {
     return items.where((m) => !test(m)).toList(growable: false);
   }
 
-  /// Applies room-level read receipts to outgoing messages already in
-  /// the controller — used post-login to restore ✓✓ marks that the
-  /// WS event stream can no longer replay. Fire-and-forget: any DB
-  /// failure simply leaves bubbles as ✓ (single tick), same as before
-  /// the rehydration was added.
+  /// Applies room-level receipts (read + delivered cursors) to
+  /// messages already in the controller — used post-login to restore
+  /// ✓✓ marks that the WS event stream can no longer replay.
+  /// Fire-and-forget: any failure simply leaves bubbles as ✓ (single
+  /// tick), same as before the rehydration was added.
+  ///
+  /// Read coverage uses conversation order against
+  /// `lastReadMessageId` when the backend provides it; the timestamp
+  /// comparison (`lastReadAt` records confirmation time, not message
+  /// time, and can over-mark) stays as the legacy fallback for
+  /// whole-room reads. Delivered coverage applies the
+  /// `lastDeliveredMessageId` cursor via
+  /// [ChatController.applyDeliveryCursor].
   ///
   /// Also propagates the resulting aggregate status of the room's
   /// LAST outgoing message into the room-list row so the ticks in the
@@ -830,12 +848,36 @@ final class ChatMessagesController {
     final currentUserId = _a.currentUser.id;
     for (final r in receipts) {
       if (r.userId == currentUserId) continue;
+      final lastDeliveredId = r.lastDeliveredMessageId;
+      if (lastDeliveredId != null) {
+        controller.applyDeliveryCursor(
+          userId: r.userId,
+          messageId: lastDeliveredId,
+        );
+      }
+      final lastReadId = r.lastReadMessageId;
       final lastReadAt = r.lastReadAt;
-      if (lastReadAt == null) continue;
-      for (final msg in controller.messages) {
+      if (lastReadId == null && lastReadAt == null) continue;
+      final messages = controller.messages;
+      int? readCutoff;
+      if (lastReadId != null) {
+        for (var i = 0; i < messages.length; i++) {
+          if (messages[i].id == lastReadId) {
+            readCutoff = i;
+            break;
+          }
+        }
+      }
+      for (var i = 0; i < messages.length; i++) {
+        final msg = messages[i];
         if (msg.from != currentUserId) continue;
         if (msg.receipt == ReceiptStatus.read) continue;
-        if (msg.timestamp.isAfter(lastReadAt)) continue;
+        final covered = readCutoff != null
+            ? i <= readCutoff
+            : (lastReadId == null &&
+                  lastReadAt != null &&
+                  !msg.timestamp.isAfter(lastReadAt));
+        if (!covered) continue;
         controller.updateReceipt(
           msg.id,
           ReceiptStatus.read,
@@ -905,13 +947,14 @@ final class ChatMessagesController {
   Future<ChatResult<void>> clearChat(String roomId) async {
     final result = await _a.client.messages.clearChat(roomId);
     if (result.isSuccess) {
-      // Belt-and-suspenders: persist the `clearedAt` cutoff straight into
-      // the adapter's cache — the SAME instance `_applyLocalHideAndClearFilter`
-      // reads on chat re-open. The cached messages API also sets it, but
-      // only when `client.messages` is the caching decorator; if the cutoff
-      // doesn't land here, the backend re-fetch on re-open brings every
-      // pre-clear message back (the bug: list looks empty, chat repopulates).
-      await _a._cache?.setClearedAt(roomId, DateTime.now().toUtc());
+      // Backstop only — the authoritative setClearedAt runs inside
+      // client.messages.clearChat (CachedMessagesApi), and `_localHideTest`
+      // now reads the cutoff back through the client surface. Re-persist into
+      // the adapter cache when one was supplied; the client path covers the
+      // no-cache case (e.g. WB passes no `cache:` arg).
+      if (_a._cache != null) {
+        await _a._cache.setClearedAt(roomId, DateTime.now().toUtc());
+      }
       final controller = _a._chatControllers[roomId];
       controller?.clearMessages();
       final existing = _a.roomListController.getRoomById(roomId);
@@ -958,5 +1001,163 @@ final class ChatMessagesController {
     final pins = result.dataOrThrow.items;
     _a._chatControllers[roomId]?.setPins(pins);
     return ChatSuccess(pins);
+  }
+
+  /// Stars (bookmarks) [messageId] in [roomId] for the current user.
+  /// Private per-user bookmark; surfaced by [loadStarred] /
+  /// `StarredMessagesView`.
+  Future<ChatResult<void>> star(String roomId, String messageId) =>
+      _a._optimistic.starMessage(roomId, messageId);
+
+  /// Removes the current user's star from [messageId] in [roomId].
+  Future<ChatResult<void>> unstar(String roomId, String messageId) =>
+      _a._optimistic.unstarMessage(roomId, messageId);
+
+  /// Loads the current user's starred messages across all rooms, most
+  /// recent first. The `/starred` contract returns ids only, so each entry
+  /// is hydrated with a WhatsApp-style [StarredMessage.preview] resolved
+  /// from its full [ChatMessage] (cache-then-network), letting the starred
+  /// list show real text / sensible media labels — see [StarredMessage].
+  Future<ChatResult<ChatPaginatedResponse<StarredMessage>>> loadStarred({
+    ChatPaginationParams? pagination,
+  }) async {
+    final res = await _a.client.messages.listStarred(pagination: pagination);
+    final page = res.dataOrNull;
+    if (page == null) return res;
+    final l10n = _a.l10n;
+    final enriched = <StarredMessage>[];
+    for (final s in page.items) {
+      final msg = await _findStarredMessage(s.roomId, s.messageId);
+      enriched.add(
+        msg == null ? s : s.copyWith(preview: previewForMessage(msg, l10n)),
+      );
+    }
+    return ChatSuccess(
+      ChatPaginatedResponse(
+        items: enriched,
+        hasMore: page.hasMore,
+        totalCount: page.totalCount,
+        nextCursor: page.nextCursor,
+        prevCursor: page.prevCursor,
+      ),
+    );
+  }
+
+  /// Resolves the full [ChatMessage] behind a starred reference: cache first
+  /// (instant, offline-safe), then the most recent network page. Returns
+  /// `null` when the message can't be found in either leg (e.g. it's older
+  /// than the loaded window) so [loadStarred] leaves that row un-hydrated.
+  Future<ChatMessage?> _findStarredMessage(
+    String roomId,
+    String messageId,
+  ) async {
+    for (final policy in const [
+      CachePolicy.cacheOnly,
+      CachePolicy.networkFirst,
+    ]) {
+      final r = await _a.client.messages.list(
+        roomId,
+        pagination: const ChatCursorPaginationParams(limit: 50),
+        cachePolicy: policy,
+      );
+      final hit = r.dataOrNull?.items.where((m) => m.id == messageId);
+      if (hit != null && hit.isNotEmpty) return hit.first;
+    }
+    return null;
+  }
+
+  /// Exports the full history of [roomId] to a WhatsApp-style plain-text
+  /// transcript.
+  ///
+  /// Pages backward through `messages.list` until the history is exhausted
+  /// (or [maxMessages] is reached), resolves sender display names through
+  /// the adapter's user cache, and returns the formatted [ChatExport]. Pure
+  /// read — no mutation and no new dependency; the host writes the text to a
+  /// file and shares it (see [ChatExport]).
+  ///
+  /// Lines look like `12/06/26, 14:02 - Alice: Hello`. Deleted messages and
+  /// media (which have no text body) render with the localizable
+  /// [deletedPlaceholder] / [mediaPlaceholder] (attachment file names are
+  /// used when present). Override [displayNameFor] to control the name
+  /// column, or [dateFormat] for a different timestamp format.
+  Future<ChatResult<ChatExport>> exportChat(
+    String roomId, {
+    int pageSize = 100,
+    int? maxMessages,
+    String Function(String userId)? displayNameFor,
+    DateFormat? dateFormat,
+    String mediaPlaceholder = '<media omitted>',
+    String deletedPlaceholder = 'This message was deleted',
+  }) async {
+    if (_a._disposed) {
+      return ChatSuccess(ChatExport(roomId: roomId, text: '', messageCount: 0));
+    }
+    final byId = <String, ChatMessage>{};
+    // Opaque older-history cursor: `null` on the first page (server returns the
+    // most recent page), then the response `prevCursor` to page backward.
+    String? olderCursor;
+    String? previousCursor;
+    while (maxMessages == null || byId.length < maxMessages) {
+      final limit = maxMessages == null
+          ? pageSize
+          : (maxMessages - byId.length).clamp(1, pageSize);
+      final result = await _a.client.messages.list(
+        roomId,
+        pagination: ChatCursorPaginationParams(
+          cursor: olderCursor,
+          direction: olderCursor == null ? null : ChatCursorDirection.older,
+          limit: limit,
+        ),
+        cachePolicy: CachePolicy.networkOnly,
+      );
+      if (result.isFailure) return result.castFailure<ChatExport>();
+      final page = result.dataOrThrow;
+      final items = page.items;
+      if (items.isEmpty) break;
+      for (final m in items) {
+        byId[m.id] = m;
+      }
+      // Page backward using the older anchor the server returned for this page.
+      previousCursor = olderCursor;
+      olderCursor = page.prevCursor;
+      // Stop when the server reports no older history, hands back no older
+      // cursor, or a non-advancing cursor (defensive against backend bugs).
+      if (!page.hasMore ||
+          olderCursor == null ||
+          olderCursor == previousCursor) {
+        break;
+      }
+    }
+
+    final resolve = displayNameFor ?? _a.displayNameFor;
+    final df = dateFormat ?? DateFormat('dd/MM/yy, HH:mm');
+    final ordered = byId.values.toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    final buffer = StringBuffer();
+    for (final m in ordered) {
+      final String body;
+      final text = m.text?.trim();
+      if (m.isDeleted) {
+        body = deletedPlaceholder;
+      } else if (text != null && text.isNotEmpty) {
+        body = m.text!;
+      } else if (m.messageType.hasAttachment ||
+          m.messageType == MessageType.attachment) {
+        body = m.fileName ?? mediaPlaceholder;
+      } else {
+        body = mediaPlaceholder;
+      }
+      buffer.writeln(
+        '${df.format(m.timestamp.toLocal())} - ${resolve(m.from)}: $body',
+      );
+    }
+
+    return ChatSuccess(
+      ChatExport(
+        roomId: roomId,
+        text: buffer.toString(),
+        messageCount: ordered.length,
+      ),
+    );
   }
 }

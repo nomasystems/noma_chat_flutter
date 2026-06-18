@@ -14,7 +14,9 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$RoomUser {
 
- String get userId; RoomRole get role;
+ String get userId; RoomRole get role;/// Member display name. Non-null only on an expanded list response.
+ String? get displayName;/// Member avatar URL. Non-null only on an expanded list response.
+ String? get avatarUrl;
 /// Create a copy of RoomUser
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -27,7 +29,7 @@ $RoomUserCopyWith<RoomUser> get copyWith => _$RoomUserCopyWithImpl<RoomUser>(thi
 
 @override
 String toString() {
-  return 'RoomUser(userId: $userId, role: $role)';
+  return 'RoomUser(userId: $userId, role: $role, displayName: $displayName, avatarUrl: $avatarUrl)';
 }
 
 
@@ -38,7 +40,7 @@ abstract mixin class $RoomUserCopyWith<$Res>  {
   factory $RoomUserCopyWith(RoomUser value, $Res Function(RoomUser) _then) = _$RoomUserCopyWithImpl;
 @useResult
 $Res call({
- String userId, RoomRole role
+ String userId, RoomRole role, String? displayName, String? avatarUrl
 });
 
 
@@ -55,11 +57,13 @@ class _$RoomUserCopyWithImpl<$Res>
 
 /// Create a copy of RoomUser
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? userId = null,Object? role = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? userId = null,Object? role = null,Object? displayName = freezed,Object? avatarUrl = freezed,}) {
   return _then(_self.copyWith(
 userId: null == userId ? _self.userId : userId // ignore: cast_nullable_to_non_nullable
 as String,role: null == role ? _self.role : role // ignore: cast_nullable_to_non_nullable
-as RoomRole,
+as RoomRole,displayName: freezed == displayName ? _self.displayName : displayName // ignore: cast_nullable_to_non_nullable
+as String?,avatarUrl: freezed == avatarUrl ? _self.avatarUrl : avatarUrl // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 
@@ -144,10 +148,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String userId,  RoomRole role)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String userId,  RoomRole role,  String? displayName,  String? avatarUrl)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _RoomUser() when $default != null:
-return $default(_that.userId,_that.role);case _:
+return $default(_that.userId,_that.role,_that.displayName,_that.avatarUrl);case _:
   return orElse();
 
 }
@@ -165,10 +169,10 @@ return $default(_that.userId,_that.role);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String userId,  RoomRole role)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String userId,  RoomRole role,  String? displayName,  String? avatarUrl)  $default,) {final _that = this;
 switch (_that) {
 case _RoomUser():
-return $default(_that.userId,_that.role);case _:
+return $default(_that.userId,_that.role,_that.displayName,_that.avatarUrl);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -185,10 +189,10 @@ return $default(_that.userId,_that.role);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String userId,  RoomRole role)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String userId,  RoomRole role,  String? displayName,  String? avatarUrl)?  $default,) {final _that = this;
 switch (_that) {
 case _RoomUser() when $default != null:
-return $default(_that.userId,_that.role);case _:
+return $default(_that.userId,_that.role,_that.displayName,_that.avatarUrl);case _:
   return null;
 
 }
@@ -200,11 +204,15 @@ return $default(_that.userId,_that.role);case _:
 
 
 class _RoomUser extends RoomUser {
-  const _RoomUser({required this.userId, this.role = RoomRole.member}): super._();
+  const _RoomUser({required this.userId, this.role = RoomRole.member, this.displayName, this.avatarUrl}): super._();
   
 
 @override final  String userId;
 @override@JsonKey() final  RoomRole role;
+/// Member display name. Non-null only on an expanded list response.
+@override final  String? displayName;
+/// Member avatar URL. Non-null only on an expanded list response.
+@override final  String? avatarUrl;
 
 /// Create a copy of RoomUser
 /// with the given fields replaced by the non-null parameter values.
@@ -218,7 +226,7 @@ _$RoomUserCopyWith<_RoomUser> get copyWith => __$RoomUserCopyWithImpl<_RoomUser>
 
 @override
 String toString() {
-  return 'RoomUser(userId: $userId, role: $role)';
+  return 'RoomUser(userId: $userId, role: $role, displayName: $displayName, avatarUrl: $avatarUrl)';
 }
 
 
@@ -229,7 +237,7 @@ abstract mixin class _$RoomUserCopyWith<$Res> implements $RoomUserCopyWith<$Res>
   factory _$RoomUserCopyWith(_RoomUser value, $Res Function(_RoomUser) _then) = __$RoomUserCopyWithImpl;
 @override @useResult
 $Res call({
- String userId, RoomRole role
+ String userId, RoomRole role, String? displayName, String? avatarUrl
 });
 
 
@@ -246,11 +254,13 @@ class __$RoomUserCopyWithImpl<$Res>
 
 /// Create a copy of RoomUser
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? userId = null,Object? role = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? userId = null,Object? role = null,Object? displayName = freezed,Object? avatarUrl = freezed,}) {
   return _then(_RoomUser(
 userId: null == userId ? _self.userId : userId // ignore: cast_nullable_to_non_nullable
 as String,role: null == role ? _self.role : role // ignore: cast_nullable_to_non_nullable
-as RoomRole,
+as RoomRole,displayName: freezed == displayName ? _self.displayName : displayName // ignore: cast_nullable_to_non_nullable
+as String?,avatarUrl: freezed == avatarUrl ? _self.avatarUrl : avatarUrl // ignore: cast_nullable_to_non_nullable
+as String?,
   ));
 }
 

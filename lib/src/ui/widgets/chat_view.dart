@@ -89,9 +89,12 @@ class _ChatViewState extends State<ChatView> {
       context,
       message: message,
       isOutgoing: isOutgoing,
+      isPinned: widget.controller.isPinned(message.id),
       enabledActions: behaviors.contextMenuActions,
       builder: widget.builders.contextMenuBuilder,
       theme: widget.theme,
+      editWindow: behaviors.editWindow,
+      deleteWindow: behaviors.deleteWindow,
     );
 
     if (action == null || !context.mounted) return;

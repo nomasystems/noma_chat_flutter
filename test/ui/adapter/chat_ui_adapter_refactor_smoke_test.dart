@@ -63,13 +63,18 @@ void main() {
       expect(adapter.initializedNotifier.value, isTrue);
     });
 
-    test('RoomDeletedEvent removes the row + cache', () async {
-      await adapter.rooms.load();
-      expect(adapter.roomListController.getRoomById('r1'), isNotNull);
-      client.emitEvent(const RoomDeletedEvent(roomId: 'r1'));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      expect(adapter.roomListController.getRoomById('r1'), isNull);
-    });
+    test(
+      'RoomDeletedEvent keeps the row read-only (WhatsApp parity)',
+      () async {
+        await adapter.rooms.load();
+        expect(adapter.roomListController.getRoomById('r1'), isNotNull);
+        client.emitEvent(const RoomDeletedEvent(roomId: 'r1'));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        final room = adapter.roomListController.getRoomById('r1');
+        expect(room, isNotNull);
+        expect(room!.isParticipating, isFalse);
+      },
+    );
   });
 
   group('OptimisticHandler (via adapter)', () {

@@ -109,10 +109,12 @@ void main() {
     expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 7);
   });
 
-  test('RoomDeletedEvent removes the room', () async {
+  test('RoomDeletedEvent keeps the room read-only (WhatsApp parity)', () async {
     client.emitEvent(const RoomDeletedEvent(roomId: 'r1'));
     await drain();
-    expect(adapter.roomListController.getRoomById('r1'), isNull);
+    final room = adapter.roomListController.getRoomById('r1');
+    expect(room, isNotNull);
+    expect(room!.isParticipating, isFalse);
   });
 
   test(
@@ -281,4 +283,78 @@ void main() {
     await drain();
     expect(controller.typingUserIds, isEmpty);
   });
+
+  test(
+    'MessageDeliveredEvent flips bubble ticks (cursor) and the room row',
+    () async {
+      final controller = adapter.getChatController(
+        'r1',
+        otherUsers: const [ChatUser(id: 'u2', displayName: 'Bob')],
+      );
+      controller.addMessages([
+        ChatMessage(
+          id: 'm1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1, 10),
+          text: 'one',
+        ),
+        ChatMessage(
+          id: 'm2',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1, 11),
+          text: 'two',
+        ),
+      ]);
+      adapter.roomListController.updateRoom(
+        adapter.roomListController
+            .getRoomById('r1')!
+            .copyWith(lastMessageId: 'm2', lastMessageUserId: 'u1'),
+      );
+
+      client.emitEvent(
+        const MessageDeliveredEvent(
+          roomId: 'r1',
+          userId: 'u2',
+          messageId: 'm2',
+          seq: 2,
+        ),
+      );
+      await drain();
+
+      // Cursor semantics: the single event covers BOTH own messages.
+      expect(controller.receiptStatuses['m1'], ReceiptStatus.delivered);
+      expect(controller.receiptStatuses['m2'], ReceiptStatus.delivered);
+      // The room-list row mirrors the newest own message's aggregate.
+      expect(
+        adapter.roomListController.getRoomById('r1')!.lastMessageReceipt,
+        ReceiptStatus.delivered,
+      );
+    },
+  );
+
+  test(
+    'MessageDeliveredEvent DM form resolves the room via the DM registry',
+    () async {
+      adapter.registerDmRoom('u2', 'r1');
+      final controller = adapter.getChatController(
+        'r1',
+        otherUsers: const [ChatUser(id: 'u2', displayName: 'Bob')],
+      );
+      controller.addMessage(
+        ChatMessage(
+          id: 'm1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1, 10),
+          text: 'one',
+        ),
+      );
+
+      client.emitEvent(
+        const MessageDeliveredEvent(userId: 'u2', messageId: 'm1', seq: 1),
+      );
+      await drain();
+
+      expect(controller.receiptStatuses['m1'], ReceiptStatus.delivered);
+    },
+  );
 }

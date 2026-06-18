@@ -81,6 +81,7 @@ class RoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
+    bool forceGroup = false,
   }) async {
     final result = await safeApiCall(() async {
       final json = await _rest.post(
@@ -93,6 +94,7 @@ class RoomsApi implements ChatRoomsApi {
           if (members != null) 'members': members,
           if (avatarUrl != null) 'avatarUrl': avatarUrl,
           if (custom != null) 'custom': custom,
+          if (forceGroup) 'forceGroup': true,
         },
       );
       return RoomMapper.fromJson(json);
@@ -149,8 +151,16 @@ class RoomsApi implements ChatRoomsApi {
         ttl: _cacheManager.config.ttlRooms,
         policy: cachePolicy,
         fromCache: () async {
-          final unreads =
+          final allUnreads =
               (await _cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
+          // The unread box is shared across the `rooms:all` and
+          // `rooms:unread` freshness keys. A 'unread' view must expose only
+          // rooms that still have pending messages, otherwise rooms kept by
+          // a prior 'all' reconcile (with unreadMessages == 0) would leak
+          // into the unread list.
+          final unreads = type == 'unread'
+              ? allUnreads.where((u) => u.unreadMessages > 0).toList()
+              : allUnreads;
           if (unreads.isEmpty) return null;
           final invitedRooms =
               (await _cache.getInvitedRooms()).dataOrNull ??
@@ -167,7 +177,15 @@ class RoomsApi implements ChatRoomsApi {
           return RoomMapper.userRoomsFromJson(json);
         }),
         saveToCache: (data) async {
-          await _cache.saveUnreads(data.rooms);
+          // 'all' is the authoritative full room set: replace the box so
+          // rooms deleted or left on the server are evicted. A partial view
+          // ('unread' or a paginated slice) only carries a subset, so merge
+          // to avoid dropping rooms it did not return.
+          if (type == 'all' && pagination == null) {
+            await _cache.reconcileUnreads(data.rooms);
+          } else {
+            await _cache.saveUnreads(data.rooms);
+          }
           await _cache.saveInvitedRooms(data.invitedRooms);
         },
       );
@@ -331,74 +349,37 @@ class RoomsApi implements ChatRoomsApi {
 
   // Room preferences
 
+  /// Sends a partial `PATCH /rooms/{roomId}/preferences` and returns the
+  /// merged preference state.
+  ///
+  /// A non-null [muteUntil] is sent as an ISO-8601 string in `muted` (timed
+  /// mute, implies muted); otherwise a non-null [muted] is sent as a bool.
+  /// [pinned] / [hidden] are sent only when supplied. On success the
+  /// room-detail and room-list TTL keys are invalidated.
   @override
-  Future<ChatResult<void>> mute(String roomId) async {
-    final result = await safeVoidCall(
-      () => _rest.putVoid('/rooms/$roomId/mute'),
-    );
-    if (result.isSuccess) {
-      _cacheManager?.invalidate('roomDetail:$roomId');
-      _cacheManager?.invalidate('rooms:all');
-      _cacheManager?.invalidate('rooms:unread');
-    }
-    return result;
-  }
-
-  @override
-  Future<ChatResult<void>> unmute(String roomId) async {
-    final result = await safeVoidCall(
-      () => _rest.delete('/rooms/$roomId/mute'),
-    );
-    if (result.isSuccess) {
-      _cacheManager?.invalidate('roomDetail:$roomId');
-      _cacheManager?.invalidate('rooms:all');
-      _cacheManager?.invalidate('rooms:unread');
-    }
-    return result;
-  }
-
-  @override
-  Future<ChatResult<void>> pin(String roomId) async {
-    final result = await safeVoidCall(
-      () => _rest.putVoid('/rooms/$roomId/pin'),
-    );
-    if (result.isSuccess) {
-      _cacheManager?.invalidate('roomDetail:$roomId');
-      _cacheManager?.invalidate('rooms:all');
-      _cacheManager?.invalidate('rooms:unread');
-    }
-    return result;
-  }
-
-  @override
-  Future<ChatResult<void>> unpin(String roomId) async {
-    final result = await safeVoidCall(() => _rest.delete('/rooms/$roomId/pin'));
-    if (result.isSuccess) {
-      _cacheManager?.invalidate('roomDetail:$roomId');
-      _cacheManager?.invalidate('rooms:all');
-      _cacheManager?.invalidate('rooms:unread');
-    }
-    return result;
-  }
-
-  @override
-  Future<ChatResult<void>> hide(String roomId) async {
-    final result = await safeVoidCall(
-      () => _rest.putVoid('/rooms/$roomId/hidden'),
-    );
-    if (result.isSuccess) {
-      _cacheManager?.invalidate('roomDetail:$roomId');
-      _cacheManager?.invalidate('rooms:all');
-      _cacheManager?.invalidate('rooms:unread');
-    }
-    return result;
-  }
-
-  @override
-  Future<ChatResult<void>> unhide(String roomId) async {
-    final result = await safeVoidCall(
-      () => _rest.delete('/rooms/$roomId/hidden'),
-    );
+  Future<ChatResult<RoomPreferences>> patchPreferences(
+    String roomId, {
+    bool? muted,
+    DateTime? muteUntil,
+    bool? pinned,
+    bool? hidden,
+  }) async {
+    final result = await safeApiCall(() async {
+      final json = await _rest.patch(
+        '/rooms/$roomId/preferences',
+        data: {
+          // A timed mute wins over a plain `muted` flag: send the expiry as
+          // an ISO-8601 string, which the backend treats as muted-until.
+          if (muteUntil != null)
+            'muted': muteUntil.toUtc().toIso8601String()
+          else if (muted != null)
+            'muted': muted,
+          if (pinned != null) 'pinned': pinned,
+          if (hidden != null) 'hidden': hidden,
+        },
+      );
+      return RoomMapper.preferencesFromJson(json);
+    });
     if (result.isSuccess) {
       _cacheManager?.invalidate('roomDetail:$roomId');
       _cacheManager?.invalidate('rooms:all');
@@ -463,6 +444,7 @@ class RoomsApi implements ChatRoomsApi {
       final updated = UnreadRoom(
         roomId: roomId,
         unreadMessages: existing?.unreadMessages ?? 0,
+        unreadMentions: existing?.unreadMentions ?? 0,
         lastMessage: lastMessage ?? existing?.lastMessage,
         lastMessageTime: lastMessageTime ?? existing?.lastMessageTime,
         lastMessageUserId: lastMessageUserId ?? existing?.lastMessageUserId,
@@ -485,8 +467,10 @@ class RoomsApi implements ChatRoomsApi {
         memberCount: existing?.memberCount,
         userRole: existing?.userRole,
         muted: existing?.muted ?? false,
+        muteUntil: existing?.muteUntil,
         pinned: existing?.pinned ?? false,
         hidden: existing?.hidden ?? false,
+        selfMuted: existing?.selfMuted ?? false,
       );
       await _cache.saveUnreads([updated]);
     } catch (e) {

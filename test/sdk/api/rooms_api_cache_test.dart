@@ -123,16 +123,23 @@ void main() {
       verify(() => cache.deleteRoomDetail('r1')).called(1);
     });
 
-    test('mute() / unmute() invalidate the room detail cache', () async {
-      when(() => rest.putVoid(any())).thenAnswer((_) async {});
-      when(() => rest.delete(any())).thenAnswer((_) async {});
+    test(
+      'patchPreferences() hits /preferences and invalidates room detail cache',
+      () async {
+        when(() => rest.patch(any(), data: any(named: 'data'))).thenAnswer(
+          (_) async => {'muted': true, 'pinned': false, 'hidden': false},
+        );
 
-      await api.mute('r1');
-      await api.unmute('r1');
-      // No direct cache calls — just verify both don't throw and call REST.
-      verify(() => rest.putVoid('/rooms/r1/mute')).called(1);
-      verify(() => rest.delete('/rooms/r1/mute')).called(1);
-    });
+        final muted = await api.patchPreferences('r1', muted: true);
+        final unmuted = await api.patchPreferences('r1', muted: false);
+
+        expect(muted.isSuccess, true);
+        expect(unmuted.isSuccess, true);
+        verify(
+          () => rest.patch('/rooms/r1/preferences', data: any(named: 'data')),
+        ).called(2);
+      },
+    );
 
     test('batchMarkAsRead() clears the unread cache for each room', () async {
       when(

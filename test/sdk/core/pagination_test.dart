@@ -31,10 +31,28 @@ void main() {
     test('emits only the set ones', () {
       expect(
         const ChatCursorPaginationParams(
-          before: '2026-01-01T00:00:00Z',
+          cursor: 'b64-prev-token',
+          direction: ChatCursorDirection.older,
           limit: 50,
         ).toQueryParams(),
-        {'before': '2026-01-01T00:00:00Z', 'limit': 50},
+        {'cursor': 'b64-prev-token', 'direction': 'older', 'limit': 50},
+      );
+    });
+
+    test('newer direction emits direction=newer', () {
+      expect(
+        const ChatCursorPaginationParams(
+          cursor: 'b64-next-token',
+          direction: ChatCursorDirection.newer,
+        ).toQueryParams(),
+        {'cursor': 'b64-next-token', 'direction': 'newer'},
+      );
+    });
+
+    test('cursor without a direction omits direction', () {
+      expect(
+        const ChatCursorPaginationParams(cursor: 'b64-token').toQueryParams(),
+        {'cursor': 'b64-token'},
       );
     });
   });
@@ -78,16 +96,67 @@ void main() {
       expect(out.totalCount, 42);
     });
 
-    test('toString includes count, hasMore and totalCount', () {
+    test('toString includes count, hasMore, totalCount and cursors', () {
       const r = ChatPaginatedResponse<int>(
         items: [1, 2],
         hasMore: true,
         totalCount: 5,
+        nextCursor: 'n1',
+        prevCursor: 'p1',
       );
       expect(
         r.toString(),
-        'ChatPaginatedResponse(2 items, hasMore: true, totalCount: 5)',
+        'ChatPaginatedResponse(2 items, hasMore: true, totalCount: 5, '
+        'nextCursor: n1, prevCursor: p1)',
       );
+    });
+
+    test('equality distinguishes nextCursor and prevCursor', () {
+      const base = ChatPaginatedResponse<int>(
+        items: [1],
+        hasMore: true,
+        nextCursor: 'n',
+        prevCursor: 'p',
+      );
+      const sameCursors = ChatPaginatedResponse<int>(
+        items: [1],
+        hasMore: true,
+        nextCursor: 'n',
+        prevCursor: 'p',
+      );
+      const differentNext = ChatPaginatedResponse<int>(
+        items: [1],
+        hasMore: true,
+        nextCursor: 'n2',
+        prevCursor: 'p',
+      );
+      const differentPrev = ChatPaginatedResponse<int>(
+        items: [1],
+        hasMore: true,
+        nextCursor: 'n',
+        prevCursor: 'p2',
+      );
+
+      expect(base, sameCursors);
+      expect(base.hashCode, sameCursors.hashCode);
+      expect(base, isNot(differentNext));
+      expect(base, isNot(differentPrev));
+    });
+
+    test('map() preserves nextCursor and prevCursor', () {
+      const src = ChatPaginatedResponse<int>(
+        items: [1, 2],
+        hasMore: true,
+        totalCount: 9,
+        nextCursor: 'n',
+        prevCursor: 'p',
+      );
+
+      final out = src.map((i) => 'v$i');
+
+      expect(out.items, ['v1', 'v2']);
+      expect(out.nextCursor, 'n');
+      expect(out.prevCursor, 'p');
     });
   });
 }

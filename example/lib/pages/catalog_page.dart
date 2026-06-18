@@ -20,6 +20,8 @@ class CatalogPage extends StatelessWidget {
         children: const [
           _SectionHeader('MessageStatusIcon'),
           _StatusIconSection(),
+          _SectionHeader('MessageStatusIcon — custom builder'),
+          _CustomStatusIconSection(),
           _SectionHeader('DateSeparator'),
           _DateSeparatorSection(),
           _SectionHeader('UnreadDivider'),
@@ -111,6 +113,63 @@ class _StatusIconSection extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// MessageStatusIcon — custom builder
+// ---------------------------------------------------------------------------
+
+class _CustomStatusIconSection extends StatelessWidget {
+  const _CustomStatusIconSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final base = ChatTheme.lightPreset();
+    final theme = base.copyWith(
+      bubble: base.bubble.copyWith(
+        statusIconBuilder: (context, data) => switch (data.state) {
+          MessageDeliveryState.read => Text(
+            '✓✓',
+            style: TextStyle(
+              fontSize: data.size,
+              fontWeight: FontWeight.bold,
+              color: Colors.teal,
+              height: 1,
+            ),
+          ),
+          // `null` falls back to the SDK default for the other states.
+          _ => null,
+        },
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        MessageBubble(
+          message: ChatMessage(
+            id: 'builder-1',
+            from: 'me',
+            timestamp: _kTs,
+            text: 'Read — custom teal ✓✓ via statusIconBuilder.',
+          ),
+          isOutgoing: true,
+          status: ReceiptStatus.read,
+          theme: theme,
+        ),
+        MessageBubble(
+          message: ChatMessage(
+            id: 'builder-2',
+            from: 'me',
+            timestamp: _kTs,
+            text: 'Delivered — builder returned null, SDK default.',
+          ),
+          isOutgoing: true,
+          status: ReceiptStatus.delivered,
+          theme: theme,
+        ),
+      ],
     );
   }
 }

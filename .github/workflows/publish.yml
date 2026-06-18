@@ -21,6 +21,12 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
       - "v[0-9]+.[0-9]+.[0-9]+-*"
 
+# Keep the publish gate on the same Flutter version as ci.yml /
+# regen-goldens.yml so a future major can't silently diverge the
+# release build from what CI validated.
+env:
+  FLUTTER_VERSION: "3.x"
+
 jobs:
   test:
     name: Pre-publish tests
@@ -30,11 +36,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
-      - uses: subosito/flutter-action@v2
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
         with:
           channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
       - name: Verify pubspec version matches the git tag
         run: |
@@ -65,4 +72,7 @@ jobs:
     # short-lived token pub.dev expects.
     permissions:
       id-token: write
-    uses: dart-lang/setup-dart/.github/workflows/publish.yml@v1
+    # Pinned by SHA (v1) — this reusable workflow runs with `id-token:
+    # write`, so a mutable tag here would be the highest-value supply-chain
+    # target in the repo.
+    uses: dart-lang/setup-dart/.github/workflows/publish.yml@65eb853c7ba17dde3be364c3d2858773e7144260 # v1

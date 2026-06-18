@@ -223,7 +223,13 @@ class RoomListMutator {
   void updateRoomUnread(String roomId, int count) {
     final existing = roomListController.getRoomById(roomId);
     if (existing == null) return;
-    roomListController.updateRoom(existing.copyWith(unreadCount: count));
+    // Reading a room (count == 0) clears its mention badge too; otherwise
+    // the per-room mention counter is preserved (bumped separately when a
+    // mentioning message arrives, reconciled by the next `loadRooms`).
+    final mentions = count == 0 ? 0 : existing.unreadMentions;
+    roomListController.updateRoom(
+      existing.copyWith(unreadCount: count, unreadMentions: mentions),
+    );
     final localCache = cache;
     if (localCache != null) {
       localCache.getUnreads().then((unreadsResult) {
@@ -235,6 +241,7 @@ class RoomListMutator {
             UnreadRoom(
               roomId: match.roomId,
               unreadMessages: count,
+              unreadMentions: count == 0 ? 0 : match.unreadMentions,
               lastMessage: match.lastMessage,
               lastMessageTime: match.lastMessageTime,
               lastMessageUserId: match.lastMessageUserId,
@@ -252,8 +259,10 @@ class RoomListMutator {
               memberCount: match.memberCount,
               userRole: match.userRole,
               muted: match.muted,
+              muteUntil: match.muteUntil,
               pinned: match.pinned,
               hidden: match.hidden,
+              selfMuted: match.selfMuted,
             ),
           ]);
         }
@@ -323,10 +332,24 @@ class RoomListMutator {
     }
   }
 
-  /// Removes every DM row whose `otherUserId` falls inside the
-  /// blocked-users set. Idempotent — invoking it without any blocked
-  /// users is a cheap no-op.
+  /// No-op by design — blocking a contact must KEEP their DM chat in the
+  /// list (read-only via the blocked composer banner), WhatsApp parity.
+  /// Previously this pruned the DM row whenever its `otherUserId` was
+  /// blocked, which made the conversation vanish from both peers' lists.
+  /// The block now only affects the composer (handled elsewhere); the row
+  /// stays so the user can still read history and unblock from inside the
+  /// chat.
+  ///
+  /// The prune is gated behind [_pruneBlockedDms] (currently `false`)
+  /// rather than deleted outright, so the wired collaborators
+  /// ([_blockedUserIds], [_isUserBlocked], [_removeChatController]) stay in
+  /// place and a future opt-in policy has a single home. The adapter still
+  /// calls this on every blocked-users change; with the gate off it does
+  /// nothing.
+  final bool _pruneBlockedDms = false;
+
   void removeBlockedRooms() {
+    if (!_pruneBlockedDms) return;
     if (_blockedUserIds().isEmpty) return;
     final toRemove = roomListController.allRooms
         .where((r) => r.otherUserId != null && _isUserBlocked(r.otherUserId!))

@@ -110,17 +110,49 @@ class RoomListView extends StatelessWidget {
     }
   }
 
+  Widget _buildTile(BuildContext context, RoomListItem room) {
+    final isSelected = controller.selectedIds.contains(room.id);
+    if (tileBuilder != null) {
+      return tileBuilder!(context, room, isSelected);
+    }
+    return RoomTile(
+      key: ValueKey(room.id),
+      room: room,
+      isSelected: isSelected,
+      theme: theme,
+      currentUserId: currentUserId,
+      lastMessageSenderName: lastMessageSenderNames[room.id],
+      onTap: () {
+        if (controller.isSelecting) {
+          controller.toggleSelect(room.id);
+        } else {
+          onTapRoom?.call(room);
+        }
+      },
+      onLongPress: () => _handleLongPress(context, room),
+      onAcceptInvitation: onAcceptInvitation == null
+          ? null
+          : () => onAcceptInvitation!(room),
+      onRejectInvitation: onRejectInvitation == null
+          ? null
+          : () => onRejectInvitation!(room),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
         final rooms = controller.rooms;
+        final archived = controller.archivedRooms;
+        final hasArchived = archived.isNotEmpty;
+        final showList = rooms.isNotEmpty || hasArchived;
 
         Widget list;
-        if (rooms.isEmpty && isLoading) {
+        if (!showList && isLoading) {
           list = const Center(child: CircularProgressIndicator());
-        } else if (rooms.isEmpty) {
+        } else if (!showList) {
           list =
               emptyBuilder?.call(context) ??
               EmptyState(
@@ -131,6 +163,9 @@ class RoomListView extends StatelessWidget {
                 theme: theme,
               );
         } else {
+          // One extra row holds the collapsible "Archived" section, pinned as
+          // the first item so it sits above the active chats (WhatsApp-style).
+          final itemCount = rooms.length + (hasArchived ? 1 : 0);
           list = NotificationListener<ScrollNotification>(
             onNotification: (notification) {
               if (notification is ScrollEndNotification &&
@@ -141,36 +176,23 @@ class RoomListView extends StatelessWidget {
               return false;
             },
             child: ListView.builder(
-              itemCount: rooms.length,
+              itemCount: itemCount,
               itemBuilder: (context, index) {
-                final room = rooms[index];
-                final isSelected = controller.selectedIds.contains(room.id);
-
-                if (tileBuilder != null) {
-                  return tileBuilder!(context, room, isSelected);
+                if (hasArchived && index == 0) {
+                  // ExpansionTile owns its own expanded/collapsed state, so
+                  // the view stays stateless.
+                  return ExpansionTile(
+                    key: const PageStorageKey('noma_chat_archived_section'),
+                    leading: const Icon(Icons.archive_outlined),
+                    title: Text('${theme.l10n.archived} (${archived.length})'),
+                    children: [
+                      for (final room in archived) _buildTile(context, room),
+                    ],
+                  );
                 }
-
-                return RoomTile(
-                  key: ValueKey(room.id),
-                  room: room,
-                  isSelected: isSelected,
-                  theme: theme,
-                  currentUserId: currentUserId,
-                  lastMessageSenderName: lastMessageSenderNames[room.id],
-                  onTap: () {
-                    if (controller.isSelecting) {
-                      controller.toggleSelect(room.id);
-                    } else {
-                      onTapRoom?.call(room);
-                    }
-                  },
-                  onLongPress: () => _handleLongPress(context, room),
-                  onAcceptInvitation: onAcceptInvitation == null
-                      ? null
-                      : () => onAcceptInvitation!(room),
-                  onRejectInvitation: onRejectInvitation == null
-                      ? null
-                      : () => onRejectInvitation!(room),
+                return _buildTile(
+                  context,
+                  rooms[hasArchived ? index - 1 : index],
                 );
               },
             ),
@@ -178,14 +200,14 @@ class RoomListView extends StatelessWidget {
         }
 
         if (onRefresh != null) {
-          if (rooms.isEmpty && !isLoading) {
+          if (!showList && !isLoading) {
             list = RefreshIndicator(
               onRefresh: onRefresh!,
               child: CustomScrollView(
                 slivers: [SliverFillRemaining(child: list)],
               ),
             );
-          } else if (rooms.isNotEmpty) {
+          } else if (showList) {
             list = RefreshIndicator(onRefresh: onRefresh!, child: list);
           }
         }

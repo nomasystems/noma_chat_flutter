@@ -16,6 +16,7 @@ void main() {
   late UserCacheService userCache;
   late List<String> addedFromDetail;
   late List<String> removedControllers;
+  late List<String> membersChanged;
   late List<String> ensuredUsers;
   late MemberEventHandler handler;
 
@@ -31,6 +32,7 @@ void main() {
     userCache = UserCacheService(api: client.users, isDisposed: () => false);
     addedFromDetail = [];
     removedControllers = [];
+    membersChanged = [];
     ensuredUsers = [];
     handler = MemberEventHandler(
       client: client,
@@ -58,6 +60,9 @@ void main() {
         removedControllers.add(roomId);
         registry.remove(roomId);
       },
+      notifyRoomMembersChanged: (roomId) {
+        membersChanged.add(roomId);
+      },
       isDisposed: () => false,
       swallowCacheThrow: swallow,
     );
@@ -83,6 +88,9 @@ void main() {
     test('foreign join without active controller is a no-op', () {
       handler.handleUserJoined('r1', alice.id);
       expect(addedFromDetail, isEmpty);
+      // The roster-changed signal fires unconditionally, even with no
+      // open controller, so a GroupMembersView can refresh.
+      expect(membersChanged, ['r1']);
     });
 
     test(

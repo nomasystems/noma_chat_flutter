@@ -64,6 +64,33 @@ void main() {
       expect(received, MessageAction.reply);
     });
 
+    testWidgets('shows Message info only for outgoing messages', (
+      tester,
+    ) async {
+      const actions = {MessageAction.reply, MessageAction.info};
+      await tester.pumpWidget(
+        wrap(
+          MessageContextMenu(
+            message: msg,
+            isOutgoing: true,
+            enabledActions: actions,
+          ),
+        ),
+      );
+      expect(find.text('Message info'), findsOneWidget);
+
+      await tester.pumpWidget(
+        wrap(
+          MessageContextMenu(
+            message: msg,
+            isOutgoing: false,
+            enabledActions: actions,
+          ),
+        ),
+      );
+      expect(find.text('Message info'), findsNothing);
+    });
+
     testWidgets('respects enabledActions filter', (tester) async {
       await tester.pumpWidget(
         wrap(

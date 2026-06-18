@@ -30,6 +30,15 @@ class ChatController extends ChangeNotifier {
   final Map<String, int> _indexById = {};
   final ChatUser _currentUser;
   final List<ChatUser> _otherUsers;
+
+  // Whether this conversation is a group. `null` means "not told yet" — the
+  // controller then infers it from `_otherUsers.length`, which is only safe
+  // once member hydration has completed. While members are still loading a
+  // group can momentarily look like a 1:1 (0–1 known members) and the receipt
+  // aggregate would wrongly flip to "read by all". Setting this flag
+  // explicitly (via [setIsGroup]) pins the group/1:1 decision so the aggregate
+  // never degrades during hydration.
+  bool? _isGroup;
   final Set<String> _typingUserIds = {};
   final Map<String, Timer> _typingTimers = {};
   String? _draft;
@@ -56,6 +65,17 @@ class ChatController extends ChangeNotifier {
   // water mark (a single backend event fans out to every prior msg).
   final Map<String, Set<String>> _readBy = {};
   final Map<String, Set<String>> _deliveredBy = {};
+
+  // Server-assigned seqs of messages, learned from `message_acked`
+  // events. Enables numeric coverage checks when a delivered cursor
+  // carries a seq (live path); messages without a known seq fall back
+  // to conversation-order comparison against the cursor message.
+  final Map<String, int> _seqByMessageId = {};
+
+  // Per-user delivered cursors (max-registers). Each entry doubles as
+  // the stash for cursors whose message is not loaded yet — cursors are
+  // re-applied after [setMessages]/[addMessages], which is idempotent.
+  final Map<String, ({String messageId, int? seq})> _deliveredCursors = {};
 
   // Pinned messages, latest first (per the backend's natural order).
   final List<MessagePin> _pinnedMessages = [];
@@ -115,6 +135,10 @@ class ChatController extends ChangeNotifier {
   List<MessagePin> get pinnedMessages => List.unmodifiable(_pinnedMessages);
   bool get isLoadingMore => _isLoadingMore;
   bool get hasMoreMessages => _hasMoreMessages;
+
+  /// Opaque older-history cursor: the [ChatPaginatedResponse.prevCursor] of the
+  /// most recent page loaded. Pass it back with
+  /// `direction: ChatCursorDirection.older` to fetch the next older page.
   String? get oldestMessageCursor => _oldestMessageCursor;
 
   // --- Messages ---
@@ -148,6 +172,7 @@ class ChatController extends ChangeNotifier {
     _sortMessages();
     _trimMessages();
     _rebuildIndex();
+    _reapplyDeliveredCursors();
     notifyListeners();
   }
 
@@ -157,6 +182,7 @@ class ChatController extends ChangeNotifier {
       ..addAll(messages);
     _sortMessages();
     _rebuildIndex();
+    _reapplyDeliveredCursors();
     notifyListeners();
   }
 
@@ -164,6 +190,18 @@ class ChatController extends ChangeNotifier {
     final index = _indexById[message.id];
     if (index == null) return;
     _messages[index] = message;
+    notifyListeners();
+  }
+
+  /// Flips the per-user starred flag on [messageId] in place. No-op when the
+  /// message isn't loaded or the flag already matches. Drives the in-bubble
+  /// star badge optimistically before the backend round-trip resolves.
+  void setMessageStarred(String messageId, bool starred) {
+    final index = _indexById[messageId];
+    if (index == null) return;
+    final msg = _messages[index];
+    if (msg.isStarred == starred) return;
+    _messages[index] = msg.copyWith(isStarred: starred);
     notifyListeners();
   }
 
@@ -183,6 +221,8 @@ class ChatController extends ChangeNotifier {
     _receiptStatuses.clear();
     _readBy.clear();
     _deliveredBy.clear();
+    _seqByMessageId.clear();
+    _deliveredCursors.clear();
     _pinnedMessages.clear();
     _pendingMessages.clear();
     _tempToServerId.clear();
@@ -242,11 +282,50 @@ class ChatController extends ChangeNotifier {
 
   // --- Users ---
 
+  /// Whether this conversation is a group, as resolved so far. Returns the
+  /// explicitly-set value when known (see [setIsGroup]); otherwise infers it
+  /// from the number of known other members.
+  bool get isGroup => _isGroup ?? _otherUsers.length > 1;
+
+  /// Pins whether this conversation is a group, independent of how many
+  /// members have been hydrated yet. The adapter sets this from the room's
+  /// type (`RoomListItem.isGroup`) as soon as the chat opens, so receipt
+  /// aggregation knows a group is a group even before its member list loads.
+  /// Recomputes every visible receipt because the group/1:1 distinction
+  /// changes the "read by all" rule.
+  void setIsGroup(bool value) {
+    if (_isGroup == value) return;
+    _isGroup = value;
+    if (_recomputeAllReceipts()) notifyListeners();
+  }
+
   void setOtherUsers(List<ChatUser> users) {
+    final prevCount = _otherUsers.length;
     _otherUsers
       ..clear()
       ..addAll(users);
+    // Member hydration changes the divisor used by the group "read by all"
+    // computation, so recompute the aggregate whenever the count moves.
+    // Without this a group that opened with an incomplete member list stays
+    // stuck on whatever status the wrong divisor produced.
+    if (_otherUsers.length != prevCount) {
+      _recomputeAllReceipts();
+    }
     notifyListeners();
+  }
+
+  /// Re-derives every cached receipt aggregate from the per-user breakdown.
+  /// Returns `true` when at least one visible status changed.
+  bool _recomputeAllReceipts() {
+    var changed = false;
+    for (final entry in {..._readBy.keys, ..._deliveredBy.keys}.toList()) {
+      final next = _aggregateStatus(entry);
+      if (_receiptStatuses[entry] != next) {
+        _receiptStatuses[entry] = next;
+        changed = true;
+      }
+    }
+    return changed;
   }
 
   // --- Draft (lazy DM creation) ---
@@ -472,11 +551,81 @@ class ChatController extends ChangeNotifier {
     _receiptStatuses[messageId] = _aggregateStatus(messageId);
   }
 
+  /// Records the server-assigned [seq] of [messageId], learned from a
+  /// `message_acked` event. Seqs let [applyDeliveryCursor] decide
+  /// coverage numerically when the cursor message itself is not loaded.
+  void recordMessageSeq(String messageId, int seq) {
+    _seqByMessageId[messageId] = seq;
+  }
+
+  /// Applies [userId]'s delivered cursor (`message_delivered` event):
+  /// every message at-or-before [messageId] in conversation order — any
+  /// author — is now delivered to them, and the aggregated statuses are
+  /// recomputed.
+  ///
+  /// Cursors are max-registers: when [seq] is known and not newer than
+  /// the last applied cursor for [userId], the call is a silent no-op,
+  /// so duplicated or reordered events are harmless. When the cursor
+  /// message is not loaded yet, the cursor is stashed and re-applied as
+  /// soon as [setMessages]/[addMessages] bring it in.
+  void applyDeliveryCursor({
+    required String userId,
+    required String messageId,
+    int? seq,
+  }) {
+    final current = _deliveredCursors[userId];
+    final currentSeq = current?.seq;
+    if (currentSeq != null && seq != null && seq <= currentSeq) return;
+    _deliveredCursors[userId] = (messageId: messageId, seq: seq);
+    if (_applyDeliveredCursorFor(userId)) notifyListeners();
+  }
+
+  /// Marks every message covered by [userId]'s stashed cursor as
+  /// delivered by them. Coverage: numeric (`seq`) when both the cursor
+  /// and the message have a known seq; conversation order otherwise.
+  /// Returns `true` when at least one visible status changed.
+  bool _applyDeliveredCursorFor(String userId) {
+    final cursor = _deliveredCursors[userId];
+    if (cursor == null) return false;
+    final cursorIndex = _indexById[cursor.messageId];
+    final cursorSeq = cursor.seq;
+    if (cursorIndex == null && cursorSeq == null) return false;
+    var changed = false;
+    for (var i = 0; i < _messages.length; i++) {
+      final m = _messages[i];
+      final msgSeq = _seqByMessageId[m.id];
+      final covered = (cursorSeq != null && msgSeq != null)
+          ? msgSeq <= cursorSeq
+          : (cursorIndex != null && i <= cursorIndex);
+      if (!covered) continue;
+      final delivered = _deliveredBy[m.id] ??= <String>{};
+      if (!delivered.add(userId)) continue;
+      final aggregated = _aggregateStatus(m.id);
+      if (_rankReceipt(aggregated) > _rankReceipt(_receiptStatuses[m.id])) {
+        _receiptStatuses[m.id] = aggregated;
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  void _reapplyDeliveredCursors() {
+    for (final userId in _deliveredCursors.keys) {
+      _applyDeliveredCursorFor(userId);
+    }
+  }
+
   ReceiptStatus _aggregateStatus(String messageId) {
     final otherUserIds = _otherUsers.map((u) => u.id).toSet();
     final totalOthers = otherUserIds.length;
-    if (totalOthers <= 1) {
-      // 1:1 (or unresolved members): any read => read; any delivered => delivered.
+    // Treat the chat as 1:1 only when we KNOW it isn't a group. When the
+    // group flag hasn't been set we fall back to the member count, but a
+    // known group is never collapsed to 1:1 — otherwise a not-yet-hydrated
+    // group (0–1 known members) would mark messages "read by all" the instant
+    // a single peer read, and stay stuck there permanently.
+    final treatAsOneToOne = _isGroup == null ? totalOthers <= 1 : !_isGroup!;
+    if (treatAsOneToOne) {
+      // 1:1: any read => read; any delivered => delivered.
       final readers = _readBy[messageId];
       if (readers != null && readers.isNotEmpty) return ReceiptStatus.read;
       final delivered = _deliveredBy[messageId];
@@ -485,7 +634,10 @@ class ChatController extends ChangeNotifier {
       }
       return ReceiptStatus.sent;
     }
-    // Group: only mark as read once *every* other member has read.
+    // Group: only mark as read once *every* other member has read. Until the
+    // member list is hydrated (`totalOthers == 0`) we can't know "all", so the
+    // aggregate stays at `sent` rather than prematurely flipping to read.
+    if (totalOthers == 0) return ReceiptStatus.sent;
     final readers = _readBy[messageId] ?? const <String>{};
     final readByAll =
         readers.length >= totalOthers && otherUserIds.every(readers.contains);
@@ -583,6 +735,10 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Records the load-more pagination state. [cursor] is the opaque
+  /// older-history cursor ([ChatPaginatedResponse.prevCursor]) anchored on the
+  /// oldest message of the page just loaded; [hasMore] reflects whether older
+  /// history remains.
   void setPaginationState({required bool hasMore, String? cursor}) {
     _hasMoreMessages = hasMore;
     _oldestMessageCursor = cursor;

@@ -216,6 +216,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       eventBufferSize:
           int.tryParse(_eventBuffer.text.trim()) ??
           widget.initialSettings.eventBufferSize,
+      languageCode: widget.initialSettings.languageCode,
     );
   }
 
@@ -452,13 +453,24 @@ class _MockModeCard extends StatelessWidget {
 
   static const _supportEmail = 'info@nomasystems.es';
 
-  Future<void> _openMail() async {
+  Future<void> _openMail(BuildContext context) async {
     final uri = Uri(
       scheme: 'mailto',
       path: _supportEmail,
       query: 'subject=${Uri.encodeComponent("Noma Chat — information")}',
     );
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {
+      // No hay cliente de correo (p. ej. el simulador iOS no trae Mail).
+    }
+    await Clipboard.setData(const ClipboardData(text: _supportEmail));
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('No hay app de correo. Email copiado: $_supportEmail'),
+      ),
+    );
   }
 
   @override
@@ -512,7 +524,7 @@ class _MockModeCard extends StatelessWidget {
             // surface (the previous split FilledButton + TextButton
             // duplicated the affordance).
             FilledButton(
-              onPressed: _openMail,
+              onPressed: () => _openMail(context),
               style: FilledButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 12),
               ),

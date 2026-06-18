@@ -121,7 +121,7 @@ class TextBubble extends StatelessWidget {
         if (adminSent && !isEdited)
           Padding(
             padding: EdgeInsets.only(right: timestamp != null ? 2 : 0),
-            child: Text('admin', style: adminLabelStyle),
+            child: Text(theme.l10n.admin, style: adminLabelStyle),
           ),
         if (timestamp != null)
           Text(DateFormatter.formatTime(timestamp!), style: timestampStyle),
@@ -137,7 +137,7 @@ class TextBubble extends StatelessWidget {
     if (metaRow == null) return 0;
     var chars = 0;
     if (editedHint != null) chars += editedHint.length + 1;
-    if (adminSent && !isEdited) chars += 6;
+    if (adminSent && !isEdited) chars += theme.l10n.admin.length + 1;
     if (timestamp != null) chars += 5;
     return chars * 6.5 + (statusWidget != null ? 20 : 0) + 8;
   }

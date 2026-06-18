@@ -2,6 +2,36 @@ import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../theme/chat_theme.dart';
 
+/// Visual delivery state of an outgoing message — the five WhatsApp-style
+/// states the SDK renders. Derived from [ReceiptStatus] plus the local
+/// pending/failed flags; feeds [MessageStatusIconBuilder].
+enum MessageDeliveryState { sending, sent, delivered, read, failed }
+
+/// Context handed to [MessageStatusIconBuilder] overrides.
+@immutable
+class MessageStatusIconData {
+  const MessageStatusIconData({
+    required this.state,
+    required this.size,
+    this.message,
+  });
+
+  final MessageDeliveryState state;
+
+  /// Suggested icon height at the call site (14 in bubbles, 12 in the
+  /// room-list preview).
+  final double size;
+
+  /// The message the icon belongs to. `null` in room-list previews.
+  final ChatMessage? message;
+}
+
+/// Override for the delivery-status icon. Return `null` to fall back to
+/// the SDK default rendering for that state (same contract as
+/// `ChatViewBuilders.systemMessageBuilder`).
+typedef MessageStatusIconBuilder =
+    Widget? Function(BuildContext context, MessageStatusIconData data);
+
 /// Small check-icon stack indicating the [ReceiptStatus] of an outgoing
 /// message (sent / delivered / read).
 class MessageStatusIcon extends StatelessWidget {

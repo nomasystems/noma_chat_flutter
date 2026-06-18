@@ -122,40 +122,57 @@ class LinkPreviewFetcher {
   }
 
   Future<LinkPreviewMetadata?> _doFetch(String url) async {
-    LinkPreviewMetadata? result;
-    try {
-      // Defensive outer timeout: Dio's `connectTimeout` and
-      // `receiveTimeout` are honoured by the Dart HTTP client on
-      // desktop but can be ignored on iOS Simulator when the socket
-      // gets stuck in CONNECTING (observed multiple times — preview
-      // spinner runs forever despite the 5s settings above). A hard
-      // `Future.timeout` guarantees the future resolves, the spinner
-      // stops, and the `_inFlight` entry is removed via the
-      // `whenComplete` upstream — no leaks even if the underlying
-      // request keeps running in the background.
-      // Generous wall-clock cap so slow CDNs / OG-tag-heavy pages have
-      // time to respond. The composer decouples the spinner UX from
-      // this so the user doesn't see a frozen loader regardless. A
-      // null result (timeout / unreachable) still gets cached so we
-      // don't keep retrying the same URL until the failure TTL expires.
-      final response = await _dio
-          .get<dynamic>(url, options: Options(responseType: ResponseType.plain))
-          .timeout(
-            const Duration(seconds: 15),
-            onTimeout: () {
-              throw TimeoutException('link_preview fetch timeout: $url');
-            },
-          );
-      final raw = response.data;
-      final body = raw is String ? raw : raw?.toString();
-      if (body != null && body.isNotEmpty) {
-        result = _parse(url, body);
+    // Defensive outer timeout: Dio's `connectTimeout` and `receiveTimeout`
+    // are honoured by the Dart HTTP client on desktop but can be ignored on
+    // iOS Simulator when the socket gets stuck in CONNECTING (observed
+    // multiple times — preview spinner runs forever despite the settings
+    // above). A single attempt then rides the 15s wrapper, throws, and
+    // returns an UNCACHED transient null — the typing-time banner shows
+    // nothing while a later Send re-fetch on a fresh socket succeeds. Give
+    // the FIRST fetch the same second chance: one bounded retry on transient
+    // failure so typing-time and send-time agree. A hard `Future.timeout`
+    // guarantees each attempt resolves, the spinner stops, and the
+    // `_inFlight` entry is removed via the `whenComplete` upstream — no leaks
+    // even if the underlying request keeps running in the background.
+    Object? lastError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      LinkPreviewMetadata? result;
+      try {
+        final response = await _dio
+            .get<dynamic>(
+              url,
+              options: Options(responseType: ResponseType.plain),
+            )
+            .timeout(
+              const Duration(seconds: 15),
+              onTimeout: () {
+                throw TimeoutException('link_preview fetch timeout: $url');
+              },
+            );
+        final raw = response.data;
+        final body = raw is String ? raw : raw?.toString();
+        if (body != null && body.isNotEmpty) {
+          result = _parse(url, body);
+        }
+      } catch (e) {
+        // Transient failure (timeout / socket error / DNS / Dio exception):
+        // retry once on a fresh socket before giving up. Do NOT cache a null
+        // here — caching would blank the preview for the whole `_failureTtl`
+        // window after a single network hiccup.
+        lastError = e;
+        continue;
       }
-    } catch (_) {
-      result = null;
+      // We got a response. `result == null` here means the page legitimately
+      // exposes no previewable OG/Twitter/title tags — cache that null so we
+      // don't keep re-fetching a page we know has nothing to show (until the
+      // failure TTL expires).
+      _store(url, result);
+      return result;
     }
-    _store(url, result);
-    return result;
+    // Both attempts hit transient errors: return uncached null so a later
+    // retype / Send retries from scratch.
+    assert(lastError != null);
+    return null;
   }
 
   void _store(String url, LinkPreviewMetadata? value) {

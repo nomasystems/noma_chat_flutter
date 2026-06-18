@@ -144,7 +144,7 @@ void main() {
   );
 
   group('offline queue payload coverage (serialised PendingOperation)', () {
-    Future<void> seedAndConnect(Map<String, dynamic> op) async {
+    Future<void> seedAndDrain(Map<String, dynamic> op) async {
       await store.saveOfflineQueue([
         {
           'id': 'op',
@@ -155,70 +155,154 @@ void main() {
       ]);
       final client = build();
       await client.connect();
-      // Trigger a reconnect to drain the queue.
       events.add(const ConnectedEvent());
       events.add(const DisconnectedEvent());
       events.add(const ConnectedEvent());
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
 
-    test('deleteMessage', () async {
-      await seedAndConnect({
+    Future<bool> queueIsDrained() async =>
+        ((await store.getOfflineQueue()).dataOrNull ?? const []).isEmpty;
+
+    test('deleteMessage drains a DELETE on the message path', () async {
+      when(() => rest.delete('/rooms/r1/messages/m1')).thenAnswer((_) async {});
+
+      await seedAndDrain({
         'type': 'deleteMessage',
         'roomId': 'r1',
         'messageId': 'm1',
       });
+
+      verify(() => rest.delete('/rooms/r1/messages/m1')).called(1);
+      expect(await queueIsDrained(), isTrue);
     });
 
-    test('editMessage', () async {
-      await seedAndConnect({
+    test('editMessage drains a PUT carrying the edited text', () async {
+      when(
+        () => rest.putVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
+
+      await seedAndDrain({
         'type': 'editMessage',
         'roomId': 'r1',
         'messageId': 'm1',
         'text': 'edited',
       });
+
+      final captured =
+          verify(
+                () => rest.putVoid(
+                  '/rooms/r1/messages/m1',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['text'], 'edited');
+      expect(await queueIsDrained(), isTrue);
     });
 
-    test('deleteReaction', () async {
-      await seedAndConnect({
+    test('deleteReaction drains a DELETE on the reactions path', () async {
+      when(
+        () => rest.delete('/rooms/r1/messages/m1/reactions'),
+      ).thenAnswer((_) async {});
+
+      await seedAndDrain({
         'type': 'deleteReaction',
         'roomId': 'r1',
         'messageId': 'm1',
       });
+
+      verify(() => rest.delete('/rooms/r1/messages/m1/reactions')).called(1);
+      expect(await queueIsDrained(), isTrue);
     });
 
-    test('createRoom', () async {
-      await seedAndConnect({
-        'type': 'createRoom',
-        'name': 'R',
-        'audience': 'public',
-        'members': <String>[],
-      });
-    });
+    test(
+      'createRoom drains a POST to /rooms with audience + members',
+      () async {
+        when(
+          () => rest.post('/rooms', data: any(named: 'data')),
+        ).thenAnswer((_) async => {'roomId': 'room-new', 'audience': 'public'});
 
-    test('updateRoomConfig', () async {
-      await seedAndConnect({
-        'type': 'updateRoomConfig',
-        'roomId': 'r1',
-        'name': 'New',
-      });
-    });
+        await seedAndDrain({
+          'type': 'createRoom',
+          'name': 'R',
+          'audience': 'public',
+          'members': <String>['u2'],
+        });
 
-    test('addMember (with role)', () async {
-      await seedAndConnect({
+        final captured =
+            verify(
+                  () => rest.post('/rooms', data: captureAny(named: 'data')),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(captured['audience'], 'public');
+        expect(captured['name'], 'R');
+        expect(captured['members'], ['u2']);
+        expect(await queueIsDrained(), isTrue);
+      },
+    );
+
+    test(
+      'updateRoomConfig drains a PUT to /config with the new name',
+      () async {
+        when(
+          () => rest.putVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
+
+        await seedAndDrain({
+          'type': 'updateRoomConfig',
+          'roomId': 'r1',
+          'name': 'New',
+        });
+
+        final captured =
+            verify(
+                  () => rest.putVoid(
+                    '/rooms/r1/config',
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(captured['name'], 'New');
+        expect(await queueIsDrained(), isTrue);
+      },
+    );
+
+    test('addMember drains a POST to /users with the userId', () async {
+      when(
+        () => rest.postRaw('/rooms/r1/users', data: any(named: 'data')),
+      ).thenAnswer((_) async => null);
+
+      await seedAndDrain({
         'type': 'addMember',
         'roomId': 'r1',
         'userId': 'u2',
         'role': 'admin',
       });
+
+      final captured =
+          verify(
+                () => rest.postRaw(
+                  '/rooms/r1/users',
+                  data: captureAny(named: 'data'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['userIds'], ['u2']);
+      expect(await queueIsDrained(), isTrue);
     });
 
-    test('removeMember', () async {
-      await seedAndConnect({
+    test('removeMember drains a DELETE on the user path', () async {
+      when(() => rest.delete('/rooms/r1/users/u2')).thenAnswer((_) async {});
+
+      await seedAndDrain({
         'type': 'removeMember',
         'roomId': 'r1',
         'userId': 'u2',
       });
+
+      verify(() => rest.delete('/rooms/r1/users/u2')).called(1);
+      expect(await queueIsDrained(), isTrue);
     });
   });
 }

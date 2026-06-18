@@ -15,8 +15,12 @@ class EventParser {
   /// backends that send numbers / lists where strings are expected.
   static String? _asString(dynamic value) => value is String ? value : null;
 
+  /// Safe casts for the other primitive field types we read off the wire.
+  static int? _asInt(dynamic value) => value is int ? value : null;
+  static bool? _asBool(dynamic value) => value is bool ? value : null;
+
   static ChatEvent? parseJson(Map<String, dynamic> json) {
-    final type = json['type'] as String?;
+    final type = _asString(json['type']);
     if (type == null) return null;
 
     return switch (type) {
@@ -28,11 +32,16 @@ class EventParser {
       'room_deleted' => _parseRoomDeleted(json),
       'typing' => _parseUserActivity(json),
       'presence' || 'presence_changed' => _parsePresenceChanged(json),
+      // `unread_updated` is never sent by the backend over the wire — it is
+      // synthesized internally by the polling RefreshEngine. Parsed here only
+      // as a defensive forward-compat path.
       'unread_updated' => _parseUnreadUpdated(json),
       'user_joined' => _parseUserJoined(json),
       'user_left' => _parseUserLeft(json),
       'user_role_changed' => _parseUserRoleChanged(json),
       'receipt_updated' => _parseReceiptUpdated(json),
+      'message_acked' => _parseMessageAcked(json),
+      'message_delivered' => _parseMessageDelivered(json),
       'reaction_added' => _parseReactionAddedNative(json),
       'reaction_deleted' => _parseReactionDeleted(json),
       'broadcast' => _parseBroadcast(json),
@@ -68,7 +77,7 @@ class EventParser {
   static ChatEvent? _parseNewMessage(Map<String, dynamic> json) {
     final msg = _messageFromEvent(json);
     if (msg == null) return null;
-    final roomId = json['roomId'] as String?;
+    final roomId = _asString(json['roomId']);
     if (roomId == null || roomId.isEmpty) return null;
     if (msg.messageType == MessageType.reaction && msg.reaction != null) {
       return ChatEvent.reactionAdded(
@@ -82,8 +91,8 @@ class EventParser {
   }
 
   static ChatEvent? _parseMessageUpdated(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final messageId = json['messageId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final messageId = _asString(json['messageId']);
     if (roomId == null || messageId == null) return null;
     // When the server bundles the full row inline (CHT `put_messages`,
     // `do_admin_put_message`), the SDK can apply the update without a
@@ -101,8 +110,8 @@ class EventParser {
   }
 
   static ChatEvent? _parseMessageDeleted(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final messageId = json['messageId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final messageId = _asString(json['messageId']);
     if (roomId == null || messageId == null) return null;
     return ChatEvent.messageDeleted(roomId: roomId, messageId: messageId);
   }
@@ -162,7 +171,7 @@ class EventParser {
   }
 
   static ChatEvent? _parseUserActivity(Map<String, dynamic> json) {
-    final userId = (json['userId'] ?? json['from']) as String?;
+    final userId = _asString(json['userId']) ?? _asString(json['from']);
     if (userId == null) return null;
     final activityStr = _fieldOrDefault(
       json,
@@ -173,7 +182,7 @@ class EventParser {
     final activity = activityStr == 'stopsTyping'
         ? ChatActivity.stopsTyping
         : ChatActivity.startsTyping;
-    final contactId = json['contactId'] as String?;
+    final contactId = _asString(json['contactId']);
     if (contactId != null) {
       return ChatEvent.dmActivity(
         contactId: contactId,
@@ -181,7 +190,7 @@ class EventParser {
         activity: activity,
       );
     }
-    final roomId = json['roomId'] as String?;
+    final roomId = _asString(json['roomId']);
     if (roomId == null) return null;
     return ChatEvent.userActivity(
       roomId: roomId,
@@ -191,7 +200,7 @@ class EventParser {
   }
 
   static ChatEvent? _parsePresenceChanged(Map<String, dynamic> json) {
-    final userId = json['userId'] as String?;
+    final userId = _asString(json['userId']);
     if (userId == null) return null;
     final statusStr = _fieldOrDefault(
       json,
@@ -200,14 +209,13 @@ class EventParser {
       'presence_changed',
     );
     final status = _parsePresenceStatus(statusStr);
+    final lastSeenStr = _asString(json['lastSeen']);
     return ChatEvent.presenceChanged(
       userId: userId,
       status: status,
-      online: json['online'] as bool? ?? status != PresenceStatus.offline,
-      lastSeen: json['lastSeen'] != null
-          ? DateTime.tryParse(json['lastSeen'] as String)
-          : null,
-      statusText: json['statusText'] as String?,
+      online: _asBool(json['online']) ?? status != PresenceStatus.offline,
+      lastSeen: lastSeenStr != null ? DateTime.tryParse(lastSeenStr) : null,
+      statusText: _asString(json['statusText']),
     );
   }
 
@@ -220,31 +228,31 @@ class EventParser {
   };
 
   static ChatEvent? _parseUnreadUpdated(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
+    final roomId = _asString(json['roomId']);
     if (roomId == null) return null;
     return ChatEvent.unreadUpdated(
       roomId: roomId,
-      count: json['count'] as int? ?? json['unreadMessages'] as int? ?? 0,
+      count: _asInt(json['count']) ?? _asInt(json['unreadMessages']) ?? 0,
     );
   }
 
   static ChatEvent? _parseUserJoined(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final userId = json['userId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final userId = _asString(json['userId']);
     if (roomId == null || userId == null) return null;
     return ChatEvent.userJoined(roomId: roomId, userId: userId);
   }
 
   static ChatEvent? _parseUserLeft(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final userId = json['userId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final userId = _asString(json['userId']);
     if (roomId == null || userId == null) return null;
     // `actorUserId` non-null + distinct from `userId` means this
     // was a kick. WhatsApp-parity rendering: the event router
     // synthesises an "Alice removed Bob" system bubble and the
     // kicked client flips `isParticipating=false` so its composer
     // is swapped for the banner. Self-leaves carry no actor.
-    final actorUserId = json['actorUserId'] as String?;
+    final actorUserId = _asString(json['actorUserId']);
     return ChatEvent.userLeft(
       roomId: roomId,
       userId: userId,
@@ -253,8 +261,8 @@ class EventParser {
   }
 
   static ChatEvent? _parseUserRoleChanged(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final userId = json['userId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final userId = _asString(json['userId']);
     if (roomId == null || userId == null) return null;
     final roleStr = _fieldOrDefault(
       json,
@@ -275,8 +283,8 @@ class EventParser {
   }
 
   static ChatEvent? _parseReceiptUpdated(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final messageId = json['messageId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final messageId = _asString(json['messageId']);
     if (roomId == null || messageId == null) return null;
     final statusStr = _fieldOrDefault(
       json,
@@ -290,7 +298,7 @@ class EventParser {
       _ => ReceiptStatus.read,
     };
     final fromUserId =
-        json['fromUserId'] as String? ?? json['userId'] as String?;
+        _asString(json['fromUserId']) ?? _asString(json['userId']);
     return ChatEvent.receiptUpdated(
       roomId: roomId,
       messageId: messageId,
@@ -299,11 +307,62 @@ class EventParser {
     );
   }
 
+  static ChatEvent? _parseMessageAcked(Map<String, dynamic> json) {
+    final messageId = _asString(json['messageId']);
+    if (messageId == null) return null;
+    final seq = json['seq'];
+    if (seq is! int) {
+      logger?.call(
+        'warn',
+        'EventParser: "message_acked" event missing integer "seq" field',
+      );
+      return null;
+    }
+    final roomId = _asString(json['roomId']);
+    final toUserId = _asString(json['toUserId']);
+    if (roomId == null && toUserId == null) {
+      logger?.call(
+        'warn',
+        'EventParser: "message_acked" event missing both "roomId" and '
+            '"toUserId" fields',
+      );
+      return null;
+    }
+    final metadata = json['metadata'];
+    return ChatEvent.messageAcked(
+      roomId: roomId,
+      toUserId: toUserId,
+      messageId: messageId,
+      seq: seq,
+      metadata: metadata is Map<String, dynamic> ? metadata : null,
+    );
+  }
+
+  static ChatEvent? _parseMessageDelivered(Map<String, dynamic> json) {
+    final messageId = _asString(json['messageId']);
+    final userId = _asString(json['userId']);
+    if (messageId == null || userId == null) return null;
+    final seq = json['seq'];
+    if (seq is! int) {
+      logger?.call(
+        'warn',
+        'EventParser: "message_delivered" event missing integer "seq" field',
+      );
+      return null;
+    }
+    return ChatEvent.messageDelivered(
+      roomId: _asString(json['roomId']),
+      userId: userId,
+      messageId: messageId,
+      seq: seq,
+    );
+  }
+
   static ChatEvent? _parseReactionAddedNative(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final messageId = json['messageId'] as String?;
-    final userId = json['userId'] as String?;
-    final reaction = (json['emoji'] ?? json['reaction']) as String?;
+    final roomId = _asString(json['roomId']);
+    final messageId = _asString(json['messageId']);
+    final userId = _asString(json['userId']);
+    final reaction = _asString(json['emoji']) ?? _asString(json['reaction']);
     if (roomId == null ||
         messageId == null ||
         userId == null ||
@@ -319,8 +378,8 @@ class EventParser {
   }
 
   static ChatEvent? _parseReactionDeleted(Map<String, dynamic> json) {
-    final roomId = json['roomId'] as String?;
-    final messageId = json['messageId'] as String?;
+    final roomId = _asString(json['roomId']);
+    final messageId = _asString(json['messageId']);
     if (roomId == null || messageId == null) return null;
     return ChatEvent.reactionDeleted(roomId: roomId, messageId: messageId);
   }
@@ -328,7 +387,10 @@ class EventParser {
   static ChatEvent? _parseBroadcast(Map<String, dynamic> json) {
     final message = _asString(json['message']);
     if (message == null) return null;
-    return ChatEvent.broadcast(message: message);
+    return ChatEvent.broadcast(
+      message: message,
+      fromUserId: _asString(json['fromUserId']),
+    );
   }
 
   static String _fieldOrDefault(
@@ -337,7 +399,7 @@ class EventParser {
     String defaultValue,
     String eventType,
   ) {
-    final value = json[field] as String?;
+    final value = _asString(json[field]);
     if (value != null) return value;
     logger?.call(
       'warn',
@@ -348,18 +410,17 @@ class EventParser {
   }
 
   static ChatMessage? _messageFromEvent(Map<String, dynamic> json) {
-    final messageData = json['message'] as Map<String, dynamic>? ?? json;
+    final messageData = json['message'] is Map<String, dynamic>
+        ? json['message'] as Map<String, dynamic>
+        : json;
     final id =
-        (messageData['messageId'] ??
-                messageData['idMessage'] ??
-                messageData['id'])
-            as String?;
+        _asString(messageData['messageId']) ??
+        _asString(messageData['idMessage']) ??
+        _asString(messageData['id']);
     final from =
-        (messageData['from'] ??
-                messageData['fromJid'] ??
-                messageData['userId'] ??
-                json['userId'])
-            as String?;
+        _asString(messageData['from']) ??
+        _asString(messageData['userId']) ??
+        _asString(json['userId']);
     if (id == null || from == null) return null;
     return MessageMapper.fromJson({
       ...messageData,

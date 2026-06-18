@@ -9,6 +9,7 @@ import '../events/chat_event.dart';
 import '../models/attachment.dart';
 import '../models/contact.dart';
 import '../models/health_status.dart';
+import '../models/invite_result.dart';
 import '../models/managed_user_config.dart';
 import '../models/message.dart';
 import '../models/pin.dart';
@@ -19,6 +20,7 @@ import '../models/report.dart';
 import '../models/room.dart';
 import '../models/room_user.dart';
 import '../models/scheduled_message.dart';
+import '../models/starred_message.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
 import '../models/user_rooms.dart';
@@ -43,6 +45,10 @@ class MockChatClient implements ChatClient {
   final Map<String, int> _unread = {};
   final Map<String, bool> _pinned = {};
   final Map<String, bool> _muted = {};
+
+  // Per-user starred messages (messageId -> roomId), most-recent-first
+  // insertion order. Seeds [MockMessagesApi.listStarred].
+  final Map<String, String> _starred = {};
   int _messageCounter = 0;
 
   @override
@@ -146,6 +152,38 @@ class MockChatClient implements ChatClient {
   }
 
   String _nextMessageId() => 'mock-msg-${++_messageCounter}';
+
+  /// Resolves a WhatsApp-style preview for a starred reference by looking up
+  /// the stored [ChatMessage] in the room: its text when present, else a
+  /// plain media label. Keeps mock-backed widgetbook/tests showing a body
+  /// instead of a blank row. Returns `null` when the message isn't stored.
+  String? _starredPreview(String roomId, String messageId) {
+    final msgs = _messages[roomId];
+    if (msgs == null) return null;
+    for (final m in msgs) {
+      if (m.id != messageId) continue;
+      if (m.isDeleted) return 'This message was deleted';
+      final text = m.text;
+      if (text != null && text.isNotEmpty) return text;
+      switch (m.messageType) {
+        case MessageType.audio:
+          return '🎤 Voice message';
+        case MessageType.location:
+          return '📍 Location';
+        case MessageType.attachment:
+          return m.fileName != null && m.fileName!.isNotEmpty
+              ? '📄 ${m.fileName}'
+              : '📎 Attachment';
+        case MessageType.forward:
+          return 'Forwarded';
+        case MessageType.reaction:
+        case MessageType.reply:
+        case MessageType.regular:
+          return '📎 Attachment';
+      }
+    }
+    return null;
+  }
 
   @override
   Future<void> logout() async {
@@ -264,7 +302,23 @@ class MockUsersApi implements ChatUsersApi {
   }
 
   @override
+  Future<ChatResult<void>> deleteCurrentUser() async {
+    _client._users.remove(_client.currentUserId);
+    return const ChatSuccess(null);
+  }
+
+  @override
   Future<ChatResult<void>> delete(String userId) async {
+    // Mirror the backend's own-account-only rule: deleting another user's
+    // id is forbidden with the cannot_delete_other_user token.
+    if (userId != _client.currentUserId) {
+      return const ChatFailureResult(
+        ForbiddenFailure(
+          message: 'Cannot delete another user',
+          errorToken: ChatErrorTokens.cannotDeleteOtherUser,
+        ),
+      );
+    }
     if (!_client._users.containsKey(userId)) {
       return const ChatFailureResult(NotFoundFailure());
     }
@@ -283,8 +337,8 @@ class MockUsersApi implements ChatUsersApi {
   }) async => const ChatSuccess([]);
 
   @override
-  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManaged(
-    String userId, {
+  Future<ChatResult<ChatPaginatedResponse<ChatUser>>> getManagedByParent(
+    String parentId, {
     ChatPaginationParams? pagination,
   }) async =>
       const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
@@ -320,6 +374,7 @@ class MockRoomsApi implements ChatRoomsApi {
     List<String>? members,
     String? avatarUrl,
     Map<String, dynamic>? custom,
+    bool forceGroup = false,
   }) async {
     final id = 'mock-room-${_client._rooms.length}';
     final room = ChatRoom(
@@ -465,42 +520,29 @@ class MockRoomsApi implements ChatRoomsApi {
 
   // Room mutations mirror the real client: every successful mutation
   // surfaces a `RoomUpdatedEvent` so adapter code that depends on the
-  // event behaves identically against the mock.
+  // event behaves identically against the mock. The six toggles delegate
+  // to [patchPreferences], matching the real client's unified behavior.
+
+  final Map<String, RoomPreferences> _prefs = {};
 
   @override
-  Future<ChatResult<void>> mute(String roomId) async {
+  Future<ChatResult<RoomPreferences>> patchPreferences(
+    String roomId, {
+    bool? muted,
+    DateTime? muteUntil,
+    bool? pinned,
+    bool? hidden,
+  }) async {
+    final current = _prefs[roomId] ?? const RoomPreferences();
+    final merged = current.copyWith(
+      muted: muteUntil != null ? true : (muted ?? current.muted),
+      muteUntil: muteUntil ?? (muted == false ? null : current.muteUntil),
+      pinned: pinned ?? current.pinned,
+      hidden: hidden ?? current.hidden,
+    );
+    _prefs[roomId] = merged;
     _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const ChatSuccess(null);
-  }
-
-  @override
-  Future<ChatResult<void>> unmute(String roomId) async {
-    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const ChatSuccess(null);
-  }
-
-  @override
-  Future<ChatResult<void>> pin(String roomId) async {
-    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const ChatSuccess(null);
-  }
-
-  @override
-  Future<ChatResult<void>> unpin(String roomId) async {
-    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const ChatSuccess(null);
-  }
-
-  @override
-  Future<ChatResult<void>> hide(String roomId) async {
-    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const ChatSuccess(null);
-  }
-
-  @override
-  Future<ChatResult<void>> unhide(String roomId) async {
-    _client.emitEvent(ChatEvent.roomUpdated(roomId: roomId));
-    return const ChatSuccess(null);
+    return ChatSuccess(merged);
   }
 
   @override
@@ -538,19 +580,30 @@ class MockMembersApi implements ChatMembersApi {
   Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
     ChatPaginationParams? pagination,
+    List<RoomMemberExpand> expand = const [],
   }) async {
     final room = _client._rooms[roomId];
     if (room == null) return const ChatFailureResult(NotFoundFailure());
-    final users = room.members.map((id) => RoomUser(userId: id)).toList();
+    final wantUsers = expand.contains(RoomMemberExpand.users);
+    final users = room.members.map((id) {
+      // Mirror the backend: embed displayName + avatarUrl only when the
+      // `users` expansion was requested, drawing from the known profiles.
+      final profile = wantUsers ? _client._users[id] : null;
+      return RoomUser(
+        userId: id,
+        displayName: profile?.displayName,
+        avatarUrl: profile?.avatarUrl,
+      );
+    }).toList();
     return ChatSuccess(ChatPaginatedResponse(items: users, hasMore: false));
   }
 
   @override
-  Future<ChatResult<void>> invite(
+  Future<ChatResult<InviteResult>> invite(
     String roomId, {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
-    RoomRole? userRole,
+    String? token,
   }) async {
     final room = _client._rooms[roomId];
     if (room == null) return const ChatFailureResult(NotFoundFailure());
@@ -565,8 +618,23 @@ class MockMembersApi implements ChatMembersApi {
       avatarUrl: room.avatarUrl,
       custom: room.custom,
     );
-    return const ChatSuccess(null);
+    return ChatSuccess(
+      InviteResult([
+        for (final id in userIds) InviteUserResult(userId: id, success: true),
+      ]),
+    );
   }
+
+  @override
+  Future<ChatResult<InviteResult>> joinWithToken(
+    String roomId, {
+    required String token,
+  }) => invite(
+    roomId,
+    userIds: [_client.currentUserId],
+    mode: RoomUserMode.inviteAndJoin,
+    token: token,
+  );
 
   @override
   Future<ChatResult<void>> remove(String roomId, String userId) async =>
@@ -626,6 +694,7 @@ class MockMessagesApi implements ChatMessagesApi {
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
+    String? clientMessageId,
   }) async {
     final msg = ChatMessage(
       id: _client._nextMessageId(),
@@ -634,6 +703,7 @@ class MockMessagesApi implements ChatMessagesApi {
       text: text,
       messageType: messageType,
       referencedMessageId: referencedMessageId,
+      clientMessageId: clientMessageId,
       reaction: reaction,
       attachmentUrl: attachmentUrl,
       metadata: metadata,
@@ -738,6 +808,27 @@ class MockMessagesApi implements ChatMessagesApi {
     return const ChatSuccess(null);
   }
 
+  /// Records each `markRoomAsDelivered` invocation as a `(roomId,
+  /// lastDeliveredMessageId)` tuple so tests can assert how the adapter
+  /// confirms delivery and with which cursor.
+  final List<({String roomId, String lastDeliveredMessageId})>
+  markRoomAsDeliveredCalls = [];
+
+  /// Clears the [markRoomAsDeliveredCalls] history.
+  void resetMarkRoomAsDeliveredCalls() => markRoomAsDeliveredCalls.clear();
+
+  @override
+  Future<ChatResult<void>> markRoomAsDelivered(
+    String roomId, {
+    required String lastDeliveredMessageId,
+  }) async {
+    markRoomAsDeliveredCalls.add((
+      roomId: roomId,
+      lastDeliveredMessageId: lastDeliveredMessageId,
+    ));
+    return const ChatSuccess(null);
+  }
+
   @override
   Future<ChatResult<ChatPaginatedResponse<ReadReceipt>>> getRoomReceipts(
     String roomId,
@@ -774,10 +865,28 @@ class MockMessagesApi implements ChatMessagesApi {
   }) async => const ChatSuccess([]);
 
   @override
+  Future<ChatResult<void>> addReaction(
+    String roomId,
+    String messageId, {
+    required String emoji,
+  }) async {
+    _client.emitEvent(
+      ChatEvent.reactionAdded(
+        roomId: roomId,
+        messageId: messageId,
+        userId: _client.currentUserId,
+        reaction: emoji,
+      ),
+    );
+    return const ChatSuccess(null);
+  }
+
+  @override
   Future<ChatResult<void>> deleteReaction(
     String roomId,
-    String messageId,
-  ) async => const ChatSuccess(null);
+    String messageId, {
+    String? emoji,
+  }) async => const ChatSuccess(null);
 
   @override
   Future<ChatResult<void>> pinMessage(String roomId, String messageId) async =>
@@ -797,9 +906,54 @@ class MockMessagesApi implements ChatMessagesApi {
       const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
 
   @override
+  Future<ChatResult<void>> starMessage(String roomId, String messageId) async {
+    _client._starred[messageId] = roomId;
+    _client.emitEvent(
+      ChatEvent.messageUpdated(roomId: roomId, messageId: messageId),
+    );
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<void>> unstarMessage(
+    String roomId,
+    String messageId,
+  ) async {
+    _client._starred.remove(messageId);
+    _client.emitEvent(
+      ChatEvent.messageUpdated(roomId: roomId, messageId: messageId),
+    );
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<StarredMessage>>> listStarred({
+    ChatPaginationParams? pagination,
+  }) async {
+    final entries = _client._starred.entries.toList().reversed;
+    final items = [
+      for (final e in entries)
+        StarredMessage(
+          userId: _client.currentUserId,
+          messageId: e.key,
+          roomId: e.value,
+          starredAt: DateTime.now(),
+          preview: _client._starredPreview(e.value, e.key),
+        ),
+    ];
+    return ChatSuccess(
+      ChatPaginatedResponse(
+        items: items,
+        hasMore: false,
+        totalCount: items.length,
+      ),
+    );
+  }
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> search(
     String query, {
-    required String roomId,
+    String? roomId,
     ChatPaginationParams? pagination,
   }) async =>
       const ChatSuccess(ChatPaginatedResponse(items: [], hasMore: false));
@@ -1014,9 +1168,27 @@ class MockAttachmentsApi implements ChatAttachmentsApi {
   );
 
   @override
+  Future<ChatResult<AttachmentSignedUrl>> signedUrl(
+    String attachmentId, {
+    required String roomId,
+  }) async => ChatSuccess(
+    AttachmentSignedUrl(
+      url: 'https://mock.invalid/attachments/$attachmentId?sig=mock',
+      raw: const {'url': 'mock'},
+    ),
+  );
+
+  @override
   Future<ChatResult<Uint8List>> download(
     String attachmentId, {
+    String? roomId,
     String? metadata,
+    void Function(int received, int total)? onProgress,
+  }) async => ChatSuccess(Uint8List(0));
+
+  @override
+  Future<ChatResult<Uint8List>> downloadFromUrl(
+    String url, {
     void Function(int received, int total)? onProgress,
   }) async => ChatSuccess(Uint8List(0));
 

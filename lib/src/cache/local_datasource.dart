@@ -32,8 +32,6 @@ abstract class ChatLocalDatasource {
   Future<ChatResult<List<ChatMessage>>> getMessages(
     String roomId, {
     int? limit,
-    String? before,
-    String? after,
   });
   Future<ChatResult<void>> updateMessage(String roomId, ChatMessage message);
   Future<ChatResult<void>> deleteMessage(String roomId, String messageId);
@@ -101,6 +99,30 @@ abstract class ChatLocalDatasource {
   Future<ChatResult<void>> saveInvitedRooms(List<InvitedRoom> invitedRooms);
   Future<ChatResult<List<InvitedRoom>>> getInvitedRooms();
 
+  /// Replaces the cached unread set with exactly [unreads], removing any
+  /// previously cached room absent from the new list. Use this for an
+  /// authoritative `type='all'` room listing so rooms deleted or left on
+  /// the server stop reappearing from cache (plain [saveUnreads] merges
+  /// and never evicts). The default implementation diffs against
+  /// [getUnreads] and [deleteUnread]; datasources with a native
+  /// "replace box" primitive should override it for atomicity.
+  ///
+  /// Kicked rooms are preserved: the backend stops listing a room the
+  /// moment the user leaves or is removed, but its unread snapshot is the
+  /// last-message preview the read-only chat renders, so evicting it would
+  /// blank the row and risk the room vanishing on cold start.
+  Future<ChatResult<void>> reconcileUnreads(List<UnreadRoom> unreads) async {
+    final current = (await getUnreads()).dataOrNull ?? const <UnreadRoom>[];
+    final keep = unreads.map((u) => u.roomId).toSet()
+      ..addAll((await getKickedRoomIds()).dataOrNull ?? const <String>{});
+    for (final c in current) {
+      if (!keep.contains(c.roomId)) {
+        await deleteUnread(c.roomId);
+      }
+    }
+    return saveUnreads(unreads);
+  }
+
   // Unreads (individual)
   Future<ChatResult<void>> deleteUnread(String roomId);
 
@@ -159,6 +181,22 @@ abstract class ChatLocalDatasource {
   Future<ChatResult<void>> unmarkKicked(String roomId) async =>
       const ChatSuccess(null);
   Future<ChatResult<Set<String>>> getKickedRoomIds() async =>
+      const ChatSuccess(<String>{});
+
+  // Deleted-rooms registry — WhatsApp "Delete chat" parity. Local-only
+  // per-user marker set when the user taps "Delete chat" (distinct from
+  // the `hidden` flag used for "Archive"). A deleted room disappears
+  // from BOTH the main list and the Archived section; it reappears
+  // empty only when a peer writes again, at which point the resurrection
+  // path calls `clearDeletedRoom`. The marker is NEVER evicted (it
+  // outlives room/message eviction so a deleted chat does not silently
+  // return). Default impls are no-ops so alternate datasources stay
+  // compatible (losing the set on restart is acceptable for memory mode).
+  Future<ChatResult<void>> addDeletedRoom(String roomId) async =>
+      const ChatSuccess(null);
+  Future<ChatResult<void>> clearDeletedRoom(String roomId) async =>
+      const ChatSuccess(null);
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() async =>
       const ChatSuccess(<String>{});
 
   // Lifecycle

@@ -14,7 +14,7 @@ T _$identity<T>(T value) => value;
 /// @nodoc
 mixin _$ReadReceipt {
 
- String get userId; String? get lastReadMessageId; DateTime? get lastReadAt;
+ String get userId; String? get lastReadMessageId; DateTime? get lastReadAt; String? get lastDeliveredMessageId; DateTime? get lastDeliveredAt;
 /// Create a copy of ReadReceipt
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -25,16 +25,16 @@ $ReadReceiptCopyWith<ReadReceipt> get copyWith => _$ReadReceiptCopyWithImpl<Read
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ReadReceipt&&(identical(other.userId, userId) || other.userId == userId)&&(identical(other.lastReadMessageId, lastReadMessageId) || other.lastReadMessageId == lastReadMessageId)&&(identical(other.lastReadAt, lastReadAt) || other.lastReadAt == lastReadAt));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ReadReceipt&&(identical(other.userId, userId) || other.userId == userId)&&(identical(other.lastReadMessageId, lastReadMessageId) || other.lastReadMessageId == lastReadMessageId)&&(identical(other.lastReadAt, lastReadAt) || other.lastReadAt == lastReadAt)&&(identical(other.lastDeliveredMessageId, lastDeliveredMessageId) || other.lastDeliveredMessageId == lastDeliveredMessageId)&&(identical(other.lastDeliveredAt, lastDeliveredAt) || other.lastDeliveredAt == lastDeliveredAt));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,userId,lastReadMessageId,lastReadAt);
+int get hashCode => Object.hash(runtimeType,userId,lastReadMessageId,lastReadAt,lastDeliveredMessageId,lastDeliveredAt);
 
 @override
 String toString() {
-  return 'ReadReceipt(userId: $userId, lastReadMessageId: $lastReadMessageId, lastReadAt: $lastReadAt)';
+  return 'ReadReceipt(userId: $userId, lastReadMessageId: $lastReadMessageId, lastReadAt: $lastReadAt, lastDeliveredMessageId: $lastDeliveredMessageId, lastDeliveredAt: $lastDeliveredAt)';
 }
 
 
@@ -45,7 +45,7 @@ abstract mixin class $ReadReceiptCopyWith<$Res>  {
   factory $ReadReceiptCopyWith(ReadReceipt value, $Res Function(ReadReceipt) _then) = _$ReadReceiptCopyWithImpl;
 @useResult
 $Res call({
- String userId, String? lastReadMessageId, DateTime? lastReadAt
+ String userId, String? lastReadMessageId, DateTime? lastReadAt, String? lastDeliveredMessageId, DateTime? lastDeliveredAt
 });
 
 
@@ -62,11 +62,13 @@ class _$ReadReceiptCopyWithImpl<$Res>
 
 /// Create a copy of ReadReceipt
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? userId = null,Object? lastReadMessageId = freezed,Object? lastReadAt = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? userId = null,Object? lastReadMessageId = freezed,Object? lastReadAt = freezed,Object? lastDeliveredMessageId = freezed,Object? lastDeliveredAt = freezed,}) {
   return _then(_self.copyWith(
 userId: null == userId ? _self.userId : userId // ignore: cast_nullable_to_non_nullable
 as String,lastReadMessageId: freezed == lastReadMessageId ? _self.lastReadMessageId : lastReadMessageId // ignore: cast_nullable_to_non_nullable
 as String?,lastReadAt: freezed == lastReadAt ? _self.lastReadAt : lastReadAt // ignore: cast_nullable_to_non_nullable
+as DateTime?,lastDeliveredMessageId: freezed == lastDeliveredMessageId ? _self.lastDeliveredMessageId : lastDeliveredMessageId // ignore: cast_nullable_to_non_nullable
+as String?,lastDeliveredAt: freezed == lastDeliveredAt ? _self.lastDeliveredAt : lastDeliveredAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,
   ));
 }
@@ -152,10 +154,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String userId,  String? lastReadMessageId,  DateTime? lastReadAt)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String userId,  String? lastReadMessageId,  DateTime? lastReadAt,  String? lastDeliveredMessageId,  DateTime? lastDeliveredAt)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ReadReceipt() when $default != null:
-return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt);case _:
+return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt,_that.lastDeliveredMessageId,_that.lastDeliveredAt);case _:
   return orElse();
 
 }
@@ -173,10 +175,10 @@ return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String userId,  String? lastReadMessageId,  DateTime? lastReadAt)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String userId,  String? lastReadMessageId,  DateTime? lastReadAt,  String? lastDeliveredMessageId,  DateTime? lastDeliveredAt)  $default,) {final _that = this;
 switch (_that) {
 case _ReadReceipt():
-return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt);case _:
+return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt,_that.lastDeliveredMessageId,_that.lastDeliveredAt);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -193,10 +195,10 @@ return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String userId,  String? lastReadMessageId,  DateTime? lastReadAt)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String userId,  String? lastReadMessageId,  DateTime? lastReadAt,  String? lastDeliveredMessageId,  DateTime? lastDeliveredAt)?  $default,) {final _that = this;
 switch (_that) {
 case _ReadReceipt() when $default != null:
-return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt);case _:
+return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt,_that.lastDeliveredMessageId,_that.lastDeliveredAt);case _:
   return null;
 
 }
@@ -208,12 +210,14 @@ return $default(_that.userId,_that.lastReadMessageId,_that.lastReadAt);case _:
 
 
 class _ReadReceipt implements ReadReceipt {
-  const _ReadReceipt({required this.userId, this.lastReadMessageId, this.lastReadAt});
+  const _ReadReceipt({required this.userId, this.lastReadMessageId, this.lastReadAt, this.lastDeliveredMessageId, this.lastDeliveredAt});
   
 
 @override final  String userId;
 @override final  String? lastReadMessageId;
 @override final  DateTime? lastReadAt;
+@override final  String? lastDeliveredMessageId;
+@override final  DateTime? lastDeliveredAt;
 
 /// Create a copy of ReadReceipt
 /// with the given fields replaced by the non-null parameter values.
@@ -225,16 +229,16 @@ _$ReadReceiptCopyWith<_ReadReceipt> get copyWith => __$ReadReceiptCopyWithImpl<_
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ReadReceipt&&(identical(other.userId, userId) || other.userId == userId)&&(identical(other.lastReadMessageId, lastReadMessageId) || other.lastReadMessageId == lastReadMessageId)&&(identical(other.lastReadAt, lastReadAt) || other.lastReadAt == lastReadAt));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ReadReceipt&&(identical(other.userId, userId) || other.userId == userId)&&(identical(other.lastReadMessageId, lastReadMessageId) || other.lastReadMessageId == lastReadMessageId)&&(identical(other.lastReadAt, lastReadAt) || other.lastReadAt == lastReadAt)&&(identical(other.lastDeliveredMessageId, lastDeliveredMessageId) || other.lastDeliveredMessageId == lastDeliveredMessageId)&&(identical(other.lastDeliveredAt, lastDeliveredAt) || other.lastDeliveredAt == lastDeliveredAt));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,userId,lastReadMessageId,lastReadAt);
+int get hashCode => Object.hash(runtimeType,userId,lastReadMessageId,lastReadAt,lastDeliveredMessageId,lastDeliveredAt);
 
 @override
 String toString() {
-  return 'ReadReceipt(userId: $userId, lastReadMessageId: $lastReadMessageId, lastReadAt: $lastReadAt)';
+  return 'ReadReceipt(userId: $userId, lastReadMessageId: $lastReadMessageId, lastReadAt: $lastReadAt, lastDeliveredMessageId: $lastDeliveredMessageId, lastDeliveredAt: $lastDeliveredAt)';
 }
 
 
@@ -245,7 +249,7 @@ abstract mixin class _$ReadReceiptCopyWith<$Res> implements $ReadReceiptCopyWith
   factory _$ReadReceiptCopyWith(_ReadReceipt value, $Res Function(_ReadReceipt) _then) = __$ReadReceiptCopyWithImpl;
 @override @useResult
 $Res call({
- String userId, String? lastReadMessageId, DateTime? lastReadAt
+ String userId, String? lastReadMessageId, DateTime? lastReadAt, String? lastDeliveredMessageId, DateTime? lastDeliveredAt
 });
 
 
@@ -262,11 +266,13 @@ class __$ReadReceiptCopyWithImpl<$Res>
 
 /// Create a copy of ReadReceipt
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? userId = null,Object? lastReadMessageId = freezed,Object? lastReadAt = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? userId = null,Object? lastReadMessageId = freezed,Object? lastReadAt = freezed,Object? lastDeliveredMessageId = freezed,Object? lastDeliveredAt = freezed,}) {
   return _then(_ReadReceipt(
 userId: null == userId ? _self.userId : userId // ignore: cast_nullable_to_non_nullable
 as String,lastReadMessageId: freezed == lastReadMessageId ? _self.lastReadMessageId : lastReadMessageId // ignore: cast_nullable_to_non_nullable
 as String?,lastReadAt: freezed == lastReadAt ? _self.lastReadAt : lastReadAt // ignore: cast_nullable_to_non_nullable
+as DateTime?,lastDeliveredMessageId: freezed == lastDeliveredMessageId ? _self.lastDeliveredMessageId : lastDeliveredMessageId // ignore: cast_nullable_to_non_nullable
+as String?,lastDeliveredAt: freezed == lastDeliveredAt ? _self.lastDeliveredAt : lastDeliveredAt // ignore: cast_nullable_to_non_nullable
 as DateTime?,
   ));
 }
