@@ -126,6 +126,12 @@ class RoomMapper {
       lastMessageReceipt = _parseReceiptStatus(_asString(lastMsg['receipt']));
     }
 
+    if ((lastMessageType == null || lastMessageType == MessageType.regular) &&
+        ((lastMessageMimeType != null && lastMessageMimeType.isNotEmpty) ||
+            (lastMessageFileName != null && lastMessageFileName.isNotEmpty))) {
+      lastMessageType = MessageType.attachment;
+    }
+
     return UnreadRoom(
       roomId: (json['roomId'] ?? '') as String,
       unreadMessages: (json['unreadMessages'] ?? 0) as int,
