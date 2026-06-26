@@ -36,3 +36,6 @@ coverage/
 # macOS / OS
 .DS_Store
 Thumbs.db
+
+# Logs (stray flutter run/build logs)
+*.log
