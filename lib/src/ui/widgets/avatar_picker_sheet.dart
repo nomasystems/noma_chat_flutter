@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../storage/avatar_storage.dart';
 import '../services/attachment_pickers.dart';
 import '../theme/chat_theme.dart';
+import '../utils/platform_support.dart';
 import 'avatar_crop_page.dart';
 import 'image_viewer.dart';
 
@@ -79,11 +80,12 @@ class AvatarPickerSheet {
                   ],
                 ),
               ),
-              ListTile(
-                leading: const Icon(Icons.photo_camera_outlined),
-                title: Text(theme.l10n.takePhoto),
-                onTap: () => Navigator.of(sheetCtx).pop(_Source.camera),
-              ),
+              if (PlatformSupport.supportsCameraCapture)
+                ListTile(
+                  leading: const Icon(Icons.photo_camera_outlined),
+                  title: Text(theme.l10n.takePhoto),
+                  onTap: () => Navigator.of(sheetCtx).pop(_Source.camera),
+                ),
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
                 title: Text(theme.l10n.chooseFromGallery),
@@ -129,7 +131,12 @@ class AvatarPickerSheet {
         );
         if (cropped == null) return const AvatarPickerCancelled();
         return AvatarPicked(
-          AvatarSnapshot(bytes: cropped, mimeType: 'image/jpeg'),
+          AvatarSnapshot(
+            bytes: cropped,
+            mimeType: PlatformSupport.supportsImageCrop
+                ? 'image/jpeg'
+                : picked.mimeType,
+          ),
         );
       case _Source.view:
         await Navigator.of(context).push<void>(

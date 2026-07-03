@@ -1,10 +1,13 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../client/chat_client.dart';
 import '../../core/result.dart';
+import 'platform_support.dart';
 
 /// Default "open this attachment" handler the SDK wires when the consumer
 /// does not supply its own `onTapFile` / `onTapDoc`.
@@ -24,6 +27,16 @@ Future<void> openAttachmentFile({
   String? mimeType,
   void Function(String level, String message)? logger,
 }) async {
+  if (kIsWeb) {
+    // Web has no local filesystem to stage a temp file in; hand the URL to the
+    // browser (new tab), which previews or downloads it natively.
+    try {
+      await launchUrl(Uri.parse(url), webOnlyWindowName: '_blank');
+    } catch (e) {
+      logger?.call('warn', 'open attachment (web) threw: $e');
+    }
+    return;
+  }
   try {
     final result = await client.attachments.downloadFromUrl(url);
     switch (result) {
@@ -35,12 +48,25 @@ Future<void> openAttachmentFile({
         final name = _tempFileName(fileName: fileName, mimeType: mimeType);
         final file = File('${dir.path}/$name');
         await file.writeAsBytes(data, flush: true);
-        final open = await OpenFilex.open(file.path);
-        if (open.type != ResultType.done) {
-          logger?.call(
-            'warn',
-            'open attachment failed: ${open.type.name} ${open.message}',
-          );
+        if (PlatformSupport.opensFilesNatively) {
+          final open = await OpenFilex.open(file.path);
+          if (open.type != ResultType.done) {
+            logger?.call(
+              'warn',
+              'open attachment failed: ${open.type.name} ${open.message}',
+            );
+          }
+        } else {
+          // open_filex is android/ios only — on desktop hand the file to the
+          // OS default handler via url_launcher (NSWorkspace / ShellExecute /
+          // xdg-open).
+          final opened = await launchUrl(Uri.file(file.path));
+          if (!opened) {
+            logger?.call(
+              'warn',
+              'open attachment: no OS handler for ${file.path}',
+            );
+          }
         }
     }
   } catch (e) {

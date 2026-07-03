@@ -26,13 +26,12 @@ class ExampleSettings {
     // cache (instant startup, offline read, offline queue).
     this.requestTimeoutSeconds = 30,
     this.wsReconnectDelaySeconds = 2,
-    // Tier 3 — Very advanced. Defaults match CHT user_client mount points
-    // (see `apps/user_client/src/user_client.erl` cowboy routes). The SDK
-    // ChatConfig fallback (`/ws`, `/events`) targets a generic backend; for
-    // CHT we override here so the example connects out-of-the-box.
+    // Tier 3 — Very advanced. wsPath overrides the SDK generic `/ws` to
+    // CHT's `/v1/ws` mount; ssePath matches the SDK default `/eventsource`
+    // (CHT's NRTE mount). SSE host/port still needs config — see env_gen.
     this.sseUrl,
     this.wsPath = '/v1/ws',
-    this.ssePath = '/v1/events',
+    this.ssePath = '/eventsource',
     this.maxReconnectAttempts,
     this.eventBufferSize = 20,
     this.languageCode,

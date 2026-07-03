@@ -527,16 +527,33 @@ class ChatConfig {
       }
 
       // Plain http:// is allowed only during local development. Release builds
-      // must always use https:// — chat traffic carries JWTs and message
-      // bodies that we cannot afford to send in clear. See pentest M-10.
-      if (scheme == 'http' && isReleaseMode) {
+      // must use https:// for any host the traffic actually leaves the device
+      // to reach — chat traffic carries JWTs and message bodies we cannot send
+      // in clear. See pentest M-10. Loopback (localhost / 127.0.0.0/8 / ::1) is
+      // exempt: that traffic never reaches a wire, and every platform treats
+      // localhost as a secure context, so http to loopback stays allowed.
+      if (scheme == 'http' && isReleaseMode && !_isLoopbackHost(value)) {
         throw ArgumentError.value(
           value,
           field,
-          'http:// is not allowed in release builds; use https://.',
+          'http:// is not allowed in release builds for non-loopback hosts; '
+          'use https://.',
         );
       }
     }
+  }
+
+  /// True when [url]'s host is a loopback address — `localhost`, any
+  /// `127.0.0.0/8` address, or IPv6 `::1`. Loopback traffic never leaves the
+  /// device, so it is exempt from the release-mode https requirement enforced
+  /// in [validateUrls]. The `127.` match is anchored to an IPv4 literal so a
+  /// DNS host like `127.evil.com` is not mistaken for loopback.
+  static bool _isLoopbackHost(String url) {
+    final host = Uri.parse(url).host.toLowerCase();
+    if (host == 'localhost' || host == '::1' || host == '0:0:0:0:0:0:0:1') {
+      return true;
+    }
+    return RegExp(r'^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(host);
   }
 
   void log(String level, String message) => logger?.call(level, message);

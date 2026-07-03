@@ -50,6 +50,11 @@ String _sseUrlOverride() =>
 String _ssePathOverride() =>
     const String.fromEnvironment('SSE_PATH', defaultValue: '');
 
+ExampleSettings applySseEnvOverride(ExampleSettings s) => s.copyWith(
+  sseUrl: s.sseUrl ?? (_sseUrlOverride().isNotEmpty ? _sseUrlOverride() : null),
+  ssePath: _ssePathOverride().isNotEmpty ? _ssePathOverride() : s.ssePath,
+);
+
 /// ChatResult of a register-or-login attempt.
 sealed class LoginOutcome {
   const LoginOutcome();
@@ -135,6 +140,7 @@ Future<LoginOutcome> openChatSession(
     maxRooms: 100,
   );
 
+  final resolved = applySseEnvOverride(settings);
   final config = ChatConfig.withAuthInterceptor(
     baseUrl: settings.baseUrl,
     realtimeUrl: settings.realtimeUrl,
@@ -152,17 +158,9 @@ Future<LoginOutcome> openChatSession(
       // the example app can route to the login flow autonomously.
       onAuthFailure: onAuthFailure,
     ),
-    // The harness pre-fills SSE_URL / SSE_PATH dart-defines (CHT
-    // routes SSE through NRTE on :2082/eventsource, not the REST
-    // strip on :8077). User-typed settings take priority over the
-    // dart-define so manual onboarding still wins.
-    sseUrl:
-        settings.sseUrl ??
-        (_sseUrlOverride().isNotEmpty ? _sseUrlOverride() : null),
+    sseUrl: resolved.sseUrl,
     wsPath: settings.wsPath,
-    ssePath: _ssePathOverride().isNotEmpty
-        ? _ssePathOverride()
-        : settings.ssePath,
+    ssePath: resolved.ssePath,
     requestTimeout: Duration(seconds: settings.requestTimeoutSeconds),
     wsReconnectDelay: Duration(seconds: settings.wsReconnectDelaySeconds),
     maxReconnectAttempts: settings.maxReconnectAttempts,
