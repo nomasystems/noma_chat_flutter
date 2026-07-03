@@ -36,3 +36,12 @@ coverage/
 # macOS / OS
 .DS_Store
 Thumbs.db
+
+# Logs (stray flutter run/build logs)
+*.log
+
+# Example desktop/web runners (regenerate with `flutter create .`)
+example/linux/
+example/macos/
+example/windows/
+example/web/

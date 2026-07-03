@@ -30,7 +30,14 @@ String? buildLastMessagePreview(
     return isMine ? l10n.previewDeletedByYou : l10n.previewDeletedByOther;
   }
 
-  final type = item.lastMessageType;
+  var type = item.lastMessageType;
+  if ((type == null || type == MessageType.regular) &&
+      ((item.lastMessageMimeType != null &&
+              item.lastMessageMimeType!.isNotEmpty) ||
+          (item.lastMessageFileName != null &&
+              item.lastMessageFileName!.isNotEmpty))) {
+    type = MessageType.attachment;
+  }
   if (type == null) {
     final legacy = item.lastMessage;
     return (legacy != null && legacy.isNotEmpty) ? legacy : null;

@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' as ip;
 
 import '../models/attachment_policy.dart';
+import '../utils/platform_support.dart';
 
 /// ChatResult of an attachment picker call.
 ///
@@ -47,6 +48,13 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
   }) async {
+    if (!PlatformSupport.supportsCameraCapture) {
+      logger?.call(
+        'warn',
+        'pickImageFromCamera unsupported on this platform; ignoring',
+      );
+      return null;
+    }
     try {
       final file = await _imagePicker.pickImage(
         source: ip.ImageSource.camera,

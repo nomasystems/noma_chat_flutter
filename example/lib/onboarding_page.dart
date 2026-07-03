@@ -179,7 +179,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
     final (wsBase, wsPath) = _splitUrl(_wsUrl.text, defaultPath: '/v1/ws');
     final (sseBase, ssePath) = _splitUrl(
       _sseUrl.text,
-      defaultPath: '/v1/events',
+      defaultPath: '/eventsource',
     );
     final sseUrlOverride = sseBase.isEmpty || sseBase == wsBase
         ? null
@@ -245,7 +245,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
+            constraints: const BoxConstraints(maxWidth: double.infinity),
             // Column splits the screen in two: a scrollable upper area
             // for the form and a fixed footer that always carries the
             // CTA. Lets long forms (CHT mode) scroll without ever
@@ -691,7 +691,7 @@ class _BackendSection extends StatelessWidget {
             enabled: enabled,
             decoration: InputDecoration(
               labelText: strings.sseUrlLabel,
-              hintText: 'http://localhost:8077/v1/events',
+              hintText: 'http://localhost:2082/eventsource',
               border: const OutlineInputBorder(),
               isDense: true,
             ),
