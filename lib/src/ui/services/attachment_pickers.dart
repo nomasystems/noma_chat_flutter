@@ -60,7 +60,7 @@ class AttachmentPickers {
         source: ip.ImageSource.camera,
         imageQuality: imageQuality,
       );
-      return _xfileToValidatedResult(file, policy, logger);
+      return await _xfileToValidatedResult(file, policy, logger);
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromCamera failed: $e');
       return null;
@@ -77,7 +77,7 @@ class AttachmentPickers {
         source: ip.ImageSource.gallery,
         imageQuality: imageQuality,
       );
-      return _xfileToValidatedResult(file, policy, logger);
+      return await _xfileToValidatedResult(file, policy, logger);
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromGallery failed: $e');
       return null;
@@ -94,7 +94,7 @@ class AttachmentPickers {
         source: ip.ImageSource.gallery,
         maxDuration: maxDuration,
       );
-      return _xfileToValidatedResult(
+      return await _xfileToValidatedResult(
         file,
         policy,
         logger,
