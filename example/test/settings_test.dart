@@ -17,7 +17,7 @@ void main() {
       expect(s.wsReconnectDelaySeconds, 2);
       expect(s.sseUrl, isNull);
       expect(s.wsPath, '/v1/ws');
-      expect(s.ssePath, '/v1/events');
+      expect(s.ssePath, '/eventsource');
       expect(s.maxReconnectAttempts, isNull);
       expect(s.eventBufferSize, 20);
     });

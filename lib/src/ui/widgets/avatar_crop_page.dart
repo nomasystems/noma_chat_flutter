@@ -6,6 +6,7 @@ import 'package:image_cropper/image_cropper.dart';
 import 'package:path_provider/path_provider.dart';
 
 import '../theme/chat_theme.dart';
+import '../utils/platform_support.dart';
 
 /// Square-aspect-ratio crop using `image_cropper`'s native UIs
 /// (TOCropViewController on iOS, UCrop on Android). The picked image is
@@ -23,6 +24,9 @@ class AvatarCropPage {
     int compressQuality = 85,
     ChatTheme theme = ChatTheme.defaults,
   }) async {
+    // No native cropper on desktop (image_cropper is android/ios/web only).
+    // Degrade gracefully: return the source so the caller uploads it uncropped.
+    if (!PlatformSupport.supportsImageCrop) return sourceBytes;
     File? tempFile;
     try {
       final tempDir = await getTemporaryDirectory();

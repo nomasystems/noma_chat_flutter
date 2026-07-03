@@ -13,6 +13,7 @@ import '../models/room_list_item.dart';
 import '../services/attachment_pickers.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
+import '../utils/platform_support.dart';
 import 'chat_room_app_bar.dart';
 import 'chat_view.dart';
 import 'message_context_menu.dart';
@@ -562,7 +563,9 @@ class _NomaChatViewState extends State<NomaChatView> {
           ),
       onPickCamera:
           user.onPickCamera ??
-          () => _pickAndSendImage(sendKey, fromCamera: true),
+          (PlatformSupport.supportsCameraCapture
+              ? () => _pickAndSendImage(sendKey, fromCamera: true)
+              : null),
       onPickGallery:
           user.onPickGallery ??
           () => _pickAndSendImage(sendKey, fromCamera: false),

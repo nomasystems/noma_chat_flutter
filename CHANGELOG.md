@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## [0.10.1] - 2026-07-03
+
+### Added
+
+- **Cross-platform capability gating (`PlatformSupport`).** Attachment and
+  avatar UI now degrade gracefully on platforms whose plugins do not cover
+  every target: camera capture and image crop are offered on mobile (crop on
+  mobile only), while downloaded files open natively on mobile and fall back to
+  the OS default handler via `url_launcher` on desktop. Derived from `kIsWeb` +
+  `defaultTargetPlatform` (never `dart:io`), so it resolves on web too, hiding
+  controls a platform cannot honour instead of surfacing ones that silently
+  fail.
+- **Example app now builds for desktop and web** (Linux, macOS, Windows, web)
+  in addition to Android and iOS.
+
+### Changed
+
+- **`ChatConfig` URL validation exempts loopback hosts from the release-mode
+  HTTPS requirement.** `http://` to `localhost`, `127.0.0.0/8`, or `::1` stays
+  allowed in release builds — loopback traffic never leaves the device and
+  every platform treats it as a secure context — while every other host still
+  requires `https://` (pentest M-10). The `127.` match is anchored to an IPv4
+  literal so a DNS host such as `127.evil.com` is not mistaken for loopback.
+
 ## [0.10.0] - 2026-06-17
 
 ### Added

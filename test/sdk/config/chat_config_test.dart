@@ -92,15 +92,22 @@ void main() {
         );
       });
 
-      test('rejects http://localhost (no special-case for loopback)', () {
-        expect(
-          () => ChatConfig.validateUrls(
-            baseUrl: 'http://localhost:8077/v1',
-            realtimeUrl: 'https://api.example.com',
-            isReleaseMode: isReleaseMode,
-          ),
-          throwsA(isA<ArgumentError>()),
-        );
+      test('allows http:// to loopback hosts (secure context)', () {
+        for (final url in [
+          'http://localhost:8077',
+          'http://127.0.0.1:8077',
+          'http://[::1]:8077',
+        ]) {
+          expect(
+            () => ChatConfig.validateUrls(
+              baseUrl: '$url/v1',
+              realtimeUrl: url,
+              isReleaseMode: isReleaseMode,
+            ),
+            returnsNormally,
+            reason: '$url is loopback and never leaves the device',
+          );
+        }
       });
     });
 
