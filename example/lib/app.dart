@@ -42,9 +42,12 @@ class _NomaChatExampleAppState extends State<NomaChatExampleApp> {
 
   Future<void> _bootstrap() async {
     var stored = await _storage.load();
-    // Defensive migration: an earlier build used the SDK's generic ws/sse
-    // paths (`/ws`, `/events`). Real CHT routes are `/v1/ws` and `/v1/events`.
-    if (stored.wsPath == '/ws' || stored.ssePath == '/events') {
+    // Defensive migration: older builds persisted the SDK generic `/ws` or a
+    // stale SSE path (`/events`, `/v1/events`). CHT serves WS at `/v1/ws` and
+    // SSE at `/eventsource` (NRTE); refresh stale persisted paths to current.
+    if (stored.wsPath == '/ws' ||
+        stored.ssePath == '/events' ||
+        stored.ssePath == '/v1/events') {
       const fresh = ExampleSettings();
       stored = stored.copyWith(wsPath: fresh.wsPath, ssePath: fresh.ssePath);
       await _storage.save(stored);
@@ -72,13 +75,27 @@ class _NomaChatExampleAppState extends State<NomaChatExampleApp> {
     if (stored == const ExampleSettings()) {
       s = stored.copyWith(mode: chatModeFromEnv());
     }
+    s = applySseEnvOverride(s);
     setState(() => _settings = s);
 
-    // Demo-app philosophy: every cold start lands on the onboarding
-    // (mock/real segmented control). The previous "auto-restore CHT
-    // session" path was dropped 2026-05-25 — keeping you on the last
-    // screen made sense for a chat app, but this is a docs / lab /
-    // demo, not your production chat client.
+    // Session persistence: if the user logged in on a previous run (and did
+    // not log out — logout clears the saved username), restore that session on
+    // cold start so they stay logged in. On failure (e.g. backend unreachable)
+    // fall through to the onboarding, pre-filled, so they can retry.
+    if (s.username.isNotEmpty &&
+        s.baseUrl.isNotEmpty &&
+        s.realtimeUrl.isNotEmpty) {
+      final outcome = await openChatSession(s, onAuthFailure: _onAuthFailure);
+      if (!mounted) return;
+      if (outcome is LoginSuccess) {
+        _wireRoomRemovedSnackbar(outcome.chat);
+        setState(() {
+          _chat = outcome.chat;
+          _bootstrapping = false;
+        });
+        return;
+      }
+    }
     if (mounted) setState(() => _bootstrapping = false);
   }
 
