@@ -3,6 +3,137 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 
+class _PaginatingChatClient implements ChatClient {
+  _PaginatingChatClient(this._base, {required List<String> allMemberIds})
+    : members = _PaginatingMembersApi(_base.members, allMemberIds);
+
+  final ChatClient _base;
+
+  @override
+  final ChatMembersApi members;
+
+  @override
+  ChatAuthApi get auth => _base.auth;
+  @override
+  ChatUsersApi get users => _base.users;
+  @override
+  ChatRoomsApi get rooms => _base.rooms;
+  @override
+  ChatMessagesApi get messages => _base.messages;
+  @override
+  ChatContactsApi get contacts => _base.contacts;
+  @override
+  ChatPresenceApi get presence => _base.presence;
+  @override
+  ChatAttachmentsApi get attachments => _base.attachments;
+  @override
+  Stream<ChatEvent> get events => _base.events;
+  @override
+  ChatConnectionState get connectionState => _base.connectionState;
+  @override
+  Stream<ChatConnectionState> get stateChanges => _base.stateChanges;
+  @override
+  Future<void> connect() => _base.connect();
+  @override
+  Future<void> disconnect() => _base.disconnect();
+  @override
+  Future<void> notifyTokenRotated() => _base.notifyTokenRotated();
+  @override
+  Future<void> refresh() => _base.refresh();
+  @override
+  Future<void> refreshRoom(String roomId) => _base.refreshRoom(roomId);
+  @override
+  Future<void> logout() => _base.logout();
+  @override
+  Future<void> dispose() => _base.dispose();
+  @override
+  void cancelPendingRequests([String reason = '']) =>
+      _base.cancelPendingRequests(reason);
+  @override
+  set onOfflineMessageSent(
+    void Function(String roomId, String tempId, ChatMessage message)? value,
+  ) => _base.onOfflineMessageSent = value;
+}
+
+class _PaginatingMembersApi implements ChatMembersApi {
+  _PaginatingMembersApi(this._base, this._allMemberIds);
+
+  final ChatMembersApi _base;
+  final List<String> _allMemberIds;
+  int listCallCount = 0;
+  List<ChatPaginationParams?> receivedPagination = [];
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
+    String roomId, {
+    ChatPaginationParams? pagination,
+    List<RoomMemberExpand> expand = const [],
+  }) async {
+    listCallCount++;
+    receivedPagination.add(pagination);
+    final offset = pagination?.offset ?? 0;
+    final limit = pagination?.limit ?? _allMemberIds.length;
+    final page = _allMemberIds.skip(offset).take(limit).toList();
+    final users = page
+        .map((id) => RoomUser(userId: id, displayName: id))
+        .toList();
+    return ChatSuccess(
+      ChatPaginatedResponse(
+        items: users,
+        hasMore: offset + page.length < _allMemberIds.length,
+        totalCount: _allMemberIds.length,
+      ),
+    );
+  }
+
+  @override
+  Future<ChatResult<InviteResult>> invite(
+    String roomId, {
+    required List<String> userIds,
+    RoomUserMode mode = RoomUserMode.invite,
+    String? token,
+  }) => _base.invite(roomId, userIds: userIds, mode: mode, token: token);
+
+  @override
+  Future<ChatResult<InviteResult>> joinWithToken(
+    String roomId, {
+    required String token,
+  }) => _base.joinWithToken(roomId, token: token);
+
+  @override
+  Future<ChatResult<void>> remove(String roomId, String userId) =>
+      _base.remove(roomId, userId);
+
+  @override
+  Future<ChatResult<void>> leave(String roomId) => _base.leave(roomId);
+
+  @override
+  Future<ChatResult<void>> updateRole(
+    String roomId,
+    String userId,
+    RoomRole role,
+  ) => _base.updateRole(roomId, userId, role);
+
+  @override
+  Future<ChatResult<void>> ban(
+    String roomId,
+    String userId, {
+    String? reason,
+  }) => _base.ban(roomId, userId, reason: reason);
+
+  @override
+  Future<ChatResult<void>> unban(String roomId, String userId) =>
+      _base.unban(roomId, userId);
+
+  @override
+  Future<ChatResult<void>> muteUser(String roomId, String userId) =>
+      _base.muteUser(roomId, userId);
+
+  @override
+  Future<ChatResult<void>> unmuteUser(String roomId, String userId) =>
+      _base.unmuteUser(roomId, userId);
+}
+
 /// Widget tests for [GroupMembersView].
 ///
 /// The view loads its member list through the SDK adapter, so each test
@@ -212,6 +343,148 @@ void main() {
 
       expect(find.byType(RefreshIndicator), findsNothing);
       expect(find.byType(ListTile), findsNWidgets(2));
+    });
+  });
+
+  group('GroupMembersView — pagination for large groups', () {
+    const viewer = ChatUser(id: 'me', displayName: 'Me');
+    late MockChatClient baseClient;
+    late _PaginatingChatClient pagingClient;
+    late _PaginatingMembersApi pagingMembers;
+    late ChatUiAdapter pagingAdapter;
+    late List<String> allMemberIds;
+
+    Widget wrapPaging(Widget child) => MaterialApp(
+      home: Scaffold(
+        body: SingleChildScrollView(
+          child: SizedBox(height: 2000, child: child),
+        ),
+      ),
+    );
+
+    setUp(() {
+      allMemberIds = ['me', for (var i = 0; i < 11; i++) 'u$i'];
+      baseClient = MockChatClient(currentUserId: 'me');
+      baseClient.seedRoom(
+        ChatRoom(id: 'big', name: 'Big Group', members: allMemberIds),
+      );
+      pagingClient = _PaginatingChatClient(
+        baseClient,
+        allMemberIds: allMemberIds,
+      );
+      pagingMembers = pagingClient.members as _PaginatingMembersApi;
+      pagingAdapter = ChatUiAdapter(client: pagingClient, currentUser: viewer);
+      pagingAdapter.start();
+    });
+
+    tearDown(() async {
+      await pagingAdapter.dispose();
+      await baseClient.dispose();
+    });
+
+    testWidgets('requests only pageSize members on first load', (tester) async {
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            pageSize: 5,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(pagingMembers.listCallCount, 1);
+      expect(pagingMembers.receivedPagination.single?.limit, 5);
+      expect(find.byType(ListTile), findsWidgets);
+    });
+
+    testWidgets('load-more row fetches the next page in embedded mode', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            embedded: true,
+            pageSize: 5,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(6));
+      expect(find.text(ChatTheme.defaults.l10n.loadMore), findsOneWidget);
+
+      await tester.tap(find.text(ChatTheme.defaults.l10n.loadMore));
+      await tester.pumpAndSettle();
+
+      expect(pagingMembers.listCallCount, 2);
+      expect(pagingMembers.receivedPagination[1]?.offset, 5);
+      expect(find.byType(ListTile), findsNWidgets(11));
+    });
+
+    testWidgets('load-more row disappears once every member has been fetched', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            embedded: true,
+            pageSize: 8,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(9));
+      expect(find.text(ChatTheme.defaults.l10n.loadMore), findsOneWidget);
+
+      await tester.tap(find.text(ChatTheme.defaults.l10n.loadMore));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(12));
+      expect(find.text(ChatTheme.defaults.l10n.loadMore), findsNothing);
+    });
+
+    testWidgets('a small group never shows the load-more row', (tester) async {
+      final smallIds = ['me', 'u1', 'u2'];
+      final smallClient = MockChatClient(currentUserId: 'me');
+      smallClient.seedRoom(
+        ChatRoom(id: 'small', name: 'Small Group', members: smallIds),
+      );
+      final smallPagingClient = _PaginatingChatClient(
+        smallClient,
+        allMemberIds: smallIds,
+      );
+      final smallAdapter = ChatUiAdapter(
+        client: smallPagingClient,
+        currentUser: viewer,
+      );
+      smallAdapter.start();
+
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: smallAdapter,
+            roomId: 'small',
+            currentUserRole: RoomRole.member,
+            embedded: true,
+            pageSize: 50,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(ListTile), findsNWidgets(3));
+      expect(find.text(ChatTheme.defaults.l10n.loadMore), findsNothing);
     });
   });
 }

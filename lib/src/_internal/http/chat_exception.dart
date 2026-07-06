@@ -134,14 +134,3 @@ final class ChatWsOperationException extends ChatException {
   const ChatWsOperationException({this.action, required this.reason})
     : super('WS error: ${action ?? "unknown"} - $reason');
 }
-
-final class CertificatePinningException extends ChatException {
-  final String? presentedFingerprint;
-  final List<String> expectedPins;
-
-  const CertificatePinningException({
-    this.presentedFingerprint,
-    this.expectedPins = const [],
-    String message = 'Certificate pinning validation failed',
-  }) : super(message);
-}

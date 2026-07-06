@@ -130,15 +130,18 @@ class MembersApi implements ChatMembersApi {
       },
     );
     if (raw is List) {
-      // 207 Multi-Status: one entry per user.
+      // 207 Multi-Status: one entry per user. Every field is read
+      // type-tolerantly — a backend that ships a field off-contract (a number
+      // where a String is expected, say) must not throw out of the parse and
+      // sink the whole batch result.
       return InviteResult([
         for (final e in raw)
           if (e is Map)
             InviteUserResult(
-              userId: (e['user'] ?? '') as String,
+              userId: e['user'] is String ? e['user'] as String : '',
               success: e['result'] == 'invited',
-              code: e['code'] as int?,
-              detail: e['detail'] as String?,
+              code: e['code'] is int ? e['code'] as int : null,
+              detail: e['detail'] is String ? e['detail'] as String : null,
             ),
       ]);
     }

@@ -101,6 +101,39 @@ void main() {
   });
 
   test(
+    'fires onDmContactResolved when a DM materialises via ensureMaterialized',
+    () async {
+      client.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
+
+      final resolved = <(String, String)>[];
+      adapter.onDmContactResolved = (roomId, userId) =>
+          resolved.add((roomId, userId));
+
+      final materialized = await adapter.dm.ensureMaterialized('bob');
+      expect(materialized.isSuccess, isTrue);
+      final roomId = materialized.dataOrThrow;
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(resolved, contains((roomId, 'bob')));
+    },
+  );
+
+  test('fires onDmContactResolved during bulk load DM resolution', () async {
+    client.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
+    client.seedRoom(const ChatRoom(id: 'dm1', members: ['me', 'bob']));
+
+    final resolved = <(String, String)>[];
+    adapter.onDmContactResolved = (roomId, userId) =>
+        resolved.add((roomId, userId));
+
+    await adapter.rooms.load();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    expect(resolved, contains(('dm1', 'bob')));
+  });
+
+  test(
     'refreshes an existing room in place after a RoomUpdatedEvent',
     () async {
       client.seedRoom(

@@ -98,28 +98,28 @@ void main() {
       expect(invited.first.roomId, 'good');
     });
 
-    test(
-      'getRooms warns with first error detail and aggregated count',
-      () async {
-        final warnings = <String>[];
-        ds.onWarning = warnings.add;
-        await ds.saveRooms([const ChatRoom(id: 'good')]);
-        final box = await Hive.openBox<Map>('chat_rooms');
-        await box.put('bad-1', {'garbage': true});
-        await box.put('bad-2', {'garbage': true});
-        (await ds.getRooms()).dataOrNull;
-        final corruptionWarnings = warnings
-            .where((w) => w.contains('Skipped'))
-            .toList();
-        expect(corruptionWarnings, hasLength(1));
-        expect(
-          corruptionWarnings.first,
-          contains('Skipped 2 corrupted records'),
-        );
-        expect(corruptionWarnings.first, contains('in rooms'));
-        expect(corruptionWarnings.first, contains('first error:'));
-      },
-    );
+    test('getRooms warns with a concrete reason per corrupted record and an '
+        'aggregated count', () async {
+      final warnings = <String>[];
+      ds.onWarning = warnings.add;
+      await ds.saveRooms([const ChatRoom(id: 'good')]);
+      final box = await Hive.openBox<Map>('chat_rooms');
+      await box.put('bad-1', {'garbage': true});
+      await box.put('bad-2', {'garbage': true});
+      (await ds.getRooms()).dataOrNull;
+      final perRecordWarnings = warnings
+          .where((w) => w.contains('Discarding corrupted record'))
+          .toList();
+      expect(perRecordWarnings, hasLength(2));
+      expect(perRecordWarnings.first, contains('in rooms'));
+      expect(perRecordWarnings.first, matches(RegExp(r':\s+\S')));
+      final aggregatedWarnings = warnings
+          .where((w) => w.contains('Skipped'))
+          .toList();
+      expect(aggregatedWarnings, hasLength(1));
+      expect(aggregatedWarnings.first, contains('Skipped 2 corrupted records'));
+      expect(aggregatedWarnings.first, contains('in rooms'));
+    });
 
     test(
       'getMessages warns with key and error detail per corrupted record',

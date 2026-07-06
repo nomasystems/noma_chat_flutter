@@ -24,6 +24,7 @@ class ReactionDetailSheet {
     required ValueChanged<String> onRemoveReaction,
     ChatTheme theme = ChatTheme.defaults,
     ReactionDetailSheetBuilder? sheetBuilder,
+    BatchUserFetcher? batchUserFetcher,
   }) {
     final content = ReactionDetailContent(
       fetchReactions: fetchReactions,
@@ -31,6 +32,7 @@ class ReactionDetailSheet {
       userFetcher: userFetcher,
       onRemoveReaction: onRemoveReaction,
       theme: theme,
+      batchUserFetcher: batchUserFetcher,
     );
     if (sheetBuilder != null) {
       return sheetBuilder(context, content);
@@ -58,6 +60,7 @@ class ReactionDetailContent extends StatefulWidget {
     required this.userFetcher,
     required this.onRemoveReaction,
     required this.theme,
+    this.batchUserFetcher,
   });
 
   final Future<List<AggregatedReaction>> Function() fetchReactions;
@@ -65,6 +68,11 @@ class ReactionDetailContent extends StatefulWidget {
   final UserFetcher userFetcher;
   final ValueChanged<String> onRemoveReaction;
   final ChatTheme theme;
+
+  /// When provided, resolves every unique reactor in a single call instead
+  /// of one [userFetcher] call per unique reactor. Takes priority over
+  /// [userFetcher] when both are non-null.
+  final BatchUserFetcher? batchUserFetcher;
 
   @override
   State<ReactionDetailContent> createState() => _ReactionDetailContentState();
@@ -101,14 +109,26 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
       }
 
       final resolved = <String, ReactionUser>{};
-      final futures = userIds.map((id) async {
+      final batchFetcher = widget.batchUserFetcher;
+      if (batchFetcher != null) {
         try {
-          resolved[id] = await widget.userFetcher(id);
+          resolved.addAll(await batchFetcher(userIds));
         } catch (_) {
-          resolved[id] = ReactionUser(id: id, displayName: id);
+          // Fall through — ids missing below get the id-as-name fallback.
         }
-      });
-      await Future.wait(futures);
+        for (final id in userIds) {
+          resolved.putIfAbsent(id, () => ReactionUser(id: id, displayName: id));
+        }
+      } else {
+        final futures = userIds.map((id) async {
+          try {
+            resolved[id] = await widget.userFetcher(id);
+          } catch (_) {
+            resolved[id] = ReactionUser(id: id, displayName: id);
+          }
+        });
+        await Future.wait(futures);
+      }
       if (!mounted) return;
 
       _tabController?.dispose();

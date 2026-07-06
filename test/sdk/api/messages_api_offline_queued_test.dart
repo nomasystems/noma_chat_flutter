@@ -39,6 +39,9 @@ void main() {
     when(
       () => cache.deleteMessage(any(), any()),
     ).thenAnswer((_) async => const ChatSuccess(null));
+    when(
+      () => cache.deletePin(any(), any()),
+    ).thenAnswer((_) async => const ChatSuccess(null));
   });
 
   group('OfflineQueuedMessagesApi.send', () {
@@ -94,6 +97,19 @@ void main() {
       when(
         () => rest.post(any(), data: any(named: 'data')),
       ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.receive));
+
+      final result = await api.send('r1', text: 'hi');
+
+      expect(result.failureOrNull, isA<TimeoutFailure>());
+      expect(offlineQueue.pending, isEmpty);
+    });
+
+    test('does NOT enqueue on an unknown-phase TimeoutFailure '
+        '(not provably pre-response, so treated like a receive timeout '
+        'for a non-idempotent send)', () async {
+      when(
+        () => rest.post(any(), data: any(named: 'data')),
+      ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.unknown));
 
       final result = await api.send('r1', text: 'hi');
 
@@ -162,6 +178,19 @@ void main() {
       },
     );
 
+    test('enqueues a delete on an unknown-phase TimeoutFailure (idempotent, '
+        'so the ambiguous phase does not block the retry)', () async {
+      when(
+        () => rest.delete(any()),
+      ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.unknown));
+
+      final result = await api.delete('r1', 'm1');
+
+      expect(result.failureOrNull, isA<TimeoutFailure>());
+      expect(offlineQueue.pending, hasLength(1));
+      expect(offlineQueue.pending.single, isA<PendingDeleteMessage>());
+    });
+
     test('does NOT enqueue a delete on a ServerFailure', () async {
       when(
         () => rest.delete(any()),
@@ -177,6 +206,208 @@ void main() {
       when(() => rest.delete(any())).thenAnswer((_) async {});
 
       final result = await api.delete('r1', 'm1');
+
+      expect(result.isSuccess, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
+  });
+
+  group('OfflineQueuedMessagesApi.addReaction', () {
+    test('enqueues a PendingAddReaction on a NetworkFailure', () async {
+      when(
+        () => rest.postVoid(any(), data: any(named: 'data')),
+      ).thenThrow(const ChatNetworkException());
+
+      final result = await api.addReaction('r1', 'm1', emoji: '👍');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      final pending = offlineQueue.pending.single as PendingAddReaction;
+      expect(pending.roomId, 'r1');
+      expect(pending.messageId, 'm1');
+      expect(pending.emoji, '👍');
+    });
+
+    test(
+      'enqueues on a receive TimeoutFailure (idempotent operation)',
+      () async {
+        when(
+          () => rest.postVoid(any(), data: any(named: 'data')),
+        ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.receive));
+
+        final result = await api.addReaction('r1', 'm1', emoji: '👍');
+
+        expect(result.failureOrNull, isA<TimeoutFailure>());
+        expect(offlineQueue.pending, hasLength(1));
+      },
+    );
+
+    test('does NOT enqueue when the reaction succeeds', () async {
+      when(
+        () => rest.postVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
+
+      final result = await api.addReaction('r1', 'm1', emoji: '👍');
+
+      expect(result.isSuccess, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
+
+    test('does NOT enqueue on a ServerFailure', () async {
+      when(
+        () => rest.postVoid(any(), data: any(named: 'data')),
+      ).thenThrow(const ChatApiException(statusCode: 500, message: 'boom'));
+
+      final result = await api.addReaction('r1', 'm1', emoji: '👍');
+
+      expect(result.failureOrNull, isA<ServerFailure>());
+      expect(offlineQueue.pending, isEmpty);
+    });
+  });
+
+  group('OfflineQueuedMessagesApi.deleteReaction', () {
+    test('enqueues a PendingDeleteReaction on a NetworkFailure', () async {
+      when(
+        () => rest.delete(any(), queryParams: any(named: 'queryParams')),
+      ).thenThrow(const ChatNetworkException());
+      when(
+        () => cache.deleteReactions(any(), any()),
+      ).thenAnswer((_) async => const ChatSuccess(null));
+
+      final result = await api.deleteReaction('r1', 'm1', emoji: '👍');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      final pending = offlineQueue.pending.single as PendingDeleteReaction;
+      expect(pending.roomId, 'r1');
+      expect(pending.messageId, 'm1');
+    });
+
+    test('enqueues on a receive TimeoutFailure (idempotent operation)',
+        () async {
+      when(
+        () => rest.delete(any(), queryParams: any(named: 'queryParams')),
+      ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.receive));
+
+      final result = await api.deleteReaction('r1', 'm1');
+
+      expect(result.failureOrNull, isA<TimeoutFailure>());
+      expect(offlineQueue.pending, hasLength(1));
+      expect(offlineQueue.pending.single, isA<PendingDeleteReaction>());
+    });
+
+    test('does NOT enqueue when the delete succeeds', () async {
+      when(
+        () => rest.delete(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async {});
+      when(
+        () => cache.deleteReactions(any(), any()),
+      ).thenAnswer((_) async => const ChatSuccess(null));
+
+      final result = await api.deleteReaction('r1', 'm1', emoji: '👍');
+
+      expect(result.isSuccess, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
+
+    test('does NOT enqueue on a ServerFailure', () async {
+      when(
+        () => rest.delete(any(), queryParams: any(named: 'queryParams')),
+      ).thenThrow(const ChatApiException(statusCode: 500, message: 'boom'));
+
+      final result = await api.deleteReaction('r1', 'm1');
+
+      expect(result.failureOrNull, isA<ServerFailure>());
+      expect(offlineQueue.pending, isEmpty);
+    });
+  });
+
+  group('OfflineQueuedMessagesApi.pinMessage', () {
+    test('enqueues a PendingPinMessage on a NetworkFailure', () async {
+      when(() => rest.putVoid(any())).thenThrow(const ChatNetworkException());
+
+      final result = await api.pinMessage('r1', 'm1');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      final pending = offlineQueue.pending.single as PendingPinMessage;
+      expect(pending.roomId, 'r1');
+      expect(pending.messageId, 'm1');
+    });
+
+    test('does NOT enqueue when the pin succeeds', () async {
+      when(() => rest.putVoid(any())).thenAnswer((_) async {});
+
+      final result = await api.pinMessage('r1', 'm1');
+
+      expect(result.isSuccess, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
+  });
+
+  group('OfflineQueuedMessagesApi.unpinMessage', () {
+    test('enqueues a PendingUnpinMessage on a NetworkFailure', () async {
+      when(() => rest.delete(any())).thenThrow(const ChatNetworkException());
+
+      final result = await api.unpinMessage('r1', 'm1');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      final pending = offlineQueue.pending.single as PendingUnpinMessage;
+      expect(pending.roomId, 'r1');
+      expect(pending.messageId, 'm1');
+    });
+
+    test('does NOT enqueue when the unpin succeeds', () async {
+      when(() => rest.delete(any())).thenAnswer((_) async {});
+
+      final result = await api.unpinMessage('r1', 'm1');
+
+      expect(result.isSuccess, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
+  });
+
+  group('OfflineQueuedMessagesApi.starMessage', () {
+    test('enqueues a PendingStarMessage on a NetworkFailure', () async {
+      when(() => rest.putVoid(any())).thenThrow(const ChatNetworkException());
+
+      final result = await api.starMessage('r1', 'm1');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      final pending = offlineQueue.pending.single as PendingStarMessage;
+      expect(pending.roomId, 'r1');
+      expect(pending.messageId, 'm1');
+    });
+
+    test('does NOT enqueue when the star succeeds', () async {
+      when(() => rest.putVoid(any())).thenAnswer((_) async {});
+
+      final result = await api.starMessage('r1', 'm1');
+
+      expect(result.isSuccess, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
+  });
+
+  group('OfflineQueuedMessagesApi.unstarMessage', () {
+    test('enqueues a PendingUnstarMessage on a NetworkFailure', () async {
+      when(() => rest.delete(any())).thenThrow(const ChatNetworkException());
+
+      final result = await api.unstarMessage('r1', 'm1');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      final pending = offlineQueue.pending.single as PendingUnstarMessage;
+      expect(pending.roomId, 'r1');
+      expect(pending.messageId, 'm1');
+    });
+
+    test('does NOT enqueue when the unstar succeeds', () async {
+      when(() => rest.delete(any())).thenAnswer((_) async {});
+
+      final result = await api.unstarMessage('r1', 'm1');
 
       expect(result.isSuccess, isTrue);
       expect(offlineQueue.pending, isEmpty);

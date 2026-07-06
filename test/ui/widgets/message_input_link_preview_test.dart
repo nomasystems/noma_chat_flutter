@@ -11,11 +11,20 @@ class _FakeFetcher implements LinkPreviewFetcher {
   LinkPreviewMetadata? response;
   int callCount = 0;
 
+  int cancelCount = 0;
+  int cancelAllCount = 0;
+
   @override
   Future<LinkPreviewMetadata?> fetch(String url) async {
     callCount++;
     return response;
   }
+
+  @override
+  void cancel(String url) => cancelCount++;
+
+  @override
+  void cancelAll() => cancelAllCount++;
 
   @override
   LinkPreviewCacheStats get cacheStats => const LinkPreviewCacheStats(

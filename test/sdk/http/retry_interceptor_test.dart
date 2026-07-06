@@ -221,6 +221,44 @@ void main() {
       expect(handler.resolvedResponse, isNotNull);
     });
 
+    test('clamps a zero/negative Retry-After up to the 1s minimum '
+        '(no retry stampede on clock skew)', () async {
+      final interceptor = RetryInterceptor(
+        config: const RetryConfig(
+          maxRetries: 1,
+          baseDelay: Duration(milliseconds: 1),
+        ),
+        dio: dio,
+        random: _FixedRandom(),
+      );
+
+      final opts = _opts();
+      // Clock skew can produce a 0 (or negative) reset. The clamp must floor
+      // it at 1s instead of retrying immediately.
+      final response429 = Response(
+        statusCode: 429,
+        requestOptions: opts,
+        headers: Headers.fromMap({
+          'x-ratelimit-reset': ['0'],
+        }),
+      );
+
+      when(() => dio.fetch<dynamic>(any())).thenAnswer(
+        (_) async => Response(statusCode: 200, requestOptions: opts),
+      );
+
+      final handler = _TrackingErrorHandler();
+      final start = DateTime.now();
+      await interceptor.onError(
+        DioException(requestOptions: opts, response: response429),
+        handler,
+      );
+      final elapsed = DateTime.now().difference(start);
+
+      expect(elapsed.inMilliseconds, greaterThanOrEqualTo(900));
+      expect(handler.resolvedResponse, isNotNull);
+    });
+
     test('falls back to X-RateLimit-Reset when no Retry-After', () async {
       final interceptor = RetryInterceptor(
         config: const RetryConfig(

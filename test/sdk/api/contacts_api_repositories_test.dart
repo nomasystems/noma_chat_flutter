@@ -188,6 +188,21 @@ void main() {
       },
     );
 
+    test('getConversationMessages() rejects an empty/whitespace conversationId '
+        'with a ValidationFailure and never hits the network', () async {
+      final empty = await api.getConversationMessages('');
+      final blank = await api.getConversationMessages('   ');
+
+      expect(empty.failureOrNull, isA<ValidationFailure>());
+      expect(blank.failureOrNull, isA<ValidationFailure>());
+      verifyNever(
+        () => rest.getWithTotalCount(
+          any(),
+          queryParams: any(named: 'queryParams'),
+        ),
+      );
+    });
+
     test('getConversationMessages() parses next/prev cursors so the timeline '
         'paginates older pages', () async {
       when(
@@ -266,6 +281,45 @@ void main() {
 
         expect(result.isFailure, isTrue);
         expect(result.failureOrNull, isA<NetworkFailure>());
+      },
+    );
+
+    test('sendDirectMessage() marks silentlyDropped on 204 (recipient blocked '
+        'sender)', () async {
+      when(
+        () => rest.post(
+          '/contacts/blocked-contact/messages',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => <String, dynamic>{});
+      when(() => rest.userId).thenReturn('me');
+
+      final result = await api.sendDirectMessage(
+        'blocked-contact',
+        text: 'are you there?',
+      );
+
+      expect(result.isSuccess, isTrue);
+      final message = result.dataOrNull!;
+      expect(message.silentlyDropped, isTrue);
+      expect(message.receipt, ReceiptStatus.sent);
+      expect(message.from, 'me');
+      expect(message.text, 'are you there?');
+    });
+
+    test(
+      'sendDirectMessage() does not mark silentlyDropped on a normal send',
+      () async {
+        when(
+          () => rest.post(
+            '/contacts/contact-1/messages',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => messageJson(id: 'dm-2'));
+
+        final result = await api.sendDirectMessage('contact-1', text: 'hi');
+
+        expect(result.dataOrNull!.silentlyDropped, isFalse);
       },
     );
 

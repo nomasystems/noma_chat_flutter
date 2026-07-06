@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dio/dio.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/src/_internal/http/bearer_auth_interceptor.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -370,6 +371,145 @@ void main() {
         expect(handler.nextCalled, isTrue);
       },
     );
+  });
+
+  group('BearerAuthInterceptor — refresh circuit breaker', () {
+    DioException err401(RequestOptions opts) => DioException(
+      requestOptions: opts,
+      response: Response(statusCode: 401, requestOptions: opts),
+    );
+
+    Future<void> recordPostRefreshFailure(
+      BearerAuthInterceptor interceptor,
+    ) async {
+      final opts = _opts(extra: {'_authRetried': true});
+      await interceptor.onError(err401(opts), _TrackingErrorHandler());
+    }
+
+    test('counts consecutive post-refresh 401s and emits a metric', () async {
+      final metrics = <(String, Map<String, dynamic>)>[];
+      final interceptor = BearerAuthInterceptor(
+        tokenProvider: () async => 'token',
+        metricCallback: (metric, data) => metrics.add((metric, data)),
+      );
+
+      await recordPostRefreshFailure(interceptor);
+      await recordPostRefreshFailure(interceptor);
+
+      expect(interceptor.consecutiveRefreshFailures, 2);
+      final failureMetrics = metrics
+          .where((m) => m.$1 == 'auth_refresh_retry_failure')
+          .toList();
+      expect(failureMetrics, hasLength(2));
+      expect(failureMetrics.last.$2['consecutiveFailures'], 2);
+    });
+
+    test('opens the circuit after the threshold and skips the token '
+        'refresh', () async {
+      final metrics = <String>[];
+      var tokenCalls = 0;
+      var authFailures = 0;
+      final interceptor = BearerAuthInterceptor(
+        tokenProvider: () async {
+          tokenCalls++;
+          return 'token-$tokenCalls';
+        },
+        onAuthFailure: () => authFailures++,
+        metricCallback: (metric, data) => metrics.add(metric),
+      );
+
+      for (var i = 0;
+          i < BearerAuthInterceptor.maxConsecutiveRefreshFailures;
+          i++) {
+        await recordPostRefreshFailure(interceptor);
+      }
+      final tokenCallsBefore = tokenCalls;
+      final authFailuresBefore = authFailures;
+
+      final opts = _opts();
+      opts.baseUrl = 'https://example.com';
+      final handler = _TrackingErrorHandler();
+      await interceptor.onError(err401(opts), handler);
+
+      expect(tokenCalls, tokenCallsBefore);
+      expect(authFailures, authFailuresBefore + 1);
+      expect(metrics, contains('auth_circuit_open'));
+      expect(handler.nextCalled, isTrue);
+    });
+
+    test('a successful retry closes the circuit', () async {
+      final interceptor = BearerAuthInterceptor(
+        tokenProvider: () async => 'token',
+      );
+      final dio = _MockDio();
+      when(() => dio.fetch<dynamic>(any())).thenAnswer(
+        (inv) async => Response(
+          requestOptions: inv.positionalArguments.first as RequestOptions,
+          statusCode: 200,
+        ),
+      );
+      interceptor.bindDio(dio);
+
+      await recordPostRefreshFailure(interceptor);
+      await recordPostRefreshFailure(interceptor);
+      expect(interceptor.consecutiveRefreshFailures, 2);
+
+      final opts = _opts();
+      await interceptor.onError(err401(opts), _TrackingErrorHandler());
+
+      expect(interceptor.consecutiveRefreshFailures, 0);
+    });
+
+    test('invalidateCache closes the circuit so fresh credentials get a '
+        'new refresh attempt', () async {
+      var tokenCalls = 0;
+      final interceptor = BearerAuthInterceptor(
+        tokenProvider: () async {
+          tokenCalls++;
+          return 'token-$tokenCalls';
+        },
+      );
+
+      for (var i = 0;
+          i < BearerAuthInterceptor.maxConsecutiveRefreshFailures;
+          i++) {
+        await recordPostRefreshFailure(interceptor);
+      }
+      interceptor.invalidateCache();
+      expect(interceptor.consecutiveRefreshFailures, 0);
+
+      final opts = _opts();
+      opts.baseUrl = 'https://example.com';
+      await interceptor.onError(err401(opts), _TrackingErrorHandler());
+
+      expect(tokenCalls, greaterThan(0));
+    });
+
+    test('the same failed request is counted once even when it reaches '
+        'both failure paths', () async {
+      final interceptor = BearerAuthInterceptor(
+        tokenProvider: () async => 'token',
+      );
+
+      final opts = _opts(extra: {'_authRetried': true});
+      await interceptor.onError(err401(opts), _TrackingErrorHandler());
+      await interceptor.onError(err401(opts), _TrackingErrorHandler());
+
+      expect(interceptor.consecutiveRefreshFailures, 1);
+    });
+
+    test('ChatConfig wires metricCallback into the bearer interceptor', () {
+      void callback(String metric, Map<String, dynamic> data) {}
+      final config = ChatConfig(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        tokenProvider: () async => 'token',
+        metricCallback: callback,
+      );
+
+      final interceptor = config.authInterceptor as BearerAuthInterceptor;
+      expect(interceptor.metricCallback, same(callback));
+    });
   });
 }
 

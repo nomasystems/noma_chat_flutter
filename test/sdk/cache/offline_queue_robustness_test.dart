@@ -175,6 +175,42 @@ void main() {
       expect(fullQueue.length, 100);
     });
 
+    test('drain breaks early on the first backed-off op instead of cycling '
+        'through every remaining queued op', () async {
+      var now = DateTime.utc(2026, 1, 1, 0, 0, 0);
+      final queue = OfflineQueue(maxRetries: 5, clock: () => now);
+
+      queue.enqueue(PendingSendMessage(id: 'op-1', roomId: 'r', text: 'a'));
+      // First drain pass fails op-1, putting it into backoff.
+      await queue.processQueue((op) async => false);
+      expect(queue.pending.single.nextRetryAt, isNotNull);
+
+      // A second, ready-to-send op lands behind the backing-off op-1.
+      queue.enqueue(PendingSendMessage(id: 'op-2', roomId: 'r', text: 'b'));
+      expect(queue.pending.map((o) => o.id), ['op-1', 'op-2']);
+
+      final attempted = <String>[];
+      await queue.processQueue((op) async {
+        attempted.add(op.id);
+        return true;
+      });
+
+      // op-1 is still before its nextRetryAt: the drain must stop there
+      // without touching op-2, and must not reorder the queue.
+      expect(attempted, isEmpty);
+      expect(queue.pending.map((o) => o.id), ['op-1', 'op-2']);
+
+      // Once the clock passes op-1's backoff window, a fresh drain
+      // processes both in original order.
+      now = now.add(const Duration(seconds: 40));
+      await queue.processQueue((op) async {
+        attempted.add(op.id);
+        return true;
+      });
+      expect(attempted, ['op-1', 'op-2']);
+      expect(queue.isEmpty, isTrue);
+    });
+
     test('enqueue swallows _persist errors and logs them instead of '
         'crashing the host app', () async {
       // Simulates Hive disk full / lock contention by throwing on every

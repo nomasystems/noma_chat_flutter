@@ -16,7 +16,7 @@ Email the maintainers (`security@nomasystems.com`) and we will respond within
 | Auth token handling | ✅ Bearer JWT obtained through a `tokenProvider` callback, kept in memory, never persisted to disk by the SDK. | Where the consumer app stores the long-lived refresh credentials. |
 | Client-side data at rest | ✅ Hive cache, optionally encrypted at rest with `HiveAesCipher`. | Backups outside the app sandbox (iCloud, ADB backups). |
 | Sensitive payload logging | ✅ HTTP debug logger redacts `password` / `token` / `secret` / `Authorization` / common variants before truncating. Binaries replaced with `<binary N bytes>`. URLs sanitised so UUID path params are not logged. | Bodies the app passes through `client.messages.send(...)` (the SDK has no signal that user content is sensitive). |
-| Transport pinning | ⚠️ TLS via the platform trust store. `ChatConfig.certificatePins` exists but is an **experimental no-op** — it does NOT enforce pinning yet (see "Certificate pinning" below). | Certificate / public-key pinning. Not provided by the SDK today; enforce at the OS/network layer if you need it. |
+| Transport pinning | ❌ The SDK does **not** pin certificates. TLS server certificates are validated against the operating system's CA trust store (standard platform TLS). | Certificate / public-key pinning of any kind. Enforce it at the deployment layer (HSTS + CT logs) or in the host app's own networking stack if your threat model requires it. |
 | Backend impersonation | Partial. TLS prevents network-level impersonation; `WsTransport.notifyTokenRotated` rotates auth without reconnect. | A compromised backend that returns malicious payloads (the SDK trusts the wire format). |
 | Replay attacks | Backend-side responsibility. SDK does not add nonces. | Idempotency keys for non-idempotent POSTs (see `RetryInterceptor` opt-in flag instead). |
 
@@ -44,16 +44,8 @@ Email the maintainers (`security@nomasystems.com`) and we will respond within
 
 ### Certificate pinning
 
-> ⚠️ **Not enforced yet.** Certificate pinning is an experimental skeleton in
-> the `0.x` line. The SDK does **not** currently validate certificates against
-> the configured pins and gives you **no** MITM protection beyond the platform
-> trust store. Do not rely on it as a security control. If you need pinning
-> today, enforce it at the OS / network layer.
-
-- Off by default. Cross-platform pinning (Android, iOS, macOS, web) is non-trivial and the right pin set is app-specific.
-- `ChatConfig.certificatePins: List<String>?` accepts SHA-256 fingerprints. When set, the SDK attaches `CertificatePinningInterceptor` (annotated `@experimental`). That interceptor **only** normalises and records the pins and re-labels a Dio-surfaced handshake error as a typed `CertificatePinningException`. It does **not** install the native `badCertificateCallback` / HTTP adapter, so no certificate is ever compared against the pins. Setting the field emits a `warn` log saying exactly this.
-- On Flutter web, pinning will always be a no-op (the browser is the TLS terminator; pinning has to happen via HSTS / OS keychain).
-- Tracking: enforcement is a planned follow-up (see `ISSUES.md` in the SDK info docs). Until a CHANGELOG entry says pinning is enforced, treat `certificatePins` as documentation-only.
+- **The SDK does not pin certificates.** TLS server certificates are validated by the platform's standard networking stack against the operating system's CA trust store, exactly as any ordinary HTTPS client would.
+- If your threat model includes MITM with a compromised or user-installed CA, enforce pinning outside the SDK: HSTS + Certificate Transparency logs at the deployment layer, an OS-level network security config (Android `network_security_config` / iOS App Transport Security), or a custom `Dio` HTTP adapter supplied by the host app.
 
 ### Reliability boundaries vs security
 
@@ -62,13 +54,11 @@ The SDK draws a hard line between **reliability** (best-effort, swallowed via me
 - A corrupt Hive box is reliability — it gets recreated, the consumer sees an empty cache instead of a crash.
 - A token refresh that returns a 401 is security — the consumer's `onAuthFailure` is invoked exactly once, after which the SDK stops trying to refresh.
 
-(The intended "a failed certificate pin surfaces as a `ChatFailure`, the request never completes" example is **not** in force yet — pinning is not enforced, see the warning above.)
-
 ## What the SDK does *not* guarantee
 
 | Out of scope | Why | What to do instead |
 |---|---|---|
-| End-to-end encryption | Backend descarted (see ADR-057 in `noma_chat_flutter/INTEGRATION.md`). Backend needs to read messages for moderation, push, search. | If E2EE is a hard requirement, pick a different SDK (Matrix, Signal protocol). |
+| End-to-end encryption | Decided against (backend ADR-057; not part of this repo). Backend needs to read messages for moderation, push, search. Forwarding a message does not change this — see `doc/DEVELOPER_GUIDE.md`'s note on `ForwardInfo`. | If E2EE is a hard requirement, pick a different SDK (Matrix, Signal protocol). |
 | Push notifications | SDK does not configure FCM/APNs. | Consumer wires push, calls `chat.refresh()` on background-fetch events. |
 | Secure key storage | SDK doesn't ship a default — keys vary per platform. | `flutter_secure_storage` (iOS Keychain / Android Keystore) is the conventional pair. |
 | Replay protection on writes | Backend signs / nonces are out of scope. | Use idempotency hints (`options.extra['idempotent'] = true`) only for genuinely safe-to-replay POSTs. The default is no-retry for POST on transient connection errors. |
@@ -82,7 +72,7 @@ Tick these before shipping `noma_chat` to production users:
 - [ ] **TLS only.** Reject plaintext URLs. The SDK already does — confirm your config matches.
 - [ ] **Token storage.** Long-lived refresh credentials live in `flutter_secure_storage`, not in `shared_preferences` or Hive.
 - [ ] **Cipher key.** If you opt into `encryptionCipher`, the key is derived from / stored in the keychain. Don't hard-code.
-- [ ] **Certificate pinning.** The SDK does **not** enforce pinning yet (`certificatePins` is an experimental no-op). If you need pinning before SDK enforcement lands, do it at the OS / network layer (Android Network Security Config, iOS App Transport Security / a native pinning library).
+- [ ] **Certificate pinning.** The SDK does not pin certificates. If your threat model includes MITM with a compromised or user-installed CA, enforce pinning outside the SDK — an OS network security config (Android `network_security_config` / iOS ATS), HSTS + CT logs at the deployment layer, or a custom `Dio` HTTP adapter in the host app.
 - [ ] **`enableHttpLog: false` in release.** Even with redaction the logger emits paths and statuses; in release that goes nowhere useful and increases attack surface. Guard with `kDebugMode`.
 - [ ] **Sink discipline.** Where you wire `ChatConfig.logger`, do not forward `debug`/`info` to remote sinks. `warn`/`error` only.
 - [ ] **OnAuthFailure.** Implement `onAuthFailure: () => signOut()` — the SDK gives up after a single token refresh attempt.
@@ -100,6 +90,8 @@ Tick these before shipping `noma_chat` to production users:
 - 2026-05-26 — Full external audit (Fases 1-4). Findings closed: HTTP body logger redaction, in-flight request cancellation on logout, idempotency-aware retry, URL sanitisation. Certificate pinning shipped only as an `@experimental` API skeleton (config field + typed exception); enforcement deferred.
 - 2026-05-26 — Fase 5: pen-tests added (`test/sdk/http/logger_pentest_test.dart`), `X-Noma-Chat-Version` header, full `TELEMETRY.md`.
 - 2026-06-17 — Pre-PR review: corrected this document to stop claiming certificate pinning is enforced (it is an experimental no-op); added a runtime `warn` when `certificatePins` is set. Autogenerated `clientMessageId` on `messages.send` so retried sends are de-duplicated server-side.
+- 2026-07-06 — Audit remediation (transport & security): certificate pinning enforced on dart:io platforms (`IOHttpClientAdapter` with fingerprint validation, real-TLS tests); `RestClient.post()` response type validated; `Retry-After` clamped to `[1 s, 5 min]` against clock skew; explicit WS sink close on auth close codes 4003/4004; `ws_auth_timeout` metric; token-refresh circuit breaker (`auth_refresh_retry_failure` / `auth_circuit_open` metrics).
+- 2026-07-06 — Certificate pinning **removed** (`ChatConfig.certificatePins`, the pinning interceptor, its platform adapters and the `CertificatePinningException` type are gone). The SDK now relies solely on the platform's standard TLS validation against the OS CA trust store; consumers that need pinning enforce it outside the SDK (OS network security config, HSTS + CT logs, or a custom `Dio` adapter).
 
 ## Reporting
 

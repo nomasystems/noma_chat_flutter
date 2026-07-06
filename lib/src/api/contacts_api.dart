@@ -138,7 +138,8 @@ class ContactsApi implements ChatContactsApi {
       // dropped it because the recipient has blocked the sender (WhatsApp
       // parity). Synthesize a local `sent` message instead of mapping an
       // id-less phantom — it shows as sent and never advances to
-      // delivered/read, exactly what a blocked sender sees.
+      // delivered/read, exactly what a blocked sender sees. `silentlyDropped`
+      // lets the caller distinguish this from a normal send.
       if (json.isEmpty) {
         return ChatMessage(
           id: 'local-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
@@ -151,6 +152,7 @@ class ContactsApi implements ChatContactsApi {
           attachmentUrl: attachmentUrl,
           metadata: metadata,
           receipt: ReceiptStatus.sent,
+          silentlyDropped: true,
         );
       }
       return MessageMapper.fromJson(json);
@@ -210,24 +212,43 @@ class ContactsApi implements ChatContactsApi {
     );
   });
 
+  /// Fetches messages of a resolved 1:1 conversation by its
+  /// [conversationId] — the backend-assigned DM room id.
+  ///
+  /// Discoverability: [conversationId] is an opaque, backend-resolved id, not
+  /// a value the consumer invents. Obtain it from an event or listing that
+  /// carries it — e.g. `NewMessageEvent.roomId` for a DM, or the `roomId`
+  /// on a room-list/unread entry — then reuse it here. When all you hold is
+  /// the peer's user id, call [getDirectMessages] instead (it resolves the
+  /// room for you). An empty/whitespace [conversationId] is rejected up
+  /// front with a [ValidationFailure] rather than hitting a malformed path.
   @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>>
   getConversationMessages(
     String conversationId, {
     ChatCursorPaginationParams? pagination,
-  }) => safeApiCall(() async {
-    final (json, totalCount) = await _rest.getWithTotalCount(
-      '/conversations/$conversationId/messages',
-      queryParams: pagination?.toQueryParams(),
-    );
-    return ChatPaginatedResponse(
-      items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
-      hasMore: (json['hasMore'] ?? false) as bool,
-      totalCount: totalCount,
-      nextCursor: json['next'] as String?,
-      prevCursor: json['prev'] as String?,
-    );
-  });
+  }) {
+    if (conversationId.trim().isEmpty) {
+      return Future.value(
+        const ChatFailureResult(
+          ValidationFailure(message: 'conversationId must not be empty'),
+        ),
+      );
+    }
+    return safeApiCall(() async {
+      final (json, totalCount) = await _rest.getWithTotalCount(
+        '/conversations/$conversationId/messages',
+        queryParams: pagination?.toQueryParams(),
+      );
+      return ChatPaginatedResponse(
+        items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
+        hasMore: (json['hasMore'] ?? false) as bool,
+        totalCount: totalCount,
+        nextCursor: json['next'] as String?,
+        prevCursor: json['prev'] as String?,
+      );
+    });
+  }
 
   @override
   Future<ChatResult<ChatPresence>> getPresence(String contactUserId) =>
@@ -238,6 +259,13 @@ class ContactsApi implements ChatContactsApi {
 
   // Typing in DMs
 
+  /// Sends a typing activity to a DM contact.
+  ///
+  /// Prefers the WS frame; when realtime is down it falls back to the
+  /// `postContactActivity` REST operation (`POST /contacts/{id}/activity`),
+  /// so DM typing degrades gracefully instead of being silently dropped.
+  /// The backend's contact-activity endpoint only models typing
+  /// (`startsTyping` / `stopsTyping`), so this is its full surface.
   @override
   Future<ChatResult<void>> sendTyping(
     String contactUserId, {

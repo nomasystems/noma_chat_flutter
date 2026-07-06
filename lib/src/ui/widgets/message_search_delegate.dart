@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../models/message.dart';
 import '../controller/message_search_controller.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
@@ -132,10 +133,12 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                 return const SizedBox.shrink();
               }
 
+              final results = _dedupeById(widget.controller.results);
+
               return ListView.builder(
-                itemCount: widget.controller.results.length,
+                itemCount: results.length,
                 itemBuilder: (context, index) {
-                  final message = widget.controller.results[index];
+                  final message = results[index];
                   final senderName = widget.senderNameResolver != null
                       ? widget.senderNameResolver!(message.from)
                       : message.from;
@@ -194,6 +197,20 @@ class _MessageSearchViewState extends State<MessageSearchView> {
       ],
     );
   }
+}
+
+/// Drops duplicate results by [ChatMessage.id], keeping the first
+/// occurrence's position. A message can legitimately appear more than once
+/// in [results] — e.g. the same underlying message re-indexed after being
+/// forwarded, or overlapping pages from the backend's search endpoint —
+/// and without this the list would render the identical row twice.
+List<ChatMessage> _dedupeById(List<ChatMessage> results) {
+  final seen = <String>{};
+  final deduped = <ChatMessage>[];
+  for (final message in results) {
+    if (seen.add(message.id)) deduped.add(message);
+  }
+  return deduped;
 }
 
 List<TextSpan> _highlightSpans(

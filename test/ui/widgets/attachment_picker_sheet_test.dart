@@ -183,5 +183,101 @@ void main() {
 
       expect(cameraCalled, true);
     });
+
+    testWidgets('extraOptions render after built-in rows', (tester) async {
+      var extraCalled = false;
+      await tester.pumpWidget(
+        wrap(
+          AttachmentPickerSheet(
+            onPickCamera: () {},
+            extraOptions: [
+              AttachmentSheetOption(
+                icon: Icons.poll,
+                label: 'Poll',
+                onTap: () => extraCalled = true,
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('Poll'), findsOneWidget);
+      expect(find.byIcon(Icons.poll), findsOneWidget);
+      expect(extraCalled, false);
+    });
+
+    testWidgets(
+      'extraOptions with previewBuilder replaces the default icon circle',
+      (tester) async {
+        const previewKey = Key('poll-preview');
+        await tester.pumpWidget(
+          wrap(
+            AttachmentPickerSheet(
+              onPickCamera: () {},
+              extraOptions: [
+                AttachmentSheetOption(
+                  icon: Icons.poll,
+                  label: 'Poll',
+                  onTap: () {},
+                  previewBuilder: (context) => const ColoredBox(
+                    key: previewKey,
+                    color: Colors.purple,
+                    child: Text('P'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.poll), findsNothing);
+        expect(find.byKey(previewKey), findsOneWidget);
+        expect(find.text('P'), findsOneWidget);
+        expect(find.text('Poll'), findsOneWidget);
+      },
+    );
+
+    testWidgets('previewBuilder row still invokes onTap and closes the sheet', (
+      tester,
+    ) async {
+      const previewKey = Key('poll-preview');
+      var pollTapped = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () {
+                  AttachmentPickerSheet.show(
+                    context,
+                    extraOptions: [
+                      AttachmentSheetOption(
+                        icon: Icons.poll,
+                        label: 'Poll',
+                        onTap: () => pollTapped = true,
+                        previewBuilder: (context) => const ColoredBox(
+                          key: previewKey,
+                          color: Colors.purple,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(previewKey));
+      await tester.pumpAndSettle();
+
+      expect(pollTapped, true);
+      expect(find.byType(AttachmentPickerSheet), findsNothing);
+    });
   });
 }

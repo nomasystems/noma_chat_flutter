@@ -141,6 +141,105 @@ void main() {
       },
     );
 
+    test(
+      'updateConfig() patches the cached UnreadRoom avatarUrl/name in '
+      'place, so a room list rendered from cache before the invalidated '
+      'TTL keys are refetched does not show the stale avatar',
+      () async {
+        when(
+          () => rest.putVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
+        when(() => cache.getUnreads()).thenAnswer(
+          (_) async => const ChatSuccess(<UnreadRoom>[
+            UnreadRoom(
+              roomId: 'r1',
+              unreadMessages: 2,
+              name: 'Old name',
+              avatarUrl: 'https://old.example/avatar.png',
+            ),
+          ]),
+        );
+
+        final r = await api.updateConfig(
+          'r1',
+          name: 'New name',
+          avatarUrl: 'https://new.example/avatar.png',
+        );
+
+        expect(r.isSuccess, true);
+        final captured = verify(
+          () => cache.saveUnreads(captureAny()),
+        ).captured.single as List<UnreadRoom>;
+        expect(captured, hasLength(1));
+        expect(captured.single.roomId, 'r1');
+        expect(captured.single.name, 'New name');
+        expect(captured.single.avatarUrl, 'https://new.example/avatar.png');
+        // Fields not touched by this updateConfig call are preserved.
+        expect(captured.single.unreadMessages, 2);
+      },
+    );
+
+    test(
+      'updateConfig() with clearAvatar patches the cached avatarUrl to '
+      'empty',
+      () async {
+        when(
+          () => rest.putVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
+        when(() => cache.getUnreads()).thenAnswer(
+          (_) async => const ChatSuccess(<UnreadRoom>[
+            UnreadRoom(
+              roomId: 'r1',
+              unreadMessages: 0,
+              avatarUrl: 'https://old.example/avatar.png',
+            ),
+          ]),
+        );
+
+        final r = await api.updateConfig('r1', clearAvatar: true);
+
+        expect(r.isSuccess, true);
+        final captured = verify(
+          () => cache.saveUnreads(captureAny()),
+        ).captured.single as List<UnreadRoom>;
+        expect(captured.single.avatarUrl, '');
+      },
+    );
+
+    test(
+      'updateConfig() is a no-op on the unread cache when the room has no '
+      'cached unread entry yet',
+      () async {
+        when(
+          () => rest.putVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
+        when(
+          () => cache.getUnreads(),
+        ).thenAnswer((_) async => const ChatSuccess(<UnreadRoom>[]));
+
+        final r = await api.updateConfig('unknown-room', name: 'New name');
+
+        expect(r.isSuccess, true);
+        verifyNever(() => cache.saveUnreads(any()));
+      },
+    );
+
+    test(
+      'updateConfig() with no name/avatarUrl/clearAvatar does not touch '
+      'the unread cache',
+      () async {
+        when(
+          () => rest.putVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
+
+        final r = await api.updateConfig('r1', subject: 'New subject');
+
+        expect(r.isSuccess, true);
+        verifyNever(() => cache.getUnreads());
+        verifyNever(() => cache.saveUnreads(any()));
+      },
+    );
+
     test('batchMarkAsRead() clears the unread cache for each room', () async {
       when(
         () => rest.postVoid(any(), data: any(named: 'data')),

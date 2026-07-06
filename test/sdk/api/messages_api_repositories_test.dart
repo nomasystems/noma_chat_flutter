@@ -16,6 +16,10 @@ class _MockTransportManager extends Mock implements TransportManager {}
 void main() {
   late MockRestClient rest;
 
+  setUpAll(() {
+    registerFallbackValue(Duration.zero);
+  });
+
   setUp(() {
     rest = MockRestClient();
   });
@@ -357,10 +361,25 @@ void main() {
       );
     });
 
-    test('sendViaWs() returns synthetic message when WS connected', () async {
+    test('sendViaWs() returns synthetic message when WS acks the send',
+        () async {
       final transport = _MockTransportManager();
       when(() => transport.isWsConnected).thenReturn(true);
       when(() => rest.userId).thenReturn('user-1');
+      when(
+        () => transport.sendMessageAwaitingAck(
+          any(),
+          text: any(named: 'text'),
+          messageType: any(named: 'messageType'),
+          referencedMessageId: any(named: 'referencedMessageId'),
+          reaction: any(named: 'reaction'),
+          attachmentUrl: any(named: 'attachmentUrl'),
+          sourceRoomId: any(named: 'sourceRoomId'),
+          metadata: any(named: 'metadata'),
+          clientMessageId: any(named: 'clientMessageId'),
+          ackTimeout: any(named: 'ackTimeout'),
+        ),
+      ).thenAnswer((_) async => true);
 
       final apiWithTransport = RestMessagesApi(
         rest: rest,
@@ -376,17 +395,42 @@ void main() {
       expect(msg.messageType, MessageType.regular);
       expect(msg.receipt, ReceiptStatus.sent);
       verifyNever(() => rest.post(any(), data: any(named: 'data')));
-      verify(
-        () => transport.sendMessage(
-          'r1',
-          text: 'hello',
-          messageType: 'regular',
-          referencedMessageId: null,
-          reaction: null,
-          attachmentUrl: null,
-          sourceRoomId: null,
-          metadata: null,
+    });
+
+    test('sendViaWs() falls back to REST when the WS send is not acked '
+        '(socket drop / timeout) so the message is not lost', () async {
+      final transport = _MockTransportManager();
+      when(() => transport.isWsConnected).thenReturn(true);
+      when(() => rest.userId).thenReturn('user-1');
+      when(
+        () => transport.sendMessageAwaitingAck(
+          any(),
+          text: any(named: 'text'),
+          messageType: any(named: 'messageType'),
+          referencedMessageId: any(named: 'referencedMessageId'),
+          reaction: any(named: 'reaction'),
+          attachmentUrl: any(named: 'attachmentUrl'),
+          sourceRoomId: any(named: 'sourceRoomId'),
+          metadata: any(named: 'metadata'),
+          clientMessageId: any(named: 'clientMessageId'),
+          ackTimeout: any(named: 'ackTimeout'),
         ),
+      ).thenAnswer((_) async => false);
+      when(
+        () => rest.post('/rooms/r1/messages', data: any(named: 'data')),
+      ).thenAnswer((_) async => messageJson());
+
+      final apiWithTransport = RestMessagesApi(
+        rest: rest,
+        transport: transport,
+      );
+      final result = await apiWithTransport.sendViaWs('r1', text: 'hello');
+
+      expect(result.isSuccess, isTrue);
+      // The REST send took over — its server-confirmed id, not a temp-ws id.
+      expect(result.dataOrNull!.id, 'msg-1');
+      verify(
+        () => rest.post('/rooms/r1/messages', data: any(named: 'data')),
       ).called(1);
     });
 

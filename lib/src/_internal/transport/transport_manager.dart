@@ -4,6 +4,7 @@ import 'dart:collection';
 import '../../config/chat_config.dart';
 import '../../events/chat_event.dart';
 import '../../models/message.dart';
+import '../cache/cache_manager.dart' show MetricCallback;
 import 'auto_failover_transport.dart';
 import 'manual_transport.dart';
 import 'polling_transport.dart';
@@ -30,6 +31,7 @@ import 'ws_transport.dart';
 class TransportManager {
   final RealtimeTransport _transport;
   final int _bufferSize;
+  final MetricCallback? _metricCallback;
   final _eventController = StreamController<ChatEvent>.broadcast();
   final _stateController = StreamController<ChatConnectionState>.broadcast();
   final Queue<ChatEvent> _replayBuffer = Queue();
@@ -45,8 +47,10 @@ class TransportManager {
     required WsTransport ws,
     required SseTransport sse,
     int eventBufferSize = 20,
+    MetricCallback? metricCallback,
   }) : _transport = AutoFailoverTransport(primary: ws, fallback: sse),
-       _bufferSize = eventBufferSize;
+       _bufferSize = eventBufferSize,
+       _metricCallback = metricCallback;
 
   /// Generic ctor for non-failover modes. Wraps any [RealtimeTransport]
   /// implementation; used by [TransportManager.fromConfig] under the
@@ -55,8 +59,10 @@ class TransportManager {
   TransportManager.fromTransport({
     required RealtimeTransport transport,
     int eventBufferSize = 20,
+    MetricCallback? metricCallback,
   }) : _transport = transport,
-       _bufferSize = eventBufferSize;
+       _bufferSize = eventBufferSize,
+       _metricCallback = metricCallback;
 
   /// Pick the right transport for [ChatConfig.realtimeMode] and wrap it
   /// in a [TransportManager]. Preferred entry point — call sites that
@@ -69,16 +75,19 @@ class TransportManager {
           ws: WsTransport(config: config),
           sse: SseTransport(config: config),
           eventBufferSize: config.eventBufferSize,
+          metricCallback: config.metricCallback,
         );
       case RealtimeMode.webSocketOnly:
         return TransportManager.fromTransport(
           transport: WsTransport(config: config),
           eventBufferSize: config.eventBufferSize,
+          metricCallback: config.metricCallback,
         );
       case RealtimeMode.serverSentEventsOnly:
         return TransportManager.fromTransport(
           transport: SseTransport(config: config),
           eventBufferSize: config.eventBufferSize,
+          metricCallback: config.metricCallback,
         );
       case RealtimeMode.polling:
         var pc = config.pollingConfig ?? const PollingConfig();
@@ -106,14 +115,25 @@ class TransportManager {
         return TransportManager.fromTransport(
           transport: PollingTransport(config: config, pollingConfig: pc),
           eventBufferSize: config.eventBufferSize,
+          metricCallback: config.metricCallback,
         );
       case RealtimeMode.manual:
         return TransportManager.fromTransport(
           transport: ManualTransport(config: config),
           eventBufferSize: config.eventBufferSize,
+          metricCallback: config.metricCallback,
         );
     }
   }
+
+  /// Upper bound on events held for a single slow subscriber before the
+  /// oldest are dropped. A broadcast controller buffers unboundedly for a
+  /// listener whose handler can't keep up (`await`s per event); left
+  /// unchecked, a burst of server events during a slow render would grow
+  /// memory without limit. Past this cap the relay drops the oldest event
+  /// (favouring recency — the newest state matters most for chat) and emits
+  /// an `event_stream_backpressure_drop` metric so the drop is observable.
+  static const int _maxPendingPerListener = 256;
 
   /// Broadcast event stream. With `eventBufferSize > 0` a fresh
   /// subscription first replays the last N buffered events, then receives
@@ -122,25 +142,61 @@ class TransportManager {
   /// (a non-broadcast controller here would throw "already listened to").
   /// Replay reaches the subscribers attached when the buffer flushes;
   /// listeners that join later only see live events.
+  ///
+  /// Backpressure: each subscriber is fed through a bounded queue capped at
+  /// [_maxPendingPerListener]. A consumer slower than the event rate never
+  /// grows memory without limit — the oldest queued event is dropped once
+  /// the cap is hit (drop-oldest, keep-newest) instead of buffering forever.
   Stream<ChatEvent> get events {
     if (_bufferSize <= 0) return _eventController.stream;
-    return _eventController.stream.transform(
-      StreamTransformer.fromBind((stream) {
-        final controller = StreamController<ChatEvent>.broadcast();
-        for (final event in _replayBuffer) {
-          scheduleMicrotask(() {
-            if (!controller.isClosed) controller.add(event);
-          });
+    return Stream<ChatEvent>.multi((listener) {
+      // One bounded queue per subscriber. Events accumulate here and drain to
+      // the listener one microtask at a time; a listener slower than the event
+      // rate cannot grow this without bound — past [_maxPendingPerListener] the
+      // oldest queued event is dropped (drop-oldest, keep-newest) and a metric
+      // is emitted. `Stream.multi` gives each subscriber its own isolated
+      // queue while keeping `events` multi-listen (broadcast-like).
+      final pending = Queue<ChatEvent>();
+      var draining = false;
+
+      void drain() {
+        if (draining) return;
+        draining = true;
+        scheduleMicrotask(() {
+          draining = false;
+          if (listener.isPaused || listener.isClosed) return;
+          if (pending.isEmpty) return;
+          listener.add(pending.removeFirst());
+          if (pending.isNotEmpty) drain();
+        });
+      }
+
+      void enqueue(ChatEvent event) {
+        pending.add(event);
+        while (pending.length > _maxPendingPerListener) {
+          pending.removeFirst();
+          _metricCallback?.call('event_stream_backpressure_drop', const {});
         }
-        final sub = stream.listen(
-          controller.add,
-          onError: controller.addError,
-          onDone: controller.close,
-        );
-        controller.onCancel = sub.cancel;
-        return controller.stream;
-      }),
-    );
+        drain();
+      }
+
+      for (final event in _replayBuffer) {
+        enqueue(event);
+      }
+
+      final sub = _eventController.stream.listen(
+        enqueue,
+        onError: listener.addError,
+        onDone: listener.close,
+      );
+
+      listener
+        ..onResume = drain
+        ..onCancel = () {
+          pending.clear();
+          return sub.cancel();
+        };
+    });
   }
 
   Stream<ChatConnectionState> get stateChanges => _stateController.stream;
@@ -228,6 +284,34 @@ class TransportManager {
     attachmentUrl: attachmentUrl,
     sourceRoomId: sourceRoomId,
     metadata: metadata,
+  );
+
+  /// Sends over the outbound channel and resolves `true` once the server
+  /// acks the message, or `false` on timeout / socket drop / a transport
+  /// that cannot confirm delivery. Lets `MessagesApi.sendViaWs` fall back
+  /// to the idempotent REST send instead of losing the message silently.
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) => _transport.sendMessageAwaitingAck(
+    roomId,
+    text: text,
+    messageType: messageType,
+    referencedMessageId: referencedMessageId,
+    reaction: reaction,
+    attachmentUrl: attachmentUrl,
+    sourceRoomId: sourceRoomId,
+    metadata: metadata,
+    clientMessageId: clientMessageId,
+    ackTimeout: ackTimeout,
   );
 
   Future<void> disconnect() async {

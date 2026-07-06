@@ -10,7 +10,6 @@ import '../../config/chat_config.dart';
 import '../../core/result.dart' show ChatErrorTokens, TimeoutKind;
 import '../cache/cache_manager.dart' show MetricCallback;
 import 'bearer_auth_interceptor.dart';
-import 'cert_pinning_interceptor.dart';
 import 'chat_exception.dart';
 import 'circuit_breaker_registry.dart';
 import 'retry_interceptor.dart';
@@ -44,20 +43,6 @@ class RestClient {
     _dio.options.connectTimeout = config.requestTimeout;
     _dio.options.receiveTimeout = config.requestTimeout;
     _dio.options.sendTimeout = config.requestTimeout;
-    final pins = config.certificatePins;
-    if (pins != null && pins.isNotEmpty) {
-      final pinning = CertificatePinningInterceptor(pins)..attach(_dio);
-      _dio.interceptors.add(pinning);
-      // The native handshake hook is not wired yet (see
-      // CertificatePinningInterceptor — @experimental skeleton). Warn loudly
-      // so a consumer who sets pins doesn't assume MITM protection is active.
-      config.logger?.call(
-        'warn',
-        'certificatePins is set but pinning is NOT enforced yet: the native '
-            'badCertificateCallback is an experimental no-op skeleton. Pins '
-            'are recorded but no certificate is validated against them.',
-      );
-    }
     final authInterceptor = config.authInterceptor;
     _dio.interceptors.add(authInterceptor);
     if (authInterceptor is BearerAuthInterceptor) {
@@ -167,10 +152,7 @@ class RestClient {
       queryParams: queryParams,
       headers: headers,
     );
-    if (response.data == null || response.data == '') {
-      return const {};
-    }
-    return response.data as Map<String, dynamic>;
+    return _asMap(response);
   }
 
   Future<void> postVoid(
@@ -453,9 +435,6 @@ class RestClient {
         errorToken: token,
       );
     }
-    if (e.error is CertificatePinningException) {
-      return e.error as CertificatePinningException;
-    }
     if (e.type == DioExceptionType.connectionTimeout) {
       return const ChatTimeoutException(kind: TimeoutKind.connection);
     }
@@ -517,15 +496,28 @@ class RestClient {
 /// to CHT's `X-RateLimit-Reset` — which the server sends *instead of*
 /// `Retry-After`, as the number of seconds until the rate-limit window
 /// resets. Returns `null` when neither header carries a usable integer.
+///
+/// The parsed value is clamped to [minRetryAfter, maxRetryAfter]: server
+/// clock skew can yield a zero/negative wait (retry stampede) or an
+/// absurdly long one (client stuck for hours on a miscomputed reset).
 Duration? _parseRetryAfterHeaders(Headers? headers) {
   if (headers == null) return null;
   for (final name in const ['retry-after', 'x-ratelimit-reset']) {
     final raw = headers.value(name);
     if (raw == null) continue;
     final seconds = int.tryParse(raw.trim());
-    if (seconds != null && seconds >= 0) return Duration(seconds: seconds);
+    if (seconds != null) return clampRetryAfter(Duration(seconds: seconds));
   }
   return null;
+}
+
+const Duration minRetryAfter = Duration(seconds: 1);
+const Duration maxRetryAfter = Duration(minutes: 5);
+
+Duration clampRetryAfter(Duration value) {
+  if (value < minRetryAfter) return minRetryAfter;
+  if (value > maxRetryAfter) return maxRetryAfter;
+  return value;
 }
 
 /// Sanitizes the rendered URI in a log line by replacing any UUID

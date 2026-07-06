@@ -114,7 +114,7 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - GDPR self-service deletion — `users.deleteCurrentUser()` erases the authenticated account, token-scoped so it can't target the wrong user
 
 **Security & observability**
-- TLS certificate pinning — pass SHA-256 leaf fingerprints via `certificatePins`
+- Standard TLS transport — the SDK relies on the operating system's CA trust store to validate server certificates; it does **not** pin certificates
 - Optional at-rest cache encryption — hand `NomaChat.create` a Hive AES cipher and the offline message / room store is encrypted on device
 - Structured `logger` + `metricCallback` hooks; an official OpenTelemetry adapter, `noma_chat_otel`, turns every WebSocket / HTTP / cache event into a span with zero boilerplate
 

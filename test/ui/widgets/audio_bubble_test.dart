@@ -173,4 +173,72 @@ void main() {
     expect(find.byIcon(Icons.arrow_upward), findsNothing);
     expect(find.byIcon(Icons.play_arrow), findsOneWidget);
   });
+
+  group('playback speed persistence', () {
+    testWidgets('starts the speed pill at initialPlaybackSpeed', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const AudioBubble(
+            audioUrl: 'https://example.com/audio.m4a',
+            initialPlaybackSpeed: 1.5,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pump();
+
+      expect(find.text('1.5x'), findsOneWidget);
+    });
+
+    testWidgets('onPlaybackSpeedChanged fires with the next cycled speed', (
+      tester,
+    ) async {
+      final reported = <double>[];
+      await tester.pumpWidget(
+        wrap(
+          AudioBubble(
+            audioUrl: 'https://example.com/audio.m4a',
+            onPlaybackSpeedChanged: reported.add,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pump();
+
+      expect(find.text('1x'), findsOneWidget);
+      await tester.tap(find.text('1x'));
+      await tester.pump();
+
+      expect(reported, [1.5]);
+      expect(find.text('1.5x'), findsOneWidget);
+
+      await tester.tap(find.text('1.5x'));
+      await tester.pump();
+      expect(reported, [1.5, 2.0]);
+
+      await tester.tap(find.text('2x'));
+      await tester.pump();
+      expect(reported, [1.5, 2.0, 1.0]);
+    });
+
+    testWidgets('onPlaybackSpeedChanged is not required', (tester) async {
+      await tester.pumpWidget(
+        wrap(const AudioBubble(audioUrl: 'https://example.com/audio.m4a')),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pump();
+      await tester.tap(find.text('1x'));
+      await tester.pump();
+
+      expect(find.text('1.5x'), findsOneWidget);
+    });
+  });
 }

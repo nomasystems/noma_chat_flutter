@@ -225,9 +225,19 @@ class RestMessagesApi implements ChatMessagesApi {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) {
+  }) async {
+    // One idempotency key shared by the WS attempt and the REST fallback. The
+    // backend routes the WS `message` frame through the same send path as REST
+    // and dedups on `clientMessageId`, so a fallback resend of a WS send that
+    // actually landed (ack just delayed / socket dropped after delivery)
+    // returns the persisted message instead of creating a duplicate.
+    final clientMessageId = _uuid.v4();
     if (transport != null && transport!.isWsConnected) {
-      transport!.sendMessage(
+      // Wait for the server ack instead of firing and forgetting: a socket
+      // drop before the ack used to lose the message silently. On ack we
+      // return the optimistic sent bubble; on timeout / drop we fall through
+      // to the idempotent REST send.
+      final acked = await transport!.sendMessageAwaitingAck(
         roomId,
         text: text,
         messageType: messageType.name,
@@ -236,11 +246,12 @@ class RestMessagesApi implements ChatMessagesApi {
         attachmentUrl: attachmentUrl,
         sourceRoomId: sourceRoomId,
         metadata: metadata,
+        clientMessageId: clientMessageId,
       );
-      final tempId =
-          'temp-ws-${DateTime.now().microsecondsSinceEpoch}-${pendingSeq++}';
-      return Future.value(
-        ChatSuccess(
+      if (acked) {
+        final tempId =
+            'temp-ws-${DateTime.now().microsecondsSinceEpoch}-${pendingSeq++}';
+        return ChatSuccess(
           ChatMessage(
             id: tempId,
             from: rest.userId ?? '',
@@ -253,8 +264,8 @@ class RestMessagesApi implements ChatMessagesApi {
             metadata: metadata,
             receipt: ReceiptStatus.sent,
           ),
-        ),
-      );
+        );
+      }
     }
     return send(
       roomId,
@@ -265,6 +276,7 @@ class RestMessagesApi implements ChatMessagesApi {
       attachmentUrl: attachmentUrl,
       sourceRoomId: sourceRoomId,
       metadata: metadata,
+      clientMessageId: clientMessageId,
     );
   }
 
@@ -371,6 +383,14 @@ class RestMessagesApi implements ChatMessagesApi {
     );
   });
 
+  /// Sends a typing activity to a room.
+  ///
+  /// Prefers the WS frame; when realtime is down it falls back to the
+  /// `updateRoomActivity` REST operation
+  /// (`PUT /rooms/{roomId}/users/{userId}/activity`), so room typing degrades
+  /// gracefully instead of being dropped. The backend's room-activity
+  /// endpoint only models typing (`startsTyping` / `stopsTyping`), so this is
+  /// its full surface.
   @override
   Future<ChatResult<void>> sendTyping(
     String roomId, {
