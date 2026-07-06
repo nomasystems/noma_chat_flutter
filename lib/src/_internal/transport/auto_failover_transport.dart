@@ -240,6 +240,38 @@ class AutoFailoverTransport implements RealtimeTransport {
     metadata: metadata,
   );
 
+  /// Ack-tracked send routes through the primary only when it currently
+  /// carries the outbound channel (WS connected); otherwise there is no
+  /// socket to ack, so return `false` immediately and let the caller take
+  /// the REST path (the SSE fallback never acks outbound frames).
+  @override
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) {
+    if (!supportsOutboundFrames) return Future.value(false);
+    return _primary.sendMessageAwaitingAck(
+      roomId,
+      text: text,
+      messageType: messageType,
+      referencedMessageId: referencedMessageId,
+      reaction: reaction,
+      attachmentUrl: attachmentUrl,
+      sourceRoomId: sourceRoomId,
+      metadata: metadata,
+      clientMessageId: clientMessageId,
+      ackTimeout: ackTimeout,
+    );
+  }
+
   /// Forwards to whichever transport is currently active: primary
   /// when WS is up, fallback when we're degraded to SSE. Always
   /// effectively a no-op given today's primary/fallback are WS/SSE

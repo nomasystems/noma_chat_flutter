@@ -235,6 +235,55 @@ void main() {
       expect(networkCalls, 0);
     });
 
+    test('invalidateKeys removes every listed key in one batch', () async {
+      for (final key in ['rooms:all', 'rooms:unread', 'users:1']) {
+        await manager.resolve<String>(
+          key: key,
+          ttl: const Duration(hours: 1),
+          policy: CachePolicy.networkOnly,
+          fromCache: () async => null,
+          fromNetwork: () async => const ChatSuccess('v'),
+          saveToCache: (data) async {},
+        );
+      }
+
+      manager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
+
+      for (final key in ['rooms:all', 'rooms:unread']) {
+        var networkCalls = 0;
+        await manager.resolve<String>(
+          key: key,
+          ttl: const Duration(hours: 1),
+          policy: CachePolicy.cacheFirst,
+          fromCache: () async => 'cached',
+          fromNetwork: () async {
+            networkCalls++;
+            return const ChatSuccess('v2');
+          },
+          saveToCache: (data) async {},
+        );
+        expect(networkCalls, 1, reason: '$key should have been invalidated');
+      }
+
+      var usersNetworkCalls = 0;
+      await manager.resolve<String>(
+        key: 'users:1',
+        ttl: const Duration(hours: 1),
+        policy: CachePolicy.cacheFirst,
+        fromCache: () async => 'cached',
+        fromNetwork: () async {
+          usersNetworkCalls++;
+          return const ChatSuccess('v2');
+        },
+        saveToCache: (data) async {},
+      );
+      expect(usersNetworkCalls, 0);
+    });
+
+    test('invalidateKeys with no matching keys is a no-op', () async {
+      expect(() => manager.invalidateKeys(const ['a', 'b']), returnsNormally);
+    });
+
     test('uses defaultPolicy when no policy specified', () async {
       final customManager = CacheManager(
         config: const CacheConfig(defaultReadPolicy: CachePolicy.cacheOnly),

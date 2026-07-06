@@ -582,4 +582,60 @@ void main() {
       expect(event, isA<UserActivityEvent>());
     });
   });
+
+  group('EventParser schema version tolerance (real-time-events-001)', () {
+    late List<String> warnings;
+
+    setUp(() {
+      warnings = [];
+      EventParser.logger = (level, msg) {
+        if (level == 'warn') warnings.add(msg);
+      };
+    });
+
+    tearDown(() => EventParser.logger = null);
+
+    test('parses an event stamped with the supported schema version without '
+        'warning', () {
+      final event = EventParser.parseJson({
+        'type': 'message_deleted',
+        'schemaVersion': EventParser.supportedSchemaMajor,
+        'roomId': 'room-1',
+        'messageId': 'm1',
+      });
+      expect(event, isA<MessageDeletedEvent>());
+      expect(warnings, isEmpty);
+    });
+
+    test('still parses a newer-major event best-effort (tolerant)', () {
+      final event = EventParser.parseJson({
+        'type': 'message_deleted',
+        'v': '${EventParser.supportedSchemaMajor + 1}.3',
+        'roomId': 'room-9',
+        'messageId': 'm9',
+      });
+      expect(event, isA<MessageDeletedEvent>());
+      final e = event! as MessageDeletedEvent;
+      expect(e.roomId, 'room-9');
+      expect(e.messageId, 'm9');
+    });
+
+    test('an unparseable or absent schema version is treated as current '
+        '(no warning, still parses)', () {
+      final absent = EventParser.parseJson({
+        'type': 'message_deleted',
+        'roomId': 'r',
+        'messageId': 'm',
+      });
+      final garbage = EventParser.parseJson({
+        'type': 'message_deleted',
+        'schemaVersion': 'not-a-number',
+        'roomId': 'r',
+        'messageId': 'm',
+      });
+      expect(absent, isA<MessageDeletedEvent>());
+      expect(garbage, isA<MessageDeletedEvent>());
+      expect(warnings, isEmpty);
+    });
+  });
 }

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 import 'package:noma_chat/noma_chat_advanced.dart';
@@ -36,17 +37,29 @@ List<String> demoContactsFromEnv() {
       .toList(growable: false);
 }
 
-/// Compile-time override for the SSE base URL. The harness sets this to
-/// `http://localhost:2082` (NRTE's port — SSE in CHT does NOT live in
-/// the REST :8077 strip; the default `sseUrl == null ` → derive from
-/// `realtimeUrl` flow gave a 404 against `:8077/v1/events`). When the
+/// Compile-time override for the SSE base URL.
+///
+/// Use this when the realtime event stream is served by a different
+/// host/port than the one the SDK would derive from `realtimeUrl` — the
+/// harness needs it because in CHT, SSE is served by a separate process
+/// (NRTE) that does NOT live on the same `:8077` strip as the REST API:
+/// the default `sseUrl == null` → derive-from-`realtimeUrl` flow gave a
+/// 404 against `:8077/v1/events`. Set it via
+/// `--dart-define=SSE_URL=http://localhost:2082` (NRTE's port). When the
 /// dart-define is empty the example falls back to the user's
-/// `settings.sseUrl` (entered manually in onboarding).
+/// `settings.sseUrl` (entered manually in onboarding), and when that is
+/// also unset the SDK derives it from `realtimeUrl`. Only relevant when
+/// `settings.realtimeMode == RealtimeMode.sse`; ignored for WS/polling.
 String _sseUrlOverride() =>
     const String.fromEnvironment('SSE_URL', defaultValue: '');
 
-/// Compile-time override for the SSE path. Same rationale as
-/// [_sseUrlOverride]: NRTE serves `/eventsource`, not `/v1/events`.
+/// Compile-time override for the SSE path (default `/v1/events`).
+///
+/// Same rationale as [_sseUrlOverride]: NRTE serves its stream at
+/// `/eventsource`, not the SDK's default `/v1/events`, so the harness
+/// passes `--dart-define=SSE_PATH=/eventsource` to point the example at
+/// the right route without touching the SDK's defaults. Leave unset for
+/// a backend that serves SSE at the standard path.
 String _ssePathOverride() =>
     const String.fromEnvironment('SSE_PATH', defaultValue: '');
 
@@ -180,9 +193,11 @@ Future<LoginOutcome> openChatSession(
           )
         : null,
     // The example app opts in to HTTP body logging so request shapes are
-    // easy to diagnose during development. Production apps typically leave
-    // this false.
-    enableHttpLog: true,
+    // easy to diagnose during development. Gated on `kDebugMode` — a
+    // release build must never ship with body logging on, since request
+    // bodies can carry message text and other user data. Production apps
+    // should apply the same gate (or leave it `false` unconditionally).
+    enableHttpLog: kDebugMode,
     // Enable the local cache so client.messages resolves to CachedMessagesApi.
     // Without it the SDK falls back to RestMessagesApi, where clearChat only
     // marks the room read and never records a clearedAt watermark — so cleared
@@ -195,6 +210,22 @@ Future<LoginOutcome> openChatSession(
   // NomaChat.create requires baseUrl/realtimeUrl/tokenProvider as positional
   // even when a `config:` is provided — those are ignored in that case.
   // Tracked as SDK smell (see plans/observa_noma.md F7).
+  //
+  // `tokenProvider` returns an empty string here because this CHT mode
+  // authenticates over HTTP Basic (`BasicAuthInterceptor` above), not
+  // bearer JWT — the `config:` passed in wires a `BasicAuthInterceptor`
+  // as `authInterceptor`, which takes over the Authorization header
+  // entirely and never calls this provider. It only exists to satisfy
+  // `NomaChat.create`'s positional parameter; its return value is dead
+  // for this login path.
+  //
+  // For a real JWT-backed deployment (Cognito, Auth0, ...), drop
+  // `authInterceptor`/`BasicAuthInterceptor` and instead return the
+  // current access token from `tokenProvider`, e.g.:
+  //   tokenProvider: () async => await authService.getFreshAccessToken(),
+  // The SDK calls it before every request and on 401 to refresh, so it
+  // should always hand back a non-expired token (refreshing internally
+  // if needed) rather than a cached one.
   final chat = await NomaChat.create(
     baseUrl: settings.baseUrl,
     realtimeUrl: settings.realtimeUrl,

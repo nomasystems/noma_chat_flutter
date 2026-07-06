@@ -161,6 +161,31 @@ void main() {
       expect(out, isEmpty);
     });
 
+    test('post() with a non-map body throws ChatApiException', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((_) async => resp(data: [1, 2, 3]));
+
+      await expectLater(
+        rest.post('/foo', data: {'k': 'v'}),
+        throwsA(
+          isA<ChatApiException>().having(
+            (e) => e.message,
+            'message',
+            contains('Expected Map'),
+          ),
+        ),
+      );
+    });
+
     test('postVoid() ignores body', () async {
       when(
         () => dio.request(
@@ -350,6 +375,90 @@ void main() {
         fail('should have thrown');
       } on ChatRateLimitException catch (e) {
         expect(e.retryAfter, const Duration(seconds: 12));
+      }
+    });
+
+    test('429 clamps a zero retry-after to one second', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenThrow(
+        dioErr(
+          statusCode: 429,
+          headers: {
+            'retry-after': ['0'],
+          },
+        ),
+      );
+
+      try {
+        await rest.get('/foo');
+        fail('should have thrown');
+      } on ChatRateLimitException catch (e) {
+        expect(e.retryAfter, const Duration(seconds: 1));
+      }
+    });
+
+    test('429 clamps a negative retry-after to one second', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenThrow(
+        dioErr(
+          statusCode: 429,
+          headers: {
+            'x-ratelimit-reset': ['-30'],
+          },
+        ),
+      );
+
+      try {
+        await rest.get('/foo');
+        fail('should have thrown');
+      } on ChatRateLimitException catch (e) {
+        expect(e.retryAfter, const Duration(seconds: 1));
+      }
+    });
+
+    test('429 clamps an oversized retry-after to five minutes', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenThrow(
+        dioErr(
+          statusCode: 429,
+          headers: {
+            'retry-after': ['86400'],
+          },
+        ),
+      );
+
+      try {
+        await rest.get('/foo');
+        fail('should have thrown');
+      } on ChatRateLimitException catch (e) {
+        expect(e.retryAfter, const Duration(minutes: 5));
       }
     });
 

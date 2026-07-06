@@ -65,6 +65,7 @@ class MessageBubble extends StatelessWidget {
     this.readReceipts = const [],
     this.senderAvatarUrl,
     this.senderDisplayName,
+    this.statusIconBuilder,
   });
 
   final ChatMessage message;
@@ -140,6 +141,14 @@ class MessageBubble extends StatelessWidget {
   final List<ChatUser> readReceiptUsers;
   final List<ReadReceipt> readReceipts;
 
+  /// Overrides the delivery-status icon (sending/sent/delivered/read/failed).
+  /// Takes priority over `theme.bubble.statusIconBuilder` when both are set
+  /// — wire this from `ChatViewBuilders.statusIconBuilder` so hosts have one
+  /// discoverable place for all `ChatView` overrides instead of reaching
+  /// into the theme for this one slot. Returning `null` for a given state
+  /// falls back to `theme.bubble.statusIconBuilder`, then the SDK default.
+  final MessageStatusIconBuilder? statusIconBuilder;
+
   bool get _isEdited => message.isEdited;
 
   /// Read each admin-action flag from `metadata`. Backend sets these
@@ -155,6 +164,16 @@ class MessageBubble extends StatelessWidget {
   bool get _adminDeleted => message.metadata?['adminDeleted'] == true;
 
   bool get _isForwarded => message.isForwarded;
+
+  /// Parses `metadata['sourceTimestamp']` when present — an ISO-8601
+  /// string, if the backend/consumer stamps the original send time onto
+  /// the forwarded copy. `null` when absent or unparsable so
+  /// [ForwardedBubble] falls back to just the source-room label.
+  DateTime? get _forwardedSourceTimestamp {
+    final raw = message.metadata?['sourceTimestamp'];
+    if (raw is! String) return null;
+    return DateTime.tryParse(raw);
+  }
 
   bool get _isStarred => message.isStarred;
 
@@ -184,10 +203,14 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildStatusIcon(BuildContext context, MessageDeliveryState state) {
-    final override = theme.bubble.statusIconBuilder?.call(
-      context,
-      MessageStatusIconData(state: state, size: 14, message: message),
+    final data = MessageStatusIconData(
+      state: state,
+      size: 14,
+      message: message,
     );
+    final override =
+        statusIconBuilder?.call(context, data) ??
+        theme.bubble.statusIconBuilder?.call(context, data);
     return switch (state) {
       MessageDeliveryState.failed => GestureDetector(
         onTap: onRetry,
@@ -414,6 +437,7 @@ class MessageBubble extends StatelessWidget {
     if (_isForwarded) {
       bubble = ForwardedBubble(
         sourceLabel: forwardedSourceLabel,
+        sourceTimestamp: _forwardedSourceTimestamp,
         theme: theme,
         child: bubble,
       );

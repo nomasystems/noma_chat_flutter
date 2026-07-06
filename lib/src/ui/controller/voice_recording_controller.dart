@@ -5,11 +5,12 @@ import 'package:flutter/foundation.dart';
 import 'package:record/record.dart';
 
 import '../models/voice_message_data.dart';
+import '../utils/platform_support.dart';
 // `dart:io` and `path_provider` live behind this conditional import so the
 // package keeps a WASM-compatible import graph (pana penalises Web targets
 // that transitively reach `dart:io`). The Web stub throws; the controller's
-// `startRecording` short-circuits with `permissionDenied` before any of
-// the helpers can be called on Web.
+// `startRecording` short-circuits with `unsupported` before any of the
+// helpers can be called on Web.
 import '_voice_recorder_io.dart'
     if (dart.library.js_interop) '_voice_recorder_io_web.dart';
 
@@ -33,6 +34,7 @@ enum StartRecordingResult {
   alreadyRunning,
   permissionDenied,
   permissionJustGranted,
+  unsupported,
 }
 
 const _kPermissionDialogThreshold = Duration(milliseconds: 300);
@@ -92,10 +94,12 @@ class VoiceRecordingController extends ChangeNotifier {
 
     // Voice recording is unsupported on Web in this release: the path-based
     // staging flow (`File`/`Directory`/`getTemporaryDirectory`) relies on
-    // dart:io. Returning `permissionDenied` keeps the UI consistent (the
-    // overlay informs the user instead of crashing) until the controller
-    // grows a MediaRecorder-backed Web variant.
-    if (kIsWeb) return StartRecordingResult.permissionDenied;
+    // dart:io. Reported as `unsupported` (not `permissionDenied`) so the UI
+    // can tell "this platform can't record" apart from "the user said no"
+    // until the controller grows a MediaRecorder-backed Web variant.
+    if (!PlatformSupport.supportsVoiceRecording) {
+      return StartRecordingResult.unsupported;
+    }
 
     final stopwatch = Stopwatch()..start();
     final hasPermission = await _recorder.hasPermission();

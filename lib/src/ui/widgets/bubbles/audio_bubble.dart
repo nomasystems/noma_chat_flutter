@@ -29,6 +29,8 @@ class AudioBubble extends StatefulWidget {
     this.senderAvatarUrl,
     this.senderDisplayName,
     this.showSenderPortrait = true,
+    this.initialPlaybackSpeed = 1.0,
+    this.onPlaybackSpeedChanged,
   });
 
   final String audioUrl;
@@ -76,6 +78,22 @@ class AudioBubble extends StatefulWidget {
   /// portrait is the only one).
   final bool showSenderPortrait;
 
+  /// Playback speed (1.0 / 1.5 / 2.0) this bubble starts at. Defaults to
+  /// 1.0. Hosts that persist the user's last-picked speed (e.g. in
+  /// `SharedPreferences` or a settings store) can restore it here instead
+  /// of every bubble always starting at 1x. Values outside `{1.0, 1.5,
+  /// 2.0}` are accepted but render as the nearest cycle step reached via
+  /// [onPlaybackSpeedChanged].
+  final double initialPlaybackSpeed;
+
+  /// Fired every time the user cycles the playback speed pill (1x → 1.5x
+  /// → 2x → 1x). Wire this to persist the choice — e.g. write it to
+  /// `SharedPreferences` — so the next audio bubble (this session or a
+  /// future one, via [initialPlaybackSpeed]) can start at the user's
+  /// preferred speed instead of resetting to 1x. This is playback speed
+  /// only; voice *recording* is untouched.
+  final ValueChanged<double>? onPlaybackSpeedChanged;
+
   @override
   State<AudioBubble> createState() => _AudioBubbleState();
 }
@@ -87,8 +105,10 @@ class _AudioBubbleState extends State<AudioBubble> {
   bool _listened = false;
   // Per-bubble playback speed. The coordinator (when present) only handles
   // exclusivity, never the speed — that way each audio remembers its own
-  // 1x / 1.5x / 2x independently of any other bubble.
-  double _speed = 1.0;
+  // 1x / 1.5x / 2x independently of any other bubble. Seeded from
+  // `widget.initialPlaybackSpeed` so a host that persists the user's last
+  // choice can restore it instead of always starting at 1x.
+  late double _speed;
   // True once `_togglePlayPause` has been invoked at least once (regardless
   // of whether playback ultimately succeeded). Drives the avatar → speed
   // pill swap on the lateral slot: until the user "listens to it once"
@@ -111,6 +131,7 @@ class _AudioBubbleState extends State<AudioBubble> {
   void initState() {
     super.initState();
     _listened = widget.isListened;
+    _speed = widget.initialPlaybackSpeed;
   }
 
   /// Wraps `audioplayers` source resolution: `asset:` URLs become
@@ -625,6 +646,7 @@ class _AudioBubbleState extends State<AudioBubble> {
         _speed = 1.0;
       }
     });
+    widget.onPlaybackSpeedChanged?.call(_speed);
     await _ensureInitialized();
     try {
       await _player?.setPlaybackRate(_speed);

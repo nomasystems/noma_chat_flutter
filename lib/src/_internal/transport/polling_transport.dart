@@ -179,6 +179,20 @@ class PollingTransport implements RealtimeTransport {
     Map<String, dynamic>? metadata,
   }) {}
 
+  @override
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) => Future.value(false);
+
   void _emit(ChatEvent event) {
     if (!_eventController.isClosed) _eventController.add(event);
   }

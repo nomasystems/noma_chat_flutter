@@ -295,7 +295,11 @@ class RoomsApi implements ChatRoomsApi {
   /// [custom] — replaces (not merges) the room's custom JSON map.
   ///
   /// On success the `roomDetail:<roomId>`, `rooms:all`, and `rooms:unread`
-  /// TTL keys are invalidated so the next read fetches fresh data.
+  /// TTL keys are invalidated so the next read fetches fresh data. Any
+  /// cached [UnreadRoom] entry for [roomId] also has its `name`/`avatarUrl`
+  /// patched in place, so a room list rendered straight from cache (before
+  /// the invalidated keys are refetched) does not show the stale avatar or
+  /// name.
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
@@ -343,8 +347,41 @@ class RoomsApi implements ChatRoomsApi {
       _cacheManager?.invalidate('roomDetail:$roomId');
       _cacheManager?.invalidate('rooms:all');
       _cacheManager?.invalidate('rooms:unread');
+      final cache = _cache;
+      if (cache != null && (name != null || avatarUrl != null || clearAvatar)) {
+        try {
+          await _patchCachedUnreadRoom(
+            cache,
+            roomId,
+            name: name,
+            avatarUrl: clearAvatar ? '' : avatarUrl,
+          );
+        } catch (e) {
+          _logger?.call('warn', 'rooms.updateConfig: cache patch failed: $e');
+        }
+      }
     }
     return result;
+  }
+
+  /// Patches the cached [UnreadRoom] for [roomId] in place, if one exists,
+  /// so a stale `name`/`avatarUrl` does not linger until the next full
+  /// `rooms:all`/`rooms:unread` refetch. A no-op when the room has no
+  /// cached unread entry yet.
+  Future<void> _patchCachedUnreadRoom(
+    ChatLocalDatasource cache,
+    String roomId, {
+    String? name,
+    String? avatarUrl,
+  }) async {
+    final unreads = (await cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
+    final existing = unreads.where((u) => u.roomId == roomId).firstOrNull;
+    if (existing == null) return;
+    final patched = existing.copyWith(
+      name: name ?? existing.name,
+      avatarUrl: avatarUrl ?? existing.avatarUrl,
+    );
+    await cache.saveUnreads([patched]);
   }
 
   // Room preferences
@@ -390,6 +427,16 @@ class RoomsApi implements ChatRoomsApi {
 
   // Batch
 
+  /// Marks every room in [roomIds] as read in one request
+  /// (`batchMarkRoomsAsRead`, up to 100 ids).
+  ///
+  /// Per-item results are intentionally NOT surfaced: unlike `invite()` (which
+  /// the backend answers with a `207 Multi-Status` per-user array), this
+  /// endpoint answers a single `204` and *silently skips* any room the caller
+  /// is not a member of — the backend exposes no per-room outcome to parse.
+  /// A [ChatSuccess] therefore means "the batch was accepted", not "every id
+  /// was a room you could mark". If you need to confirm which rooms cleared,
+  /// re-query with [batchGetUnread], whose response omits non-member rooms.
   @override
   Future<ChatResult<void>> batchMarkAsRead(List<String> roomIds) async {
     final result = await safeVoidCall(
@@ -409,6 +456,15 @@ class RoomsApi implements ChatRoomsApi {
     return result;
   }
 
+  /// Fetches unread counts for every room in [roomIds] in one request
+  /// (`batchGetUnreadCounts`, up to 100 ids).
+  ///
+  /// Per-item semantics: the returned list is the *per-room result set*. The
+  /// backend silently excludes any room the caller is not a member of, so the
+  /// result can be shorter than [roomIds] — the ids present are exactly the
+  /// rooms that resolved, and any requested id missing from the result was not
+  /// accessible. Diff [roomIds] against the returned `roomId`s to find the
+  /// excluded ones (there is no separate error array to parse).
   @override
   Future<ChatResult<List<UnreadRoom>>> batchGetUnread(List<String> roomIds) =>
       safeApiCall(() async {

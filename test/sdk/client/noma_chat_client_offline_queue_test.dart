@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_advanced.dart';
+import 'package:noma_chat/src/_internal/cache/offline_queue.dart';
+import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 import 'package:noma_chat/src/_internal/transport/transport_manager.dart';
 import 'package:mocktail/mocktail.dart';
@@ -143,6 +145,106 @@ void main() {
     },
   );
 
+  test('a second connect() fired before the first resolves awaits the '
+      'in-flight call instead of racing it (single transport.connect, '
+      'single event subscription)', () async {
+    final connectGate = Completer<void>();
+    when(() => transport.connect()).thenAnswer((_) => connectGate.future);
+
+    final client = build();
+    final first = client.connect();
+    final second = client.connect();
+
+    connectGate.complete();
+    await first;
+    await second;
+
+    verify(() => transport.connect()).called(1);
+  });
+
+  test('connect() after a prior call has resolved starts a fresh cycle '
+      '(not blocked by the finished in-flight future)', () async {
+    final client = build();
+    await client.connect();
+    await client.connect();
+
+    verify(() => transport.connect()).called(2);
+  });
+
+  test(
+    'default onOperationDropped records the operation id as '
+    'permanently failed, queryable via isOperationPermanentlyFailed',
+    () async {
+      final client = build();
+      expect(client.isOperationPermanentlyFailed('op-x'), isFalse);
+
+      client.onOperationDropped(
+        PendingDeleteMessage(id: 'op-x', roomId: 'r1', messageId: 'm1'),
+        'max_retries',
+      );
+
+      expect(client.isOperationPermanentlyFailed('op-x'), isTrue);
+      expect(client.permanentlyFailedOperationIds, {'op-x'});
+    },
+  );
+
+  test('onOperationDropped is overridable with a custom closure', () async {
+    final client = build();
+    final seen = <String>[];
+    client.onOperationDropped = (op, reason) => seen.add('${op.id}:$reason');
+
+    client.onOperationDropped(
+      PendingDeleteMessage(id: 'op-y', roomId: 'r1', messageId: 'm1'),
+      'ttl_expired',
+    );
+
+    expect(seen, ['op-y:ttl_expired']);
+    // The override replaced the default entirely — it did not also mark
+    // the operation as permanently failed.
+    expect(client.isOperationPermanentlyFailed('op-y'), isFalse);
+  });
+
+  test('logout() clears permanently-failed operation markers', () async {
+    final client = build();
+    client.onOperationDropped(
+      PendingDeleteMessage(id: 'op-z', roomId: 'r1', messageId: 'm1'),
+      'max_retries',
+    );
+    expect(client.isOperationPermanentlyFailed('op-z'), isTrue);
+
+    await client.logout();
+
+    expect(client.isOperationPermanentlyFailed('op-z'), isFalse);
+    expect(client.permanentlyFailedOperationIds, isEmpty);
+  });
+
+  test('an operation dropped by the offline queue after exhausting retries '
+      'is surfaced through the default onOperationDropped wiring', () async {
+    when(() => rest.delete(any())).thenThrow(const ChatNetworkException());
+
+    final client = build();
+    await store.saveOfflineQueue([
+      {
+        'id': 'op-real',
+        'type': 'deleteMessage',
+        'createdAt': DateTime.now()
+            .subtract(const Duration(hours: 25))
+            .toIso8601String(),
+        'attempts': 0,
+        'roomId': 'r1',
+        'messageId': 'm1',
+      },
+    ]);
+
+    await client.connect();
+    events.add(const ConnectedEvent());
+    events.add(const DisconnectedEvent());
+    events.add(const ConnectedEvent());
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(client.isOperationPermanentlyFailed('op-real'), isTrue);
+  });
+
   group('offline queue payload coverage (serialised PendingOperation)', () {
     Future<void> seedAndDrain(Map<String, dynamic> op) async {
       await store.saveOfflineQueue([
@@ -213,6 +315,85 @@ void main() {
       });
 
       verify(() => rest.delete('/rooms/r1/messages/m1/reactions')).called(1);
+      expect(await queueIsDrained(), isTrue);
+    });
+
+    test(
+      'addReaction drains a POST to the reactions path with the emoji',
+      () async {
+        when(
+          () => rest.postVoid(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async {});
+
+        await seedAndDrain({
+          'type': 'addReaction',
+          'roomId': 'r1',
+          'messageId': 'm1',
+          'emoji': '👍',
+        });
+
+        final captured =
+            verify(
+                  () => rest.postVoid(
+                    '/rooms/r1/messages/m1/reactions',
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        expect(captured['emoji'], '👍');
+        expect(await queueIsDrained(), isTrue);
+      },
+    );
+
+    test('pinMessage drains a PUT on the pin path', () async {
+      when(() => rest.putVoid(any())).thenAnswer((_) async {});
+
+      await seedAndDrain({
+        'type': 'pinMessage',
+        'roomId': 'r1',
+        'messageId': 'm1',
+      });
+
+      verify(() => rest.putVoid('/rooms/r1/messages/m1/pin')).called(1);
+      expect(await queueIsDrained(), isTrue);
+    });
+
+    test('unpinMessage drains a DELETE on the pin path', () async {
+      when(() => rest.delete(any())).thenAnswer((_) async {});
+
+      await seedAndDrain({
+        'type': 'unpinMessage',
+        'roomId': 'r1',
+        'messageId': 'm1',
+      });
+
+      verify(() => rest.delete('/rooms/r1/messages/m1/pin')).called(1);
+      expect(await queueIsDrained(), isTrue);
+    });
+
+    test('starMessage drains a PUT on the star path', () async {
+      when(() => rest.putVoid(any())).thenAnswer((_) async {});
+
+      await seedAndDrain({
+        'type': 'starMessage',
+        'roomId': 'r1',
+        'messageId': 'm1',
+      });
+
+      verify(() => rest.putVoid('/rooms/r1/messages/m1/star')).called(1);
+      expect(await queueIsDrained(), isTrue);
+    });
+
+    test('unstarMessage drains a DELETE on the star path', () async {
+      when(() => rest.delete(any())).thenAnswer((_) async {});
+
+      await seedAndDrain({
+        'type': 'unstarMessage',
+        'roomId': 'r1',
+        'messageId': 'm1',
+      });
+
+      verify(() => rest.delete('/rooms/r1/messages/m1/star')).called(1);
       expect(await queueIsDrained(), isTrue);
     });
 

@@ -82,7 +82,7 @@ class NomaChat {
   ///
   /// [config] — supply a pre-built [ChatConfig] to bypass all convenience
   /// parameters (escape hatch for advanced setups such as custom auth
-  /// interceptors or certificate pinning).
+  /// interceptors).
   ///
   /// Throws [ArgumentError] if [baseUrl] or [realtimeUrl] are malformed, end
   /// with `/`, or use `http://` in a release build.
@@ -125,7 +125,6 @@ class NomaChat {
     // Advanced
     ChatConfig? config,
     ChatLocalDatasource? localDatasource,
-    List<String>? certificatePins,
     // Observability
     void Function(String level, String message)? logger,
     MetricCallback? metricCallback,
@@ -168,7 +167,6 @@ class NomaChat {
               : null,
           logger: logger,
           metricCallback: metricCallback,
-          certificatePins: certificatePins,
         );
 
     final client = NomaChatClient(config: effectiveConfig);
@@ -189,6 +187,75 @@ class NomaChat {
     );
 
     return NomaChat._(client: client, adapter: adapter, cache: hiveCache);
+  }
+
+  /// Creates a [NomaChat] instance from a pre-built [ChatConfig].
+  ///
+  /// This is the escape hatch for callers who already have a fully
+  /// assembled [ChatConfig] (custom auth interceptors, DI-provided
+  /// transport tuning, a pre-opened [ChatLocalDatasource], …) and do
+  /// not want to restate the connection parameters. Unlike [create] —
+  /// which requires `baseUrl` / `realtimeUrl` / `tokenProvider` even
+  /// when a `config` is supplied (they are then silently ignored) —
+  /// [fromConfig] takes the [config] as the single source of truth for
+  /// transport and cache wiring.
+  ///
+  /// [config] — the pre-built configuration. Its `baseUrl`,
+  /// `realtimeUrl`, `tokenProvider`, `localDatasource`, `logger`, etc.
+  /// are used verbatim. No convenience Hive cache is opened here: if you
+  /// want persistence, set `config.localDatasource` (e.g. via
+  /// [HiveChatDatasource.create]) before calling this. The adapter
+  /// shares `config.localDatasource` so client and adapter never
+  /// diverge.
+  ///
+  /// [currentUser] — the authenticated user who owns this session.
+  ///
+  /// The remaining UI parameters mirror [create].
+  ///
+  /// Example:
+  /// ```dart
+  /// final config = ChatConfig(
+  ///   baseUrl: 'https://chat.myapp.com/v1',
+  ///   realtimeUrl: 'https://chat.myapp.com',
+  ///   tokenProvider: () => authService.getToken(),
+  ///   localDatasource: await HiveChatDatasource.create(),
+  /// );
+  /// final chat = await NomaChat.fromConfig(
+  ///   config: config,
+  ///   currentUser: ChatUser(id: userId, displayName: userName),
+  /// );
+  /// await chat.connect();
+  /// ```
+  static Future<NomaChat> fromConfig({
+    required ChatConfig config,
+    required ChatUser currentUser,
+    // UI
+    ChatUiLocalizations l10n = ChatUiLocalizations.en,
+    IsDmRoomPredicate? isDmRoom,
+    RoomTitleResolver? roomTitleResolver,
+    bool autoMarkAsRead = true,
+    // Storage
+    AvatarStorage? avatarStorage,
+  }) async {
+    final client = NomaChatClient(config: config);
+    await client.restoreCacheTimestamps();
+
+    final adapter = ChatUiAdapter(
+      client: client,
+      currentUser: currentUser,
+      l10n: l10n,
+      // Share the config's datasource so adapter and client never
+      // diverge. No convenience Hive box is opened here, so
+      // NomaChat.dispose() has nothing extra to close (`cache` stays
+      // null) — the caller owns the lifecycle of `config.localDatasource`.
+      cache: config.localDatasource,
+      isDmRoom: isDmRoom,
+      roomTitleResolver: roomTitleResolver,
+      autoMarkAsRead: autoMarkAsRead,
+      avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+    );
+
+    return NomaChat._(client: client, adapter: adapter);
   }
 
   /// Creates a [NomaChat] instance from a pre-configured [ChatClient].

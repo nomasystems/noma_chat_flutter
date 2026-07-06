@@ -39,4 +39,25 @@ Each SDK event (`ws_connect`, `ws_auth_ok`, `http_request`, `cache_hit`, …) be
 
 ## Customising span names
 
-Override the default mapping via `OtelSpanBuilder.spanNames` or subclass `OtelSpanBuilder` and supply your own `nomaChatOtelCallback` implementation.
+`OtelSpanBuilder` is a static-only utility (`abstract final`) — it can't be subclassed and its `spanNames` map is `const`, so neither is overridable. To customise the mapping, write your own `MetricCallback` that reuses the exposed helpers:
+
+```dart
+import 'package:noma_chat/noma_chat_advanced.dart' show MetricCallback;
+import 'package:noma_chat_otel/noma_chat_otel.dart';
+import 'package:opentelemetry/api.dart';
+
+const _customNames = {
+  'ws_connect': 'chat.socket.open',
+};
+
+MetricCallback myOtelCallback(Tracer tracer) {
+  return (event, attributes) {
+    final name = _customNames[event] ?? OtelSpanBuilder.nameFor(event);
+    tracer
+        .startSpan(name, attributes: OtelSpanBuilder.toAttributes(attributes))
+        .end();
+  };
+}
+```
+
+`OtelSpanBuilder.nameFor` and `OtelSpanBuilder.toAttributes` stay reusable as the default name resolver and the attribute-bag converter.

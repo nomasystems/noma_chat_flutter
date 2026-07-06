@@ -88,6 +88,31 @@ abstract class RealtimeTransport {
     Map<String, dynamic>? metadata,
   });
 
+  /// Outbound message via WS that resolves once delivery is confirmed.
+  ///
+  /// Sends the message and returns `true` when the server acks it (the
+  /// backend's `message_acked` frame, correlated by an SDK-injected id) or
+  /// `false` when the ack does not arrive before [ackTimeout] or the socket
+  /// drops first. Unlike the fire-and-forget [sendMessage], this lets
+  /// [MessagesApi.sendViaWs] fall back to the idempotent REST send on a
+  /// `false` result instead of silently losing the message on a socket drop.
+  ///
+  /// Transports without an outbound channel (SSE, polling, manual) keep the
+  /// default: they never confirm, returning `false` immediately so the
+  /// caller takes the REST path.
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) => Future.value(false);
+
   /// Force a refresh of the underlying state.
   ///
   /// * Streaming transports (WS/SSE/AutoFailover): no-op — the event

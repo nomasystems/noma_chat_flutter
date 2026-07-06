@@ -203,6 +203,7 @@ class _ChatViewState extends State<ChatView> {
       avatarUrlResolver: builders.avatarUrlResolver,
       isGroup: behaviors.isGroup,
       avatarRebuildSignal: builders.avatarRebuildSignal,
+      statusIconBuilder: builders.statusIconBuilder,
     );
   }
 
@@ -222,6 +223,7 @@ class _ChatViewState extends State<ChatView> {
             callbacks.onDeleteReaction?.call(message, emoji),
         theme: widget.theme,
         sheetBuilder: builders.reactionDetailSheetBuilder,
+        batchUserFetcher: builders.batchUserFetcher,
       );
     };
   }

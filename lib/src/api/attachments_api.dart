@@ -18,8 +18,16 @@ import '../client/chat_client.dart';
 @experimental
 class AttachmentsApi implements ChatAttachmentsApi {
   final RestClient _rest;
+  final void Function(String level, String message)? _logger;
 
-  AttachmentsApi({required RestClient rest}) : _rest = rest;
+  AttachmentsApi({
+    required RestClient rest,
+    void Function(String level, String message)? logger,
+  }) : _rest = rest,
+       _logger = logger;
+
+  static Map<String, dynamic>? _asMap(dynamic value) =>
+      value is Map<String, dynamic> ? value : null;
 
   @override
   Future<ChatResult<AttachmentUploadResult>> upload(
@@ -33,7 +41,7 @@ class AttachmentsApi implements ChatAttachmentsApi {
       mimeType,
       onProgress: onProgress,
     );
-    final att = json['attachment'] as Map<String, dynamic>? ?? json;
+    final att = _asMap(json['attachment']) ?? json;
     return AttachmentUploadResult(
       attachmentId: (att['attachmentId'] ?? att['id'] ?? '') as String,
       url: (att['getUrl'] ?? att['url']) as String?,
@@ -62,6 +70,14 @@ class AttachmentsApi implements ChatAttachmentsApi {
     return AttachmentSignedUrl(url: _rest.resolveUrl(raw), raw: json);
   });
 
+  /// Downloads an attachment's bytes.
+  ///
+  /// Prefer passing [roomId] — it takes the robust, membership-checked
+  /// signed-URL path. The no-[roomId] flow is a **deprecated** legacy path:
+  /// the backend can no longer authorize a header-only download and answers
+  /// `403 not_a_room_member`. It is kept only for source compatibility and
+  /// logs a deprecation warning when taken; pass [roomId] instead (the SDK
+  /// knows it wherever an attachment is displayed).
   @override
   Future<ChatResult<Uint8List>> download(
     String attachmentId, {
@@ -95,6 +111,12 @@ class AttachmentsApi implements ChatAttachmentsApi {
     // Deprecated legacy path: no roomId. The backend can no longer authorize
     // a header-only download and will respond 403 (`not_a_room_member`).
     // Kept only for source compatibility — callers should pass `roomId`.
+    _logger?.call(
+      'warn',
+      'attachments.download called without roomId — this legacy path is '
+          'deprecated and the backend will reject it (403 not_a_room_member). '
+          'Pass roomId to use the signed-URL flow.',
+    );
     return _rest.downloadBinary(
       '/attachments/$attachmentId',
       headers: {if (metadata != null) 'x-attachment-metadata': metadata},
@@ -110,6 +132,13 @@ class AttachmentsApi implements ChatAttachmentsApi {
     () => _rest.downloadBinary(_rest.resolveUrl(url), onProgress: onProgress),
   );
 
+  /// Lists a room's attachment messages (the media + files gallery).
+  ///
+  /// This is the dedicated room-attachments method — it maps to the
+  /// `getRoomAttachments` OpenAPI operation (`GET /rooms/{roomId}/attachments`)
+  /// so the gallery use case does not require iterating and filtering the full
+  /// message history. Cursor-paginated; returns full [ChatMessage] objects so
+  /// each item keeps its original sender and timestamp.
   @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> listInRoom(
     String roomId, {

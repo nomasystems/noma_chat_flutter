@@ -315,6 +315,65 @@ void main() {
       verify(() => cache.deletePin('r1', 'm1')).called(1);
     });
 
+    test(
+      'send() invalidates rooms:all/rooms:unread BEFORE writing to cache, '
+      'so a concurrent cacheFirst reader never observes a fresh TTL '
+      'paired with a not-yet-updated cache entry',
+      () async {
+        when(
+          () => rest.post(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async => msgJson('m-sent'));
+
+        // Pre-populate the `rooms:all` TTL key so it starts out fresh, as
+        // if some earlier read had just resolved it from the network.
+        await cacheManager.resolve<String>(
+          key: 'rooms:all',
+          ttl: const Duration(hours: 12),
+          policy: CachePolicy.networkOnly,
+          fromCache: () async => null,
+          fromNetwork: () async => const ChatSuccess('seed'),
+          saveToCache: (_) async {},
+        );
+
+        String? orderOfEvents;
+        // The concurrent reader's probe runs synchronously from inside the
+        // mocked `saveMessages` call, i.e. strictly AFTER the fix's
+        // invalidation step but strictly BEFORE the write it wraps
+        // completes — exactly the interleaving core-5 describes. A
+        // `cacheFirst` probe only returns the cached snapshot without
+        // touching the network when the TTL key is still considered
+        // fresh, so it directly observes whether the invalidation already
+        // ran.
+        when(() => cache.saveMessages(any(), any())).thenAnswer((_) async {
+          var probedNetwork = false;
+          await cacheManager.resolve<String>(
+            key: 'rooms:all',
+            ttl: const Duration(hours: 12),
+            policy: CachePolicy.cacheFirst,
+            fromCache: () async => 'stale-snapshot',
+            fromNetwork: () async {
+              probedNetwork = true;
+              return const ChatSuccess('refetched');
+            },
+            saveToCache: (_) async {},
+          );
+          orderOfEvents = probedNetwork ? 'invalidated' : 'stale-visible';
+          return const ChatSuccess(null);
+        });
+
+        final r = await api.send('r1', text: 'hi');
+
+        expect(r.isSuccess, true);
+        expect(
+          orderOfEvents,
+          'invalidated',
+          reason:
+              'rooms:all must already be invalidated by the time '
+              'saveMessages() runs, closing the race window',
+        );
+      },
+    );
+
     test('listPins() falls through to network when cache empty', () async {
       when(
         () => rest.getWithTotalCount(

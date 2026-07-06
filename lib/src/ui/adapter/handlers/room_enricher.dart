@@ -61,7 +61,8 @@ class RoomEnricher {
     required void Function(String roomId) removeChatController,
     void Function(String level, String message)? logger,
     void Function(List<RoomListItem> rooms)? onRoomsLoaded,
-    void Function(String contactUserId, String roomId)? onDmContactResolved,
+    void Function(String roomId, String contactUserId)? Function()?
+    onDmContactResolved,
     RoomTitleResolver? roomTitleResolver,
     Future<ChatResult<void>> Function(String roomId, String messageId)?
     confirmDelivered,
@@ -105,7 +106,13 @@ class RoomEnricher {
   final void Function(String roomId) _removeChatController;
   final void Function(String level, String message)? _logger;
   final void Function(List<RoomListItem> rooms)? _onRoomsLoaded;
-  final void Function(String contactUserId, String roomId)?
+
+  /// Late-bound accessor for the adapter's `onDmContactResolved` hook.
+  /// Resolved on every fire rather than captured once at construction so
+  /// a consumer that assigns `adapter.onDmContactResolved` AFTER the
+  /// enricher was lazily built still receives the callback. `null` (the
+  /// getter itself, or its result) means no hook is wired.
+  final void Function(String roomId, String contactUserId)? Function()?
   _onDmContactResolved;
   final RoomTitleResolver? _roomTitleResolver;
 
@@ -597,7 +604,7 @@ class RoomEnricher {
           effectiveDisplayName: effective ?? existing.effectiveDisplayName,
         ),
       );
-      _onDmContactResolved?.call(roomId, otherMember.userId);
+      _onDmContactResolved?.call()?.call(roomId, otherMember.userId);
     } catch (e) {
       _logger?.call(
         'warn',
@@ -614,10 +621,17 @@ class RoomEnricher {
         .get(roomId)
         .then((result) {
           if (_isDisposed()) return;
-          if (roomList.getRoomById(roomId) != null) {
+          final existingRow = roomList.getRoomById(roomId);
+          if (existingRow != null) {
             // Another path (e.g. loadRooms running in parallel) already added
             // this room; just enrich any missing fields.
             _applyDetailToExisting(roomId, result.dataOrNull, lastMessage);
+            final existingDetail = result.dataOrNull;
+            if (existingDetail != null &&
+                _isDmDetail(existingDetail) &&
+                existingRow.otherUserId == null) {
+              resolveDmContact(roomId);
+            }
             return;
           }
           final detail = result.dataOrNull;
@@ -796,7 +810,7 @@ class RoomEnricher {
                         ),
                       );
                     }
-                    _onDmContactResolved?.call(roomId, other.userId);
+                    _onDmContactResolved?.call()?.call(roomId, other.userId);
                   }
                 })
                 .catchError((Object e) {

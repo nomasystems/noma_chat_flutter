@@ -172,4 +172,146 @@ void main() {
     expect(find.byType(MessageBubble), findsWidgets);
     controller.dispose();
   });
+
+  group('typing row scroll anchoring', () {
+    testWidgets(
+      'compensates offset when typing row grows while reading history',
+      (tester) async {
+        const longNameUser2 = ChatUser(
+          id: 'u2',
+          displayName: 'Bartholomew Winterbourne-Sinclair',
+        );
+        const longNameUser3 = ChatUser(
+          id: 'u3',
+          displayName: 'Evangelina Featherstonhaugh-Montgomery',
+        );
+        final messages = List<ChatMessage>.generate(
+          40,
+          (i) => msg(
+            'm$i',
+            text: 'message number $i',
+            ts: DateTime(2026, 1, 1, 0, i),
+          ),
+        );
+        final controller = ChatController(
+          initialMessages: messages,
+          currentUser: me,
+        );
+        controller.setOtherUsers([longNameUser2, longNameUser3]);
+        controller.setTyping('u2', true);
+
+        await tester.pumpWidget(
+          wrap(
+            ListenableBuilder(
+              listenable: controller,
+              builder: (_, _) =>
+                  MessageList(controller: controller, isGroup: true),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final sc = controller.scrollController;
+        sc.jumpTo(300);
+        await tester.pump();
+        final offsetBefore = sc.offset;
+        expect(offsetBefore, 300);
+
+        controller.setTyping('u3', true);
+        await tester.pump();
+        await tester.pump();
+
+        expect(sc.offset, isNot(offsetBefore));
+
+        controller.dispose();
+      },
+    );
+
+    testWidgets('does not compensate when the user is at the bottom', (
+      tester,
+    ) async {
+      final messages = List<ChatMessage>.generate(
+        40,
+        (i) => msg(
+          'm$i',
+          text: 'message number $i',
+          ts: DateTime(2026, 1, 1, 0, i),
+        ),
+      );
+      final controller = ChatController(
+        initialMessages: messages,
+        currentUser: me,
+      );
+      controller.setOtherUsers([u2, u3]);
+      controller.setTyping('u2', true);
+
+      await tester.pumpWidget(
+        wrap(
+          ListenableBuilder(
+            listenable: controller,
+            builder: (_, _) =>
+                MessageList(controller: controller, isGroup: true),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final sc = controller.scrollController;
+      expect(sc.offset, 0);
+
+      controller.setTyping('u3', true);
+      await tester.pump();
+      await tester.pump();
+
+      expect(sc.offset, 0);
+
+      controller.dispose();
+    });
+
+    testWidgets(
+      'compensates offset when the typing row disappears while reading history',
+      (tester) async {
+        final messages = List<ChatMessage>.generate(
+          40,
+          (i) => msg(
+            'm$i',
+            text: 'message number $i',
+            ts: DateTime(2026, 1, 1, 0, i),
+          ),
+        );
+        final controller = ChatController(
+          initialMessages: messages,
+          currentUser: me,
+        );
+        controller.setOtherUsers([u2, u3]);
+        controller.setTyping('u2', true);
+        controller.setTyping('u3', true);
+
+        await tester.pumpWidget(
+          wrap(
+            ListenableBuilder(
+              listenable: controller,
+              builder: (_, _) =>
+                  MessageList(controller: controller, isGroup: true),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final sc = controller.scrollController;
+        sc.jumpTo(300);
+        await tester.pump();
+        final offsetBefore = sc.offset;
+
+        controller.setTyping('u2', false);
+        controller.setTyping('u3', false);
+        await tester.pump();
+        await tester.pump();
+
+        expect(sc.offset, isNot(offsetBefore));
+
+        controller.dispose();
+      },
+    );
+  });
 }

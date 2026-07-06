@@ -341,5 +341,61 @@ void main() {
       );
       expect(find.text('Este mensaje fue eliminado'), findsOneWidget);
     });
+
+    testWidgets('statusIconBuilder overrides the receipt tick', (tester) async {
+      final mine = RoomListItem(
+        id: 'rr1',
+        name: 'Chat',
+        lastMessage: 'hi',
+        lastMessageUserId: 'me',
+        lastMessageReceipt: ReceiptStatus.read,
+        lastMessageTime: DateTime(2026, 1, 1),
+      );
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: mine,
+            currentUserId: 'me',
+            statusIconBuilder: (context, data) =>
+                Text('tile-override-${data.state.name}'),
+          ),
+        ),
+      );
+
+      expect(find.text('tile-override-read'), findsOneWidget);
+      expect(find.byType(MessageStatusIcon), findsNothing);
+    });
+
+    testWidgets(
+      'statusIconBuilder takes priority over theme.bubble.statusIconBuilder',
+      (tester) async {
+        final mine = RoomListItem(
+          id: 'rr2',
+          name: 'Chat',
+          lastMessage: 'hi',
+          lastMessageUserId: 'me',
+          lastMessageReceipt: ReceiptStatus.sent,
+          lastMessageTime: DateTime(2026, 1, 1),
+        );
+        final theme = ChatTheme.defaults.copyWith(
+          bubble: ChatBubbleTheme(
+            statusIconBuilder: (context, data) => const Text('theme-tick'),
+          ),
+        );
+        await tester.pumpWidget(
+          wrap(
+            RoomTile(
+              room: mine,
+              currentUserId: 'me',
+              theme: theme,
+              statusIconBuilder: (context, data) => const Text('tile-tick'),
+            ),
+          ),
+        );
+
+        expect(find.text('tile-tick'), findsOneWidget);
+        expect(find.text('theme-tick'), findsNothing);
+      },
+    );
   });
 }

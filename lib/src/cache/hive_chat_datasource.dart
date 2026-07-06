@@ -287,24 +287,18 @@ class HiveChatDatasource implements ChatLocalDatasource {
     String? boxName,
   }) {
     final result = <T>[];
+    final boxSuffix = boxName != null ? ' in $boxName' : '';
     var skipped = 0;
-    Object? firstError;
     for (final e in values) {
       try {
         result.add(fromMap(Map<String, dynamic>.from(e)));
       } catch (err) {
         skipped++;
-        firstError ??= err;
+        onWarning?.call('Discarding corrupted record$boxSuffix: $err');
       }
     }
     if (skipped > 0) {
-      final boxSuffix = boxName != null ? ' in $boxName' : '';
-      final errorSuffix = firstError != null
-          ? ' (first error: $firstError)'
-          : '';
-      onWarning?.call(
-        'Skipped $skipped corrupted records$boxSuffix$errorSuffix',
-      );
+      onWarning?.call('Skipped $skipped corrupted records$boxSuffix');
     }
     return result;
   }

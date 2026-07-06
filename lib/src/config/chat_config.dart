@@ -96,25 +96,6 @@ class ChatConfig {
   @experimental
   final MetricCallback? metricCallback;
 
-  /// SHA-256 fingerprints (hex, colons optional, case-insensitive) of the
-  /// leaf certificates intended for pinning.
-  ///
-  /// **Not enforced yet — experimental.** The
-  /// `CertificatePinningInterceptor` attached when this list is non-empty is
-  /// an `@experimental` skeleton: it normalises and records the pins and maps
-  /// a Dio-surfaced handshake error to a typed `CertificatePinningException`,
-  /// but it does **not** install the native `badCertificateCallback`/HTTP
-  /// adapter that would actually compare the presented certificate against
-  /// these pins. **Setting this list does NOT protect against MITM today.**
-  /// A `warn` log is emitted at construction to make that explicit. The field
-  /// exists so the public API stays stable while the platform plumbing
-  /// matures; treat it as a no-op until a release note says otherwise.
-  ///
-  /// Default `null` → the platform's trust store is used directly. On web
-  /// pinning will always be a no-op (the browser owns the TLS handshake);
-  /// use HSTS + CT logs instead.
-  final List<String>? certificatePins;
-
   String get effectiveSseUrl => sseUrl ?? realtimeUrl;
 
   /// Default logger that routes `(level, message)` calls to
@@ -187,7 +168,6 @@ class ChatConfig {
     this.logger,
     this.enableHttpLog = false,
     this.metricCallback,
-    this.certificatePins,
   }) {
     _validate(baseUrl, realtimeUrl, sseUrl);
   }
@@ -259,12 +239,6 @@ class ChatConfig {
   /// error counts, queue depth, etc.). Forward to Prometheus, Datadog,
   /// Firebase Performance, or any other telemetry backend. `null` by default.
   ///
-  /// [certificatePins] — SHA-256 fingerprints of leaf certificates for
-  /// pinning. **Experimental and not enforced yet** — see the field doc on
-  /// [ChatConfig.certificatePins]. Setting it records the pins and emits a
-  /// `warn` log but does not currently validate certificates or protect
-  /// against MITM. `null` (default) uses the platform trust store.
-  ///
   /// **Other parameters:**
   ///
   /// [userId] — the ID of the current user. When set, the SDK uses it for
@@ -317,7 +291,6 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
-    List<String>? certificatePins,
   }) {
     return ChatConfig._(
       baseUrl: baseUrl,
@@ -326,6 +299,7 @@ class ChatConfig {
         tokenProvider: tokenProvider,
         onAuthFailure: onAuthFailure,
         logger: logger,
+        metricCallback: metricCallback,
       ),
       sseUrl: sseUrl,
       wsPath: wsPath,
@@ -348,7 +322,6 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
-      certificatePins: certificatePins,
     );
   }
 
@@ -378,7 +351,6 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
-    List<String>? certificatePins,
   }) {
     return ChatConfig._(
       baseUrl: baseUrl,
@@ -405,7 +377,6 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
-      certificatePins: certificatePins,
     );
   }
 
@@ -436,7 +407,6 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
-    List<String>? certificatePins,
   }) {
     return ChatConfig._(
       baseUrl: baseUrl,
@@ -466,7 +436,6 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
-      certificatePins: certificatePins,
     );
   }
 

@@ -286,12 +286,11 @@ class ChatUiAdapter {
   // -----------------------------------------------------------------
   // STATE
   //
-  // Grouped by concern for readability. A future milestone (1.0) may
-  // wrap each group in a private struct (`_TypingState`, `_VoiceState`,
-  // `_UserCacheState`, …) so teardown paths can iterate one container
-  // instead of remembering to clear N maps. The functional behaviour
-  // is identical either way; the grouping below makes the intent
-  // explicit in the meantime.
+  // Each concern is owned by a dedicated registry/service (below).
+  // Teardown never enumerates the maps directly: [_resetConnectionState]
+  // wipes the per-connection state and [_resetSessionState] wipes the
+  // cross-session caches on top of it, so `disconnect` / `signOut` /
+  // `dispose` route through one of the two and cannot forget a field.
   // -----------------------------------------------------------------
 
   // -- Per-room runtime state --
@@ -345,7 +344,7 @@ class ChatUiAdapter {
     removeChatController: removeChatController,
     logger: logger,
     onRoomsLoaded: onRoomsLoaded,
-    onDmContactResolved: onDmContactResolved,
+    onDmContactResolved: () => onDmContactResolved,
     roomTitleResolver: roomTitleResolver,
     confirmDelivered: autoConfirmDelivery ? _deliveredCoord.confirm : null,
   );
@@ -652,25 +651,56 @@ class ChatUiAdapter {
   ChatConnectionState get connectionState => client.connectionState;
 
   /// Returns (or creates) a [ChatController] for the given room.
+  ///
+  /// When [otherUsers] is supplied it is cached and pushed onto the
+  /// controller as before. When it is omitted, the adapter fills the
+  /// controller's peer list from what it already knows — the resolved DM
+  /// contact (see [DmContactRegistry]) hydrated from the in-memory user
+  /// cache. Consumers therefore no longer need the `cacheUsers(...)` +
+  /// `setOtherUsers(...)` double-call just to get the DM peer onto a
+  /// freshly-opened controller; opening the room is enough.
   ChatController getChatController(
     String roomId, {
     List<ChatMessage> initialMessages = const [],
     List<ChatUser> otherUsers = const [],
   }) {
     if (otherUsers.isNotEmpty) cacheUsers(otherUsers);
+    final effectiveOthers = otherUsers.isNotEmpty
+        ? otherUsers
+        : _cachedOtherUsersForRoom(roomId);
     final existing = _chatControllers[roomId];
     if (existing != null) {
-      if (otherUsers.isNotEmpty) existing.setOtherUsers(otherUsers);
+      // Only push when the caller actually supplied users, or when the
+      // controller has none yet and we resolved some from cache — never
+      // clobber a populated controller with an empty/cache-only list.
+      if (otherUsers.isNotEmpty) {
+        existing.setOtherUsers(otherUsers);
+      } else if (existing.otherUsers.isEmpty && effectiveOthers.isNotEmpty) {
+        existing.setOtherUsers(effectiveOthers);
+      }
       return existing;
     }
     final controller = ChatController(
       initialMessages: initialMessages,
       currentUser: currentUser,
-      otherUsers: otherUsers,
+      otherUsers: effectiveOthers,
     );
     controller.setRoomId(roomId);
     _chatControllers[roomId] = controller;
     return controller;
+  }
+
+  /// Best-effort resolution of a room's other participants from state the
+  /// adapter already holds — currently the resolved DM contact hydrated
+  /// from the in-memory user cache. Returns `const []` for group rooms,
+  /// unresolved DMs, or DMs whose peer hasn't been cached yet. Never
+  /// triggers a network fetch; callers that need a guaranteed roster use
+  /// the room-detail / members flows.
+  List<ChatUser> _cachedOtherUsersForRoom(String roomId) {
+    final contactId = _dmContacts.contactIdFor(roomId);
+    if (contactId == null) return const [];
+    final cached = _userCacheService.find(contactId);
+    return cached == null ? const [] : [cached];
   }
 
   /// Looks up a previously cached user by id. Returns `null` when the user is
@@ -870,14 +900,46 @@ class ChatUiAdapter {
   }
 
   /// Disconnects from the server and clears all controllers.
+  ///
+  /// Resumable: only the per-connection state is wiped (controllers, DM
+  /// mapping, typing timers, room list, active-room markers). The
+  /// cross-session caches — user cache, blocked-users set, presence —
+  /// survive so a subsequent [connect] resumes from a warm state. Use
+  /// [signOut] to wipe everything.
   Future<void> disconnect() async {
     await _cancelSubscriptions();
     client.cancelPendingRequests('disconnect');
     await client.disconnect();
+    _resetConnectionState();
+  }
+
+  /// Wipes the state tied to a single realtime connection. Shared by
+  /// [disconnect] and (transitively) [signOut] / [dispose]. Keeps the
+  /// cross-session caches intact — see [_resetSessionState] for the
+  /// wider wipe.
+  void _resetConnectionState() {
     _chatControllers.disposeAll();
     _dmContacts.clear();
     _typingTimers.clearAll();
+    _activeRoomId = null;
+    _lastMembersChangedRoomId = null;
     roomListController.setRooms([]);
+  }
+
+  /// Wipes every in-memory registry the adapter owns — both the
+  /// per-connection state ([_resetConnectionState]) and the
+  /// cross-session caches (user cache, blocked users, presence,
+  /// pending-reaction suppression, voice-upload progress). Shared by
+  /// [signOut] and [dispose] so neither can drift from the full state
+  /// inventory: adding a new registry to the adapter means clearing it
+  /// here once, and both teardown paths pick it up.
+  void _resetSessionState() {
+    _resetConnectionState();
+    _userCacheService.clear();
+    _blockedUsers.clear();
+    _presence.clear();
+    _pendingReactionsRegistry.clear();
+    _voiceUploads.disposeAll();
   }
 
   /// One-shot teardown for "logout" flows: disconnects, wipes every
@@ -894,14 +956,7 @@ class ChatUiAdapter {
   /// as well.
   Future<void> signOut() async {
     await disconnect();
-    _userCacheService.clear();
-    _blockedUsers.clear();
-    // _dmContacts is already cleared inside disconnect(); only need to
-    // explicitly drop the draft-custom stash here (still under _dmContacts).
-    _dmContacts.clear();
-    _voiceUploads.disposeAll();
-    _pendingReactionsRegistry.clear();
-    _activeRoomId = null;
+    _resetSessionState();
     initializedNotifier.value = false;
     connectionStateNotifier.value = ChatConnectionState.disconnected;
     try {
@@ -1006,10 +1061,7 @@ class ChatUiAdapter {
     await _cancelSubscriptions();
     client.cancelPendingRequests('dispose');
     await client.disconnect();
-    _chatControllers.disposeAll();
-    _dmContacts.clear();
-    _typingTimers.clearAll();
-    _voiceUploads.disposeAll();
+    _resetSessionState();
     roomListController.dispose();
     _currentUserListenable.dispose();
     _userCacheListenable.dispose();

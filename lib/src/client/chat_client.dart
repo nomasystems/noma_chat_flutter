@@ -1110,6 +1110,12 @@ abstract class ChatContactsApi {
   /// subsequent messages in an existing DM prefer
   /// [ChatMessagesApi.sendViaWs] against the resolved room id (cheaper
   /// — no room-resolution round trip).
+  ///
+  /// If the recipient has blocked the sender the backend answers `204
+  /// No Content`: the returned [ChatMessage] is synthesized locally
+  /// with [ReceiptStatus.sent] and [ChatMessage.silentlyDropped] set to
+  /// `true`, so the caller can show a distinct state (e.g. a single
+  /// grey check with no further progress) instead of a normal "sent".
   Future<ChatResult<ChatMessage>> sendDirectMessage(
     String contactUserId, {
     String? text,

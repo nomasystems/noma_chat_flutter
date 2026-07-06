@@ -32,10 +32,10 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   Future<void> get ready => Future.value();
 
   @override
-  int? get closeCode => null;
+  int? closeCode;
 
   @override
-  String? get closeReason => null;
+  String? closeReason;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -50,6 +50,7 @@ class _FakeWebSocketChannel implements WebSocketChannel {
 class _FakeWebSocketSink implements WebSocketSink {
   final StreamController<dynamic> _controller;
   final List<dynamic> messages = [];
+  int closeCalls = 0;
 
   _FakeWebSocketSink(this._controller);
 
@@ -60,7 +61,9 @@ class _FakeWebSocketSink implements WebSocketSink {
   }
 
   @override
-  Future<void> close([int? closeCode, String? closeReason]) async {}
+  Future<void> close([int? closeCode, String? closeReason]) async {
+    closeCalls++;
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
@@ -758,5 +761,118 @@ void main() {
         await transport.dispose();
       },
     );
+
+    test('close 4003 explicitly closes the client sink before the '
+        'reconnect opens a new channel', () async {
+      final channels = <_FakeWebSocketChannel>[];
+
+      final config = ChatConfig(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        tokenProvider: () async => 'test-token',
+        wsReconnectDelay: const Duration(milliseconds: 5),
+      );
+
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) {
+          final channel = _FakeWebSocketChannel(autoAuthOk: true);
+          channels.add(channel);
+          return channel;
+        },
+      );
+
+      await transport.connect();
+      final first = channels.first;
+
+      first.closeCode = 4003;
+      await first.simulateDrop();
+
+      for (var i = 0; i < 200 && first.sink.closeCalls == 0; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(first.sink.closeCalls, 1);
+
+      for (var i = 0; i < 200 && channels.length < 2; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+      }
+      expect(channels, hasLength(2));
+      expect(first.sink.closeCalls, 1);
+
+      await transport.dispose();
+    });
+
+    test('emits ws_auth_timeout metric and structured warn log when the '
+        'auth handshake expires', () async {
+      final metrics = <(String, Map<String, dynamic>)>[];
+      final logs = <String>[];
+
+      final config = ChatConfig(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        tokenProvider: () async => 'test-token',
+        authTimeout: const Duration(milliseconds: 50),
+        maxReconnectAttempts: 0,
+        logger: (level, message) => logs.add('$level: $message'),
+        metricCallback: (metric, data) => metrics.add((metric, data)),
+      );
+
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) => _FakeWebSocketChannel(),
+      );
+
+      await transport.connect();
+
+      final timeoutMetrics = metrics
+          .where((m) => m.$1 == 'ws_auth_timeout')
+          .toList();
+      expect(timeoutMetrics, hasLength(1));
+      expect(timeoutMetrics.single.$2['timeoutMs'], 50);
+      expect(
+        logs.any(
+          (l) => l.startsWith('warn:') && l.contains('auth handshake timed out'),
+        ),
+        isTrue,
+      );
+
+      await transport.dispose();
+    });
+
+    test('dispose() cancels a pending reconnect and suppresses late '
+        'emissions', () async {
+      final channels = <_FakeWebSocketChannel>[];
+      final states = <ChatConnectionState>[];
+
+      final config = ChatConfig(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        tokenProvider: () async => 'test-token',
+        wsReconnectDelay: const Duration(milliseconds: 20),
+      );
+
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) {
+          final channel = _FakeWebSocketChannel(autoAuthOk: true);
+          channels.add(channel);
+          return channel;
+        },
+      );
+
+      await transport.connect();
+      final sub = transport.stateChanges.listen(states.add);
+
+      await channels.first.simulateDrop();
+      await transport.dispose();
+      final statesAtDispose = List<ChatConnectionState>.from(states);
+
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+
+      expect(channels, hasLength(1));
+      expect(states, statesAtDispose);
+
+      await sub.cancel();
+    });
   });
 }

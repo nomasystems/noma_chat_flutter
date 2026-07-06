@@ -30,6 +30,7 @@ Map<String, dynamic> messageToMap(ChatMessage msg) => {
   if (msg.fileName != null) 'fileName': msg.fileName,
   if (msg.fileSize != null) 'fileSize': msg.fileSize,
   if (msg.thumbnailUrl != null) 'thumbnailUrl': msg.thumbnailUrl,
+  if (msg.silentlyDropped) 'silentlyDropped': true,
 };
 
 /// Deserialises a cached message map back into a [ChatMessage].
@@ -65,6 +66,7 @@ ChatMessage messageFromMap(
   fileName: map['fileName'] as String?,
   fileSize: map['fileSize'] as String?,
   thumbnailUrl: map['thumbnailUrl'] as String?,
+  silentlyDropped: map['silentlyDropped'] as bool? ?? false,
 );
 
 Map<String, dynamic> roomToMap(ChatRoom room) => {
