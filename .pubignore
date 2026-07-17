@@ -56,3 +56,6 @@ doc/chat-api-openapi.yml
 # the README links to them.
 RELEASING.md
 CONTRIBUTING.md
+ISSUES.md
+CONVENTIONS.md
+AUDIT_*.md

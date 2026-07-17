@@ -45,3 +45,6 @@ example/linux/
 example/macos/
 example/windows/
 example/web/
+
+# Owner-only audit notes live outside the repo
+AUDIT_*.md
