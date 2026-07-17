@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.12.1 - 2026-07-17
+
+### Removed
+
+- Internal audit notes are no longer part of the repository, and maintainer
+  docs (`ISSUES.md`, `CONVENTIONS.md`) are excluded from the published
+  package tarball.
+
 ## 0.12.0 - 2026-07-17
 
 ### Fixed
@@ -87,7 +95,7 @@ onwards, breaking changes require a **major version bump**.
   `certificatePins` must delete the argument; those that need pinning should
   enforce it outside the SDK (an OS-level network security config, HSTS +
   Certificate Transparency logs at the deployment layer, or a custom `Dio`
-  HTTP adapter). `AUDIT_2026-07-06.md` ALTA-001 is closed as
+  HTTP adapter). the internal audit item ALTA-001 is closed as
   RESOLVED-BY-REMOVAL.
 - **`package:crypto` dependency.** Its only consumer was the pinning
   interceptor removed above; no other code in the SDK used it.
