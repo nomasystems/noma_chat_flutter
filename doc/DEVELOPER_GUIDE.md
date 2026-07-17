@@ -166,6 +166,78 @@ config: ChatConfig(
 ),
 ```
 
+**End-to-end walkthrough.** The parent account authenticates as itself
+(`tokenProvider` still returns the parent's token); `actAsUserId` only changes
+which user id is *attributed* to REST writes:
+
+```dart
+// Parent account "coach-1" manages "player-7". Auth stays as coach-1 —
+// only the header changes which user REST calls act as.
+final chat = await NomaChat.create(
+  baseUrl: 'https://chat.myapp.com/v1',
+  realtimeUrl: 'https://chat.myapp.com',
+  tokenProvider: () => authService.getCoachToken(), // always the parent's token
+  currentUser: ChatUser(id: 'player-7', displayName: 'Player Seven'),
+  config: ChatConfig(
+    baseUrl: 'https://chat.myapp.com/v1',
+    realtimeUrl: 'https://chat.myapp.com',
+    tokenProvider: () => authService.getCoachToken(),
+    actAsUserId: 'player-7',
+  ),
+);
+
+// This send is attributed to player-7, not coach-1, on the backend.
+final res = await chat.client.messages.send(roomId, text: 'Hi from the team!');
+if (res case ChatFailureResult(failure: ForbiddenFailure())) {
+  // coach-1 is not an authorized manager of player-7 — the relationship
+  // check failed server-side (403). Fall back to acting as the parent, or
+  // surface a permissions error.
+}
+```
+
+Because the WS/SSE connection still authenticates (and receives events) as
+the parent, a UI built for a managed user typically needs to filter or relabel
+incoming events client-side rather than relying on the transport identity —
+there is no `X-From-User-Id`-scoped event stream to subscribe to.
+
+### Observability — `metricCallback` and `noma_chat_otel`
+
+`ChatConfig.metricCallback` is a single sink —
+`void Function(String metric, Map<String, dynamic> data)` — fed by every
+observable SDK event (cache hits/misses, HTTP request durations, WebSocket
+lifecycle, auth refresh failures, offline-queue depth, …). It is `null` by
+default; nothing is collected or sent anywhere unless you wire it. See
+`TELEMETRY.md` for the full metric-by-metric reference (name, fields, firing
+condition).
+
+```dart
+config: ChatConfig(
+  metricCallback: (metric, data) => myAnalytics.track(metric, data),
+),
+```
+
+For OpenTelemetry specifically, use the `noma_chat_otel` companion package
+(`packages/noma_chat_otel` in this repo) instead of hand-rolling the mapping:
+
+```dart
+import 'package:noma_chat_otel/noma_chat_otel.dart';
+
+final tracer = openTelemetry.getTracer('noma_chat');
+config: ChatConfig(
+  metricCallback: nomaChatOtelCallback(tracer),
+),
+```
+
+Every metric becomes an instantaneous point-in-time OTel span (started and
+ended immediately, so span start/end timestamps are identical — these are
+observations, not measured durations) named `noma_chat.<metric>`, falling
+back to a small built-in table (`OtelSpanBuilder.spanNames`) of friendlier
+names for a subset of events. There is currently no supported way to
+customize span names or shape — `OtelSpanBuilder` is a `static`-only,
+non-instantiable class, so it cannot be subclassed. Fork
+`nomaChatOtelCallback` if you need different span naming. See
+`packages/noma_chat_otel/README.md`.
+
 ### Teardown
 
 ```dart
@@ -288,6 +360,23 @@ await chat.client.messages.send(
 // Send via WebSocket (transport-agnostic; falls back to REST). Same named
 // params as send() minus tempId/clientMessageId.
 await chat.client.messages.sendViaWs(roomId, text: 'Hello!');
+```
+
+> **The id returned by `send()` can be provisional.** Under the backend's
+> `ack_mode = async` (opt-in; the backend default is `sync`) the `201` response is an echo built
+> *before* persistence: its `id` does not match the stored message and the
+> returned `ChatMessage` has `isProvisional == true`. The authoritative
+> message — real id included — arrives moments later as a `NewMessageEvent`
+> carrying the same `clientMessageId`. Correlate on
+> `ChatMessage.clientMessageId` and never use a provisional id for
+> follow-up operations (react / edit / delete / pin). The bundled
+> `ChatUiAdapter` already does this: it keeps the optimistic bubble in the
+> *sending* state until the event confirms it, and `ChatController`
+> reconciles the rows by `clientMessageId` so no duplicate appears. The
+> same applies to `contacts.sendDirectMessage()` and to the synthetic
+> message `sendViaWs()` returns after a WS ack.
+
+```dart
 
 // Fetch paginated (newest-first). See "Paginating message history" below.
 final page = await chat.client.messages.list(
@@ -307,8 +396,10 @@ await chat.client.messages.delete(roomId, messageId);
 // React (canonical endpoint) — a reaction is a sub-resource of the
 // message, POSTed to /rooms/{roomId}/messages/{messageId}/reactions.
 // This is the only supported way to react: it never adds a synthetic
-// message to the timeline or the offline send queue. The backend emits
-// `reaction_added` so every member updates live.
+// message to the timeline. A NetworkFailure (or pre-response timeout)
+// enqueues it for retry on reconnect, same as send()/delete() — see
+// "Offline queue" below. The backend emits `reaction_added` so every
+// member updates live.
 await chat.client.messages.addReaction(roomId, messageId, emoji: '👍');
 // Remove: omit `emoji` to clear the user's reaction wholesale (historical
 // single-reaction-per-user behaviour), or pass it to remove a specific one
@@ -338,7 +429,7 @@ await chat.client.messages.markRoomAsDelivered(
 // Unread counts (rooms API)
 final counts = await chat.client.rooms.batchGetUnread([roomId1, roomId2]);
 
-// Pins
+// Pins — same offline-queue retry as reactions above.
 await chat.client.messages.pinMessage(roomId, messageId);
 await chat.client.messages.unpinMessage(roomId, messageId);
 
@@ -347,6 +438,73 @@ await chat.client.messages.schedule(roomId, sendAt: futureDate, text: 'Later!');
 
 // Clear room history (own messages only by default)
 await chat.client.messages.clearChat(roomId);
+```
+
+#### Scheduled messages
+
+`messages.schedule` books a message for future delivery instead of sending it
+immediately. The backend holds it and emits it into the room's timeline at
+`sendAt`. It returns a `ScheduledMessage`, not a `ChatMessage` — the message
+does not exist in the room's history until it actually fires, and there is no
+"scheduled by X" preview visible to other members in the meantime.
+
+```dart
+final res = await chat.client.messages.schedule(
+  roomId,
+  sendAt: DateTime.now().add(const Duration(hours: 2)),
+  text: 'Standup reminder',
+  metadata: {'kind': 'reminder'},
+);
+
+switch (res) {
+  case ChatSuccess(:final data):
+    // data.id is the scheduled entry id — keep it to cancel later.
+    myScheduledList.add(data);
+  case ChatFailureResult(:final failure):
+    showError(failure);
+}
+
+// List the caller's own pending (not-yet-sent) scheduled messages in a room.
+// Already-sent entries are not returned; there is no visibility into other
+// users' scheduled queue.
+final pending = await chat.client.messages.listScheduled(roomId);
+
+// Cancel before sendAt. Cancelling after delivery (or someone else's
+// scheduled message) fails — the backend enforces both checks.
+await chat.client.messages.cancelScheduled(roomId, res.dataOrNull!.id);
+```
+
+#### Offline queue
+
+`send`, `delete`, `addReaction`, `pinMessage`, `unpinMessage`, `starMessage`
+and `unstarMessage` retry automatically when they fail with a
+`NetworkFailure`, or a pre-response `TimeoutFailure` (the request provably
+never reached the server). The failed call still returns its failure to the
+caller immediately — the retry happens transparently in the background on
+the next reconnect. `send` is the one non-idempotent op in that list: it
+additionally requires the pre-response condition (a `receive`-phase or
+unknown-phase timeout is NOT retried automatically, since the message may
+already have reached the server) to avoid duplicating a message.
+
+If the offline queue exhausts its retries (or the operation sits too long /
+the queue is full), `NomaChatClient.onOperationDropped` fires. The default
+implementation records the operation id so you can show a "delivery failed"
+badge:
+
+```dart
+final client = chat.client as NomaChatClient;
+if (client.isOperationPermanentlyFailed(pendingOperationId)) {
+  showDeliveryFailedBadge();
+}
+```
+
+Override `onOperationDropped` to replace this behaviour entirely (e.g. to
+persist the failure server-side or show a toast instead):
+
+```dart
+client.onOperationDropped = (op, reason) {
+  myAnalytics.track('offline_op_dropped', {'reason': reason});
+};
 ```
 
 #### Paginating message history — bidirectional opaque cursors
@@ -555,6 +713,27 @@ await chat.client.contacts.unblock(userId);
 final blocked = await chat.client.contacts.listBlocked();
 ```
 
+`contacts.sendDirectMessage()` returns success even when the recipient has
+blocked the sender — the backend answers `204 No Content` in that case and
+the SDK synthesizes a local `ChatMessage` with `ReceiptStatus.sent` so the
+composer clears normally. Check `message.silentlyDropped` to tell that case
+apart from a real send and show a distinct state (e.g. a single grey check
+that never progresses) instead of a plain "sent":
+
+```dart
+final result = await chat.client.contacts.sendDirectMessage(userId, text: 'hi');
+final message = result.dataOrNull;
+if (message != null && message.silentlyDropped) {
+  // Accepted by the server but never delivered — recipient has blocked us.
+}
+```
+
+DM typing indicators (`contacts.sendTyping()`) always travel over REST
+(`POST /contacts/{id}/activity`), regardless of the realtime connection
+state: the backend's WS `typing` frame is room-scoped, so REST is the only
+route that reaches the peer as a `DmActivityEvent`. Room typing
+(`messages.sendTyping()`) still prefers the WS frame when connected.
+
 ### Users — profile & account deletion
 
 ```dart
@@ -676,6 +855,51 @@ final bytes = await chat.client.attachments.download(
 > `not_a_room_member` (403) otherwise. Always pass `roomId` — the SDK knows it
 > wherever an attachment is shown. See `MIGRATING.md`.
 
+#### Filtering by MIME type / size — `AttachmentPolicy`
+
+`AttachmentPolicy` is a declarative allow-list + size-cap gate that both
+`AttachmentPickers` (pick time) and `ChatUiAdapter.sendAttachment` /
+`messages.sendAttachment` (send time) honour, so a picked-but-rejected file
+never reaches an upload call. It is additive: anything not explicitly
+rejected is allowed.
+
+```dart
+const imagesAndDocsOnly = AttachmentPolicy(
+  allowedMimeTypes: {'image/*', 'application/pdf'},
+  maxBytesByMimePrefix: {'image/': 16 << 20}, // 16 MB cap for images
+  maxBytes: 25 << 20,                          // 25 MB cap for everything else allowed
+);
+
+// Enforced at pick time — a rejected file never reaches the composer.
+final pick = await AttachmentPickers.pickImageFromGallery(
+  policy: imagesAndDocsOnly,
+  logger: (level, msg) => myLogger.log(level, msg), // logs the violation
+);
+
+// Belt-and-suspenders re-check at send time (e.g. bytes built by a web
+// drop target instead of AttachmentPickers) — surfaces as a typed
+// ValidationFailure instead of silently dropping.
+final res = await chat.adapter.messages.sendAttachment(
+  roomId,
+  bytes: bytes,
+  mimeType: mimeType,
+  policy: imagesAndDocsOnly,
+);
+if (res case ChatFailureResult(failure: ValidationFailure(:final message))) {
+  showError(message); // "attachment policy violation: <AttachmentPolicyViolation>"
+}
+```
+
+Two presets ship out of the box: `AttachmentPolicy.unrestricted` (default —
+only the 25 MB fallback cap applies, no MIME whitelist) and
+`AttachmentPolicy.whatsappLike` (per-type caps approximating WhatsApp's 2024
+limits). Clone either with `copyWith(...)` rather than hand-rolling a new
+policy for small tweaks. There is no separate "attachment builder" hook —
+extra picker entries (e.g. a location share button) are added via
+`ChatView.attachmentPickerExtraOptions`, documented under "Customization
+hooks → AttachmentPickerSheet — extra slots" below; `AttachmentPolicy` only
+governs validation, not the picker sheet's layout.
+
 ---
 
 ## Real-time modes
@@ -684,8 +908,8 @@ Set via `ChatConfig.realtimeMode`:
 
 | Mode | Behaviour |
 |---|---|
-| `RealtimeMode.auto` *(default)* | WebSocket first; falls back to SSE, then polling if WS fails or is unavailable. Reconnects automatically. |
-| `RealtimeMode.webSocketOnly` | WS only. Throws if connection fails. |
+| `RealtimeMode.auto` *(default)* | WebSocket first; falls back to SSE, then polling if WS fails or is unavailable. Reconnects automatically. When the server disables the WS transport at runtime (close code `4006` `transport_disabled`), the SDK stops retrying WS for the session and promotes the fallback immediately; a later `connect()` tries WS again. |
+| `RealtimeMode.webSocketOnly` | WS only. Throws if connection fails. On close `4006` the transport stays down (state `error`) until the app calls `connect()` again. |
 | `RealtimeMode.serverSentEventsOnly` | SSE only. Good for environments where WS is blocked. |
 | `RealtimeMode.polling` | HTTP long-poll. Higher latency, no server push. |
 | `RealtimeMode.manual` | No automatic transport. Call `chat.client.refresh()` or `chat.client.refreshRoom(roomId)` to pull updates. |
@@ -931,6 +1155,39 @@ await chat.adapter.messages.forward(
 The adapter disposes the controllers it owns (on `removeChatController` / facade
 `dispose`); don't dispose an adapter-owned controller yourself.
 
+#### Reading forwarding metadata — `ForwardInfo`
+
+A forwarded message has `messageType == MessageType.forward`.
+`ChatMessage.forwardInfo` extracts the origin (sender, source room, source
+message id) from the message's `metadata`, falling back to the message-level
+`from`/`referencedMessageId` fields when the backend didn't populate the
+metadata keys — the host never needs to parse `metadata` directly:
+
+```dart
+final info = message.forwardInfo; // null when messageType != forward
+if (info != null) {
+  final label = 'Forwarded from ${displayNameFor(info.forwardedFrom)}';
+  return ForwardedBubble(
+    sourceLabel: label,
+    theme: theme,
+    child: TextBubble(text: message.text ?? '', isOutgoing: isOutgoing, timestamp: message.timestamp, theme: theme),
+  );
+}
+```
+
+`ForwardInfo.forwardedFromRoom` and `forwardedMessageId` let a host build a
+"jump to original" action; the SDK does not provide that navigation itself
+since it depends on the host's room-opening flow.
+
+> **No E2EE, including on forwards.** `noma_chat` has no end-to-end
+> encryption (see "What the SDK does *not* guarantee" in `SECURITY.md`) — the
+> backend can read every message body to support moderation, push previews
+> and search. Forwarding does not change this: the forwarded copy is plain
+> content on the wire and at rest, identical in that respect to an original
+> send. If a host app layers its own E2EE on top, it is also responsible for
+> re-encrypting the payload for the new room's recipients on forward — the
+> SDK has no hook for that and treats `text`/`metadata` as opaque.
+
 ### RoomListController
 
 Manages the full room list. The SDK owns a `RoomListController` — get it from
@@ -1076,6 +1333,55 @@ remainder). Pass `leadingBuilder` to render avatars next to each name.
 | `MediaGalleryPage` | Scrollable gallery of all room attachments |
 | `MessageSearchView` | Full-text message search with result highlighting |
 
+### Message search — room-scoped vs global
+
+`messages.search(query, roomId: roomId)` scopes full-text search to one room;
+the client-side dartdoc on `ChatMessagesApi.search` states that omitting
+`roomId` searches globally across every room the caller belongs to. The
+`MessageSearchController` + `MessageSearchView` pair is **room-scoped only**
+— its `searchFn` signature takes a `roomId` positionally, so it is built to
+back the in-room search UI (long-press → "Search in chat"), not a global
+search screen.
+
+Room-scoped, via `MessageSearchView`:
+
+```dart
+final controller = MessageSearchController(
+  searchFn: (query, roomId, {pagination}) =>
+      chat.client.messages.search(query, roomId: roomId, pagination: pagination),
+);
+
+MessageSearchView(
+  controller: controller,
+  roomId: roomId,
+  onMessageTap: (roomId, messageId) => jumpToMessage(roomId, messageId),
+  senderNameResolver: chat.adapter.displayNameFor,
+);
+```
+
+Global search has no dedicated controller or widget — call the sub-API
+directly with `roomId` omitted and render the `ChatPaginatedResponse<ChatMessage>`
+with your own list:
+
+```dart
+final res = await chat.client.messages.search('flutter'); // no roomId
+switch (res) {
+  case ChatSuccess(:final data):
+    renderResults(data.items); // see caveat below before grouping by room
+  case ChatFailureResult(:final failure):
+    showError(failure);
+}
+```
+
+> **Caveat — no room correlation on hits.** The bundled
+> `doc/chat-api-openapi.yml` now confirms the global form: `roomId` on
+> `/messages/search` is optional, and omitting it spans every room the
+> caller belongs to (scope resolved server-side from membership). However
+> `ChatMessage` has no `roomId`/`conversationId` field, so a global-search
+> response gives you no built-in way to tell which room each hit belongs
+> to; a UI would need the backend to echo the room id in `metadata` to
+> group results per-conversation. See `ISSUES.md`.
+
 ### Bubble types
 
 `MessageBubble` dispatches to the appropriate sub-widget based on `ChatMessage.type`:
@@ -1132,20 +1438,58 @@ Omit to use the default: any `RoomType.oneToOne` room is a DM.
 
 ### RoomTitleResolver
 
-Controls what title is displayed in `RoomTile` and `ChatRoomAppBar`:
+Controls what title is displayed in `RoomTile`, `ChatRoomAppBar` and anywhere
+else that reads `RoomListItem.displayName`. It is a plain function —
+`String? Function(RoomTitleContext context)` — passed directly to
+`NomaChat.create`/`fromClient`, not a named-constructor object:
 
 ```dart
-roomTitleResolver: RoomTitleResolver(
-  resolveTitle: (RoomDetail detail, String currentUserId) {
-    if (detail.type == RoomType.oneToOne) {
-      return detail.members
-          .firstWhere((m) => m.userId != currentUserId)
-          .displayName;
-    }
-    return detail.name ?? 'Unnamed';
-  },
-),
+roomTitleResolver: (context) {
+  if (context.isDm) {
+    return context.otherMembers.firstOrNull?.displayName;
+  }
+  return context.detail?.name;
+},
 ```
+
+Return `null` to opt out for a given room and let the SDK apply its default
+(other member's name for DMs, `room.name` for groups) — a resolver does not
+have to handle every case itself.
+
+Common use cases beyond the basic DM/group split:
+
+```dart
+roomTitleResolver: (context) {
+  // 1. Nickname book — override the DM title with a locally-stored
+  //    contact nickname when the user has set one, otherwise fall back
+  //    to the SDK default.
+  final otherId = context.otherMembers.firstOrNull?.userId;
+  final nickname = otherId != null ? nicknameBook.get(otherId) : null;
+  if (nickname != null) return nickname;
+
+  // 2. Role-based titles in a support/contact-center style room —
+  //    show the customer's name to agents, and "Support" to the
+  //    customer, using room `custom` metadata set by the backend.
+  final role = context.detail?.custom?['viewerRole'] as String?;
+  if (role == 'agent') {
+    return context.otherMembers.firstOrNull?.displayName ?? 'Customer';
+  }
+  if (role == 'customer') return 'Support';
+
+  // 3. Group title before the member list resolves — RoomDetail may
+  //    still be null right after a room is created; fall back to a
+  //    provisional label instead of showing a blank tile.
+  if (context.detail == null && !context.isDm) {
+    return context.currentItem.name ?? 'New group';
+  }
+
+  return null; // opt out — let the SDK default apply
+},
+```
+
+`context.currentItem` already carries whatever `name`/`subject` the row was
+last hydrated with, so a resolver that only wants to override *some* rooms
+can read it instead of returning `null` and losing the current value.
 
 ### RoomTile builders
 

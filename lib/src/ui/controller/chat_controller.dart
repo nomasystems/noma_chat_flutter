@@ -28,6 +28,11 @@ class ChatController extends ChangeNotifier {
 
   final List<ChatMessage> _messages;
   final Map<String, int> _indexById = {};
+  // Secondary index for send reconciliation: under the backend's
+  // ack_mode=async the optimistic temp row, the provisional REST echo and
+  // the authoritative `new_message` event all describe the same logical
+  // message under DIFFERENT ids, correlated only by clientMessageId.
+  final Map<String, int> _indexByClientMessageId = {};
   final ChatUser _currentUser;
   final List<ChatUser> _otherUsers;
 
@@ -144,9 +149,14 @@ class ChatController extends ChangeNotifier {
   // --- Messages ---
 
   void addMessage(ChatMessage message) {
-    final existingIndex = _indexById[message.id];
+    final existingIndex = _existingIndexFor(message);
     if (existingIndex != null) {
+      final replaced = _messages[existingIndex];
+      if (_keepExistingOverProvisional(replaced, message)) return;
       _messages[existingIndex] = message;
+      if (replaced.id != message.id) {
+        _reconcileReplacedId(replaced.id, message.id);
+      }
       _sortMessages();
       _rebuildIndex();
       notifyListeners();
@@ -162,9 +172,12 @@ class ChatController extends ChangeNotifier {
   void addMessages(List<ChatMessage> messages) {
     if (messages.isEmpty) return;
     for (final msg in messages) {
-      final idx = _indexById[msg.id];
+      final idx = _existingIndexFor(msg);
       if (idx != null) {
+        final replaced = _messages[idx];
+        if (_keepExistingOverProvisional(replaced, msg)) continue;
         _messages[idx] = msg;
+        if (replaced.id != msg.id) _reconcileReplacedId(replaced.id, msg.id);
       } else {
         _messages.add(msg);
       }
@@ -174,6 +187,42 @@ class ChatController extends ChangeNotifier {
     _rebuildIndex();
     _reapplyDeliveredCursors();
     notifyListeners();
+  }
+
+  /// Resolves the list slot [message] should land in: by id first, then —
+  /// for own sends carrying a [ChatMessage.clientMessageId] — by that key,
+  /// so the authoritative event message REPLACES the optimistic temp row
+  /// or the ack_mode=async provisional echo instead of duplicating it.
+  int? _existingIndexFor(ChatMessage message) {
+    final byId = _indexById[message.id];
+    if (byId != null) return byId;
+    final cmid = message.clientMessageId;
+    return cmid != null ? _indexByClientMessageId[cmid] : null;
+  }
+
+  /// `true` when the incoming [message] is a provisional echo of a row the
+  /// controller already holds in authoritative form — the `new_message`
+  /// event beat the REST 201 echo. The stored row's real id must win.
+  bool _keepExistingOverProvisional(ChatMessage existing, ChatMessage message) {
+    if (!message.isProvisional) return false;
+    if (existing.isProvisional) return false;
+    if (existing.id == message.id) return false;
+    _reconcileReplacedId(message.id, existing.id);
+    return true;
+  }
+
+  /// Migrates local bookkeeping when a row's id changes in place — the
+  /// optimistic temp row (or an ack_mode=async provisional echo) got
+  /// replaced by the authoritative message reconciled via clientMessageId.
+  /// Clears the vanished id's pending/failed mark (the send is confirmed
+  /// by definition once the event carries it) and re-points temp→server
+  /// mappings at the authoritative id so [serverIdForTemp] keeps working.
+  void _reconcileReplacedId(String oldId, String newId) {
+    _pendingMessages.remove(oldId);
+    _tempToServerId[oldId] = newId;
+    for (final key in _tempToServerId.keys.toList()) {
+      if (_tempToServerId[key] == oldId) _tempToServerId[key] = newId;
+    }
   }
 
   void setMessages(List<ChatMessage> messages) {
@@ -216,6 +265,7 @@ class ChatController extends ChangeNotifier {
   void clearMessages() {
     _messages.clear();
     _indexById.clear();
+    _indexByClientMessageId.clear();
     _reactions.clear();
     _userReactions.clear();
     _receiptStatuses.clear();
@@ -443,14 +493,6 @@ class ChatController extends ChangeNotifier {
 
   void confirmSent(String tempId, ChatMessage serverMessage) {
     _pendingMessages.remove(tempId);
-    _tempToServerId[tempId] = serverMessage.id;
-    if (_tempToServerId.length > 100) {
-      final excess = _tempToServerId.length - 50;
-      final keysToRemove = _tempToServerId.keys.take(excess).toList();
-      for (final k in keysToRemove) {
-        _tempToServerId.remove(k);
-      }
-    }
 
     // Remove the temporary message
     final tempIndex = _indexById[tempId];
@@ -461,12 +503,34 @@ class ChatController extends ChangeNotifier {
     // Rebuild index after removal before upserting
     _rebuildIndex();
 
-    // Upsert server message (may already exist if event arrived first)
-    final existingIndex = _indexById[serverMessage.id];
+    // Upsert the server message. Resolve by id first, then by
+    // clientMessageId: under ack_mode=async the authoritative
+    // `new_message` event can land BEFORE this echo, in which case the
+    // row already exists under its real id and the provisional echo must
+    // not add a duplicate — the event row's id wins.
+    var confirmedId = serverMessage.id;
+    final existingIndex = _existingIndexFor(serverMessage);
     if (existingIndex != null) {
-      _messages[existingIndex] = serverMessage;
+      final existing = _messages[existingIndex];
+      if (_keepExistingOverProvisional(existing, serverMessage)) {
+        confirmedId = existing.id;
+      } else {
+        _messages[existingIndex] = serverMessage;
+        if (existing.id != serverMessage.id) {
+          _reconcileReplacedId(existing.id, serverMessage.id);
+        }
+      }
     } else {
       _messages.add(serverMessage);
+    }
+
+    _tempToServerId[tempId] = confirmedId;
+    if (_tempToServerId.length > 100) {
+      final excess = _tempToServerId.length - 50;
+      final keysToRemove = _tempToServerId.keys.take(excess).toList();
+      for (final k in keysToRemove) {
+        _tempToServerId.remove(k);
+      }
     }
 
     _sortMessages();
@@ -800,8 +864,12 @@ class ChatController extends ChangeNotifier {
 
   void _rebuildIndex() {
     _indexById.clear();
+    _indexByClientMessageId.clear();
     for (var i = 0; i < _messages.length; i++) {
-      _indexById[_messages[i].id] = i;
+      final msg = _messages[i];
+      _indexById[msg.id] = i;
+      final cmid = msg.clientMessageId;
+      if (cmid != null) _indexByClientMessageId[cmid] = i;
     }
   }
 

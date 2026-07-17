@@ -134,6 +134,11 @@ final class PendingSendDirectMessage extends PendingOperation {
   final String? attachmentUrl;
   final Map<String, dynamic>? metadata;
 
+  /// Server idempotency key, reused verbatim on every retry so a DM send
+  /// that actually landed (failure surfaced after delivery) is not
+  /// duplicated on drain. See [ChatContactsApi.sendDirectMessage].
+  final String? clientMessageId;
+
   PendingSendDirectMessage({
     required super.id,
     required this.contactUserId,
@@ -143,6 +148,7 @@ final class PendingSendDirectMessage extends PendingOperation {
     this.reaction,
     this.attachmentUrl,
     this.metadata,
+    this.clientMessageId,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -159,6 +165,7 @@ final class PendingSendDirectMessage extends PendingOperation {
     if (reaction != null) 'reaction': reaction,
     if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
     if (metadata != null) 'metadata': metadata,
+    if (clientMessageId != null) 'clientMessageId': clientMessageId,
   };
 
   @override
@@ -172,6 +179,7 @@ final class PendingSendDirectMessage extends PendingOperation {
         reaction: reaction,
         attachmentUrl: attachmentUrl,
         metadata: metadata,
+        clientMessageId: clientMessageId,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -276,6 +284,175 @@ final class PendingDeleteReaction extends PendingOperation {
   @override
   PendingDeleteReaction withRetry({int? attempts, DateTime? nextRetryAt}) =>
       PendingDeleteReaction(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
+}
+
+final class PendingAddReaction extends PendingOperation {
+  final String roomId;
+  final String messageId;
+  final String emoji;
+
+  PendingAddReaction({
+    required super.id,
+    required this.roomId,
+    required this.messageId,
+    required this.emoji,
+    super.createdAt,
+    super.attempts,
+    super.nextRetryAt,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'addReaction',
+    'roomId': roomId,
+    'messageId': messageId,
+    'emoji': emoji,
+  };
+
+  @override
+  PendingAddReaction withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingAddReaction(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        emoji: emoji,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
+}
+
+final class PendingPinMessage extends PendingOperation {
+  final String roomId;
+  final String messageId;
+
+  PendingPinMessage({
+    required super.id,
+    required this.roomId,
+    required this.messageId,
+    super.createdAt,
+    super.attempts,
+    super.nextRetryAt,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'pinMessage',
+    'roomId': roomId,
+    'messageId': messageId,
+  };
+
+  @override
+  PendingPinMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingPinMessage(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
+}
+
+final class PendingUnpinMessage extends PendingOperation {
+  final String roomId;
+  final String messageId;
+
+  PendingUnpinMessage({
+    required super.id,
+    required this.roomId,
+    required this.messageId,
+    super.createdAt,
+    super.attempts,
+    super.nextRetryAt,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'unpinMessage',
+    'roomId': roomId,
+    'messageId': messageId,
+  };
+
+  @override
+  PendingUnpinMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingUnpinMessage(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
+}
+
+final class PendingStarMessage extends PendingOperation {
+  final String roomId;
+  final String messageId;
+
+  PendingStarMessage({
+    required super.id,
+    required this.roomId,
+    required this.messageId,
+    super.createdAt,
+    super.attempts,
+    super.nextRetryAt,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'starMessage',
+    'roomId': roomId,
+    'messageId': messageId,
+  };
+
+  @override
+  PendingStarMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingStarMessage(
+        id: id,
+        roomId: roomId,
+        messageId: messageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
+}
+
+final class PendingUnstarMessage extends PendingOperation {
+  final String roomId;
+  final String messageId;
+
+  PendingUnstarMessage({
+    required super.id,
+    required this.roomId,
+    required this.messageId,
+    super.createdAt,
+    super.attempts,
+    super.nextRetryAt,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'unstarMessage',
+    'roomId': roomId,
+    'messageId': messageId,
+  };
+
+  @override
+  PendingUnstarMessage withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingUnstarMessage(
         id: id,
         roomId: roomId,
         messageId: messageId,
@@ -581,14 +758,13 @@ class OfflineQueue {
         }
 
         if (op.nextRetryAt != null && _clock().isBefore(op.nextRetryAt!)) {
-          // Still in backoff: defer to a later drain. Count it as processed so
-          // the loop always advances towards `snapshot` — otherwise, when every
-          // remaining op is in backoff, this while spins synchronously (no
-          // await on this path) until the clock passes nextRetryAt, freezing
-          // the isolate for up to the max backoff.
-          _queue.add(op);
-          processed++;
-          continue;
+          // Still in backoff: put it back at the front and stop this drain
+          // pass instead of cycling every remaining op through a no-op
+          // "still waiting" check. Preserves FIFO order (no rotation to the
+          // back of the queue) and keeps a drain with many backing-off ops
+          // O(1) instead of O(queue length).
+          _queue.addFirst(op);
+          break;
         }
 
         processed++;
@@ -699,6 +875,7 @@ class OfflineQueue {
             reaction: map['reaction'] as String?,
             attachmentUrl: map['attachmentUrl'] as String?,
             metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            clientMessageId: map['clientMessageId'] as String?,
           );
         case 'editMessage':
           return PendingEditMessage(
@@ -720,6 +897,47 @@ class OfflineQueue {
           );
         case 'deleteReaction':
           return PendingDeleteReaction(
+            id: id,
+            createdAt: createdAt,
+            attempts: attempts,
+            roomId: map['roomId'] as String,
+            messageId: map['messageId'] as String,
+          );
+        case 'addReaction':
+          return PendingAddReaction(
+            id: id,
+            createdAt: createdAt,
+            attempts: attempts,
+            roomId: map['roomId'] as String,
+            messageId: map['messageId'] as String,
+            emoji: map['emoji'] as String,
+          );
+        case 'pinMessage':
+          return PendingPinMessage(
+            id: id,
+            createdAt: createdAt,
+            attempts: attempts,
+            roomId: map['roomId'] as String,
+            messageId: map['messageId'] as String,
+          );
+        case 'unpinMessage':
+          return PendingUnpinMessage(
+            id: id,
+            createdAt: createdAt,
+            attempts: attempts,
+            roomId: map['roomId'] as String,
+            messageId: map['messageId'] as String,
+          );
+        case 'starMessage':
+          return PendingStarMessage(
+            id: id,
+            createdAt: createdAt,
+            attempts: attempts,
+            roomId: map['roomId'] as String,
+            messageId: map['messageId'] as String,
+          );
+        case 'unstarMessage':
+          return PendingUnstarMessage(
             id: id,
             createdAt: createdAt,
             attempts: attempts,

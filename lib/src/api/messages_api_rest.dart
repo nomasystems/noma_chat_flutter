@@ -163,7 +163,14 @@ class RestMessagesApi implements ChatMessagesApi {
   /// the send with an external id; passing the same value twice is safe and
   /// returns the already-created message.
   ///
-  /// Returns [ChatSuccess] holding the server-confirmed [ChatMessage].
+  /// Returns [ChatSuccess] holding the echoed [ChatMessage]. Under the
+  /// backend's `ack_mode = async` (the default) the `201` echo is
+  /// PROVISIONAL: its id is minted before persistence and does not match
+  /// the stored message ([ChatMessage.isProvisional] is `true`). The
+  /// authoritative message arrives via the `new_message` realtime event
+  /// carrying the same [ChatMessage.clientMessageId]; never use a
+  /// provisional id for follow-up operations (react / edit / delete /
+  /// pin). Under `ack_mode = sync` the echo is the stored message.
   ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
   /// Throws [ChatNetworkException] on network errors.
@@ -212,7 +219,10 @@ class RestMessagesApi implements ChatMessagesApi {
         'clientMessageId': effectiveClientMessageId,
       },
     );
-    return MessageMapper.fromJson(json);
+    return MessageMapper.stampIfProvisional(
+      MessageMapper.fromJson(json),
+      effectiveClientMessageId,
+    );
   });
 
   @override
@@ -225,9 +235,19 @@ class RestMessagesApi implements ChatMessagesApi {
     String? attachmentUrl,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
-  }) {
+  }) async {
+    // One idempotency key shared by the WS attempt and the REST fallback. The
+    // backend routes the WS `message` frame through the same send path as REST
+    // and dedups on `clientMessageId`, so a fallback resend of a WS send that
+    // actually landed (ack just delayed / socket dropped after delivery)
+    // returns the persisted message instead of creating a duplicate.
+    final clientMessageId = _uuid.v4();
     if (transport != null && transport!.isWsConnected) {
-      transport!.sendMessage(
+      // Wait for the server ack instead of firing and forgetting: a socket
+      // drop before the ack used to lose the message silently. On ack we
+      // return the optimistic sent bubble; on timeout / drop we fall through
+      // to the idempotent REST send.
+      final acked = await transport!.sendMessageAwaitingAck(
         roomId,
         text: text,
         messageType: messageType.name,
@@ -236,11 +256,12 @@ class RestMessagesApi implements ChatMessagesApi {
         attachmentUrl: attachmentUrl,
         sourceRoomId: sourceRoomId,
         metadata: metadata,
+        clientMessageId: clientMessageId,
       );
-      final tempId =
-          'temp-ws-${DateTime.now().microsecondsSinceEpoch}-${pendingSeq++}';
-      return Future.value(
-        ChatSuccess(
+      if (acked) {
+        final tempId =
+            'temp-ws-${DateTime.now().microsecondsSinceEpoch}-${pendingSeq++}';
+        return ChatSuccess(
           ChatMessage(
             id: tempId,
             from: rest.userId ?? '',
@@ -249,12 +270,14 @@ class RestMessagesApi implements ChatMessagesApi {
             messageType: messageType,
             attachmentUrl: attachmentUrl,
             referencedMessageId: referencedMessageId,
+            clientMessageId: clientMessageId,
             reaction: reaction,
             metadata: metadata,
             receipt: ReceiptStatus.sent,
+            isProvisional: true,
           ),
-        ),
-      );
+        );
+      }
     }
     return send(
       roomId,
@@ -265,6 +288,7 @@ class RestMessagesApi implements ChatMessagesApi {
       attachmentUrl: attachmentUrl,
       sourceRoomId: sourceRoomId,
       metadata: metadata,
+      clientMessageId: clientMessageId,
     );
   }
 
@@ -371,6 +395,14 @@ class RestMessagesApi implements ChatMessagesApi {
     );
   });
 
+  /// Sends a typing activity to a room.
+  ///
+  /// Prefers the WS frame; when realtime is down it falls back to the
+  /// `updateRoomActivity` REST operation
+  /// (`PUT /rooms/{roomId}/users/{userId}/activity`), so room typing degrades
+  /// gracefully instead of being dropped. The backend's room-activity
+  /// endpoint only models typing (`startsTyping` / `stopsTyping`), so this is
+  /// its full surface.
   @override
   Future<ChatResult<void>> sendTyping(
     String roomId, {

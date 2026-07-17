@@ -1110,6 +1110,21 @@ abstract class ChatContactsApi {
   /// subsequent messages in an existing DM prefer
   /// [ChatMessagesApi.sendViaWs] against the resolved room id (cheaper
   /// — no room-resolution round trip).
+  ///
+  /// If the recipient has blocked the sender the backend answers `204
+  /// No Content`: the returned [ChatMessage] is synthesized locally
+  /// with [ReceiptStatus.sent] and [ChatMessage.silentlyDropped] set to
+  /// `true`, so the caller can show a distinct state (e.g. a single
+  /// grey check with no further progress) instead of a normal "sent".
+  ///
+  /// [clientMessageId] is the idempotency key for the send — same
+  /// semantics as [ChatMessagesApi.send]: auto-generated when omitted,
+  /// reused verbatim on offline-queue retries. Under the backend's
+  /// `ack_mode = async` (the default) the returned message is a
+  /// provisional echo ([ChatMessage.isProvisional] `true`) whose id does
+  /// not match the stored message; correlate the authoritative
+  /// `new_message` event via [ChatMessage.clientMessageId] and never use
+  /// a provisional id for follow-up operations.
   Future<ChatResult<ChatMessage>> sendDirectMessage(
     String contactUserId, {
     String? text,
@@ -1118,6 +1133,7 @@ abstract class ChatContactsApi {
     String? reaction,
     String? attachmentUrl,
     Map<String, dynamic>? metadata,
+    String? clientMessageId,
   });
 
   /// Fetches direct message history with a contact.
@@ -1153,10 +1169,11 @@ abstract class ChatContactsApi {
 
   /// Sends a typing indicator to a contact's DM conversation.
   ///
-  /// Same fire-and-forget semantics as
-  /// [ChatMessagesApi.sendTyping] — silent no-op when realtime is off
-  /// or disconnected. Throttle on the caller side; the SDK does not
-  /// throttle per-contact automatically.
+  /// Always sent over REST (`POST /contacts/{id}/activity`) — the
+  /// backend's WS `typing` frame is room-scoped, so this is the only
+  /// route that reaches the peer as a contact-activity event. Throttle
+  /// on the caller side; the SDK does not throttle per-contact
+  /// automatically.
   Future<ChatResult<void>> sendTyping(
     String contactUserId, {
     ChatActivity activity = ChatActivity.startsTyping,

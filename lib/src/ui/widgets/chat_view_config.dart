@@ -12,6 +12,7 @@ import '../models/voice_message_data.dart';
 import '../services/link_preview_fetcher.dart';
 import 'attachment_picker_sheet.dart';
 import 'message_context_menu.dart';
+import 'message_status_icon.dart';
 import 'reaction_detail_sheet.dart';
 
 /// Visual builder / resolver overrides for [ChatView].
@@ -33,9 +34,11 @@ class ChatViewBuilders {
     this.displayNameResolver,
     this.avatarUrlResolver,
     this.userFetcher,
+    this.batchUserFetcher,
     this.audioUploadProgressFor,
     this.linkPreviewFetcher,
     this.avatarRebuildSignal,
+    this.statusIconBuilder,
   });
 
   /// Overrides the bubble long-press / right-click context menu. When
@@ -107,9 +110,25 @@ class ChatViewBuilders {
   /// profile (display name + avatar) of every user that reacted.
   final UserFetcher? userFetcher;
 
+  /// Optional batched alternative to [userFetcher]: resolves every unique
+  /// reactor in a single call instead of one request per reactor. When
+  /// non-null, the reaction detail sheet prefers this over [userFetcher].
+  /// Wire it to a host-side bulk user-lookup endpoint to avoid an N+1
+  /// fan-out when a message has many distinct reactors.
+  final BatchUserFetcher? batchUserFetcher;
+
   /// Optional shared link-preview fetcher. When `null` and link previews
   /// are enabled, the composer creates its own internal fetcher.
   final LinkPreviewFetcher? linkPreviewFetcher;
+
+  /// Overrides the delivery-status icon (sending/sent/delivered/read/failed)
+  /// rendered on outgoing bubbles and, for the last message, on the
+  /// corresponding [RoomListView] tile. Equivalent to
+  /// `theme.bubble.statusIconBuilder` but discoverable alongside every other
+  /// `ChatView` override; takes priority over the theme slot when both are
+  /// set. Return `null` from the builder for a given state to fall back to
+  /// the theme slot, then the SDK default.
+  final MessageStatusIconBuilder? statusIconBuilder;
 }
 
 /// Imperative callbacks fired by [ChatView] in response to user

@@ -1,19 +1,18 @@
+import 'package:alchemist/alchemist.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:golden_toolkit/golden_toolkit.dart';
+import 'package:meta/meta.dart';
 import 'package:noma_chat/noma_chat.dart';
 
-/// Call once per test main(): disables `golden_toolkit`'s default image
-/// priming and stubs the `path_provider` channel that `CachedNetworkImage`
-/// reaches into to cache decoded bytes. Without these, bubbles that contain
-/// `CachedNetworkImage` either hang for 10 minutes or fail with
-/// `MissingPluginException`.
+/// Call once per test main(): stubs the `path_provider` channel that
+/// `CachedNetworkImage` reaches into to cache decoded bytes. Without this,
+/// bubbles that contain `CachedNetworkImage` either hang for 10 minutes or
+/// fail with `MissingPluginException`. Alchemist's own configuration (CI
+/// variant disabled, flat `goldens/<name>.png` paths) lives in
+/// `test/flutter_test_config.dart` since it must be set before any test
+/// zone starts.
 void configureGoldenTests() {
-  // ignore: deprecated_member_use
-  GoldenToolkit.configure(
-    GoldenToolkitConfiguration(primeAssets: (tester) async {}),
-  );
   TestWidgetsFlutterBinding.ensureInitialized();
   TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .setMockMethodCallHandler(
@@ -45,17 +44,24 @@ Widget goldenHost(Widget child, {bool darkBackground = false}) {
   );
 }
 
-/// Pumps [child] in [goldenHost], applies the standard surface size and
-/// settles. Use in conjunction with `screenMatchesGolden` from
-/// `package:golden_toolkit`.
-Future<void> pumpGoldenSurface(
-  WidgetTester tester,
+/// Registers [description] as an Alchemist golden test comparing [child]
+/// (wrapped in [goldenHost]) against `goldens/<name>.png`. [darkBackground]
+/// is true for dark-theme goldens; [size] is the fixed surface the widget is
+/// rendered at, matching this suite's existing baselines.
+@isTest
+void goldenBubbleTest(
+  String description,
+  String name,
   Widget child, {
   bool darkBackground = false,
   Size size = const Size(360, 200),
-}) async {
-  await tester.binding.setSurfaceSize(size);
-  addTearDown(() => tester.binding.setSurfaceSize(null));
-  await tester.pumpWidget(goldenHost(child, darkBackground: darkBackground));
-  await tester.pump(const Duration(milliseconds: 100));
+  bool skip = false,
+}) {
+  goldenTest(
+    description,
+    fileName: name,
+    constraints: BoxConstraints.tight(size),
+    builder: () => goldenHost(child, darkBackground: darkBackground),
+    skip: skip,
+  );
 }

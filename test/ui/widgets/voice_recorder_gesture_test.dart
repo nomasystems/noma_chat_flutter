@@ -312,7 +312,9 @@ void main() {
   });
 
   group('VoiceRecorderGesture widget', () {
-    Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
+    Widget wrap(Widget child) => MaterialApp(
+      home: Material(child: Center(child: child)),
+    );
 
     testWidgets('renders child unchanged when idle', (tester) async {
       final link = LayerLink();
@@ -352,6 +354,90 @@ void main() {
       await tester.pumpWidget(wrap(const SizedBox()));
       // The host is gone; controller mutations must not throw.
       await controller.onLongPressStart();
+    });
+
+    testWidgets('unsupported result falls back to onPermissionDenied', (
+      tester,
+    ) async {
+      fake.nextStartResult = StartRecordingResult.unsupported;
+      var permissionDeniedCalls = 0;
+      final link = LayerLink();
+
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: () => permissionDeniedCalls++,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      await tester.longPress(find.byType(Container));
+      await tester.pumpAndSettle();
+
+      expect(permissionDeniedCalls, 1);
+    });
+
+    testWidgets('unsupported result calls onUnsupported when provided', (
+      tester,
+    ) async {
+      fake.nextStartResult = StartRecordingResult.unsupported;
+      var unsupportedCalls = 0;
+      var permissionDeniedCalls = 0;
+      final link = LayerLink();
+
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: () => permissionDeniedCalls++,
+            onUnsupported: () => unsupportedCalls++,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      await tester.longPress(find.byType(Container));
+      await tester.pumpAndSettle();
+
+      expect(unsupportedCalls, 1);
+      expect(permissionDeniedCalls, 0);
+    });
+
+    testWidgets('permissionDenied result does not call onUnsupported', (
+      tester,
+    ) async {
+      fake.nextStartResult = StartRecordingResult.permissionDenied;
+      var unsupportedCalls = 0;
+      var permissionDeniedCalls = 0;
+      final link = LayerLink();
+
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: () => permissionDeniedCalls++,
+            onUnsupported: () => unsupportedCalls++,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      await tester.longPress(find.byType(Container));
+      await tester.pumpAndSettle();
+
+      expect(permissionDeniedCalls, 1);
+      expect(unsupportedCalls, 0);
     });
   });
 }

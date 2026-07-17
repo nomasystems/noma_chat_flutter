@@ -158,8 +158,20 @@ class RetryInterceptor extends Interceptor {
       final header = response.headers.value(name);
       if (header == null) continue;
       final seconds = int.tryParse(header.trim());
-      if (seconds != null && seconds >= 0) return Duration(seconds: seconds);
+      if (seconds != null) return _clampRetryAfter(Duration(seconds: seconds));
     }
     return null;
+  }
+
+  // Mirrors RestClient's clamp: server clock skew can yield a zero/negative
+  // wait (retry stampede) or an absurdly long one (client stuck for hours on
+  // a miscomputed reset). Bound both ends.
+  static const Duration _minRetryAfter = Duration(seconds: 1);
+  static const Duration _maxRetryAfter = Duration(minutes: 5);
+
+  Duration _clampRetryAfter(Duration value) {
+    if (value < _minRetryAfter) return _minRetryAfter;
+    if (value > _maxRetryAfter) return _maxRetryAfter;
+    return value;
   }
 }

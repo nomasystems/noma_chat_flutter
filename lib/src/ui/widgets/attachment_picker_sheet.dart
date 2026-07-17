@@ -14,6 +14,7 @@ class AttachmentSheetOption {
     required this.onTap,
     this.iconColor,
     this.circleColor,
+    this.previewBuilder,
   });
 
   final IconData icon;
@@ -25,6 +26,14 @@ class AttachmentSheetOption {
 
   /// Overrides the theme's `attachmentPickerCircleColor` for this row only.
   final Color? circleColor;
+
+  /// Replaces the default icon-in-a-circle visual for this row with a
+  /// custom widget — e.g. a thumbnail, an avatar stack, or a badge. Receives
+  /// the same [BuildContext] the sheet builds with. Sized to the same
+  /// 56x56 slot as the default circle so custom rows line up with built-in
+  /// ones in the [Wrap] layout. When `null`, the row falls back to the
+  /// default icon/circleColor rendering.
+  final WidgetBuilder? previewBuilder;
 }
 
 /// Bottom sheet with attach options.
@@ -150,6 +159,7 @@ class AttachmentPickerSheet extends StatelessWidget {
                       o.circleColor ?? theme.attachmentPickerCircleColor,
                   iconColor: o.iconColor ?? theme.attachmentPickerIconColor,
                   labelStyle: theme.attachmentPickerLabelStyle,
+                  previewBuilder: o.previewBuilder,
                   onTap: () {
                     Navigator.pop(context);
                     o.onTap();
@@ -171,6 +181,7 @@ class _PickerOption extends StatelessWidget {
     this.circleColor,
     this.iconColor,
     this.labelStyle,
+    this.previewBuilder,
   });
 
   final IconData icon;
@@ -179,22 +190,28 @@ class _PickerOption extends StatelessWidget {
   final Color? circleColor;
   final Color? iconColor;
   final TextStyle? labelStyle;
+  final WidgetBuilder? previewBuilder;
 
   @override
   Widget build(BuildContext context) {
+    final builder = previewBuilder;
     return GestureDetector(
       onTap: onTap,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
+          SizedBox(
             width: 56,
             height: 56,
-            decoration: BoxDecoration(
-              color: circleColor ?? Colors.grey.shade200,
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 28, color: iconColor),
+            child: builder != null
+                ? builder(context)
+                : Container(
+                    decoration: BoxDecoration(
+                      color: circleColor ?? Colors.grey.shade200,
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(icon, size: 28, color: iconColor),
+                  ),
           ),
           const SizedBox(height: 8),
           Text(label, style: labelStyle ?? const TextStyle(fontSize: 12)),

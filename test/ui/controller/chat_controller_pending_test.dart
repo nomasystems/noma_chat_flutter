@@ -172,6 +172,104 @@ void main() {
     });
   });
 
+  group('clientMessageId reconciliation (ack_mode=async)', () {
+    ChatMessage optimistic(String tempId) => ChatMessage(
+      id: tempId,
+      from: 'u1',
+      text: 'hello',
+      timestamp: DateTime(2026, 1, 3),
+      clientMessageId: tempId,
+    );
+
+    ChatMessage provisionalEcho(String cmid) => ChatMessage(
+      id: 'prov-9',
+      from: 'u1',
+      text: 'hello',
+      timestamp: DateTime(2026, 1, 3, 0, 0, 1),
+      clientMessageId: cmid,
+      isProvisional: true,
+    );
+
+    ChatMessage eventMessage(String cmid) => ChatMessage(
+      id: 'real-1',
+      from: 'u1',
+      text: 'hello',
+      timestamp: DateTime(2026, 1, 3, 0, 0, 2),
+      clientMessageId: cmid,
+    );
+
+    test('addMessage replaces the pending temp row with the authoritative '
+        'event message: no duplicate, pending cleared, temp id mapped', () {
+      controller.addMessage(optimistic('tmp-1'));
+      controller.markPending('tmp-1');
+      expect(controller.messages, hasLength(3));
+
+      controller.addMessage(eventMessage('tmp-1'));
+
+      expect(controller.messages, hasLength(3));
+      expect(controller.messages.any((m) => m.id == 'tmp-1'), false);
+      expect(controller.messages.any((m) => m.id == 'real-1'), true);
+      expect(controller.isPending('tmp-1'), false);
+      expect(controller.serverIdForTemp('tmp-1'), 'real-1');
+    });
+
+    test('201-first order: confirmSent upserts the provisional echo, the '
+        'event then replaces it under the real id', () {
+      controller.addMessage(optimistic('tmp-1'));
+      controller.markPending('tmp-1');
+
+      controller.confirmSent('tmp-1', provisionalEcho('tmp-1'));
+      expect(controller.messages, hasLength(3));
+      expect(controller.messages.any((m) => m.id == 'prov-9'), true);
+
+      controller.addMessage(eventMessage('tmp-1'));
+
+      expect(controller.messages, hasLength(3));
+      expect(controller.messages.any((m) => m.id == 'prov-9'), false);
+      expect(controller.messages.any((m) => m.id == 'real-1'), true);
+      // Both the temp id and the provisional id resolve to the real id.
+      expect(controller.serverIdForTemp('tmp-1'), 'real-1');
+      expect(controller.serverIdForTemp('prov-9'), 'real-1');
+    });
+
+    test('event-first order: the provisional echo does not resurrect a row '
+        'next to the authoritative one', () {
+      controller.addMessage(optimistic('tmp-1'));
+      controller.markPending('tmp-1');
+
+      controller.addMessage(eventMessage('tmp-1'));
+      controller.confirmSent('tmp-1', provisionalEcho('tmp-1'));
+
+      expect(controller.messages, hasLength(3));
+      expect(controller.messages.any((m) => m.id == 'prov-9'), false);
+      expect(controller.messages.any((m) => m.id == 'real-1'), true);
+      expect(controller.isPending('tmp-1'), false);
+      expect(controller.serverIdForTemp('tmp-1'), 'real-1');
+    });
+
+    test('addMessages (history/poll fetch) also reconciles a pending row by '
+        'clientMessageId', () {
+      controller.addMessage(optimistic('tmp-1'));
+      controller.markPending('tmp-1');
+
+      controller.addMessages([
+        eventMessage('tmp-1'),
+        makeMsg('other', timestamp: DateTime(2026, 1, 4)),
+      ]);
+
+      expect(controller.messages, hasLength(4));
+      expect(controller.messages.any((m) => m.id == 'tmp-1'), false);
+      expect(controller.messages.any((m) => m.id == 'real-1'), true);
+      expect(controller.isPending('tmp-1'), false);
+    });
+
+    test('messages without clientMessageId keep plain id-keyed dedup', () {
+      controller.addMessage(makeMsg('x1', timestamp: DateTime(2026, 1, 5)));
+      controller.addMessage(makeMsg('x2', timestamp: DateTime(2026, 1, 6)));
+      expect(controller.messages, hasLength(4));
+    });
+  });
+
   group('removePending', () {
     test('removes the temp message entirely', () {
       final tempMsg = makeMsg('tmp-1', timestamp: DateTime(2026, 1, 3));

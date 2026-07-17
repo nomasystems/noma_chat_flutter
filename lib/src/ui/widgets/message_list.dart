@@ -10,6 +10,7 @@ import '../utils/date_formatter.dart';
 import '../utils/read_receipts_helper.dart';
 import 'date_separator.dart';
 import 'message_bubble.dart';
+import 'message_status_icon.dart';
 import 'scroll_to_bottom_button.dart';
 import 'typing_indicator.dart';
 import 'unread_divider.dart';
@@ -57,6 +58,7 @@ class MessageList extends StatefulWidget {
     this.avatarUrlResolver,
     this.isGroup,
     this.avatarRebuildSignal,
+    this.statusIconBuilder,
   });
 
   final ChatController controller;
@@ -159,6 +161,11 @@ class MessageList extends StatefulWidget {
   /// refreshes instantly.
   final Listenable? avatarRebuildSignal;
 
+  /// Overrides the delivery-status icon on every outgoing bubble.
+  /// Forwarded verbatim to [MessageBubble.statusIconBuilder] — see
+  /// `ChatViewBuilders.statusIconBuilder`.
+  final MessageStatusIconBuilder? statusIconBuilder;
+
   @override
   State<MessageList> createState() => _MessageListState();
 }
@@ -175,6 +182,20 @@ class _MessageListState extends State<MessageList> {
   // freshly-built `List<String>` on every call).
   List<String>? _cachedTypingIds;
   String? _cachedTypingLabel;
+
+  // Scroll-anchoring for the typing row. The list is `reverse: true`, so
+  // the typing row sits at reverseIndex 0 and its box sits right where the
+  // viewport keeps its scroll offset anchored. When a user isn't at the
+  // bottom (reading history) and the row's rendered height changes — a
+  // second/third typer joins, the header label wraps to another line, or
+  // the row appears/disappears entirely — the sliver keeps `offset` fixed
+  // relative to item 0, which visually yanks every older message by the
+  // height delta. Compensating `jumpTo` by that same delta keeps the
+  // messages the user is actually reading pinned in place.
+  final GlobalKey _typingRowKey = GlobalKey();
+  double? _lastTypingRowHeight;
+
+  static const double _atBottomEpsilonPx = 4;
 
   @override
   void initState() {
@@ -206,6 +227,7 @@ class _MessageListState extends State<MessageList> {
       widget.avatarRebuildSignal?.addListener(_onAvatarSignal);
     }
     if (oldWidget.controller != widget.controller) {
+      _lastTypingRowHeight = null;
       try {
         oldWidget.controller.scrollController.removeListener(_onScroll);
         if (_pendingScrollToId != null) {
@@ -468,6 +490,18 @@ class _MessageListState extends State<MessageList> {
         isGroup &&
         widget.roomReceipts.isNotEmpty;
 
+    if (showTyping) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _reconcileTypingRowHeight(),
+      );
+    } else if (_lastTypingRowHeight != null) {
+      final droppedHeight = _lastTypingRowHeight!;
+      _lastTypingRowHeight = null;
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _compensateScrollOffset(-droppedHeight),
+      );
+    }
+
     return Stack(
       children: [
         NotificationListener<ScrollNotification>(
@@ -589,11 +623,46 @@ class _MessageListState extends State<MessageList> {
         avatar = widget.avatarBuilder!(context, typingIds.first);
       }
     }
-    return TypingIndicator(
-      theme: widget.theme,
-      avatarWidget: avatar,
-      headerLabel: headerLabel,
+    return KeyedSubtree(
+      key: _typingRowKey,
+      child: TypingIndicator(
+        theme: widget.theme,
+        avatarWidget: avatar,
+        headerLabel: headerLabel,
+      ),
     );
+  }
+
+  /// Measures the just-built typing row and, if its height changed since
+  /// the last measurement while the user is reading history (not anchored
+  /// at the bottom), compensates the scroll offset so older messages don't
+  /// visibly jump. Runs as a post-frame callback so the row has a laid-out
+  /// [RenderBox] to measure.
+  void _reconcileTypingRowHeight() {
+    if (!mounted) return;
+    final renderObject = _typingRowKey.currentContext?.findRenderObject();
+    if (renderObject is! RenderBox || !renderObject.hasSize) return;
+    final height = renderObject.size.height;
+    final previous = _lastTypingRowHeight;
+    _lastTypingRowHeight = height;
+    if (previous == null) return;
+    final delta = height - previous;
+    if (delta == 0) return;
+    _compensateScrollOffset(delta);
+  }
+
+  /// Adds [delta] to the current scroll offset, skipping the compensation
+  /// entirely when the user is at (or within [_atBottomEpsilonPx] of) the
+  /// bottom — there the typing row resizing in place is the expected,
+  /// WhatsApp-like behaviour and no jump occurs because item 0 sits at the
+  /// visible edge already.
+  void _compensateScrollOffset(double delta) {
+    if (!mounted) return;
+    final sc = widget.controller.scrollController;
+    if (!sc.hasClients) return;
+    if (sc.offset <= _atBottomEpsilonPx) return;
+    final target = (sc.offset + delta).clamp(0.0, sc.position.maxScrollExtent);
+    sc.jumpTo(target);
   }
 
   Widget _buildMessageRow(
@@ -711,6 +780,7 @@ class _MessageListState extends State<MessageList> {
       avatarWidget: bubbleAvatar,
       senderAvatarUrl: audioSenderAvatarUrl,
       senderDisplayName: audioSenderName,
+      statusIconBuilder: widget.statusIconBuilder,
       isFirstInGroup: isFirstInGroup,
       isLastInGroup: isLastInGroup,
       referencedMessage: referenced,

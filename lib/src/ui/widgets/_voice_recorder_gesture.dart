@@ -236,6 +236,7 @@ class VoiceRecorderGesture extends StatefulWidget {
     required this.onVoiceMessageReady,
     required this.child,
     this.voiceButtonKey,
+    this.onUnsupported,
   });
 
   final MessageInputVoiceController controller;
@@ -244,6 +245,14 @@ class VoiceRecorderGesture extends StatefulWidget {
   final VoidCallback? onPermissionDenied;
   final ValueChanged<VoiceMessageData>? onVoiceMessageReady;
   final Widget child;
+
+  /// Called when `startRecording` reports
+  /// [StartRecordingResult.unsupported] (the current platform — web in
+  /// this release — cannot record voice messages at all). Falls back to
+  /// [onPermissionDenied] when not supplied, so composers that haven't
+  /// been updated to distinguish the two cases keep their existing
+  /// behaviour.
+  final VoidCallback? onUnsupported;
 
   /// When provided, long-press only triggers a new recording if the
   /// finger went down inside the widget identified by this key (the mic
@@ -312,6 +321,8 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     if (!mounted) return;
     if (result == StartRecordingResult.permissionDenied) {
       widget.onPermissionDenied?.call();
+    } else if (result == StartRecordingResult.unsupported) {
+      (widget.onUnsupported ?? widget.onPermissionDenied)?.call();
     }
   }
 

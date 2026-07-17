@@ -157,6 +157,66 @@ void main() {
       expect(retried, isTrue);
     });
 
+    testWidgets(
+      'MessageBubble.statusIconBuilder takes priority over theme.bubble.statusIconBuilder',
+      (tester) async {
+        final theme = ChatTheme.defaults.copyWith(
+          bubble: ChatBubbleTheme(
+            statusIconBuilder: (context, data) => const Text('theme-override'),
+          ),
+        );
+        await tester.pumpWidget(
+          wrap(
+            MessageBubble(
+              message: ChatMessage(
+                id: 'm1',
+                from: 'me',
+                timestamp: ts,
+                text: 'hello',
+              ),
+              isOutgoing: true,
+              status: ReceiptStatus.read,
+              theme: theme,
+              statusIconBuilder: (context, data) =>
+                  const Text('widget-override'),
+            ),
+          ),
+        );
+
+        expect(find.text('widget-override'), findsOneWidget);
+        expect(find.text('theme-override'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'MessageBubble.statusIconBuilder returning null falls back to theme',
+      (tester) async {
+        final theme = ChatTheme.defaults.copyWith(
+          bubble: ChatBubbleTheme(
+            statusIconBuilder: (context, data) => const Text('theme-fallback'),
+          ),
+        );
+        await tester.pumpWidget(
+          wrap(
+            MessageBubble(
+              message: ChatMessage(
+                id: 'm1',
+                from: 'me',
+                timestamp: ts,
+                text: 'hello',
+              ),
+              isOutgoing: true,
+              status: ReceiptStatus.read,
+              theme: theme,
+              statusIconBuilder: (context, data) => null,
+            ),
+          ),
+        );
+
+        expect(find.text('theme-fallback'), findsOneWidget);
+      },
+    );
+
     testWidgets('pending clock honors statusPendingColor', (tester) async {
       const pendingColor = Color(0xFFAB47BC);
       await tester.pumpWidget(

@@ -336,6 +336,37 @@ void main() {
       expect(captured['roomId'], 'r1');
     });
 
+    test('search() omits roomId for global scope when null', () async {
+      when(
+        () => rest.getWithTotalCount(
+          any(),
+          queryParams: any(named: 'queryParams'),
+        ),
+      ).thenAnswer(
+        (_) async => (
+          {
+            'messages': [msgJson('m1')],
+            'hasMore': false,
+          },
+          1,
+        ),
+      );
+
+      final r = await api.search('hello');
+
+      expect(r.isSuccess, true);
+      final captured =
+          verify(
+                () => rest.getWithTotalCount(
+                  '/messages/search',
+                  queryParams: captureAny(named: 'queryParams'),
+                ),
+              ).captured.single
+              as Map<String, dynamic>;
+      expect(captured['q'], 'hello');
+      expect(captured.containsKey('roomId'), false);
+    });
+
     test('report() posts to /rooms/{r}/messages/{m}/report', () async {
       when(
         () => rest.postVoid(any(), data: any(named: 'data')),

@@ -221,7 +221,15 @@ class OptimisticHandler {
         : null;
     if (controller != null) {
       if (confirmed != null) {
-        controller.confirmSent(tempId, confirmed);
+        // An ack_mode=async provisional echo carries an id that does NOT
+        // match the stored message, so confirming with it would strand the
+        // bubble under a dead id. Keep the optimistic row pending instead;
+        // the authoritative `new_message` event replaces it (and clears
+        // the pending mark) via the clientMessageId reconciliation in
+        // ChatController.addMessage.
+        if (!confirmed.isProvisional) {
+          controller.confirmSent(tempId, confirmed);
+        }
       } else {
         controller.markFailed(tempId);
       }
@@ -507,7 +515,12 @@ class OptimisticHandler {
     );
 
     if (result.isSuccess) {
-      controller.confirmSent(messageId, _ensureSentReceipt(result.dataOrThrow));
+      final confirmed = _ensureSentReceipt(result.dataOrThrow);
+      // Same provisional-echo rule as sendMessage: keep the bubble pending
+      // until the authoritative event reconciles by clientMessageId.
+      if (!confirmed.isProvisional) {
+        controller.confirmSent(messageId, confirmed);
+      }
       unawaited(
         cache
                 ?.deletePendingMessage(roomId, messageId)

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../models/room_user.dart';
 import '../../models/user.dart';
@@ -38,6 +39,7 @@ class GroupMembersView extends StatefulWidget {
     this.onMemberRemoved,
     this.onRoleChanged,
     this.embedded = false,
+    this.pageSize = 100,
   });
 
   /// When `true`, the inner [ListView] becomes `shrinkWrap: true` +
@@ -76,6 +78,15 @@ class GroupMembersView extends StatefulWidget {
   /// Optional callback fired after a successful role change.
   final FutureOr<void> Function(String userId, RoomRole role)? onRoleChanged;
 
+  /// Number of members fetched per page via `members.list`'s offset
+  /// pagination. The initial load and every subsequent "load more" (fired
+  /// when the user scrolls within [_loadMoreThreshold] of the bottom) both
+  /// request this many rows. Groups with more members than fit in one
+  /// response used to be silently truncated to the backend's default page
+  /// size — this makes rosters of any size reachable without loading
+  /// hundreds of rows upfront. Defaults to 100.
+  final int pageSize;
+
   @override
   State<GroupMembersView> createState() => _GroupMembersViewState();
 }
@@ -83,7 +94,12 @@ class GroupMembersView extends StatefulWidget {
 class _GroupMembersViewState extends State<GroupMembersView> {
   List<RoomUser>? _members;
   bool _loading = false;
+  bool _loadingMore = false;
+  bool _hasMore = false;
   String? _error;
+  final _scrollController = ScrollController();
+
+  static const double _loadMoreThresholdPx = 200;
 
   bool get _canManage =>
       widget.currentUserRole == RoomRole.owner ||
@@ -106,13 +122,25 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     // the roster so it stays live instead of only refreshing on mount /
     // pull-to-refresh.
     widget.adapter.roomMembersListenable.addListener(_onRoomMembersChanged);
+    _scrollController.addListener(_onScroll);
   }
 
   @override
   void dispose() {
     widget.adapter.userCacheListenable.removeListener(_onUserCacheChanged);
     widget.adapter.roomMembersListenable.removeListener(_onRoomMembersChanged);
+    _scrollController.removeListener(_onScroll);
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels < position.maxScrollExtent - _loadMoreThresholdPx) {
+      return;
+    }
+    _loadMore();
   }
 
   void _onUserCacheChanged() {
@@ -145,8 +173,15 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     // `GET /users/{id}` N+1 that `_warmMissingUsers` would otherwise fire
     // for every unknown id. On a backend that ignores the param the rows
     // come back bare and we transparently fall back to the warm-up path.
+    //
+    // Always (re-)fetches page 1 only — this is also the path used to
+    // refresh after a mutation or a realtime membership event, where
+    // re-requesting every already-loaded page would be wasteful and could
+    // reorder rows the user is mid-scroll through. Large-group pagination
+    // beyond page 1 is exclusively driven by [_loadMore].
     final result = await widget.adapter.client.members.list(
       widget.roomId,
+      pagination: ChatPaginationParams(limit: widget.pageSize),
       expand: const [RoomMemberExpand.users],
     );
     if (!mounted) return;
@@ -162,6 +197,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         _seedCacheFromExpanded(paginated.items);
         setState(() {
           _loading = false;
+          _hasMore = paginated.hasMore;
           _members = _sort(paginated.items);
         });
         // Only members the expansion did NOT cover still need a profile
@@ -169,6 +205,45 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         // Fire-and-forget; each successful `cacheUsers` triggers a
         // `notifyMembersChanged` that the host's resolver re-evaluates on
         // the next rebuild.
+        unawaited(_warmMissingUsers(paginated.items));
+      },
+    );
+  }
+
+  /// Fetches the next page (offset = current member count) and appends it
+  /// to [_members], keeping the existing sort stable for already-loaded
+  /// rows. Triggered by [_onScroll] once the user nears the bottom of a
+  /// group whose roster didn't fit in a single page.
+  Future<void> _loadMore() async {
+    if (!mounted || _loading || _loadingMore || !_hasMore) return;
+    final currentCount = _members?.length ?? 0;
+    setState(() => _loadingMore = true);
+    final result = await widget.adapter.client.members.list(
+      widget.roomId,
+      pagination: ChatPaginationParams(
+        limit: widget.pageSize,
+        offset: currentCount,
+      ),
+      expand: const [RoomMemberExpand.users],
+    );
+    if (!mounted) return;
+    result.fold(
+      (failure) => setState(() {
+        _loadingMore = false;
+        // Keep whatever page is already loaded; only surface the error via
+        // a snackbar since `_error` would otherwise blank the existing list.
+        ScaffoldMessenger.maybeOf(
+          context,
+        )?.showSnackBar(SnackBar(content: Text(failure.toString())));
+      }),
+      (paginated) {
+        _seedCacheFromExpanded(paginated.items);
+        setState(() {
+          _loadingMore = false;
+          _hasMore = paginated.hasMore;
+          final merged = [...?_members, ...paginated.items];
+          _members = _sort(merged);
+        });
         unawaited(_warmMissingUsers(paginated.items));
       },
     );
@@ -358,14 +433,48 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     }
     final members = _members ?? const <RoomUser>[];
     final currentUserId = widget.adapter.currentUser.id;
+    // `embedded` mode nests this list (shrinkWrap + non-scrolling physics)
+    // inside a host-owned outer scrollable — this widget can't observe that
+    // outer scroll position, so `_onScroll`'s auto-load-near-bottom never
+    // fires there. A tappable "load more" row is the fallback that keeps
+    // pagination reachable in embedded mode instead of silently truncating
+    // the roster to the first page.
+    final showLoadMoreRow = widget.embedded && _hasMore && !_loadingMore;
+    final showFooter = _loadingMore || showLoadMoreRow;
     final list = ListView.separated(
+      controller: _scrollController,
       shrinkWrap: widget.embedded,
       physics: widget.embedded
           ? const NeverScrollableScrollPhysics()
           : const AlwaysScrollableScrollPhysics(),
-      itemCount: members.length,
+      itemCount: members.length + (showFooter ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox.shrink(),
       itemBuilder: (context, index) {
+        if (index >= members.length) {
+          if (showLoadMoreRow) {
+            return ListTile(
+              title: Center(
+                child: Text(
+                  widget.theme.l10n.loadMore,
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                ),
+              ),
+              onTap: _loadMore,
+            );
+          }
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            ),
+          );
+        }
         final m = members[index];
         final resolvedName = widget.displayNameResolver?.call(m.userId);
         final displayName =

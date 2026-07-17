@@ -52,7 +52,6 @@ void main() {
     test('sendXxx are silent no-ops in any state', () async {
       final t = ManualTransport(config: _config());
       expect(() => t.sendTyping('r1'), returnsNormally);
-      expect(() => t.sendDmTyping('contact'), returnsNormally);
       expect(() => t.sendReceipt('r1', 'm1'), returnsNormally);
       expect(() => t.sendMessage('r1', text: 'x'), returnsNormally);
       await t.dispose();

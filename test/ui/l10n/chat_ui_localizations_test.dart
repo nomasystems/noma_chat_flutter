@@ -223,4 +223,119 @@ void main() {
       expect(copy.localeCode, 'fr');
     });
   });
+
+  group('ChatUiLocalizations — Nordic + Eastern-EU locales', () {
+    test('sv has Swedish translations for the core set', () {
+      const l10n = ChatUiLocalizations.sv;
+      expect(l10n.localeCode, 'sv');
+      expect(l10n.today, 'Idag');
+      expect(l10n.writeMessage, 'Skriv ett meddelande');
+      expect(l10n.send, 'Skicka');
+      expect(l10n.delete, 'Ta bort');
+      expect(l10n.loadMore, 'Ladda fler');
+    });
+
+    test('no has Norwegian translations for the core set', () {
+      const l10n = ChatUiLocalizations.no;
+      expect(l10n.localeCode, 'no');
+      expect(l10n.today, 'I dag');
+      expect(l10n.writeMessage, 'Skriv en melding');
+      expect(l10n.send, 'Send');
+      expect(l10n.loadMore, 'Last inn flere');
+    });
+
+    test('da has Danish translations for the core set', () {
+      const l10n = ChatUiLocalizations.da;
+      expect(l10n.localeCode, 'da');
+      expect(l10n.today, 'I dag');
+      expect(l10n.writeMessage, 'Skriv en besked');
+      expect(l10n.send, 'Send');
+      expect(l10n.loadMore, 'Indlæs flere');
+    });
+
+    test('pl has Polish translations for the core set', () {
+      const l10n = ChatUiLocalizations.pl;
+      expect(l10n.localeCode, 'pl');
+      expect(l10n.today, 'Dzisiaj');
+      expect(l10n.writeMessage, 'Napisz wiadomość');
+      expect(l10n.send, 'Wyślij');
+      expect(l10n.loadMore, 'Wczytaj więcej');
+    });
+
+    test('cs has Czech translations for the core set', () {
+      const l10n = ChatUiLocalizations.cs;
+      expect(l10n.localeCode, 'cs');
+      expect(l10n.today, 'Dnes');
+      expect(l10n.writeMessage, 'Napište zprávu');
+      expect(l10n.send, 'Odeslat');
+      expect(l10n.loadMore, 'Načíst další');
+    });
+
+    test('fields outside the core set fall back to the English default', () {
+      expect(ChatUiLocalizations.sv.unblockFailed, 'Unblock failed');
+      expect(ChatUiLocalizations.no.unblockFailed, 'Unblock failed');
+      expect(ChatUiLocalizations.da.unblockFailed, 'Unblock failed');
+      expect(ChatUiLocalizations.pl.unblockFailed, 'Unblock failed');
+      expect(ChatUiLocalizations.cs.unblockFailed, 'Unblock failed');
+    });
+
+    test('loadMore defaults to English on the base constructor', () {
+      const l10n = ChatUiLocalizations();
+      expect(l10n.loadMore, 'Load more');
+    });
+  });
+
+  group('ChatUiLocalizations — locale registry', () {
+    test('supportedLanguageCodes includes all twelve locales', () {
+      expect(ChatUiLocalizations.supportedLanguageCodes, [
+        'en',
+        'es',
+        'fr',
+        'de',
+        'it',
+        'pt',
+        'ca',
+        'sv',
+        'no',
+        'da',
+        'pl',
+        'cs',
+      ]);
+    });
+
+    test('supportedLocales mirrors supportedLanguageCodes', () {
+      expect(
+        ChatUiLocalizations.supportedLocales.map((l) => l.languageCode),
+        ChatUiLocalizations.supportedLanguageCodes,
+      );
+    });
+
+    test('forLanguageCode resolves each new locale by exact code', () {
+      expect(ChatUiLocalizations.forLanguageCode('sv'), ChatUiLocalizations.sv);
+      expect(ChatUiLocalizations.forLanguageCode('no'), ChatUiLocalizations.no);
+      expect(ChatUiLocalizations.forLanguageCode('da'), ChatUiLocalizations.da);
+      expect(ChatUiLocalizations.forLanguageCode('pl'), ChatUiLocalizations.pl);
+      expect(ChatUiLocalizations.forLanguageCode('cs'), ChatUiLocalizations.cs);
+    });
+
+    test('forLanguageCode maps nb/nn Norwegian variants to no', () {
+      expect(ChatUiLocalizations.forLanguageCode('nb'), ChatUiLocalizations.no);
+      expect(ChatUiLocalizations.forLanguageCode('nn'), ChatUiLocalizations.no);
+    });
+
+    test('forLanguageCode matches IETF tags with region by primary subtag', () {
+      expect(
+        ChatUiLocalizations.forLanguageCode('pl-PL'),
+        ChatUiLocalizations.pl,
+      );
+      expect(
+        ChatUiLocalizations.forLanguageCode('cs_CZ'),
+        ChatUiLocalizations.cs,
+      );
+    });
+
+    test('forLanguageCode falls back to en for an unsupported code', () {
+      expect(ChatUiLocalizations.forLanguageCode('xx'), ChatUiLocalizations.en);
+    });
+  });
 }

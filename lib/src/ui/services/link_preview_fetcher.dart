@@ -66,6 +66,7 @@ class LinkPreviewFetcher {
   // not poison the cache for the rest of the session.
   final Map<String, DateTime> _failureStoredAt = {};
   final Map<String, Future<LinkPreviewMetadata?>> _inFlight = {};
+  final Map<String, CancelToken> _inFlightTokens = {};
 
   // === Observability counters ===
   int _hits = 0;
@@ -116,12 +117,39 @@ class LinkPreviewFetcher {
     final pending = _inFlight[url];
     if (pending != null) return pending;
 
-    final future = _doFetch(url).whenComplete(() => _inFlight.remove(url));
+    final token = CancelToken();
+    _inFlightTokens[url] = token;
+    final future = _doFetch(url, token).whenComplete(() {
+      _inFlight.remove(url);
+      _inFlightTokens.remove(url);
+    });
     _inFlight[url] = future;
     return future;
   }
 
-  Future<LinkPreviewMetadata?> _doFetch(String url) async {
+  /// Aborts the network request in flight for [url], if any, and drops its
+  /// coalesced future. The pending `fetch(url)` resolves to `null` without
+  /// poisoning the cache, so a later retype of the same URL fetches fresh.
+  ///
+  /// The sequence guard in the composer already prevents a late response from
+  /// corrupting the UI; this releases the socket the moment the URL is changed
+  /// or the preview is dismissed instead of letting it run to completion.
+  void cancel(String url) {
+    final token = _inFlightTokens[url];
+    if (token != null && !token.isCancelled) {
+      token.cancel('link_preview cancelled: $url');
+    }
+  }
+
+  /// Aborts every in-flight fetch. Call on dispose of the owning composer so
+  /// no request outlives the widget.
+  void cancelAll() {
+    for (final token in _inFlightTokens.values) {
+      if (!token.isCancelled) token.cancel('link_preview cancelled (all)');
+    }
+  }
+
+  Future<LinkPreviewMetadata?> _doFetch(String url, CancelToken token) async {
     // Defensive outer timeout: Dio's `connectTimeout` and `receiveTimeout`
     // are honoured by the Dart HTTP client on desktop but can be ignored on
     // iOS Simulator when the socket gets stuck in CONNECTING (observed
@@ -142,6 +170,7 @@ class LinkPreviewFetcher {
             .get<dynamic>(
               url,
               options: Options(responseType: ResponseType.plain),
+              cancelToken: token,
             )
             .timeout(
               const Duration(seconds: 15),
@@ -155,6 +184,7 @@ class LinkPreviewFetcher {
           result = _parse(url, body);
         }
       } catch (e) {
+        if (token.isCancelled) return null;
         // Transient failure (timeout / socket error / DNS / Dio exception):
         // retry once on a fresh socket before giving up. Do NOT cache a null
         // here — caching would blank the preview for the whole `_failureTtl`

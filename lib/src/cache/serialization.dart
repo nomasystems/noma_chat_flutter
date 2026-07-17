@@ -18,6 +18,7 @@ Map<String, dynamic> messageToMap(ChatMessage msg) => {
   if (msg.attachmentUrl != null) 'attachmentUrl': msg.attachmentUrl,
   if (msg.referencedMessageId != null)
     'referencedMessageId': msg.referencedMessageId,
+  if (msg.clientMessageId != null) 'clientMessageId': msg.clientMessageId,
   if (msg.reaction != null) 'reaction': msg.reaction,
   if (msg.reply != null) 'reply': msg.reply,
   if (msg.metadata != null) 'metadata': msg.metadata,
@@ -30,6 +31,7 @@ Map<String, dynamic> messageToMap(ChatMessage msg) => {
   if (msg.fileName != null) 'fileName': msg.fileName,
   if (msg.fileSize != null) 'fileSize': msg.fileSize,
   if (msg.thumbnailUrl != null) 'thumbnailUrl': msg.thumbnailUrl,
+  if (msg.silentlyDropped) 'silentlyDropped': true,
 };
 
 /// Deserialises a cached message map back into a [ChatMessage].
@@ -53,6 +55,7 @@ ChatMessage messageFromMap(
   ),
   attachmentUrl: map['attachmentUrl'] as String?,
   referencedMessageId: map['referencedMessageId'] as String?,
+  clientMessageId: map['clientMessageId'] as String?,
   reaction: map['reaction'] as String?,
   reply: map['reply'] as String?,
   metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
@@ -65,6 +68,7 @@ ChatMessage messageFromMap(
   fileName: map['fileName'] as String?,
   fileSize: map['fileSize'] as String?,
   thumbnailUrl: map['thumbnailUrl'] as String?,
+  silentlyDropped: map['silentlyDropped'] as bool? ?? false,
 );
 
 Map<String, dynamic> roomToMap(ChatRoom room) => {

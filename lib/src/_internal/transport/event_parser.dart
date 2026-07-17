@@ -9,6 +9,15 @@ import '../mappers/message_mapper.dart';
 class EventParser {
   static void Function(String level, String message)? logger;
 
+  /// Highest realtime-event schema major version this SDK build understands.
+  /// The backend may stamp events with a schema version (`schemaVersion` or
+  /// `v`); a newer major than this signals fields/semantics the SDK predates.
+  static const int supportedSchemaMajor = 1;
+
+  /// Set once per process when a newer-major event is first seen, so the
+  /// forward-compat warning is logged one time instead of per frame.
+  static bool _loggedSchemaSkew = false;
+
   /// Safe cast: returns the value when it's a [String], `null` otherwise.
   /// Use instead of `as String?` for any field that comes from a JSON
   /// payload whose shape we don't fully control — protects against
@@ -19,9 +28,38 @@ class EventParser {
   static int? _asInt(dynamic value) => value is int ? value : null;
   static bool? _asBool(dynamic value) => value is bool ? value : null;
 
+  /// Reads the event's schema major version, if the backend stamped one.
+  /// Accepts an int (`2`), a `MAJOR` string, or a `MAJOR.MINOR` string;
+  /// returns `null` when absent or unparseable (treated as the current
+  /// version — the field is optional and legacy events omit it).
+  static int? _schemaMajor(Map<String, dynamic> json) {
+    final raw = json['schemaVersion'] ?? json['v'];
+    if (raw is int) return raw;
+    if (raw is String) {
+      final head = raw.split('.').first.trim();
+      return int.tryParse(head);
+    }
+    return null;
+  }
+
   static ChatEvent? parseJson(Map<String, dynamic> json) {
     final type = _asString(json['type']);
     if (type == null) return null;
+
+    // Tolerant schema-version gate: a newer-major event may carry fields or
+    // semantics this SDK build predates. We do NOT drop it — best-effort
+    // parsing lets forward-compatible additive changes flow through — but we
+    // warn once so the skew is diagnosable in the field.
+    final major = _schemaMajor(json);
+    if (major != null && major > supportedSchemaMajor && !_loggedSchemaSkew) {
+      _loggedSchemaSkew = true;
+      logger?.call(
+        'warn',
+        'EventParser: event schema major v$major is newer than the '
+            'supported v$supportedSchemaMajor — parsing best-effort. '
+            'Consider upgrading the noma_chat SDK.',
+      );
+    }
 
     return switch (type) {
       'new_message' => _parseNewMessage(json),

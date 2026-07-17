@@ -1047,6 +1047,7 @@ class MockContactsApi implements ChatContactsApi {
     String? reaction,
     String? attachmentUrl,
     Map<String, dynamic>? metadata,
+    String? clientMessageId,
   }) async {
     final msg = ChatMessage(
       id: _client._nextMessageId(),
@@ -1054,6 +1055,7 @@ class MockContactsApi implements ChatContactsApi {
       timestamp: DateTime.now(),
       text: text,
       messageType: messageType,
+      clientMessageId: clientMessageId,
     );
     return ChatSuccess(msg);
   }

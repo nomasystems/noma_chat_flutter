@@ -35,18 +35,48 @@ class NomaChatClient implements ChatClient {
   late final RestClient _rest;
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
-  final OfflineQueue? _offlineQueue;
+  late final OfflineQueue? _offlineQueue;
   final bool _enableCatchUp;
   final void Function(String level, String message)? _logger;
   final void Function()? _onAuthFailure;
   StreamSubscription<ChatEvent>? _eventSub;
   DateTime? _disconnectedAt;
   bool _hasConnectedOnce = false;
+  Future<void>? _connecting;
+  final Set<String> _permanentlyFailedOperationIds = {};
 
   /// Called when an offline queue send completes; receives the room id, the
   /// optimistic temp id and the server-confirmed message.
   void Function(String roomId, String tempId, ChatMessage message)?
   onOfflineMessageSent;
+
+  /// Called when the offline queue gives up on a pending operation
+  /// (`queue_full`, `ttl_expired`, or `max_retries` — see
+  /// [OfflineQueue.onOperationDropped]). Defaults to recording the
+  /// operation id in [permanentlyFailedOperationIds] so the host UI can
+  /// show a "delivery failed" indicator via
+  /// [isOperationPermanentlyFailed] without wiring anything itself.
+  /// Overridable — assign a new closure to replace the default entirely
+  /// (call [isOperationPermanentlyFailed] yourself from the override if
+  /// you still want the built-in marker).
+  late void Function(PendingOperation op, String reason) onOperationDropped;
+
+  /// Ids of pending operations the offline queue gave up retrying,
+  /// recorded by the default [onOperationDropped] handler. Cleared on
+  /// [logout]. Empty if [onOperationDropped] was overridden with a
+  /// closure that doesn't call [_markOperationPermanentlyFailed].
+  Set<String> get permanentlyFailedOperationIds =>
+      Set.unmodifiable(_permanentlyFailedOperationIds);
+
+  /// Whether [operationId] was dropped by the offline queue after
+  /// exhausting retries. Drive a "delivery failed" badge in the UI from
+  /// this — pair with [PendingOperation.id] captured at enqueue time.
+  bool isOperationPermanentlyFailed(String operationId) =>
+      _permanentlyFailedOperationIds.contains(operationId);
+
+  void _markOperationPermanentlyFailed(PendingOperation op, String reason) {
+    _permanentlyFailedOperationIds.add(op.id);
+  }
 
   DateTime? get lastDisconnectedAt => _disconnectedAt;
 
@@ -80,17 +110,25 @@ class NomaChatClient implements ChatClient {
                onMetric: config.metricCallback,
              )
            : null,
-       _offlineQueue = config.cacheConfig != null
-           ? OfflineQueue(
-               maxRetries: config.cacheConfig!.offlineQueueMaxRetries,
-               store: config.localDatasource,
-               logger: config.logger,
-               metricCallback: config.metricCallback,
-             )
-           : null,
        _enableCatchUp = config.enableReconnectCatchUp,
        _logger = config.logger,
        _onAuthFailure = config.onAuthFailure {
+    onOperationDropped = _markOperationPermanentlyFailed;
+    _offlineQueue = config.cacheConfig != null
+        ? OfflineQueue(
+            maxRetries: config.cacheConfig!.offlineQueueMaxRetries,
+            store: config.localDatasource,
+            logger: config.logger,
+            metricCallback: config.metricCallback,
+            // Forwards through the field instead of binding
+            // `_markOperationPermanentlyFailed` directly so a caller can
+            // reassign `onOperationDropped` after construction (e.g. right
+            // after `NomaChat.create()`) and still have it take effect —
+            // `OfflineQueue.onOperationDropped` itself is fixed at
+            // construction time.
+            onOperationDropped: (op, reason) => onOperationDropped(op, reason),
+          )
+        : null;
     MessageMapper.logger = config.logger;
     UserMapper.logger = config.logger;
     EventParser.logger = config.logger;
@@ -115,15 +153,15 @@ class NomaChatClient implements ChatClient {
     presence = apiFactory.presence();
     attachments = apiFactory.attachments();
 
-    // Bind the drain executor now that every sub-API is wired. The
-    // queue was constructed in the field initializer (so MessagesApi
-    // / ContactsApi could receive a non-null reference for `enqueue`)
-    // but the executor closure can only be set here because it
-    // captures `this.messages`/`this.contacts` etc. that don't exist
-    // until the constructor body runs. This decouples
-    // OfflineQueue from the call-graph "circle" — the queue owns its
-    // own drain logic via the bound executor instead of having the
-    // host pass a closure every time it calls into the queue.
+    // Bind the drain executor now that every sub-API is wired. The queue
+    // is constructed earlier in the constructor body (so MessagesApi /
+    // ContactsApi could receive a non-null reference for `enqueue`) but
+    // the executor closure can only be set here because it captures
+    // `this.messages`/`this.contacts` etc. that don't exist until this
+    // point. This decouples OfflineQueue from the call-graph "circle" —
+    // the queue owns its own drain logic via the bound executor instead
+    // of having the host pass a closure every time it calls into the
+    // queue.
     _offlineQueue?.bindExecutor(_offlineQueueExecutor);
   }
 
@@ -164,7 +202,20 @@ class NomaChatClient implements ChatClient {
   Stream<ChatConnectionState> get stateChanges => _transport.stateChanges;
 
   @override
-  Future<void> connect() async {
+  Future<void> connect() {
+    // Re-entrancy guard: a second connect() fired before the first
+    // finishes (e.g. two lifecycle callbacks in quick succession) awaits
+    // the in-flight call instead of racing it — otherwise both could
+    // observe the same non-null `_eventSub`, cancel it twice, and
+    // reassign the field out of order, leaking one subscription.
+    final inFlight = _connecting;
+    if (inFlight != null) return inFlight;
+    final future = _connectOnce();
+    _connecting = future;
+    return future.whenComplete(() => _connecting = null);
+  }
+
+  Future<void> _connectOnce() async {
     await _offlineQueue?.restore();
     // Cancel any prior subscription before re-subscribing: a repeated
     // connect() (the documented background→foreground cycle) would
@@ -202,6 +253,7 @@ class NomaChatClient implements ChatClient {
     cancelPendingRequests('logout');
     await disconnect();
     _offlineQueue?.clear();
+    _permanentlyFailedOperationIds.clear();
     _cacheManager?.clear();
     await _cache?.clear();
   }
@@ -297,6 +349,7 @@ class NomaChatClient implements ChatClient {
           reaction: op.reaction,
           attachmentUrl: op.attachmentUrl,
           metadata: op.metadata,
+          clientMessageId: op.clientMessageId,
         );
       case PendingEditMessage():
         return messages.update(
@@ -309,6 +362,16 @@ class NomaChatClient implements ChatClient {
         return messages.delete(op.roomId, op.messageId);
       case PendingDeleteReaction():
         return messages.deleteReaction(op.roomId, op.messageId);
+      case PendingAddReaction():
+        return messages.addReaction(op.roomId, op.messageId, emoji: op.emoji);
+      case PendingPinMessage():
+        return messages.pinMessage(op.roomId, op.messageId);
+      case PendingUnpinMessage():
+        return messages.unpinMessage(op.roomId, op.messageId);
+      case PendingStarMessage():
+        return messages.starMessage(op.roomId, op.messageId);
+      case PendingUnstarMessage():
+        return messages.unstarMessage(op.roomId, op.messageId);
       case PendingCreateRoom():
         final audience = switch (op.audience) {
           'public' => RoomAudience.public,

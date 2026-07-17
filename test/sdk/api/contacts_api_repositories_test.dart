@@ -65,6 +65,105 @@ void main() {
       },
     );
 
+    test('sendDirectMessage() always sends a clientMessageId '
+        '(auto-generated when omitted, verbatim when supplied)', () async {
+      when(
+        () =>
+            rest.post('/contacts/contact-1/messages', data: any(named: 'data')),
+      ).thenAnswer((_) async => messageJson());
+
+      await api.sendDirectMessage('contact-1', text: 'hi');
+      await api.sendDirectMessage(
+        'contact-1',
+        text: 'hi again',
+        clientMessageId: 'my-key',
+      );
+
+      final captured = verify(
+        () => rest.post(
+          '/contacts/contact-1/messages',
+          data: captureAny(named: 'data'),
+        ),
+      ).captured.cast<Map<String, dynamic>>();
+      expect(captured[0]['clientMessageId'], isA<String>());
+      expect((captured[0]['clientMessageId'] as String).isNotEmpty, isTrue);
+      expect(captured[1]['clientMessageId'], 'my-key');
+    });
+
+    test(
+      'sendDirectMessage() flags an ack_mode=async provisional echo '
+      '(no metadata.clientMessageId round-trip) and stamps the key',
+      () async {
+        when(
+          () => rest.post(
+            '/contacts/contact-1/messages',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => messageJson(id: 'provisional-1'));
+
+        final result = await api.sendDirectMessage(
+          'contact-1',
+          text: 'hi',
+          clientMessageId: 'my-key',
+        );
+
+        final message = result.dataOrNull!;
+        expect(message.isProvisional, isTrue);
+        expect(message.clientMessageId, 'my-key');
+      },
+    );
+
+    test('sendDirectMessage() treats a sync echo (metadata.clientMessageId '
+        'round-tripped) as authoritative', () async {
+      when(
+        () =>
+            rest.post('/contacts/contact-1/messages', data: any(named: 'data')),
+      ).thenAnswer(
+        (_) async => {
+          ...messageJson(id: 'stored-1'),
+          'metadata': {'clientMessageId': 'my-key'},
+        },
+      );
+
+      final result = await api.sendDirectMessage(
+        'contact-1',
+        text: 'hi',
+        clientMessageId: 'my-key',
+      );
+
+      final message = result.dataOrNull!;
+      expect(message.isProvisional, isFalse);
+      expect(message.clientMessageId, 'my-key');
+      expect(message.id, 'stored-1');
+    });
+
+    test('sendTyping() always posts the REST contact-activity endpoint '
+        '(the WS typing frame is room-scoped and has no DM form)', () async {
+      when(
+        () => rest.postVoid(
+          '/contacts/contact-1/activity',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async {});
+
+      final start = await api.sendTyping('contact-1');
+      final stop = await api.sendTyping(
+        'contact-1',
+        activity: ChatActivity.stopsTyping,
+      );
+
+      expect(start.isSuccess, isTrue);
+      expect(stop.isSuccess, isTrue);
+      final captured = verify(
+        () => rest.postVoid(
+          '/contacts/contact-1/activity',
+          data: captureAny(named: 'data'),
+        ),
+      ).captured.cast<Map<String, dynamic>>();
+      expect(captured[0], {'activity': 'startsTyping'});
+      expect(captured[1], {'activity': 'stopsTyping'});
+    });
+
     test('sendDirectMessage() includes optional fields', () async {
       when(
         () =>
@@ -188,6 +287,21 @@ void main() {
       },
     );
 
+    test('getConversationMessages() rejects an empty/whitespace conversationId '
+        'with a ValidationFailure and never hits the network', () async {
+      final empty = await api.getConversationMessages('');
+      final blank = await api.getConversationMessages('   ');
+
+      expect(empty.failureOrNull, isA<ValidationFailure>());
+      expect(blank.failureOrNull, isA<ValidationFailure>());
+      verifyNever(
+        () => rest.getWithTotalCount(
+          any(),
+          queryParams: any(named: 'queryParams'),
+        ),
+      );
+    });
+
     test('getConversationMessages() parses next/prev cursors so the timeline '
         'paginates older pages', () async {
       when(
@@ -266,6 +380,45 @@ void main() {
 
         expect(result.isFailure, isTrue);
         expect(result.failureOrNull, isA<NetworkFailure>());
+      },
+    );
+
+    test('sendDirectMessage() marks silentlyDropped on 204 (recipient blocked '
+        'sender)', () async {
+      when(
+        () => rest.post(
+          '/contacts/blocked-contact/messages',
+          data: any(named: 'data'),
+        ),
+      ).thenAnswer((_) async => <String, dynamic>{});
+      when(() => rest.userId).thenReturn('me');
+
+      final result = await api.sendDirectMessage(
+        'blocked-contact',
+        text: 'are you there?',
+      );
+
+      expect(result.isSuccess, isTrue);
+      final message = result.dataOrNull!;
+      expect(message.silentlyDropped, isTrue);
+      expect(message.receipt, ReceiptStatus.sent);
+      expect(message.from, 'me');
+      expect(message.text, 'are you there?');
+    });
+
+    test(
+      'sendDirectMessage() does not mark silentlyDropped on a normal send',
+      () async {
+        when(
+          () => rest.post(
+            '/contacts/contact-1/messages',
+            data: any(named: 'data'),
+          ),
+        ).thenAnswer((_) async => messageJson(id: 'dm-2'));
+
+        final result = await api.sendDirectMessage('contact-1', text: 'hi');
+
+        expect(result.dataOrNull!.silentlyDropped, isFalse);
       },
     );
 

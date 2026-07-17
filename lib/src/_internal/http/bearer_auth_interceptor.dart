@@ -1,30 +1,50 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 
+import '../cache/cache_manager.dart' show MetricCallback;
 import 'auth_interceptor.dart';
 
 /// Bearer token authentication with automatic refresh on 401 responses.
+///
+/// A simple circuit breaker guards the refresh-and-retry loop: each 401
+/// that survives a token refresh increments a consecutive-failure counter
+/// (metric `auth_refresh_retry_failure`). Once it reaches
+/// [maxConsecutiveRefreshFailures], further 401s skip the refresh entirely
+/// (metric `auth_circuit_open`) and go straight to [onAuthFailure], so a
+/// revoked account cannot hammer the token endpoint. Any successful retry
+/// or an explicit [invalidateCache] (new credentials) closes the circuit.
 class BearerAuthInterceptor extends AuthInterceptor {
   final Future<String> Function() tokenProvider;
   final void Function()? onAuthFailure;
   final void Function(String level, String message)? logger;
+  final MetricCallback? metricCallback;
+
+  static const int maxConsecutiveRefreshFailures = 3;
+  static const String _failureRecordedExtraKey = '_authFailureRecorded';
 
   Dio? _dio;
   String? _cachedToken;
   Completer<String>? _refreshCompleter;
+  int _consecutiveRefreshFailures = 0;
 
   BearerAuthInterceptor({
     required this.tokenProvider,
     this.onAuthFailure,
     this.logger,
+    this.metricCallback,
   });
+
+  @visibleForTesting
+  int get consecutiveRefreshFailures => _consecutiveRefreshFailures;
 
   void bindDio(Dio dio) => _dio = dio;
 
   @override
   void invalidateCache() {
     _cachedToken = null;
+    _consecutiveRefreshFailures = 0;
   }
 
   @override
@@ -71,6 +91,19 @@ class BearerAuthInterceptor extends AuthInterceptor {
 
     final options = err.requestOptions;
     if (options.extra['_authRetried'] == true) {
+      _recordRefreshFailure(options);
+      onAuthFailure?.call();
+      return handler.next(err);
+    }
+    if (_consecutiveRefreshFailures >= maxConsecutiveRefreshFailures) {
+      logger?.call(
+        'warn',
+        'auth.circuit: open after $_consecutiveRefreshFailures consecutive '
+            'post-refresh 401s, skipping token refresh',
+      );
+      metricCallback?.call('auth_circuit_open', {
+        'consecutiveFailures': _consecutiveRefreshFailures,
+      });
       onAuthFailure?.call();
       return handler.next(err);
     }
@@ -117,9 +150,11 @@ class BearerAuthInterceptor extends AuthInterceptor {
             ),
           );
       final response = await retryDio.fetch<dynamic>(options);
+      _consecutiveRefreshFailures = 0;
       handler.resolve(response);
     } on DioException catch (retryErr) {
       if (retryErr.response?.statusCode == 401) {
+        _recordRefreshFailure(retryErr.requestOptions);
         onAuthFailure?.call();
       }
       handler.next(retryErr);
@@ -128,5 +163,18 @@ class BearerAuthInterceptor extends AuthInterceptor {
       onAuthFailure?.call();
       handler.next(err);
     }
+  }
+
+  /// Idempotent per request: when [_dio] is bound, the retried request runs
+  /// the full interceptor chain, so its 401 reaches both the `_authRetried`
+  /// branch and the retry `catch` with the same [RequestOptions] instance —
+  /// the extra flag keeps that from double-counting one failure.
+  void _recordRefreshFailure(RequestOptions options) {
+    if (options.extra[_failureRecordedExtraKey] == true) return;
+    options.extra[_failureRecordedExtraKey] = true;
+    _consecutiveRefreshFailures++;
+    metricCallback?.call('auth_refresh_retry_failure', {
+      'consecutiveFailures': _consecutiveRefreshFailures,
+    });
   }
 }
