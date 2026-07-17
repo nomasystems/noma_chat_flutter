@@ -283,18 +283,20 @@ void main() {
       expect(pending.messageId, 'm1');
     });
 
-    test('enqueues on a receive TimeoutFailure (idempotent operation)',
-        () async {
-      when(
-        () => rest.delete(any(), queryParams: any(named: 'queryParams')),
-      ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.receive));
+    test(
+      'enqueues on a receive TimeoutFailure (idempotent operation)',
+      () async {
+        when(
+          () => rest.delete(any(), queryParams: any(named: 'queryParams')),
+        ).thenThrow(const ChatTimeoutException(kind: TimeoutKind.receive));
 
-      final result = await api.deleteReaction('r1', 'm1');
+        final result = await api.deleteReaction('r1', 'm1');
 
-      expect(result.failureOrNull, isA<TimeoutFailure>());
-      expect(offlineQueue.pending, hasLength(1));
-      expect(offlineQueue.pending.single, isA<PendingDeleteReaction>());
-    });
+        expect(result.failureOrNull, isA<TimeoutFailure>());
+        expect(offlineQueue.pending, hasLength(1));
+        expect(offlineQueue.pending.single, isA<PendingDeleteReaction>());
+      },
+    );
 
     test('does NOT enqueue when the delete succeeds', () async {
       when(

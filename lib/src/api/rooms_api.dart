@@ -374,7 +374,8 @@ class RoomsApi implements ChatRoomsApi {
     String? name,
     String? avatarUrl,
   }) async {
-    final unreads = (await cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
+    final unreads =
+        (await cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
     final existing = unreads.where((u) => u.roomId == roomId).firstOrNull;
     if (existing == null) return;
     final patched = existing.copyWith(

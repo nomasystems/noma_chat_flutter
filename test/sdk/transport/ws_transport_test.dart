@@ -831,7 +831,8 @@ void main() {
       expect(timeoutMetrics.single.$2['timeoutMs'], 50);
       expect(
         logs.any(
-          (l) => l.startsWith('warn:') && l.contains('auth handshake timed out'),
+          (l) =>
+              l.startsWith('warn:') && l.contains('auth handshake timed out'),
         ),
         isTrue,
       );

@@ -39,40 +39,44 @@ void main() {
   });
 
   group('signOut wipes every registry', () {
-    test('clears user cache, blocked users, presence and voice uploads',
-        () async {
-      adapter.cacheUsers([const ChatUser(id: 'bob', displayName: 'Bob')]);
-      adapter.blockedUserIds = {'carol'};
-      client.emitEvent(
-        const PresenceChangedEvent(
-          userId: 'bob',
-          status: PresenceStatus.available,
-          online: true,
-        ),
-      );
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      expect(adapter.presenceFor('bob'), isNotNull);
+    test(
+      'clears user cache, blocked users, presence and voice uploads',
+      () async {
+        adapter.cacheUsers([const ChatUser(id: 'bob', displayName: 'Bob')]);
+        adapter.blockedUserIds = {'carol'};
+        client.emitEvent(
+          const PresenceChangedEvent(
+            userId: 'bob',
+            status: PresenceStatus.available,
+            online: true,
+          ),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(adapter.presenceFor('bob'), isNotNull);
 
-      await adapter.signOut();
+        await adapter.signOut();
 
-      expect(adapter.findCachedUser('bob'), isNull);
-      expect(adapter.blockedUserIds, isEmpty);
-      expect(adapter.presenceFor('bob'), isNull);
-      expect(adapter.activeRoomId, isNull);
-    });
+        expect(adapter.findCachedUser('bob'), isNull);
+        expect(adapter.blockedUserIds, isEmpty);
+        expect(adapter.presenceFor('bob'), isNull);
+        expect(adapter.activeRoomId, isNull);
+      },
+    );
   });
 
   group('getChatController auto-propagates the resolved DM peer', () {
-    test('seeds otherUsers from the cache without an explicit setOtherUsers',
-        () {
-      const bob = ChatUser(id: 'bob', displayName: 'Bob');
-      adapter.cacheUsers([bob]);
-      adapter.dm.registerRoom('bob', 'r1');
+    test(
+      'seeds otherUsers from the cache without an explicit setOtherUsers',
+      () {
+        const bob = ChatUser(id: 'bob', displayName: 'Bob');
+        adapter.cacheUsers([bob]);
+        adapter.dm.registerRoom('bob', 'r1');
 
-      final controller = adapter.getChatController('r1');
+        final controller = adapter.getChatController('r1');
 
-      expect(controller.otherUsers, [bob]);
-    });
+        expect(controller.otherUsers, [bob]);
+      },
+    );
 
     test('backfills an already-created empty controller on re-open', () {
       final first = adapter.getChatController('r1');
