@@ -1,7 +1,6 @@
 # Known issues & technical debt
 
 Bugs, gaps and deferred cleanups that are known and intentionally not fixed
-yet, plus pointers for when someone picks them up. See `AUDIT_2026-07-06.md`
 for the full audit this file's entries are drawn from — this document only
 tracks what's still open after that audit's remediation pass.
 
