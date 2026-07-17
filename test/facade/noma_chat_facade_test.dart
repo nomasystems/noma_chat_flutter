@@ -47,24 +47,26 @@ void main() {
       await chat.dispose();
     });
 
-    test('builds from a ChatConfig without restated connection params',
-        () async {
-      final config = ChatConfig(
-        baseUrl: 'http://h/v1',
-        realtimeUrl: 'http://h',
-        tokenProvider: () async => 't',
-        localDatasource: MemoryChatLocalDatasource(),
-      );
+    test(
+      'builds from a ChatConfig without restated connection params',
+      () async {
+        final config = ChatConfig(
+          baseUrl: 'http://h/v1',
+          realtimeUrl: 'http://h',
+          tokenProvider: () async => 't',
+          localDatasource: MemoryChatLocalDatasource(),
+        );
 
-      chat = await NomaChat.fromConfig(
-        config: config,
-        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
-      );
+        chat = await NomaChat.fromConfig(
+          config: config,
+          currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+        );
 
-      expect(chat.client, isA<NomaChatClient>());
-      expect(chat.adapter.client, same(chat.client));
-      expect(chat.connectionState.value, ChatConnectionState.disconnected);
-    });
+        expect(chat.client, isA<NomaChatClient>());
+        expect(chat.adapter.client, same(chat.client));
+        expect(chat.connectionState.value, ChatConnectionState.disconnected);
+      },
+    );
 
     test('adapter currentUser reflects the supplied user', () async {
       final config = ChatConfig(

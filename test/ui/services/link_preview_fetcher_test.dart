@@ -138,23 +138,26 @@ void main() {
       expect(fetcher.cacheStats.inFlight, 0);
     });
 
-    test('a cancelled fetch is not cached, so a retype fetches fresh', () async {
-      final adapter = _HangingAdapter();
-      final dio = Dio()..httpClientAdapter = adapter;
-      final fetcher = LinkPreviewFetcher(dio: dio);
+    test(
+      'a cancelled fetch is not cached, so a retype fetches fresh',
+      () async {
+        final adapter = _HangingAdapter();
+        final dio = Dio()..httpClientAdapter = adapter;
+        final fetcher = LinkPreviewFetcher(dio: dio);
 
-      final first = fetcher.fetch('https://example.com/b');
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      fetcher.cancel('https://example.com/b');
-      await first;
+        final first = fetcher.fetch('https://example.com/b');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        fetcher.cancel('https://example.com/b');
+        await first;
 
-      expect(fetcher.cacheStats.entries, 0);
-      expect(fetcher.cacheStats.failures, 0);
+        expect(fetcher.cacheStats.entries, 0);
+        expect(fetcher.cacheStats.failures, 0);
 
-      fetcher.fetch('https://example.com/b');
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(adapter.fetchCount, 2);
-    });
+        fetcher.fetch('https://example.com/b');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(adapter.fetchCount, 2);
+      },
+    );
 
     test('cancelAll aborts every in-flight request', () async {
       final adapter = _HangingAdapter();

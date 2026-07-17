@@ -418,9 +418,11 @@ void main() {
         metricCallback: (metric, data) => metrics.add(metric),
       );
 
-      for (var i = 0;
-          i < BearerAuthInterceptor.maxConsecutiveRefreshFailures;
-          i++) {
+      for (
+        var i = 0;
+        i < BearerAuthInterceptor.maxConsecutiveRefreshFailures;
+        i++
+      ) {
         await recordPostRefreshFailure(interceptor);
       }
       final tokenCallsBefore = tokenCalls;
@@ -470,9 +472,11 @@ void main() {
         },
       );
 
-      for (var i = 0;
-          i < BearerAuthInterceptor.maxConsecutiveRefreshFailures;
-          i++) {
+      for (
+        var i = 0;
+        i < BearerAuthInterceptor.maxConsecutiveRefreshFailures;
+        i++
+      ) {
         await recordPostRefreshFailure(interceptor);
       }
       interceptor.invalidateCache();
