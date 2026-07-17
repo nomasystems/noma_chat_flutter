@@ -134,6 +134,11 @@ final class PendingSendDirectMessage extends PendingOperation {
   final String? attachmentUrl;
   final Map<String, dynamic>? metadata;
 
+  /// Server idempotency key, reused verbatim on every retry so a DM send
+  /// that actually landed (failure surfaced after delivery) is not
+  /// duplicated on drain. See [ChatContactsApi.sendDirectMessage].
+  final String? clientMessageId;
+
   PendingSendDirectMessage({
     required super.id,
     required this.contactUserId,
@@ -143,6 +148,7 @@ final class PendingSendDirectMessage extends PendingOperation {
     this.reaction,
     this.attachmentUrl,
     this.metadata,
+    this.clientMessageId,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -159,6 +165,7 @@ final class PendingSendDirectMessage extends PendingOperation {
     if (reaction != null) 'reaction': reaction,
     if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
     if (metadata != null) 'metadata': metadata,
+    if (clientMessageId != null) 'clientMessageId': clientMessageId,
   };
 
   @override
@@ -172,6 +179,7 @@ final class PendingSendDirectMessage extends PendingOperation {
         reaction: reaction,
         attachmentUrl: attachmentUrl,
         metadata: metadata,
+        clientMessageId: clientMessageId,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -867,6 +875,7 @@ class OfflineQueue {
             reaction: map['reaction'] as String?,
             attachmentUrl: map['attachmentUrl'] as String?,
             metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            clientMessageId: map['clientMessageId'] as String?,
           );
         case 'editMessage':
           return PendingEditMessage(

@@ -452,7 +452,12 @@ final class ChatMessagesController {
         : null;
     if (controller != null) {
       if (confirmedVoice != null) {
-        controller.confirmSent(tempId, confirmedVoice);
+        // An ack_mode=async provisional echo carries an untrusted id —
+        // keep the optimistic row pending; the authoritative
+        // `new_message` event reconciles it by clientMessageId.
+        if (!confirmedVoice.isProvisional) {
+          controller.confirmSent(tempId, confirmedVoice);
+        }
       } else {
         controller.markFailed(tempId);
       }
@@ -685,7 +690,11 @@ final class ChatMessagesController {
       );
       if (res.isSuccess) {
         final confirmed = _a._ensureSentReceipt(res.dataOrThrow);
-        targetController?.confirmSent(tempId, confirmed);
+        // Same provisional-echo rule as sendMessage: keep the bubble
+        // pending until the authoritative event reconciles it.
+        if (!confirmed.isProvisional) {
+          targetController?.confirmSent(tempId, confirmed);
+        }
         _a._roomListMutator.updateRoomLastMessage(effectiveTargetId, confirmed);
       } else {
         targetController?.markFailed(tempId);

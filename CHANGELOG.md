@@ -6,6 +6,74 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.12.0 - 2026-07-17
+
+### Fixed
+
+- **DM typing indicators now work over an active WebSocket connection.**
+  `contacts.sendTyping()` used to emit a WS `typing` frame addressed by
+  `contactId` while realtime was connected — but the backend's `typing`
+  frame is room-scoped (it requires `roomId` and answers
+  `{"error":"typing","reason":"missing_roomId"}`), so the peer never saw
+  the indicator; only the REST fallback used when realtime was down
+  actually worked. DM typing is now ALWAYS routed through
+  `POST /contacts/{id}/activity`, which the peer receives as a
+  `DmActivityEvent`. The dead `sendDmTyping` WS path was removed from the
+  internal transport interface and every implementation. Room typing
+  (`messages.sendTyping()`) is unaffected.
+- **WS close code `4006` (`transport_disabled`) is now handled.** The
+  server emits it when the WebSocket transport is disabled at runtime;
+  the SDK used to treat it as a generic drop and reconnect in a loop
+  against a server that closes every socket the same way. On `4006` the
+  WS transport now suspends its reconnect loop and marks itself
+  unavailable for the session, and `RealtimeMode.auto` promotes the
+  SSE/polling fallback immediately (even when WS never connected once).
+  The cached token is untouched — this is a transport condition, not an
+  auth one. A later `connect()` (e.g. after re-login or app restart)
+  tries WS again.
+- `nomaChatSdkVersion` (the `X-Noma-Chat-Version` / `User-Agent` constant)
+  was left at `0.10.1` by the `0.11.0` release; synced to the package
+  version, un-breaking the `version_sync_test` gate.
+
+### Changed
+
+- **`send()` / `sendDirectMessage()` results are provisional under the
+  backend's `ack_mode = async` (an opt-in deployment mode; the backend
+  default is `sync`).** The `201` echo is built
+  before persistence: its `id` does NOT match the stored message. The SDK
+  now detects that case and returns the message with the new
+  `ChatMessage.isProvisional` flag set and `clientMessageId` stamped
+  (the authoritative `new_message` event carries the same key). All SDK
+  stores reconcile by `clientMessageId`: `ChatController` replaces the
+  optimistic/pending row with the event message (no duplicates, no row
+  stranded under the provisional id), the message cache never persists a
+  provisional echo, and the bundled UI keeps the bubble in the *sending*
+  state until the event confirms it.
+  **Migration note for consumers:** do not use the `id` returned by
+  `send()` / `sendDirectMessage()` for immediate follow-ups (react /
+  edit / delete / pin). Check `isProvisional`; when `true`, wait for the
+  `NewMessageEvent` whose `clientMessageId` matches and use that
+  message's `id`. `sendViaWs()`'s synthetic ack message is now also
+  flagged `isProvisional` and carries its `clientMessageId`.
+- **`contacts.sendDirectMessage()` now always sends a `clientMessageId`**
+  (auto-generated when omitted — a new optional parameter lets callers
+  supply their own), so DM sends are idempotent under retries and
+  offline-queue drains, matching `messages.send()`.
+
+### Docs
+
+- Bundled OpenAPI contract (`doc/chat-api-openapi.yml`) resynced with the
+  backend: room preferences consolidated under
+  `PATCH /rooms/{id}/preferences` (the room-level `/hidden`, `/mute` and
+  `/pin` endpoints no longer exist — message pin/unpin endpoints are
+  untouched), `DELETE /users/me` self-deletion alias, machine-readable
+  `error` tokens on error bodies, async-ACK provisional echo semantics,
+  WS close codes `4006`/`4007`, and `roomId` on `/messages/search` now
+  documented as optional (global search across the caller's rooms
+  confirmed — closes the spec-drift item in `ISSUES.md`; the "no room id
+  on hits" caveat remains).
+- README installation snippet bumped to `noma_chat: ^0.11.0`.
+
 ## 0.11.0 - 2026-07-06
 
 ### Removed

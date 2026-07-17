@@ -78,12 +78,14 @@ void main() {
         text: 'hello dm',
         messageType: MessageType.reaction,
         reaction: '❤️',
+        clientMessageId: 'cmid-dm-1',
       );
       final r = await roundTrip<PendingSendDirectMessage>(op);
       expect(r.contactUserId, 'alice');
       expect(r.text, 'hello dm');
       expect(r.messageType, MessageType.reaction);
       expect(r.reaction, '❤️');
+      expect(r.clientMessageId, 'cmid-dm-1');
     });
 
     test('PendingEditMessage', () async {

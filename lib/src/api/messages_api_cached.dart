@@ -170,7 +170,15 @@ class CachedMessagesApi extends RestMessagesApi {
         // cache write that hasn't landed yet.
         _cacheManager.invalidatePrefix('messages:$roomId');
         _cacheManager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
-        await _cache.saveMessages(roomId, [result.dataOrThrow]);
+        final sent = result.dataOrThrow;
+        // An ack_mode=async provisional echo must NOT land in the cache:
+        // its id does not match the stored message, so the row would be a
+        // permanent orphan next to the authoritative one the `new_message`
+        // event (or the next list fetch) writes. The invalidations above
+        // already force the next read to the network.
+        if (!sent.isProvisional) {
+          await _cache.saveMessages(roomId, [sent]);
+        }
       } catch (e) {
         logger?.call('warn', 'messages.send: cache update failed: $e');
       }

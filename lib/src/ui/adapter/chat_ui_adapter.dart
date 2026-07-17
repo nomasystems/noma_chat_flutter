@@ -881,7 +881,15 @@ class ChatUiAdapter {
     final controller = _chatControllers[roomId];
     final confirmed = _ensureSentReceipt(message);
     if (controller != null) {
-      controller.confirmSent(tempId, confirmed);
+      if (confirmed.isProvisional) {
+        // The drained send returned an ack_mode=async provisional echo:
+        // its id is untrusted, so flip the bubble from failed back to
+        // pending and let the authoritative `new_message` event reconcile
+        // it by clientMessageId.
+        controller.markPending(tempId);
+      } else {
+        controller.confirmSent(tempId, confirmed);
+      }
     }
     unawaited(
       _cache

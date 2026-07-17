@@ -62,7 +62,7 @@ max retries exhausted. See `doc/DEVELOPER_GUIDE.md` "Offline queue" section.
 | Metric | Emission site | Fields | Fires when |
 |---|---|---|---|
 | `ws_auth_timeout` | `WsTransport._authenticate()` | `timeoutMs`, `attempts` | The WebSocket auth handshake does not receive `auth_ok` within `ChatConfig.authTimeout`. `attempts` is the current reconnect attempt count. |
-| `ws_disconnect` | `WsTransport` | `closeCode`, `reason`, `attempts` | The WebSocket connection closes, for any reason (server close, network drop, explicit `disconnect()`). |
+| `ws_disconnect` | `WsTransport` | `closeCode`, `reason`, `attempts` | The WebSocket connection closes, for any reason (server close, network drop, explicit `disconnect()`). Terminal server codes are visible here: `4005` (too many auth attempts) and `4007` (account deactivated) suspend reconnection and surface a terminal auth error; `4006` (`transport_disabled`) suspends WS for the session and lets `RealtimeMode.auto` fail over to SSE/polling. |
 
 ## Adding a new metric
 

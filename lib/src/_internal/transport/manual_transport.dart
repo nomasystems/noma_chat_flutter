@@ -62,6 +62,9 @@ class ManualTransport implements RealtimeTransport {
   bool get authTerminated => false;
 
   @override
+  bool get transportDisabled => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
@@ -116,9 +119,6 @@ class ManualTransport implements RealtimeTransport {
 
   @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) {}
-
-  @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) {}
 
   @override
   void sendReceipt(

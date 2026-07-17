@@ -246,9 +246,6 @@ class TransportManager {
   void sendTyping(String roomId, {String activity = 'startsTyping'}) =>
       _transport.sendTyping(roomId, activity: activity);
 
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
-      _transport.sendDmTyping(contactId, activity: activity);
-
   void sendReceipt(
     String roomId,
     String messageId, {

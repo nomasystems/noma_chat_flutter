@@ -163,7 +163,14 @@ class RestMessagesApi implements ChatMessagesApi {
   /// the send with an external id; passing the same value twice is safe and
   /// returns the already-created message.
   ///
-  /// Returns [ChatSuccess] holding the server-confirmed [ChatMessage].
+  /// Returns [ChatSuccess] holding the echoed [ChatMessage]. Under the
+  /// backend's `ack_mode = async` (the default) the `201` echo is
+  /// PROVISIONAL: its id is minted before persistence and does not match
+  /// the stored message ([ChatMessage.isProvisional] is `true`). The
+  /// authoritative message arrives via the `new_message` realtime event
+  /// carrying the same [ChatMessage.clientMessageId]; never use a
+  /// provisional id for follow-up operations (react / edit / delete /
+  /// pin). Under `ack_mode = sync` the echo is the stored message.
   ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
   /// Throws [ChatNetworkException] on network errors.
@@ -212,7 +219,10 @@ class RestMessagesApi implements ChatMessagesApi {
         'clientMessageId': effectiveClientMessageId,
       },
     );
-    return MessageMapper.fromJson(json);
+    return MessageMapper.stampIfProvisional(
+      MessageMapper.fromJson(json),
+      effectiveClientMessageId,
+    );
   });
 
   @override
@@ -260,9 +270,11 @@ class RestMessagesApi implements ChatMessagesApi {
             messageType: messageType,
             attachmentUrl: attachmentUrl,
             referencedMessageId: referencedMessageId,
+            clientMessageId: clientMessageId,
             reaction: reaction,
             metadata: metadata,
             receipt: ReceiptStatus.sent,
+            isProvisional: true,
           ),
         );
       }

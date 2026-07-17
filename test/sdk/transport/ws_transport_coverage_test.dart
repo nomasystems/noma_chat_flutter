@@ -488,6 +488,89 @@ void main() {
     );
   });
 
+  group('WsTransport — _onDone: transport disabled close code', () {
+    test('close code 4006 suspends WS for the session: no reconnect, '
+        'transportDisabled latched, token untouched', () async {
+      final auth = _TrackingAuthInterceptor();
+      final closingChannel = _FakeWebSocketChannel(
+        autoAuthOk: true,
+        closeCode: 4006,
+      );
+      final transport = WsTransport(
+        config: _config(
+          auth: auth,
+          wsReconnectDelay: const Duration(milliseconds: 5),
+        ),
+        channelFactory: (_) => closingChannel,
+      );
+      final states = <ChatConnectionState>[];
+      final events = <ChatEvent>[];
+      final ss = transport.stateChanges.listen(states.add);
+      final es = transport.events.listen(events.add);
+
+      await transport.connect();
+      final invalidatesBefore = auth.invalidateCalls;
+      await closingChannel.drop();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      // Terminal for the session: ends in error, never schedules a
+      // reconnect, and the synchronous flag lets AutoFailoverTransport
+      // promote the SSE/polling fallback immediately.
+      expect(transport.state, ChatConnectionState.error);
+      expect(states, isNot(contains(ChatConnectionState.reconnecting)));
+      expect(transport.transportDisabled, isTrue);
+      // Transport-level condition, NOT an auth one: the cached token
+      // stays valid (the fallback will reuse it) and no terminal auth
+      // error is surfaced that would route the app to logout.
+      expect(auth.invalidateCalls, invalidatesBefore);
+      expect(
+        events.whereType<ErrorEvent>().any(
+          (e) => e.exception is ChatAuthException,
+        ),
+        isFalse,
+      );
+      expect(
+        events.whereType<DisconnectedEvent>().any(
+          (e) => e.reason == 'transport_disabled',
+        ),
+        isTrue,
+      );
+
+      await ss.cancel();
+      await es.cancel();
+      await transport.dispose();
+    });
+
+    test('connect() clears the transportDisabled latch', () async {
+      var calls = 0;
+      _FakeWebSocketChannel? first;
+      final transport = WsTransport(
+        config: _config(wsReconnectDelay: const Duration(milliseconds: 5)),
+        channelFactory: (_) {
+          calls++;
+          final ch = _FakeWebSocketChannel(
+            autoAuthOk: true,
+            closeCode: calls == 1 ? 4006 : null,
+          );
+          first ??= ch;
+          return ch;
+        },
+      );
+
+      await transport.connect();
+      await first!.drop();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(transport.transportDisabled, isTrue);
+      expect(transport.state, ChatConnectionState.error);
+
+      await transport.connect();
+      expect(transport.transportDisabled, isFalse);
+      expect(transport.state, ChatConnectionState.connected);
+
+      await transport.dispose();
+    });
+  });
+
   group('WsTransport — _scheduleReconnect: max attempts', () {
     test(
       'stops reconnecting and emits error after maxReconnectAttempts',

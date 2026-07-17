@@ -360,6 +360,23 @@ await chat.client.messages.send(
 // Send via WebSocket (transport-agnostic; falls back to REST). Same named
 // params as send() minus tempId/clientMessageId.
 await chat.client.messages.sendViaWs(roomId, text: 'Hello!');
+```
+
+> **The id returned by `send()` can be provisional.** Under the backend's
+> `ack_mode = async` (opt-in; the backend default is `sync`) the `201` response is an echo built
+> *before* persistence: its `id` does not match the stored message and the
+> returned `ChatMessage` has `isProvisional == true`. The authoritative
+> message — real id included — arrives moments later as a `NewMessageEvent`
+> carrying the same `clientMessageId`. Correlate on
+> `ChatMessage.clientMessageId` and never use a provisional id for
+> follow-up operations (react / edit / delete / pin). The bundled
+> `ChatUiAdapter` already does this: it keeps the optimistic bubble in the
+> *sending* state until the event confirms it, and `ChatController`
+> reconciles the rows by `clientMessageId` so no duplicate appears. The
+> same applies to `contacts.sendDirectMessage()` and to the synthetic
+> message `sendViaWs()` returns after a WS ack.
+
+```dart
 
 // Fetch paginated (newest-first). See "Paginating message history" below.
 final page = await chat.client.messages.list(
@@ -711,6 +728,12 @@ if (message != null && message.silentlyDropped) {
 }
 ```
 
+DM typing indicators (`contacts.sendTyping()`) always travel over REST
+(`POST /contacts/{id}/activity`), regardless of the realtime connection
+state: the backend's WS `typing` frame is room-scoped, so REST is the only
+route that reaches the peer as a `DmActivityEvent`. Room typing
+(`messages.sendTyping()`) still prefers the WS frame when connected.
+
 ### Users — profile & account deletion
 
 ```dart
@@ -885,8 +908,8 @@ Set via `ChatConfig.realtimeMode`:
 
 | Mode | Behaviour |
 |---|---|
-| `RealtimeMode.auto` *(default)* | WebSocket first; falls back to SSE, then polling if WS fails or is unavailable. Reconnects automatically. |
-| `RealtimeMode.webSocketOnly` | WS only. Throws if connection fails. |
+| `RealtimeMode.auto` *(default)* | WebSocket first; falls back to SSE, then polling if WS fails or is unavailable. Reconnects automatically. When the server disables the WS transport at runtime (close code `4006` `transport_disabled`), the SDK stops retrying WS for the session and promotes the fallback immediately; a later `connect()` tries WS again. |
+| `RealtimeMode.webSocketOnly` | WS only. Throws if connection fails. On close `4006` the transport stays down (state `error`) until the app calls `connect()` again. |
 | `RealtimeMode.serverSentEventsOnly` | SSE only. Good for environments where WS is blocked. |
 | `RealtimeMode.polling` | HTTP long-poll. Higher latency, no server push. |
 | `RealtimeMode.manual` | No automatic transport. Call `chat.client.refresh()` or `chat.client.refreshRoom(roomId)` to pull updates. |
@@ -1350,18 +1373,14 @@ switch (res) {
 }
 ```
 
-> **Caveat — verify against your backend before shipping this.**
-> `doc/chat-api-openapi.yml`'s `/messages/search` operation currently marks
-> `roomId` as a *required* query parameter, which conflicts with the client
-> dartdoc's claim that omitting it searches globally — this looks like spec
-> drift rather than a documented backend capability. `ChatMessage` also has
-> no `roomId`/`conversationId` field, so even a successful global-search
-> response gives you no built-in way to tell which room each hit belongs to;
-> a UI would need the backend to echo the room id in `metadata` to group
-> results per-conversation. Confirm the real backend behaviour (does an
-> omitted `roomId` actually return cross-room results, and does it include
-> a room identifier per hit?) before building a global-search screen on
-> this path. See `ISSUES.md`.
+> **Caveat — no room correlation on hits.** The bundled
+> `doc/chat-api-openapi.yml` now confirms the global form: `roomId` on
+> `/messages/search` is optional, and omitting it spans every room the
+> caller belongs to (scope resolved server-side from membership). However
+> `ChatMessage` has no `roomId`/`conversationId` field, so a global-search
+> response gives you no built-in way to tell which room each hit belongs
+> to; a UI would need the backend to echo the room id in `metadata` to
+> group results per-conversation. See `ISSUES.md`.
 
 ### Bubble types
 

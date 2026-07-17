@@ -64,18 +64,16 @@ passing) and coverage are unchanged.
 
 ## API surface
 
-### Global message search: spec/dartdoc mismatch, no room correlation
+### Global message search: no room correlation on hits
 
-`ChatMessagesApi.search(query)` (no `roomId`) is documented (client-side
-dartdoc) as searching globally across every room the caller belongs to, but
-`doc/chat-api-openapi.yml`'s `/messages/search` operation marks `roomId` as a
-**required** query parameter — this looks like spec drift rather than a
-confirmed backend capability and needs verifying against the real backend
-before a host app builds a global-search screen on it. Separately,
-`ChatMessage` has no `roomId`/`conversationId` field, so even a genuinely
-global search response gives the UI no built-in way to group hits by
-conversation. See `doc/DEVELOPER_GUIDE.md`, "Message search — room-scoped vs
-global" for the caveat as currently documented.
+The spec/dartdoc mismatch previously tracked here is resolved: the resynced
+`doc/chat-api-openapi.yml` now marks `roomId` on `/messages/search` as
+optional and documents that omitting it spans all of the caller's rooms,
+matching the client-side dartdoc. What remains open: `ChatMessage` has no
+`roomId`/`conversationId` field, so a global search response gives the UI no
+built-in way to group hits by conversation. See `doc/DEVELOPER_GUIDE.md`,
+"Message search — room-scoped vs global" for the caveat as currently
+documented.
 
 ### Scheduled messages have no cancellation UI in the example app
 

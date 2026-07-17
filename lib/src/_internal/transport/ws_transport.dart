@@ -23,6 +23,7 @@ class WsTransport implements RealtimeTransport {
   ChatConnectionState _state = ChatConnectionState.disconnected;
   bool _shouldReconnect = false;
   bool _authTerminated = false;
+  bool _transportDisabled = false;
   bool _disposed = false;
   int _reconnectAttempts = 0;
   int _ackSeq = 0;
@@ -62,6 +63,9 @@ class WsTransport implements RealtimeTransport {
   bool get authTerminated => _authTerminated;
 
   @override
+  bool get transportDisabled => _transportDisabled;
+
+  @override
   bool get supportsOutboundFrames => true;
 
   @override
@@ -80,8 +84,9 @@ class WsTransport implements RealtimeTransport {
     }
     _shouldReconnect = true;
     // A fresh connect implies the app re-authenticated — clear the
-    // terminal latch so failover and reconnect resume normally.
+    // terminal latches so failover and reconnect resume normally.
     _authTerminated = false;
+    _transportDisabled = false;
     await _doConnect();
   }
 
@@ -130,7 +135,9 @@ class WsTransport implements RealtimeTransport {
     } catch (e) {
       _config.log('error', 'WS connection failed: $e');
       _setState(ChatConnectionState.error);
-      _emitEvent(ChatEvent.error(exception: ChatNetworkException(e.toString())));
+      _emitEvent(
+        ChatEvent.error(exception: ChatNetworkException(e.toString())),
+      );
       _scheduleReconnect();
     }
   }
@@ -345,6 +352,16 @@ class WsTransport implements RealtimeTransport {
       _terminateForDeactivation('Too many authentication attempts');
       return;
     }
+    if (closeCode == 4006) {
+      // transport_disabled: the deployment turned the WebSocket transport
+      // off at runtime and force-closed the socket. Every new socket would
+      // be closed the same way, so retrying the WS is futile — suspend the
+      // reconnect loop and mark the transport unavailable for this session
+      // so AutoFailoverTransport promotes SSE/polling. The credential is
+      // untouched: this is a transport condition, not an auth one.
+      _terminateForTransportDisabled();
+      return;
+    }
     if (closeCode == 4007) {
       // account_deactivated / account_banned: the server force-closed the
       // socket because the account was globally banned mid-session. The
@@ -405,9 +422,38 @@ class WsTransport implements RealtimeTransport {
     // reusing the very token the server just rejected. Both streams are
     // async broadcast controllers, so adding to the event controller
     // first guarantees its listener runs first (FIFO microtask order).
-    _emitEvent(
-      ChatEvent.error(exception: ChatAuthException.terminal(message)),
+    _emitEvent(ChatEvent.error(exception: ChatAuthException.terminal(message)));
+    _setState(ChatConnectionState.error);
+  }
+
+  /// Terminal-transport teardown for WS close 4006 (`transport_disabled`).
+  /// Mirrors [_terminateForDeactivation]'s ordering — latch the flag
+  /// synchronously before any stream emission so a composing
+  /// AutoFailoverTransport reading `transportDisabled` in its state-change
+  /// handler sees it regardless of stream-delivery order — but keeps the
+  /// cached token (the condition is transport-level, not auth-level) and
+  /// surfaces a plain disconnect instead of a terminal auth error, so the
+  /// failover machinery promotes the SSE/polling fallback rather than
+  /// routing the app to logout.
+  void _terminateForTransportDisabled() {
+    _config.log(
+      'warn',
+      'WS closed with 4006 (transport_disabled), suspending WS for this '
+          'session',
     );
+    _shouldReconnect = false;
+    _failPendingAcks();
+    _transportDisabled = true;
+    _reconnectTimer?.cancel();
+    _channelSubscription?.cancel();
+    _channelSubscription = null;
+    final staleChannel = _channel;
+    _channel = null;
+    _closeSinkQuietly(staleChannel);
+    // The DisconnectedEvent unblocks a handshake in progress (the auth
+    // completer resolves on it) and tells consumers the socket is gone;
+    // the `error` state is what AutoFailoverTransport reacts to.
+    _emitEvent(const ChatEvent.disconnected(reason: 'transport_disabled'));
     _setState(ChatConnectionState.error);
   }
 
@@ -474,10 +520,6 @@ class WsTransport implements RealtimeTransport {
   @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) =>
       sendRaw({'type': 'typing', 'roomId': roomId, 'activity': activity});
-
-  @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
-      sendRaw({'type': 'typing', 'contactId': contactId, 'activity': activity});
 
   @override
   void sendReceipt(
@@ -618,9 +660,7 @@ class WsTransport implements RealtimeTransport {
   void _closeSinkQuietly(WebSocketChannel? channel) {
     if (channel == null) return;
     try {
-      unawaited(
-        channel.sink.close().then<void>((_) {}, onError: (_) {}),
-      );
+      unawaited(channel.sink.close().then<void>((_) {}, onError: (_) {}));
     } catch (_) {
       // Sink already closed.
     }

@@ -46,7 +46,6 @@ void main() {
       // Don't connect: outbound APIs must work in any state without
       // throwing.
       expect(() => t.sendTyping('r1'), returnsNormally);
-      expect(() => t.sendDmTyping('contact-1'), returnsNormally);
       expect(() => t.sendReceipt('r1', 'm1'), returnsNormally);
       expect(() => t.sendMessage('r1', text: 'hi'), returnsNormally);
       await t.dispose();

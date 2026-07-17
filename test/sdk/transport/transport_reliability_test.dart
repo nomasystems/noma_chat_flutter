@@ -85,35 +85,38 @@ Future<(WsTransport, _FakeChannel)> _connected() async {
 
 void main() {
   group('WsTransport ack tracking (transport-001)', () {
-    test('resolves true when a matching message_acked echoes the ackId',
-        () async {
-      final (transport, channel) = await _connected();
+    test(
+      'resolves true when a matching message_acked echoes the ackId',
+      () async {
+        final (transport, channel) = await _connected();
 
-      final ackFuture = transport.sendMessageAwaitingAck(
-        'room-1',
-        text: 'hi',
-        clientMessageId: 'cmid-1',
-      );
+        final ackFuture = transport.sendMessageAwaitingAck(
+          'room-1',
+          text: 'hi',
+          clientMessageId: 'cmid-1',
+        );
 
-      final sentFrame =
-          jsonDecode(channel.sink.sent.last) as Map<String, dynamic>;
-      // The idempotency key rides as a top-level frame field for backend dedup.
-      expect(sentFrame['clientMessageId'], 'cmid-1');
-      final ackId =
-          (sentFrame['metadata'] as Map<String, dynamic>)[WsTransport.ackIdKey]
-              as String;
+        final sentFrame =
+            jsonDecode(channel.sink.sent.last) as Map<String, dynamic>;
+        // The idempotency key rides as a top-level frame field for backend dedup.
+        expect(sentFrame['clientMessageId'], 'cmid-1');
+        final ackId =
+            (sentFrame['metadata']
+                    as Map<String, dynamic>)[WsTransport.ackIdKey]
+                as String;
 
-      channel.receive({
-        'type': 'message_acked',
-        'roomId': 'room-1',
-        'messageId': 'server-1',
-        'seq': 1,
-        'metadata': {WsTransport.ackIdKey: ackId},
-      });
+        channel.receive({
+          'type': 'message_acked',
+          'roomId': 'room-1',
+          'messageId': 'server-1',
+          'seq': 1,
+          'metadata': {WsTransport.ackIdKey: ackId},
+        });
 
-      expect(await ackFuture, isTrue);
-      await transport.dispose();
-    });
+        expect(await ackFuture, isTrue);
+        await transport.dispose();
+      },
+    );
 
     test('resolves false on ack timeout without losing the awaiter', () async {
       final (transport, _) = await _connected();
@@ -128,20 +131,22 @@ void main() {
       await transport.dispose();
     });
 
-    test('resolves false for every in-flight send when the socket drops',
-        () async {
-      final (transport, channel) = await _connected();
+    test(
+      'resolves false for every in-flight send when the socket drops',
+      () async {
+        final (transport, channel) = await _connected();
 
-      final a = transport.sendMessageAwaitingAck('room-1', text: 'a');
-      final b = transport.sendMessageAwaitingAck('room-1', text: 'b');
+        final a = transport.sendMessageAwaitingAck('room-1', text: 'a');
+        final b = transport.sendMessageAwaitingAck('room-1', text: 'b');
 
-      await channel.drop();
-      await Future<void>.delayed(Duration.zero);
+        await channel.drop();
+        await Future<void>.delayed(Duration.zero);
 
-      expect(await a, isFalse);
-      expect(await b, isFalse);
-      await transport.dispose();
-    });
+        expect(await a, isFalse);
+        expect(await b, isFalse);
+        await transport.dispose();
+      },
+    );
 
     test('does not inject an ackId into the caller-visible send when '
         'disconnected (returns false immediately)', () async {
@@ -150,57 +155,63 @@ void main() {
         channelFactory: (uri) => _FakeChannel(autoAuthOk: false),
       );
 
-      expect(await transport.sendMessageAwaitingAck('room-1', text: 'x'),
-          isFalse);
+      expect(
+        await transport.sendMessageAwaitingAck('room-1', text: 'x'),
+        isFalse,
+      );
       await transport.dispose();
     });
   });
 
   group('TransportManager event backpressure (realtime-001)', () {
-    test('a paused (slow) consumer bounds its backlog to the cap: oldest '
-        'events are dropped, newest survive, and a metric is emitted',
-        () async {
-      final metrics = <String>[];
-      final source = StreamController<ChatEvent>.broadcast();
-      final manager = TransportManager.fromTransport(
-        transport: _StubTransport(source.stream),
-        eventBufferSize: 5,
-        metricCallback: (metric, _) => metrics.add(metric),
-      );
-      await manager.connect();
+    test(
+      'a paused (slow) consumer bounds its backlog to the cap: oldest '
+      'events are dropped, newest survive, and a metric is emitted',
+      () async {
+        final metrics = <String>[];
+        final source = StreamController<ChatEvent>.broadcast();
+        final manager = TransportManager.fromTransport(
+          transport: _StubTransport(source.stream),
+          eventBufferSize: 5,
+          metricCallback: (metric, _) => metrics.add(metric),
+        );
+        await manager.connect();
 
-      final received = <ChatEvent>[];
-      final sub = manager.events.listen(received.add);
-      await Future<void>.delayed(Duration.zero);
+        final received = <ChatEvent>[];
+        final sub = manager.events.listen(received.add);
+        await Future<void>.delayed(Duration.zero);
 
-      // Pause the subscription (a slow / suspended consumer) and flood far
-      // more than the cap. Events queue in the per-listener buffer.
-      sub.pause();
-      for (var i = 0; i < 1000; i++) {
-        source.add(RoomUpdatedEvent(roomId: 'r$i'));
-      }
-      source.add(const RoomUpdatedEvent(roomId: 'last'));
-      await Future<void>.delayed(const Duration(milliseconds: 10));
+        // Pause the subscription (a slow / suspended consumer) and flood far
+        // more than the cap. Events queue in the per-listener buffer.
+        sub.pause();
+        for (var i = 0; i < 1000; i++) {
+          source.add(RoomUpdatedEvent(roomId: 'r$i'));
+        }
+        source.add(const RoomUpdatedEvent(roomId: 'last'));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
 
-      // Drop-oldest kicked in well before 1000 events accumulated.
-      expect(metrics, contains('event_stream_backpressure_drop'));
+        // Drop-oldest kicked in well before 1000 events accumulated.
+        expect(metrics, contains('event_stream_backpressure_drop'));
 
-      sub.resume();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+        sub.resume();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      final rooms =
-          received.whereType<RoomUpdatedEvent>().map((e) => e.roomId).toList();
-      // The newest event survives the drop-oldest policy.
-      expect(rooms.last, equals('last'));
-      // The backlog was bounded — far fewer than 1001 events delivered.
-      expect(rooms.length, lessThan(1001));
-      // Oldest events were the ones dropped.
-      expect(rooms, isNot(contains('r0')));
+        final rooms = received
+            .whereType<RoomUpdatedEvent>()
+            .map((e) => e.roomId)
+            .toList();
+        // The newest event survives the drop-oldest policy.
+        expect(rooms.last, equals('last'));
+        // The backlog was bounded — far fewer than 1001 events delivered.
+        expect(rooms.length, lessThan(1001));
+        // Oldest events were the ones dropped.
+        expect(rooms, isNot(contains('r0')));
 
-      await sub.cancel();
-      await manager.dispose();
-      await source.close();
-    });
+        await sub.cancel();
+        await manager.dispose();
+        await source.close();
+      },
+    );
 
     test('supports multiple independent listeners', () async {
       final source = StreamController<ChatEvent>.broadcast();
@@ -247,6 +258,9 @@ class _StubTransport implements RealtimeTransport {
   bool get authTerminated => false;
 
   @override
+  bool get transportDisabled => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
@@ -263,9 +277,6 @@ class _StubTransport implements RealtimeTransport {
 
   @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) {}
-
-  @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) {}
 
   @override
   void sendReceipt(
