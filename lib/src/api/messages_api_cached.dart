@@ -21,7 +21,11 @@ import 'messages_api_rest.dart';
 /// - **Cache write-through** on mutating methods (`send`, `update`,
 ///   `delete`, `markRoomAsRead`, `pinMessage`, `unpinMessage`,
 ///   `clearChat`) — keeps the local cache fresh after a successful
-///   network call.
+///   network call. The TTL keys touched by each write (`messages:$roomId`,
+///   `rooms:all`, `rooms:unread`) are invalidated BEFORE the underlying
+///   datasource write, not after — a concurrent `cacheFirst` reader that
+///   interleaves must never observe a "still fresh" TTL paired with a
+///   cache write that hasn't landed yet.
 ///
 /// Methods not listed simply inherit the REST-only behaviour.
 class CachedMessagesApi extends RestMessagesApi {
@@ -159,10 +163,22 @@ class CachedMessagesApi extends RestMessagesApi {
     );
     if (result.isSuccess) {
       try {
-        await _cache.saveMessages(roomId, [result.dataOrThrow]);
+        // Invalidate BEFORE writing: a concurrent cacheFirst reader that
+        // slips in between these two steps must see either the pre-send
+        // state (TTL still valid, stale-but-consistent snapshot) or a
+        // forced re-resolve — never a "fresh" timestamp paired with a
+        // cache write that hasn't landed yet.
         _cacheManager.invalidatePrefix('messages:$roomId');
-        _cacheManager.invalidate('rooms:all');
-        _cacheManager.invalidate('rooms:unread');
+        _cacheManager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
+        final sent = result.dataOrThrow;
+        // An ack_mode=async provisional echo must NOT land in the cache:
+        // its id does not match the stored message, so the row would be a
+        // permanent orphan next to the authoritative one the `new_message`
+        // event (or the next list fetch) writes. The invalidations above
+        // already force the next read to the network.
+        if (!sent.isProvisional) {
+          await _cache.saveMessages(roomId, [sent]);
+        }
       } catch (e) {
         logger?.call('warn', 'messages.send: cache update failed: $e');
       }
@@ -196,6 +212,10 @@ class CachedMessagesApi extends RestMessagesApi {
     );
     if (result.isSuccess) {
       try {
+        // Invalidate BEFORE writing — see the comment in `send()` for why
+        // the ordering matters for a concurrent cacheFirst reader.
+        _cacheManager.invalidatePrefix('messages:$roomId');
+        _cacheManager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
         final cached =
             (await _cache.getMessages(roomId)).dataOrNull ??
             const <ChatMessage>[];
@@ -212,9 +232,6 @@ class CachedMessagesApi extends RestMessagesApi {
           );
           await _cache.updateMessage(roomId, updated);
         }
-        _cacheManager.invalidatePrefix('messages:$roomId');
-        _cacheManager.invalidate('rooms:all');
-        _cacheManager.invalidate('rooms:unread');
       } catch (e) {
         logger?.call('warn', 'messages.update: cache update failed: $e');
       }
@@ -227,10 +244,11 @@ class CachedMessagesApi extends RestMessagesApi {
     final result = await super.delete(roomId, messageId);
     if (result.isSuccess) {
       try {
-        await _cache.deleteMessage(roomId, messageId);
+        // Invalidate BEFORE writing — see the comment in `send()` for why
+        // the ordering matters for a concurrent cacheFirst reader.
         _cacheManager.invalidatePrefix('messages:$roomId');
-        _cacheManager.invalidate('rooms:all');
-        _cacheManager.invalidate('rooms:unread');
+        _cacheManager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
+        await _cache.deleteMessage(roomId, messageId);
       } catch (e) {
         logger?.call('warn', 'messages.delete: cache update failed: $e');
       }
@@ -249,9 +267,10 @@ class CachedMessagesApi extends RestMessagesApi {
     );
     if (result.isSuccess) {
       try {
+        // Invalidate BEFORE writing — see the comment in `send()` for why
+        // the ordering matters for a concurrent cacheFirst reader.
+        _cacheManager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
         await _cache.deleteUnread(roomId);
-        _cacheManager.invalidate('rooms:all');
-        _cacheManager.invalidate('rooms:unread');
       } catch (e) {
         logger?.call(
           'warn',

@@ -37,6 +37,18 @@ abstract class RealtimeTransport {
   /// (the only auth-bearing primary) overrides it.
   bool get authTerminated => false;
 
+  /// `true` once the server declared this transport unavailable for the
+  /// session (WS close 4006 `transport_disabled`: the deployment turned
+  /// the WebSocket transport off at runtime). Reconnecting is futile —
+  /// the server closes every new socket the same way — so the transport
+  /// suspends its reconnect loop and a composing transport
+  /// (`AutoFailoverTransport`) promotes the fallback immediately. Set
+  /// synchronously, before the matching state change is delivered, for
+  /// the same ordering reason as [authTerminated]. Cleared on a fresh
+  /// [connect]. Constant `false` everywhere except [WsTransport], the
+  /// only transport the server can disable via a close code.
+  bool get transportDisabled => false;
+
   /// `true` when this transport carries an outbound real-time channel
   /// (today only WS). [MessagesApi]/[ContactsApi] gate WS frame attempts
   /// on this getter combined with `state == connected`; everything else
@@ -59,11 +71,10 @@ abstract class RealtimeTransport {
 
   /// Outbound typing indicator for a room (WS frame). Transports without
   /// outbound channel ignore silently — callers should branch on
-  /// [supportsOutboundFrames] first.
+  /// [supportsOutboundFrames] first. DM typing has no WS frame — the
+  /// backend's `typing` frame is room-scoped — so [ChatContactsApi]
+  /// always routes it over REST.
   void sendTyping(String roomId, {String activity});
-
-  /// Outbound typing indicator for a 1-to-1 DM (WS frame).
-  void sendDmTyping(String contactId, {String activity});
 
   /// Outbound read/delivery receipt (WS frame).
   void sendReceipt(String roomId, String messageId, {ReceiptStatus status});
@@ -87,6 +98,31 @@ abstract class RealtimeTransport {
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   });
+
+  /// Outbound message via WS that resolves once delivery is confirmed.
+  ///
+  /// Sends the message and returns `true` when the server acks it (the
+  /// backend's `message_acked` frame, correlated by an SDK-injected id) or
+  /// `false` when the ack does not arrive before [ackTimeout] or the socket
+  /// drops first. Unlike the fire-and-forget [sendMessage], this lets
+  /// [MessagesApi.sendViaWs] fall back to the idempotent REST send on a
+  /// `false` result instead of silently losing the message on a socket drop.
+  ///
+  /// Transports without an outbound channel (SSE, polling, manual) keep the
+  /// default: they never confirm, returning `false` immediately so the
+  /// caller takes the REST path.
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) => Future.value(false);
 
   /// Force a refresh of the underlying state.
   ///

@@ -107,6 +107,43 @@ void main() {
       controller.dispose();
     });
 
+    testWidgets('dedupes results sharing the same message id', (tester) async {
+      final dup1 = ChatMessage(
+        id: 'dup',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'Hello world',
+      );
+      final dup2 = ChatMessage(
+        id: 'dup',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'Hello world',
+      );
+      final other = ChatMessage(
+        id: 'other',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'Hello there',
+      );
+      final controller = MessageSearchController(
+        searchFn: (q, r, {pagination}) async => ChatSuccess(
+          ChatPaginatedResponse(items: [dup1, dup2, other], hasMore: false),
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+      );
+
+      await controller.search('hello', 'room1');
+      await tester.pump();
+
+      expect(find.text('Hello world'), findsOneWidget);
+      expect(find.text('Hello there'), findsOneWidget);
+      controller.dispose();
+    });
+
     testWidgets('tapping result calls onMessageTap', (tester) async {
       String? tappedRoomId;
       String? tappedMessageId;

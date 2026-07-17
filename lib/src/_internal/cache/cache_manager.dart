@@ -162,6 +162,22 @@ class CacheManager {
     if (_timestamps.remove(key) != null) _schedulePersist();
   }
 
+  /// Invalidates every key in [keys] as a single synchronous batch.
+  ///
+  /// Since [CacheManager] runs single-isolate and every method here is
+  /// synchronous, this is equivalent to calling [invalidate] in a loop —
+  /// but it schedules at most one persist instead of one per key, and
+  /// gives callers a single call site to invalidate a group of TTL keys
+  /// together (e.g. before a write-through cache update), which is easier
+  /// to keep ordered correctly than several separate [invalidate] calls.
+  void invalidateKeys(Iterable<String> keys) {
+    var removedAny = false;
+    for (final key in keys) {
+      if (_timestamps.remove(key) != null) removedAny = true;
+    }
+    if (removedAny) _schedulePersist();
+  }
+
   void invalidatePrefix(String prefix) {
     final before = _timestamps.length;
     _timestamps.removeWhere((k, _) => k == prefix || k.startsWith('$prefix:'));

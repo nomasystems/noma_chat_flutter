@@ -176,6 +176,121 @@ void main() {
       expect(removedEmoji, '👍');
     });
 
+    testWidgets('uses batchUserFetcher instead of userFetcher when provided', (
+      tester,
+    ) async {
+      var userFetcherCalls = 0;
+      var batchCalls = 0;
+      Set<String>? batchedIds;
+      Future<ReactionUser> countingResolver(String userId) async {
+        userFetcherCalls++;
+        return resolver(userId);
+      }
+
+      Future<Map<String, ReactionUser>> batchResolver(Set<String> ids) async {
+        batchCalls++;
+        batchedIds = ids;
+        return {for (final id in ids) id: await resolver(id)};
+      }
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userFetcher: countingResolver,
+                    batchUserFetcher: batchResolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(batchCalls, 1);
+      expect(batchedIds, {'u1', 'u2'});
+      expect(userFetcherCalls, 0);
+      expect(find.text('You'), findsWidgets);
+      expect(find.text('Bob'), findsWidgets);
+    });
+
+    testWidgets('falls back to id-as-name when batchUserFetcher omits an id', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userFetcher: resolver,
+                    batchUserFetcher: (ids) async => {
+                      'u1': const ReactionUser(id: 'u1', displayName: 'Alice'),
+                    },
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('You'), findsWidgets);
+      expect(find.text('u2'), findsWidgets);
+    });
+
+    testWidgets('falls back to id-as-name when batchUserFetcher throws', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userFetcher: resolver,
+                    batchUserFetcher: (ids) async => throw Exception('down'),
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('You'), findsWidgets);
+      expect(find.text('u2'), findsWidgets);
+    });
+
     testWidgets('shows error state on fetch failure', (tester) async {
       await tester.pumpWidget(
         MaterialApp(

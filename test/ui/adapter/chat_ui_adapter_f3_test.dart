@@ -154,6 +154,11 @@ class _FailableMessagesApi implements ChatMessagesApi {
   bool failPinMessage = false;
   bool failUnpinMessage = false;
 
+  /// Simulates the backend's ack_mode=async: the 201 echo carries a
+  /// server-minted id that does NOT correspond to the stored message.
+  bool provisionalSend = false;
+  int _provisionalSeq = 0;
+
   @override
   Future<ChatResult<ChatMessage>> get(String roomId, String messageId) =>
       _delegate.get(roomId, messageId);
@@ -194,6 +199,21 @@ class _FailableMessagesApi implements ChatMessagesApi {
   }) async {
     if (failSend) {
       return const ChatFailureResult(ServerFailure(statusCode: 500));
+    }
+    if (provisionalSend) {
+      // ack_mode=async: the 201 echo is minted before persistence and no
+      // event fires yet — the authoritative new_message arrives later.
+      return ChatSuccess(
+        ChatMessage(
+          id: 'prov-${_provisionalSeq++}',
+          from: 'u1',
+          timestamp: DateTime.now(),
+          text: text,
+          messageType: messageType,
+          clientMessageId: clientMessageId,
+          isProvisional: true,
+        ),
+      );
     }
     return _delegate.send(
       roomId,
@@ -755,6 +775,49 @@ void main() {
 
       expect(result.isFailure, true);
       expect(result.failureOrNull, isA<NotFoundFailure>());
+    });
+  });
+
+  group('ack_mode=async provisional send reconciliation', () {
+    test('keeps the optimistic bubble pending on a provisional 201 and '
+        'confirms it only when the authoritative event arrives', () async {
+      await adapter.connect();
+      failableClient.failableMessages.provisionalSend = true;
+      final controller = adapter.getChatController('room1');
+
+      final result = await adapter.messages.send('room1', text: 'Hello');
+
+      expect(result.isSuccess, isTrue);
+      final echoed = result.dataOrNull!;
+      expect(echoed.isProvisional, isTrue);
+      expect(echoed.clientMessageId, isNotNull);
+
+      // The provisional id must never enter the controller: the bubble is
+      // still the optimistic temp row, still pending.
+      final tempId = controller.messages.single.id;
+      expect(tempId, startsWith('_pending_'));
+      expect(controller.isPending(tempId), isTrue);
+      expect(controller.messages.any((m) => m.id == echoed.id), isFalse);
+
+      // The authoritative event arrives with the REAL id and the same
+      // clientMessageId — it must replace the temp row, not duplicate it.
+      mockClient.emitEvent(
+        ChatEvent.newMessage(
+          roomId: 'room1',
+          message: ChatMessage(
+            id: 'real-42',
+            from: 'u1',
+            timestamp: DateTime.now(),
+            text: 'Hello',
+            clientMessageId: echoed.clientMessageId,
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(controller.messages.single.id, 'real-42');
+      expect(controller.isPending(tempId), isFalse);
+      expect(controller.serverIdForTemp(tempId), 'real-42');
     });
   });
 

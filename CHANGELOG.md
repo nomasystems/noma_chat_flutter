@@ -6,6 +6,237 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.12.0 - 2026-07-17
+
+### Fixed
+
+- **DM typing indicators now work over an active WebSocket connection.**
+  `contacts.sendTyping()` used to emit a WS `typing` frame addressed by
+  `contactId` while realtime was connected — but the backend's `typing`
+  frame is room-scoped (it requires `roomId` and answers
+  `{"error":"typing","reason":"missing_roomId"}`), so the peer never saw
+  the indicator; only the REST fallback used when realtime was down
+  actually worked. DM typing is now ALWAYS routed through
+  `POST /contacts/{id}/activity`, which the peer receives as a
+  `DmActivityEvent`. The dead `sendDmTyping` WS path was removed from the
+  internal transport interface and every implementation. Room typing
+  (`messages.sendTyping()`) is unaffected.
+- **WS close code `4006` (`transport_disabled`) is now handled.** The
+  server emits it when the WebSocket transport is disabled at runtime;
+  the SDK used to treat it as a generic drop and reconnect in a loop
+  against a server that closes every socket the same way. On `4006` the
+  WS transport now suspends its reconnect loop and marks itself
+  unavailable for the session, and `RealtimeMode.auto` promotes the
+  SSE/polling fallback immediately (even when WS never connected once).
+  The cached token is untouched — this is a transport condition, not an
+  auth one. A later `connect()` (e.g. after re-login or app restart)
+  tries WS again.
+- `nomaChatSdkVersion` (the `X-Noma-Chat-Version` / `User-Agent` constant)
+  was left at `0.10.1` by the `0.11.0` release; synced to the package
+  version, un-breaking the `version_sync_test` gate.
+
+### Changed
+
+- **`send()` / `sendDirectMessage()` results are provisional under the
+  backend's `ack_mode = async` (an opt-in deployment mode; the backend
+  default is `sync`).** The `201` echo is built
+  before persistence: its `id` does NOT match the stored message. The SDK
+  now detects that case and returns the message with the new
+  `ChatMessage.isProvisional` flag set and `clientMessageId` stamped
+  (the authoritative `new_message` event carries the same key). All SDK
+  stores reconcile by `clientMessageId`: `ChatController` replaces the
+  optimistic/pending row with the event message (no duplicates, no row
+  stranded under the provisional id), the message cache never persists a
+  provisional echo, and the bundled UI keeps the bubble in the *sending*
+  state until the event confirms it.
+  **Migration note for consumers:** do not use the `id` returned by
+  `send()` / `sendDirectMessage()` for immediate follow-ups (react /
+  edit / delete / pin). Check `isProvisional`; when `true`, wait for the
+  `NewMessageEvent` whose `clientMessageId` matches and use that
+  message's `id`. `sendViaWs()`'s synthetic ack message is now also
+  flagged `isProvisional` and carries its `clientMessageId`.
+- **`contacts.sendDirectMessage()` now always sends a `clientMessageId`**
+  (auto-generated when omitted — a new optional parameter lets callers
+  supply their own), so DM sends are idempotent under retries and
+  offline-queue drains, matching `messages.send()`.
+
+### Docs
+
+- Bundled OpenAPI contract (`doc/chat-api-openapi.yml`) resynced with the
+  backend: room preferences consolidated under
+  `PATCH /rooms/{id}/preferences` (the room-level `/hidden`, `/mute` and
+  `/pin` endpoints no longer exist — message pin/unpin endpoints are
+  untouched), `DELETE /users/me` self-deletion alias, machine-readable
+  `error` tokens on error bodies, async-ACK provisional echo semantics,
+  WS close codes `4006`/`4007`, and `roomId` on `/messages/search` now
+  documented as optional (global search across the caller's rooms
+  confirmed — closes the spec-drift item in `ISSUES.md`; the "no room id
+  on hits" caveat remains).
+- README installation snippet bumped to `noma_chat: ^0.11.0`.
+
+## 0.11.0 - 2026-07-06
+
+### Removed
+
+- **BREAKING: Certificate pinning removed.** `ChatConfig.certificatePins`
+  (and the corresponding `certificatePins` parameter on `NomaChat.create`)
+  no longer exists, along with the internal pinning interceptor, its
+  platform adapters and the public `CertificatePinningException` type. The
+  SDK now relies solely on the platform's standard TLS validation against
+  the operating system's CA trust store. Consumers that were passing
+  `certificatePins` must delete the argument; those that need pinning should
+  enforce it outside the SDK (an OS-level network security config, HSTS +
+  Certificate Transparency logs at the deployment layer, or a custom `Dio`
+  HTTP adapter). `AUDIT_2026-07-06.md` ALTA-001 is closed as
+  RESOLVED-BY-REMOVAL.
+- **`package:crypto` dependency.** Its only consumer was the pinning
+  interceptor removed above; no other code in the SDK used it.
+
+### Fixed
+
+- **Cache invalidation race on message writes (`send`/`update`/`delete`/
+  `markRoomAsRead`).** `CachedMessagesApi` now invalidates the `messages:*`
+  and `rooms:all`/`rooms:unread` TTL keys **before** writing the mutation to
+  the local cache, not after. Previously a concurrent `cacheFirst` reader
+  landing between the cache write and the invalidation call could observe a
+  "still fresh" TTL paired with stale data. Added `CacheManager.invalidateKeys`,
+  a batch primitive that invalidates several keys as one step instead of
+  several separate `invalidate()` calls.
+- **`rooms.updateConfig()` no longer leaves a stale avatar/name in the
+  cached room list.** The cached `UnreadRoom` entry for the room is now
+  patched in place with the new `name`/`avatarUrl` (or cleared, for
+  `clearAvatar: true`) at the same time the `roomDetail`/`rooms:all`/
+  `rooms:unread` TTL keys are invalidated — previously the room list would
+  keep rendering the old avatar/name from the cached `UnreadRoom` until the
+  next full rooms refetch replaced it.
+- **`HiveChatDatasource` now logs the concrete reason a cached record was
+  discarded** (missing field, invalid timestamp, etc.) for every skipped
+  entry, not just the first one in the batch. The aggregated `"Skipped N
+  corrupted records"` warning is still emitted alongside the per-record
+  detail.
+- **Example app: `enableHttpLog` is now gated on `kDebugMode`** instead of
+  hardcoded to `true`, so a release build of the example never ships with
+  HTTP body logging on.
+- **Offline queue no longer risks a duplicate send on an ambiguous-phase
+  timeout.** The pre-response gate now explicitly documents (and tests)
+  that `TimeoutKind.unknown` — the defensive default when the timeout
+  phase can't be determined — is treated like a `receive` timeout for
+  non-idempotent operations, not like a pre-response one. `send()` was
+  already correct in practice; this closes the gap between the intended
+  contract and its test coverage.
+- **`NomaChatClient.connect()` is now safe to call twice in quick
+  succession.** A repeated `connect()` fired before the first call
+  resolves now awaits the same in-flight `Future` instead of racing it —
+  previously both calls could observe the same non-null internal event
+  subscription, cancel it twice, and reassign it out of order, leaking a
+  transport subscription.
+- **Offline queue drain no longer spins through the whole queue when the
+  front operation is still in backoff.** Previously a `drain()` call
+  would re-queue every remaining still-backing-off operation one by one
+  (O(queue length) work for no effect); it now stops at the first
+  operation whose `nextRetryAt` hasn't elapsed yet and leaves the rest of
+  the queue untouched and in order.
+- **`RestClient.post()` validates the response body type** like `get()`
+  already did: a 2xx body that is not a JSON object (e.g. an array) now
+  surfaces as a typed `ChatApiException` instead of an unhandled cast
+  error.
+- **Rate-limit back-off is clamped to `[1 s, 5 min]`.** A `Retry-After` /
+  `X-RateLimit-Reset` of zero or negative seconds (server clock skew) no
+  longer produces an immediate-retry stampede, and an absurdly large value
+  no longer stalls the client for hours.
+- **WebSocket close codes 4003/4004 now explicitly close the client-side
+  sink** before a reconnect is scheduled, releasing the half-closed socket
+  instead of leaking it alongside the fresh connection.
+- **`WsTransport.dispose()` latches a disposed flag synchronously** and
+  every emit checks it, so late callbacks from in-flight reconnect timers
+  or channel teardown can no longer race the controllers being closed.
+
+### Added
+
+- **`ChatMessage.silentlyDropped`.** `contacts.sendDirectMessage()` returns
+  success with a synthesized `ReceiptStatus.sent` message when the backend
+  answers `204 No Content` (recipient has blocked the sender) — this new
+  field is `true` on that synthesized message so callers can distinguish
+  "accepted but never delivered" from a normal send instead of showing
+  "sent" with no further explanation. Persisted through the local cache
+  round-trip. Additive, defaults to `false` everywhere else.
+- **`addReaction`, `pinMessage`, `unpinMessage`, `starMessage` and
+  `unstarMessage` now retry through the offline queue** on a
+  `NetworkFailure` or pre-response `TimeoutFailure`, matching the
+  existing `send`/`delete` behaviour. Previously a network drop while
+  reacting to, pinning, or starring a message failed silently with no
+  retry once connectivity returned.
+- **`NomaChatClient.onOperationDropped`.** Fires when the offline queue
+  gives up on a pending operation (queue full, TTL expired, or max
+  retries exhausted). Defaults to recording the operation id, queryable
+  via the new `isOperationPermanentlyFailed(id)` /
+  `permanentlyFailedOperationIds` so a host app can show a "delivery
+  failed" indicator without wiring anything itself; still fully
+  overridable with a custom closure.
+- **`ws_auth_timeout` metric + structured `warn` log** when the WebSocket
+  auth handshake exceeds `ChatConfig.authTimeout`, tagged with the
+  configured timeout and the current reconnect attempt.
+- **Token-refresh circuit breaker in `BearerAuthInterceptor`.** Consecutive
+  401s that survive a token refresh are counted (metric
+  `auth_refresh_retry_failure`); after 3 of them further 401s skip the
+  refresh entirely (metric `auth_circuit_open`) and go straight to
+  `onAuthFailure`, so a revoked account cannot hammer the token endpoint.
+  A successful retry — or `invalidateCache()` with fresh credentials —
+  closes the circuit. `ChatConfig.metricCallback` is now forwarded to the
+  bearer interceptor.
+- **`NomaChat.fromConfig({required config, required currentUser, ...})`.**
+  New factory that builds the SDK from a pre-assembled `ChatConfig` without
+  re-stating `baseUrl`/`realtimeUrl`/`tokenProvider`. `NomaChat.create` and
+  `fromClient` are unchanged.
+- **UI customization hooks.** `ChatViewBuilders.batchUserFetcher` (batch user
+  resolution, removes the reaction-sheet N+1), `ChatViewBuilders.statusIconBuilder`
+  (override the delivery-status tick), `RoomListView.selectedRoomId` /
+  `onSelectionChanged` (master-detail selection), `AttachmentSheetOption.previewBuilder`,
+  `AudioBubble.initialPlaybackSpeed` / `onPlaybackSpeedChanged` (persist playback
+  speed across sessions), `ForwardedBubble.sourceTimestamp`, and
+  `GroupMembersView.pageSize` (paginated member lists).
+- **Platform-support gates.** `PlatformSupport.supportsVoiceRecording`,
+  `supportsFilePicker` and `supportsLocalStorage`, plus
+  `StartRecordingResult.unsupported` and `VoiceRecorderGesture.onUnsupported` —
+  voice recording on Web now reports "unsupported" instead of a misleading
+  "permission denied".
+- **5 new locales** (`sv`, `no`, `da`, `pl`, `cs`; 12 total) and
+  `ChatUiLocalizations.loadMore`.
+- **`LinkPreviewFetcher.cancel(url)` / `cancelAll()`.** Aborts the in-flight
+  link-preview HTTP request (via Dio `CancelToken`) on URL change, dismiss or
+  dispose, releasing the socket promptly.
+- **`example/android` target** generated so the sample app builds on Android.
+
+### Docs
+
+- **`TELEMETRY.md`** (new). Full metric-by-metric reference for every event
+  emitted through `ChatConfig.metricCallback` / `CacheManager.onMetric` /
+  `HiveChatDatasource.onMetric` — name, fields, and firing condition for
+  cache, offline-queue, HTTP, auth and WebSocket metrics. Referenced by
+  `CONVENTIONS.md` §10.3 and `SECURITY.md`, which previously pointed at a
+  file that did not exist.
+- **`ISSUES.md`** (new). Tracks the golden-test `sqflite` skip workaround,
+  the `golden_toolkit` → `alchemist` migration plan (not executed — needs a
+  session with `pubspec.yaml` in scope), the `/messages/search` spec/dartdoc
+  mismatch on global search, and the non-customizable `noma_chat_otel` span
+  naming.
+- **`doc/DEVELOPER_GUIDE.md`** gained worked examples for scheduled messages
+  (`schedule`/`listScheduled`/`cancelScheduled`), an end-to-end
+  `actAsUserId` delegation walkthrough, `ForwardInfo` (plus a no-E2EE note
+  on forwarding), room- vs global-scoped message search,
+  `AttachmentPolicy` MIME/size filtering, three `RoomTitleResolver` use
+  cases (nickname book, role-based titles, pre-hydration fallback), and a
+  new "Observability" section covering `ChatConfig.metricCallback` and the
+  `noma_chat_otel` companion package.
+- **21 stale golden baselines regenerated** (`test/golden/goldens/*.png`,
+  `bubbles_dark_test.dart` + `bubbles_light_test.dart` +
+  `message_status_test.dart`) via `flutter test --update-goldens
+  test/golden/` — no widget code changed; the prior baselines predated
+  unrelated visual changes elsewhere in this audit-remediation pass.
+  `TESTING.md`'s skipped-golden count corrected from a stale "4" to the
+  actual "2" (`ImageBubble` only; `LinkPreviewBubble` was never skipped,
+  just rendered without its optional OG image).
+
 ## [0.10.1] - 2026-07-03
 
 ### Added

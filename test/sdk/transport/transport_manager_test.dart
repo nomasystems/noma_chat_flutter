@@ -36,6 +36,7 @@ void main() {
     when(() => mockWs.disconnect()).thenAnswer((_) async {});
     when(() => mockWs.supportsOutboundFrames).thenReturn(true);
     when(() => mockWs.authTerminated).thenReturn(false);
+    when(() => mockWs.transportDisabled).thenReturn(false);
     when(() => mockWs.notifyTokenRotated()).thenAnswer((_) async {});
     when(() => mockWs.dispose()).thenAnswer((_) async {});
 
@@ -46,6 +47,7 @@ void main() {
     when(() => mockSse.disconnect()).thenAnswer((_) async {});
     when(() => mockSse.supportsOutboundFrames).thenReturn(false);
     when(() => mockSse.authTerminated).thenReturn(false);
+    when(() => mockSse.transportDisabled).thenReturn(false);
     when(() => mockSse.notifyTokenRotated()).thenAnswer((_) async {});
     when(() => mockSse.dispose()).thenAnswer((_) async {});
 

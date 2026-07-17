@@ -171,5 +171,141 @@ void main() {
       expect(find.text('Late arrival'), findsOneWidget);
       expect(find.byType(EmptyState), findsNothing);
     });
+
+    testWidgets('selectedRoomId highlights the matching tile', (tester) async {
+      final controller = RoomListController();
+      controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
+      controller.addRoom(const RoomListItem(id: 'r2', name: 'Beta'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+              selectedRoomId: 'r2',
+            ),
+          ),
+        ),
+      );
+
+      final alphaTile = tester.widget<RoomTile>(
+        find.ancestor(of: find.text('Alpha'), matching: find.byType(RoomTile)),
+      );
+      final betaTile = tester.widget<RoomTile>(
+        find.ancestor(of: find.text('Beta'), matching: find.byType(RoomTile)),
+      );
+      expect(alphaTile.isSelected, isFalse);
+      expect(betaTile.isSelected, isTrue);
+    });
+
+    testWidgets('selectedRoomId does not affect tiles when null (default)', (
+      tester,
+    ) async {
+      final controller = RoomListController();
+      controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+            ),
+          ),
+        ),
+      );
+
+      final alphaTile = tester.widget<RoomTile>(
+        find.ancestor(of: find.text('Alpha'), matching: find.byType(RoomTile)),
+      );
+      expect(alphaTile.isSelected, isFalse);
+    });
+
+    testWidgets(
+      'onSelectionChanged fires alongside onTapRoom outside multi-select',
+      (tester) async {
+        final controller = RoomListController();
+        controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
+        RoomListItem? tapped;
+        RoomListItem? selected;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: RoomListView(
+                controller: controller,
+                showHeader: false,
+                showSearch: false,
+                onTapRoom: (room) => tapped = room,
+                onSelectionChanged: (room) => selected = room,
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Alpha'));
+        await tester.pumpAndSettle();
+
+        expect(tapped?.id, 'r1');
+        expect(selected?.id, 'r1');
+      },
+    );
+
+    testWidgets('onSelectionChanged does not fire during multi-select mode', (
+      tester,
+    ) async {
+      final controller = RoomListController();
+      controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
+      controller.addRoom(const RoomListItem(id: 'r2', name: 'Beta'));
+      controller.toggleSelect('r2');
+      var selectionChangedCalls = 0;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+              onSelectionChanged: (_) => selectionChangedCalls++,
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Alpha'));
+      await tester.pumpAndSettle();
+
+      expect(selectionChangedCalls, 0);
+      expect(controller.selectedIds, {'r1', 'r2'});
+    });
+
+    testWidgets('statusIconBuilder is forwarded to every RoomTile', (
+      tester,
+    ) async {
+      final controller = RoomListController();
+      controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+              statusIconBuilder: (context, data) => const Text('tick'),
+            ),
+          ),
+        ),
+      );
+
+      final alphaTile = tester.widget<RoomTile>(
+        find.ancestor(of: find.text('Alpha'), matching: find.byType(RoomTile)),
+      );
+      expect(alphaTile.statusIconBuilder, isNotNull);
+    });
   });
 }

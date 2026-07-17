@@ -27,6 +27,7 @@ class RoomTile extends StatelessWidget {
     this.typingUserNameResolver,
     this.onAcceptInvitation,
     this.onRejectInvitation,
+    this.statusIconBuilder,
   });
 
   final RoomListItem room;
@@ -56,6 +57,14 @@ class RoomTile extends StatelessWidget {
 
   final VoidCallback? onAcceptInvitation;
   final VoidCallback? onRejectInvitation;
+
+  /// Overrides the receipt tick next to the last-message preview. Takes
+  /// priority over `theme.bubble.statusIconBuilder` when both are set —
+  /// wire this from `ChatViewBuilders.statusIconBuilder` so the same
+  /// override covers both the bubble ticks and the room-list preview tick.
+  /// `data.message` is always `null` here (the tile only knows the last
+  /// receipt, not the full message).
+  final MessageStatusIconBuilder? statusIconBuilder;
 
   String _formatTimestamp(DateTime time) {
     return DateFormatter.formatRelative(time, l10n: theme.l10n);
@@ -280,10 +289,9 @@ class RoomTile extends StatelessWidget {
       ReceiptStatus.delivered => MessageDeliveryState.delivered,
       ReceiptStatus.read => MessageDeliveryState.read,
     };
-    return theme.bubble.statusIconBuilder?.call(
-          context,
-          MessageStatusIconData(state: state, size: 12),
-        ) ??
+    final data = MessageStatusIconData(state: state, size: 12);
+    return statusIconBuilder?.call(context, data) ??
+        theme.bubble.statusIconBuilder?.call(context, data) ??
         MessageStatusIcon(status: receipt, theme: theme, size: 12);
   }
 

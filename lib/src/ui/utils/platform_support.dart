@@ -30,4 +30,26 @@ class PlatformSupport {
   /// downloaded file through `url_launcher` (a `file://` URI handed to the OS
   /// default handler) instead.
   static bool get opensFilesNatively => _isMobile;
+
+  /// `record` ships a federated implementation for every target the SDK
+  /// builds for (android / ios / macos / windows / linux via native
+  /// platform channels, web via `record_web`'s `MediaRecorder` wrapper).
+  /// Voice recording in this SDK release, however, is gated off on web
+  /// regardless of `record`'s own support: [VoiceRecordingController]
+  /// stages the finished recording through a `dart:io` temp file before
+  /// reading it back as bytes, and that staging path has no web
+  /// implementation yet. `startRecording` consults this getter and returns
+  /// `StartRecordingResult.unsupported` on web instead of attempting (and
+  /// failing) a permission check.
+  static bool get supportsVoiceRecording => !kIsWeb;
+
+  /// `file_picker` and `shared_preferences` both ship first-party
+  /// implementations for every target the SDK builds for (android / ios /
+  /// macos / windows / linux / web), so file picking and local key-value
+  /// storage are supported everywhere. Exposed as explicit gates (rather
+  /// than leaving callers to assume support) so a future plugin swap that
+  /// narrows platform coverage only requires a change here.
+  static bool get supportsFilePicker => true;
+
+  static bool get supportsLocalStorage => true;
 }

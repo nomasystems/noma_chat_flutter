@@ -78,6 +78,9 @@ class PollingTransport implements RealtimeTransport {
   bool get authTerminated => false;
 
   @override
+  bool get transportDisabled => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
@@ -155,9 +158,6 @@ class PollingTransport implements RealtimeTransport {
   void sendTyping(String roomId, {String activity = 'startsTyping'}) {}
 
   @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) {}
-
-  @override
   void sendReceipt(
     String roomId,
     String messageId, {
@@ -178,6 +178,20 @@ class PollingTransport implements RealtimeTransport {
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) {}
+
+  @override
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) => Future.value(false);
 
   void _emit(ChatEvent event) {
     if (!_eventController.isClosed) _eventController.add(event);

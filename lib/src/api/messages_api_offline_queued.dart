@@ -9,11 +9,13 @@ import 'messages_api_rest.dart';
 /// A [NetworkFailure] always qualifies. A [TimeoutFailure] qualifies
 /// when the operation is [idempotent] (re-running it cannot create a
 /// duplicate) or when the timeout is pre-response — i.e. the request
-/// provably never reached the server. A `receive` timeout on a
-/// non-idempotent send is deliberately NOT enqueued: the body may have
-/// reached the backend, so a blind resend would duplicate the message;
-/// the optimistic UI layer keeps it as a failed bubble the user can
-/// retry manually instead.
+/// provably never reached the server ([TimeoutKind.connection] or
+/// [TimeoutKind.send]). [TimeoutKind.unknown] is NOT pre-response: it
+/// is the defensive "phase not available" default, so a non-idempotent
+/// operation treats it the same as a `receive` timeout and is not
+/// enqueued — the body may have reached the backend, so a blind resend
+/// risks a duplicate; the optimistic UI layer keeps it as a failed
+/// bubble the user can retry manually instead.
 bool _shouldEnqueueAfter(ChatFailure? failure, {required bool idempotent}) {
   if (failure is NetworkFailure) return true;
   if (failure is TimeoutFailure) {
@@ -24,16 +26,19 @@ bool _shouldEnqueueAfter(ChatFailure? failure, {required bool idempotent}) {
 
 /// Offline-queue decorator on top of [CachedMessagesApi].
 ///
-/// Wraps the network mutations that are safe to retry asynchronously
-/// — `send` and `delete` — so a [NetworkFailure] (or a pre-response
-/// [TimeoutFailure]) result enqueues a matching [PendingOperation] for
-/// the next reconnect drain.
+/// Wraps the network mutations that are safe to retry asynchronously —
+/// `send`, `delete`, `addReaction`, `deleteReaction`, `pinMessage`,
+/// `unpinMessage`, `starMessage`, `unstarMessage` — so a [NetworkFailure] (or a
+/// pre-response [TimeoutFailure]) result enqueues a matching
+/// [PendingOperation] for the next reconnect drain. `send` is the only
+/// non-idempotent op among these, so it alone requires the request to
+/// have provably never reached the server (see [_shouldEnqueueAfter]);
+/// the rest are safe to retry even after a `receive` timeout.
 ///
-/// Other mutations (`update`, `markRoomAsRead`, `pinMessage`,
-/// `unpinMessage`, reactions, `report`) are still surfaced as
-/// failures to the caller without enqueueing — the optimistic UI
-/// layer handles their rollback. Adding more ops to the queue is a
-/// one-method override away.
+/// Other mutations (`update`, `markRoomAsRead`, `report`) are still
+/// surfaced as failures to the caller without enqueueing — the
+/// optimistic UI layer handles their rollback. Adding more ops to the
+/// queue is a one-method override away.
 class OfflineQueuedMessagesApi extends CachedMessagesApi {
   OfflineQueuedMessagesApi({
     required super.rest,
@@ -104,6 +109,129 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingDeleteMessage(
+          id:
+              'pending-${DateTime.now().microsecondsSinceEpoch}'
+              '-${RestMessagesApi.pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ChatResult<void>> addReaction(
+    String roomId,
+    String messageId, {
+    required String emoji,
+  }) async {
+    final result = await super.addReaction(roomId, messageId, emoji: emoji);
+    if (result.isFailure &&
+        _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
+      _offlineQueue.enqueue(
+        PendingAddReaction(
+          id:
+              'pending-${DateTime.now().microsecondsSinceEpoch}'
+              '-${RestMessagesApi.pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+          emoji: emoji,
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ChatResult<void>> deleteReaction(
+    String roomId,
+    String messageId, {
+    String? emoji,
+  }) async {
+    final result = await super.deleteReaction(roomId, messageId, emoji: emoji);
+    if (result.isFailure &&
+        _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
+      // The drain executor replays this without an emoji (clears the user's
+      // reaction wholesale), so the queued op does not carry one — matching
+      // the single-reaction-per-user semantics of the omit-emoji path.
+      _offlineQueue.enqueue(
+        PendingDeleteReaction(
+          id:
+              'pending-${DateTime.now().microsecondsSinceEpoch}'
+              '-${RestMessagesApi.pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ChatResult<void>> pinMessage(String roomId, String messageId) async {
+    final result = await super.pinMessage(roomId, messageId);
+    if (result.isFailure &&
+        _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
+      _offlineQueue.enqueue(
+        PendingPinMessage(
+          id:
+              'pending-${DateTime.now().microsecondsSinceEpoch}'
+              '-${RestMessagesApi.pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ChatResult<void>> unpinMessage(String roomId, String messageId) async {
+    final result = await super.unpinMessage(roomId, messageId);
+    if (result.isFailure &&
+        _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
+      _offlineQueue.enqueue(
+        PendingUnpinMessage(
+          id:
+              'pending-${DateTime.now().microsecondsSinceEpoch}'
+              '-${RestMessagesApi.pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ChatResult<void>> starMessage(String roomId, String messageId) async {
+    final result = await super.starMessage(roomId, messageId);
+    if (result.isFailure &&
+        _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
+      _offlineQueue.enqueue(
+        PendingStarMessage(
+          id:
+              'pending-${DateTime.now().microsecondsSinceEpoch}'
+              '-${RestMessagesApi.pendingSeq++}',
+          roomId: roomId,
+          messageId: messageId,
+        ),
+      );
+    }
+    return result;
+  }
+
+  @override
+  Future<ChatResult<void>> unstarMessage(
+    String roomId,
+    String messageId,
+  ) async {
+    final result = await super.unstarMessage(roomId, messageId);
+    if (result.isFailure &&
+        _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
+      _offlineQueue.enqueue(
+        PendingUnstarMessage(
           id:
               'pending-${DateTime.now().microsecondsSinceEpoch}'
               '-${RestMessagesApi.pendingSeq++}',

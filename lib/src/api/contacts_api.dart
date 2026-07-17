@@ -14,27 +14,26 @@ import '../models/message.dart';
 import '../models/presence.dart';
 import '../events/chat_event.dart';
 
+import 'package:uuid/uuid.dart';
+
 import '../client/chat_client.dart';
 
-import '../_internal/transport/transport_manager.dart';
+const Uuid _uuid = Uuid();
 
 /// REST implementation of [ChatContactsApi] (contacts list + DMs + block list).
 class ContactsApi implements ChatContactsApi {
   static int _pendingSeq = 0;
   final RestClient _rest;
-  final TransportManager? _transport;
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
   final OfflineQueue? _offlineQueue;
 
   ContactsApi({
     required RestClient rest,
-    TransportManager? transport,
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     OfflineQueue? offlineQueue,
   }) : _rest = rest,
-       _transport = transport,
        _cache = cache,
        _cacheManager = cacheManager,
        _offlineQueue = offlineQueue;
@@ -120,7 +119,13 @@ class ContactsApi implements ChatContactsApi {
     String? reaction,
     String? attachmentUrl,
     Map<String, dynamic>? metadata,
+    String? clientMessageId,
   }) async {
+    // Always carry a clientMessageId, mirroring the room send path: the
+    // server-side dedup only covers messages that have one, and it is the
+    // only correlation key between the (possibly provisional) echo and the
+    // authoritative `new_message` event under ack_mode=async.
+    final effectiveClientMessageId = clientMessageId ?? _uuid.v4();
     final result = await safeApiCall(() async {
       final json = await _rest.post(
         '/contacts/$contactUserId/messages',
@@ -132,13 +137,15 @@ class ContactsApi implements ChatContactsApi {
           if (reaction != null) 'emoji': reaction,
           if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
           if (metadata != null) 'metadata': metadata,
+          'clientMessageId': effectiveClientMessageId,
         },
       );
       // HTTP 204 (empty body): the backend accepted the message but silently
       // dropped it because the recipient has blocked the sender (WhatsApp
       // parity). Synthesize a local `sent` message instead of mapping an
       // id-less phantom — it shows as sent and never advances to
-      // delivered/read, exactly what a blocked sender sees.
+      // delivered/read, exactly what a blocked sender sees. `silentlyDropped`
+      // lets the caller distinguish this from a normal send.
       if (json.isEmpty) {
         return ChatMessage(
           id: 'local-${DateTime.now().microsecondsSinceEpoch}-${_pendingSeq++}',
@@ -147,13 +154,18 @@ class ContactsApi implements ChatContactsApi {
           text: text,
           messageType: messageType,
           referencedMessageId: referencedMessageId,
+          clientMessageId: effectiveClientMessageId,
           reaction: reaction,
           attachmentUrl: attachmentUrl,
           metadata: metadata,
           receipt: ReceiptStatus.sent,
+          silentlyDropped: true,
         );
       }
-      return MessageMapper.fromJson(json);
+      return MessageMapper.stampIfProvisional(
+        MessageMapper.fromJson(json),
+        effectiveClientMessageId,
+      );
     });
     final failure = result.failureOrNull;
     // A DM send is non-idempotent, so only enqueue when the request
@@ -187,6 +199,10 @@ class ContactsApi implements ChatContactsApi {
           reaction: reaction,
           attachmentUrl: attachmentUrl,
           metadata: metadata,
+          // Reuse the same idempotency key on every retry so the server
+          // dedups a delivery that actually succeeded before the failure
+          // surfaced (returns the persisted message, no duplicate).
+          clientMessageId: effectiveClientMessageId,
         ),
       );
     }
@@ -210,24 +226,43 @@ class ContactsApi implements ChatContactsApi {
     );
   });
 
+  /// Fetches messages of a resolved 1:1 conversation by its
+  /// [conversationId] — the backend-assigned DM room id.
+  ///
+  /// Discoverability: [conversationId] is an opaque, backend-resolved id, not
+  /// a value the consumer invents. Obtain it from an event or listing that
+  /// carries it — e.g. `NewMessageEvent.roomId` for a DM, or the `roomId`
+  /// on a room-list/unread entry — then reuse it here. When all you hold is
+  /// the peer's user id, call [getDirectMessages] instead (it resolves the
+  /// room for you). An empty/whitespace [conversationId] is rejected up
+  /// front with a [ValidationFailure] rather than hitting a malformed path.
   @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>>
   getConversationMessages(
     String conversationId, {
     ChatCursorPaginationParams? pagination,
-  }) => safeApiCall(() async {
-    final (json, totalCount) = await _rest.getWithTotalCount(
-      '/conversations/$conversationId/messages',
-      queryParams: pagination?.toQueryParams(),
-    );
-    return ChatPaginatedResponse(
-      items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
-      hasMore: (json['hasMore'] ?? false) as bool,
-      totalCount: totalCount,
-      nextCursor: json['next'] as String?,
-      prevCursor: json['prev'] as String?,
-    );
-  });
+  }) {
+    if (conversationId.trim().isEmpty) {
+      return Future.value(
+        const ChatFailureResult(
+          ValidationFailure(message: 'conversationId must not be empty'),
+        ),
+      );
+    }
+    return safeApiCall(() async {
+      final (json, totalCount) = await _rest.getWithTotalCount(
+        '/conversations/$conversationId/messages',
+        queryParams: pagination?.toQueryParams(),
+      );
+      return ChatPaginatedResponse(
+        items: MessageMapper.fromJsonList(json['messages'] as List? ?? []),
+        hasMore: (json['hasMore'] ?? false) as bool,
+        totalCount: totalCount,
+        nextCursor: json['next'] as String?,
+        prevCursor: json['prev'] as String?,
+      );
+    });
+  }
 
   @override
   Future<ChatResult<ChatPresence>> getPresence(String contactUserId) =>
@@ -238,22 +273,25 @@ class ContactsApi implements ChatContactsApi {
 
   // Typing in DMs
 
+  /// Sends a typing activity to a DM contact.
+  ///
+  /// Always uses the `postContactActivity` REST operation
+  /// (`POST /contacts/{id}/activity`): the backend's WS `typing` frame is
+  /// room-scoped (it requires a `roomId` and rejects contact-addressed
+  /// frames), so REST is the only route that reaches the peer as a
+  /// contact-activity event. The backend's contact-activity endpoint only
+  /// models typing (`startsTyping` / `stopsTyping`), so this is its full
+  /// surface.
   @override
   Future<ChatResult<void>> sendTyping(
     String contactUserId, {
     ChatActivity activity = ChatActivity.startsTyping,
-  }) {
-    if (_transport != null && _transport.isWsConnected) {
-      _transport.sendDmTyping(contactUserId, activity: activity.name);
-      return Future.value(const ChatSuccess(null));
-    }
-    return safeVoidCall(
-      () => _rest.postVoid(
-        '/contacts/$contactUserId/activity',
-        data: {'activity': activity.name},
-      ),
-    );
-  }
+  }) => safeVoidCall(
+    () => _rest.postVoid(
+      '/contacts/$contactUserId/activity',
+      data: {'activity': activity.name},
+    ),
+  );
 
   // Block
 

@@ -32,7 +32,14 @@ info:
     description.
 
     ## Error responses
-    Error bodies share the shape `{ "code": <int>, "detail": <string> }`. In addition to the
+    Error bodies share the shape `{ "code": <int>, "detail": <string> }` and may
+    carry an OPTIONAL third field, `error`. When present, `error` is a stable,
+    machine-readable token drawn from a closed vocabulary (see the `error`
+    property of the shared `Error` schema for the full enum); it lets clients
+    branch on the specific failure semantics without parsing the human-oriented
+    `detail`. The field is simply ABSENT (never `null`) when no token applies,
+    so clients MUST continue to treat `code` and `detail` exactly as before —
+    `error` is purely additive. In addition to the
     per-operation `4xx` responses documented below, **any endpoint may return
     `500 Internal Server Error`** on an unexpected fault, and `503 Service Unavailable` when a
     backing dependency (MongoDB, the session store) is transiently unreachable. These
@@ -121,6 +128,7 @@ paths:
   # ============================================================
   /users:
     get:
+      x-audience: user
       operationId: searchUsers
       summary: Search users by displayName, id, email or bio
       description: >
@@ -171,6 +179,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
+      x-audience: user
       operationId: createUser
       summary: Create a new chat user from external credentials
       tags:
@@ -193,6 +202,7 @@ paths:
 
   /users/{userId}:
     get:
+      x-audience: user
       operationId: getUser
       summary: Get user information
       tags:
@@ -209,6 +219,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     patch:
+      x-audience: user
       operationId: patchUser
       summary: Update user profile or active status
       description: >
@@ -271,13 +282,19 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: deleteUser
       summary: Delete a user
       description: >
-        Deletes the authenticated user's own account. The endpoint always
-        operates on the authenticated account; the `userId` path parameter
-        is informational. Idempotent: returns 204 even if the account is
-        already gone.
+        Deletes the caller's own account. The `userId` path parameter MUST
+        equal the authenticated caller's id, or the literal alias `me`. Any
+        other value is rejected with `403` and the body
+        `{"detail": "You can only delete your own account",
+        "error": "cannot_delete_other_user"}`. When the path resolves to the
+        caller's own account (their id, `me`, or no resolvable binding), the
+        operation is idempotent and returns `204` even if the account is
+        already gone. See also `DELETE /users/me`, a dedicated alias for the
+        same behavior.
       tags:
         - users
       parameters:
@@ -285,7 +302,40 @@ paths:
         - $ref: "#/components/parameters/headerUserId"
       responses:
         "204":
-          description: User deleted
+          description: User deleted (idempotent)
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >-
+            Forbidden — the `userId` path parameter does not match the
+            authenticated caller and is not the `me` alias.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: 403
+                detail: "You can only delete your own account"
+                error: "cannot_delete_other_user"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /users/me:
+    delete:
+      x-audience: user
+      operationId: deleteOwnUser
+      summary: Delete the authenticated user's own account
+      description: >
+        Self-deletion alias for `DELETE /users/{userId}` with the `me` token.
+        Always operates on the authenticated caller's account. Idempotent:
+        returns `204` even if the account is already gone.
+      tags:
+        - users
+      parameters:
+        - $ref: "#/components/parameters/headerUserId"
+      responses:
+        "204":
+          description: User deleted (idempotent)
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -296,6 +346,7 @@ paths:
   # ============================================================
   /managed-users:
     get:
+      x-audience: user
       operationId: searchManagedUsers
       summary: Search managed users by external ID
       tags:
@@ -318,6 +369,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
+      x-audience: user
       operationId: createManagedUsers
       summary: Create managed users for a parent user
       tags:
@@ -337,34 +389,6 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
 
   /managed-users/{userId}:
-    get:
-      x-audience: user
-      operationId: getManagedUsers
-      summary: Get all managed users for a parent user
-      deprecated: true
-      description: >-
-        Deprecated. Use `GET /users/{parentId}/managed-users` instead, which
-        carries the same query parameters and response shape. This path remains
-        available for older clients; removal is deferred.
-      tags:
-        - managed-users
-      parameters:
-        - $ref: "#/components/parameters/pathUserId"
-        - $ref: "#/components/parameters/queryLimit"
-        - $ref: "#/components/parameters/queryOffset"
-        - $ref: "#/components/parameters/querySort"
-        - $ref: "#/components/parameters/queryOrder"
-      responses:
-        "200":
-          $ref: "#/components/responses/ManagedUsersListResponse"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
     delete:
       x-audience: user
       operationId: deleteManagedUser
@@ -392,9 +416,8 @@ paths:
       operationId: getManagedUsersByParent
       summary: Get all managed users for a parent user
       description: >-
-        Canonical replacement for the deprecated `GET /managed-users/{userId}`
-        list endpoint. Returns the managed users owned by `{parentId}` with the
-        same query parameters and response shape. The caller must be the parent
+        Returns the managed users owned by `{parentId}` with the documented
+        query parameters and response shape. The caller must be the parent
         user; otherwise the request is rejected with `403 Forbidden`.
       tags:
         - managed-users
@@ -418,6 +441,7 @@ paths:
 
   /managed-users/{userId}/configuration:
     get:
+      x-audience: user
       operationId: getManagedUserConfiguration
       summary: Get managed user configuration
       tags:
@@ -440,6 +464,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     put:
+      x-audience: user
       operationId: putManagedUserConfiguration
       summary: Update managed user configuration
       tags:
@@ -470,11 +495,15 @@ paths:
   # ============================================================
   /contacts:
     post:
+      x-audience: user
       operationId: addContact
       summary: Add a contact to the user's contact list
       description: |
         Adds a user to the authenticated user's contact list (roster).
         Returns 204 because it modifies an existing roster rather than creating a new resource.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `user_not_found` (the target user does not exist).
       tags:
         - contacts
       requestBody:
@@ -493,6 +522,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
+      x-audience: user
       operationId: getContacts
       summary: Get all contacts of the authenticated user
       tags:
@@ -515,6 +545,7 @@ paths:
 
   /contacts/{userId}:
     delete:
+      x-audience: user
       operationId: deleteContact
       summary: Remove a contact from the user's contact list
       tags:
@@ -536,20 +567,31 @@ paths:
 
   /contacts/{userId}/messages:
     post:
+      x-audience: user
       operationId: sendDirectMessage
       summary: Send a direct message to a contact (1:1)
       description: |
         Direct messages are plain text only. The server reads `text` (required),
         and optionally `reply`, `metadata` and `clientMessageId`; it ignores the
-        rich `messageType`/`emoji`/`attachmentUrl`/`referencedMessageId`/`sourceRoomId`
-        fields of room sends — reactions, attachments and forwards are not
-        supported in DMs.
+        rich `messageType`/`attachmentUrl`/`referencedMessageId`/`sourceRoomId`
+        fields of room sends — attachments and forwards are not supported in DMs.
 
         **Idempotency.** When `clientMessageId` is supplied the send is
         idempotent over the DM conversation: a retry that replays the same key
         returns the already-persisted message with the same `201` (no
         duplicate). The key round-trips inside the response `metadata`
         (`metadata.clientMessageId`) for optimistic reconciliation.
+
+        **Asynchronous ACK (`ack_mode = async`, the server default).** The body
+        is validated for shape (a malformed body still returns `400`), then the
+        server ACKs `201` immediately with a **provisional echo** and runs the
+        recipient/block checks, idempotency and persistence afterwards, in
+        per-conversation order. The provisional `messageId` does **not**
+        correspond to the persisted message — reconcile through
+        `metadata.clientMessageId` on the `new_message` event. Checks that fail
+        after the ACK (recipient missing, blocked) drop the message silently,
+        matching the synchronous blocked-DM semantics. Deployments that need
+        read-your-write REST semantics can set `ack_mode = sync`.
       tags:
         - contacts
         - messages
@@ -594,6 +636,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
+      x-audience: user
       operationId: getDirectMessages
       summary: Get message history with a contact (1:1)
       tags:
@@ -602,8 +645,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/pathUserId"
         - $ref: "#/components/parameters/headerUserId"
-        - $ref: "#/components/parameters/queryBefore"
-        - $ref: "#/components/parameters/queryAfter"
         - $ref: "#/components/parameters/queryLimit"
       responses:
         "200":
@@ -620,8 +661,17 @@ paths:
   # ============================================================
   /rooms:
     post:
+      x-audience: user
       operationId: createRoom
       summary: Create a new room
+      description: |
+        Creates a new room with the given members and configuration.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `missing_contacts` (a member is not in the
+        caller's roster when the deployment requires it), `blocked` (a target
+        member has a block relationship with the caller), `room_full` and
+        `user_not_found`.
       tags:
         - rooms
       requestBody:
@@ -640,6 +690,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
+      x-audience: user
       operationId: getUserRooms
       summary: Get all user rooms with unread info and invitations
       tags:
@@ -675,6 +726,7 @@ paths:
 
   /rooms/discover:
     get:
+      x-audience: user
       operationId: discoverRooms
       summary: Discover public rooms by name or subject
       description: >
@@ -744,6 +796,7 @@ paths:
 
   /rooms/{roomId}:
     get:
+      x-audience: user
       operationId: getRoom
       summary: Get room details
       description: |
@@ -770,6 +823,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: deleteRoom
       summary: Delete a room
       tags:
@@ -791,6 +845,7 @@ paths:
 
   /rooms/{roomId}/config:
     put:
+      x-audience: user
       operationId: updateRoomConfig
       summary: Update room configuration (name, subject)
       tags:
@@ -815,13 +870,19 @@ paths:
 
   /rooms/{roomId}/users:
     get:
+      x-audience: user
       operationId: getRoomUsers
       summary: Get all users in a room
+      description: |
+        Returns the room members. By default each member carries only `userId`
+        and `role`. Pass `expand=users` to additionally resolve each member's
+        profile fields (`displayName`, `avatarUrl`).
       tags:
         - rooms
       parameters:
         - $ref: "#/components/parameters/pathRoomId"
         - $ref: "#/components/parameters/headerUserId"
+        - $ref: "#/components/parameters/queryExpand"
         - $ref: "#/components/parameters/queryLimit"
         - $ref: "#/components/parameters/queryOffset"
         - $ref: "#/components/parameters/querySort"
@@ -838,6 +899,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
+      x-audience: user
       operationId: addRoomUser
       summary: Add, invite or manage user membership in a room
       description: |
@@ -851,6 +913,12 @@ paths:
         so a user can only accept or decline their own pending invitation, never
         a third party's (send the caller's own id, or any non-empty list).
         `userIds` is limited to 100 entries per request.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `room_not_found`, `not_member` (the caller is not
+        a member of the room), `room_full`, `missing_contacts` and `blocked`.
+        On a `207` mixed result, per-user failures carry their own `code` /
+        `detail` in the result array (no `error` field at the per-user level).
       tags:
         - rooms
       parameters:
@@ -900,6 +968,7 @@ paths:
 
   /rooms/{roomId}/users/{userId}:
     delete:
+      x-audience: user
       operationId: removeRoomUser
       summary: Remove another user from a room
       description: Remove another user from the room (requires admin/owner role).
@@ -923,9 +992,15 @@ paths:
 
   /rooms/{roomId}/users/{userId}/leave:
     post:
+      x-audience: user
       operationId: leaveRoom
       summary: Leave a room
-      description: Current user leaves the room voluntarily.
+      description: |
+        Current user leaves the room voluntarily.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `room_not_found` and `not_member` (the caller is
+        not a member of the room).
       tags:
         - rooms
       parameters:
@@ -948,6 +1023,7 @@ paths:
 
   /rooms/{roomId}/users/{userId}/role:
     put:
+      x-audience: user
       operationId: updateRoomUserRole
       summary: Update user role in a room
       description: |
@@ -1004,6 +1080,7 @@ paths:
 
   /rooms/{roomId}/users/{userId}/activity:
     put:
+      x-audience: user
       operationId: updateRoomActivity
       summary: Send typing indicator or other activity status in a room
       description: |
@@ -1032,77 +1109,26 @@ paths:
           $ref: "#/components/responses/TooManyRequests"
 
   # ============================================================
-  # ROOM PREFERENCES (mute/pin)
+  # ROOM PREFERENCES
   # ============================================================
   /rooms/{roomId}/preferences:
     patch:
+      x-audience: user
       operationId: patchRoomPreferences
-      summary: Update the authenticated user's room preferences (unified)
+      summary: Update the caller's room preferences in one request
       description: |
-        Partially updates the calling user's per-room preferences in a single
-        request. Send only the fields you want to change; omitted fields are
-        left untouched. Returns the merged effective state.
+        Unified partial update of the calling user's per-room preferences
+        (`muted`, `pinned`, `hidden`). The body is a partial object: a field
+        that is absent is left unchanged, and an empty body `{}` is a no-op.
+        The response always echoes the full merged preference state.
 
-        `muted` accepts a boolean (`true`/`false`) or an ISO-8601 instant
-        string: a string mutes the room until that time (lazy expiry, like
-        `PUT /rooms/{roomId}/mute` with `until`), `false` unmutes, `true`
-        mutes permanently. `null` is also accepted for `muted` to clear the
-        mute. This is the canonical endpoint; the six legacy toggle endpoints
-        (`/mute`, `/pin`, `/hidden` PUT/DELETE) remain for backward
-        compatibility.
-      tags:
-        - preferences
-        - rooms
-      parameters:
-        - $ref: "#/components/parameters/pathRoomId"
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                muted:
-                  description: >-
-                    `true`/`false` for a permanent mute/unmute, an ISO-8601
-                    instant string for a timed mute, or `null` to clear.
-                  nullable: true
-                  oneOf:
-                    - type: boolean
-                    - type: string
-                      format: date-time
-                pinned:
-                  type: boolean
-                hidden:
-                  type: boolean
-      responses:
-        "200":
-          description: Merged preference state after the update
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/RoomPreferences"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
+        `muted` accepts a boolean (`true` for a permanent mute, `false` to
+        unmute), an ISO-8601 `date-time` string (mute until that instant, after
+        which the room reads as unmuted via lazy expiry), or `null` (unmute).
+        When a timed mute is in effect the response includes `muteUntil`.
 
-  /rooms/{roomId}/mute:
-    put:
-      operationId: muteRoom
-      summary: Mute a room for the authenticated user
-      description: |
-        Mutes the room for the calling user. The body is optional: with no body
-        (or no `until`) the mute is permanent; supplying `until` mutes only
-        until that instant, after which the room reads as unmuted (lazy expiry).
-        The room's `muted` flag in listings/detail reflects the current
-        effective state. The response does not echo `until`.
+        **Error tokens** (the optional `error` field in the error body): an
+        invalid body surfaces `invalid_preferences`.
       tags:
         - preferences
         - rooms
@@ -1114,141 +1140,78 @@ paths:
           application/json:
             schema:
               type: object
+              description: >-
+                Partial preferences. Any omitted field is left unchanged; an
+                empty object is a no-op.
               properties:
-                until:
-                  type: string
-                  format: date-time
+                muted:
                   description: >-
-                    ISO-8601 instant until which the room stays muted. Omit for
-                    a permanent mute. A non-string value returns `400`.
+                    `true`/`false` for a permanent mute/unmute, an ISO-8601
+                    instant to mute until that time, or `null` to unmute.
+                  nullable: true
+                  oneOf:
+                    - type: boolean
+                    - type: string
+                      format: date-time
+                pinned:
+                  type: boolean
+                hidden:
+                  type: boolean
+            examples:
+              muteUntil:
+                summary: Mute until a specific instant and pin
+                value:
+                  muted: "2026-12-31T23:59:59Z"
+                  pinned: true
+              unmute:
+                summary: Permanently unmute
+                value:
+                  muted: false
+              noop:
+                summary: No-op
+                value: {}
       responses:
         "200":
-          description: Room muted
+          description: Full merged preference state
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/StatusOk"
+                type: object
+                required:
+                  - muted
+                  - pinned
+                  - hidden
+                properties:
+                  muted:
+                    type: boolean
+                    description: Current effective mute state.
+                  pinned:
+                    type: boolean
+                  hidden:
+                    type: boolean
+                  muteUntil:
+                    type: string
+                    format: date-time
+                    description: >-
+                      Present only when a timed mute is in effect; the instant
+                      until which the room stays muted.
+              example:
+                muted: true
+                pinned: true
+                hidden: false
+                muteUntil: "2026-12-31T23:59:59Z"
         "400":
-          $ref: "#/components/responses/BadRequest"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-    delete:
-      operationId: unmuteRoom
-      summary: Unmute a room for the authenticated user
-      tags:
-        - preferences
-        - rooms
-      parameters:
-        - $ref: "#/components/parameters/pathRoomId"
-      responses:
-        "200":
-          description: Room unmuted
+          description: >-
+            Bad request — the body is not a valid partial preferences object
+            (`error: invalid_preferences`).
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/StatusOk"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-
-  /rooms/{roomId}/pin:
-    put:
-      operationId: pinRoom
-      summary: Pin a room for the authenticated user
-      tags:
-        - preferences
-        - rooms
-      parameters:
-        - $ref: "#/components/parameters/pathRoomId"
-      responses:
-        "200":
-          description: Room pinned
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatusOk"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-    delete:
-      operationId: unpinRoom
-      summary: Unpin a room for the authenticated user
-      tags:
-        - preferences
-        - rooms
-      parameters:
-        - $ref: "#/components/parameters/pathRoomId"
-      responses:
-        "200":
-          description: Room unpinned
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatusOk"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-
-  /rooms/{roomId}/hidden:
-    put:
-      operationId: hideRoom
-      summary: Hide a room from the authenticated user's room list
-      tags:
-        - preferences
-        - rooms
-      parameters:
-        - $ref: "#/components/parameters/pathRoomId"
-      responses:
-        "200":
-          description: Room hidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatusOk"
-        "401":
-          $ref: "#/components/responses/Unauthorized"
-        "403":
-          $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "429":
-          $ref: "#/components/responses/TooManyRequests"
-    delete:
-      operationId: unhideRoom
-      summary: Unhide a room for the authenticated user
-      tags:
-        - preferences
-        - rooms
-      parameters:
-        - $ref: "#/components/parameters/pathRoomId"
-      responses:
-        "200":
-          description: Room unhidden
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/StatusOk"
+                $ref: "#/components/schemas/Error"
+              example:
+                code: 400
+                detail: "Invalid preferences"
+                error: "invalid_preferences"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1263,6 +1226,7 @@ paths:
   # ============================================================
   /rooms/{roomId}/read:
     post:
+      x-audience: user
       operationId: markRoomAsRead
       summary: Mark a room as read
       description: |
@@ -1309,6 +1273,7 @@ paths:
 
   /rooms/{roomId}/receipts:
     get:
+      x-audience: user
       operationId: getRoomReceipts
       summary: Get read receipt status for all members of a room
       tags:
@@ -1347,6 +1312,7 @@ paths:
   # ============================================================
   /rooms/batch/read:
     post:
+      x-audience: user
       operationId: batchMarkRoomsAsRead
       summary: Mark multiple rooms as read
       description: |
@@ -1377,8 +1343,8 @@ paths:
                 summary: Mark several rooms as read
                 value:
                   roomIds:
-                    - "room1@chat-core.com"
-                    - "room2@chat-core.com"
+                    - "room-456"
+                    - "room-789"
       responses:
         "204":
           description: Rooms marked as read successfully
@@ -1391,6 +1357,7 @@ paths:
 
   /rooms/batch/unread:
     post:
+      x-audience: user
       operationId: batchGetUnreadCounts
       summary: Get unread counts for multiple rooms
       description: |
@@ -1422,8 +1389,8 @@ paths:
                 summary: Get unread counts for several rooms
                 value:
                   roomIds:
-                    - "room1@chat-core.com"
-                    - "room2@chat-core.com"
+                    - "room-456"
+                    - "room-789"
       responses:
         "200":
           description: Unread counts for requested rooms
@@ -1442,7 +1409,11 @@ paths:
                         unreadMessages:
                           type: integer
                         lastUnreadMessage:
-                          description: Last unread message object or 0 if none
+                          type: object
+                          nullable: true
+                          description: >-
+                            Last unread message preview, or `null` when there is
+                            no unread message in the room.
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1455,18 +1426,15 @@ paths:
   # ============================================================
   /rooms/{roomId}/messages:
     post:
+      x-audience: user
       operationId: sendRoomMessage
       summary: Send a message in a room
       description: |
-        Send a text message, attachment, reaction, reply, or forwarded message to a room.
+        Send a text message, attachment, reply, or forwarded message to a room.
         The `messageType` field determines the type of message.
-        For reactions, `referencedMessageId` and `emoji` are required.
 
-        **Deprecated for reactions.** Sending `messageType: "reaction"` still
-        works for backward compatibility, but new clients should use the
-        canonical `POST /rooms/{roomId}/messages/{messageId}/reactions`
-        endpoint, which models a reaction as a message sub-resource instead of
-        a synthetic timeline message.
+        To add an emoji reaction, use the canonical
+        `POST /rooms/{roomId}/messages/{messageId}/reactions` endpoint.
         For replies, `referencedMessageId` and `text` (or `reply`) are required.
         For attachments, `attachmentUrl` is required.
         For forwards, `referencedMessageId` and `sourceRoomId` are required.
@@ -1480,6 +1448,26 @@ paths:
         server returns the already-persisted message with the same `201` as a
         fresh send (the two are indistinguishable by status — reconcile by
         matching `metadata.clientMessageId`).
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `room_not_found`, `not_member`,
+        `message_blocked_by_content_filter`, `blocked` (1:1 DM where either side
+        blocked the other), `message_not_found` / `referenced_message_not_found`
+        (reply/forward to a missing message), and `rate_limited`.
+
+        **Asynchronous ACK (`ack_mode = async`, the server default).** The
+        request body is validated for shape (a malformed body still returns
+        `400`), then the server ACKs `201` immediately with a **provisional
+        echo** and runs the membership guards, idempotency, content filter and
+        persistence afterwards, in per-room order. The provisional body carries
+        a server-minted `messageId` that does **not** correspond to the
+        persisted message — do not use it for follow-up operations. Reconcile
+        the send through `metadata.clientMessageId` on the `new_message` event
+        (or the `message_acked` event when sending over WebSocket). Guard
+        failures after the ACK (e.g. not a member, blocked, content filter) are
+        logged server-side and the message is dropped silently. Deployments
+        that need read-your-write REST semantics can set `ack_mode = sync`,
+        which restores the fully synchronous behaviour described above.
       tags:
         - messages
       parameters:
@@ -1500,15 +1488,34 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
+      x-audience: user
       operationId: getRoomMessages
       summary: Get messages in a room
+      description: |
+        Returns a page of messages in the room, always ordered oldest-first.
+        With no `cursor` the server returns the latest page (the newest `limit`
+        messages). Page bidirectionally with the opaque `cursor` query parameter
+        plus the `direction` parameter and the matching response cursor:
+
+          - **Latest page**: `GET .../messages` (no `cursor`). Then use the
+            response `prev` to start loading older history.
+          - **Load older** (scroll-up): `GET .../messages?cursor=<prev>&direction=older`,
+            then reuse each new `prev`; stop when `hasMore` is `false` (or `prev`
+            is `null`).
+          - **Catch up newer**: `GET .../messages?cursor=<next>&direction=newer`,
+            then reuse each new `next`; stop when `hasMore` is `false` (or `next`
+            is `null`).
+
+        `direction` defaults to `newer`, so a bare `?cursor=...` behaves exactly
+        like the prior forward-only paging. `hasMore` always refers to the
+        requested direction.
       tags:
         - messages
       parameters:
         - $ref: "#/components/parameters/pathRoomId"
         - $ref: "#/components/parameters/headerUserId"
-        - $ref: "#/components/parameters/queryBefore"
-        - $ref: "#/components/parameters/queryAfter"
+        - $ref: "#/components/parameters/queryCursor"
+        - $ref: "#/components/parameters/queryDirection"
         - $ref: "#/components/parameters/queryLimit"
         - name: unreadOnly
           in: query
@@ -1520,6 +1527,18 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/MessageListResponse"
+        "400":
+          description: >-
+            Bad request — the supplied `cursor` is malformed or stale
+            (`error: invalid_cursor`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                code: 400
+                detail: "Invalid pagination cursor"
+                error: "invalid_cursor"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1531,6 +1550,7 @@ paths:
 
   /rooms/{roomId}/messages/{messageId}:
     put:
+      x-audience: user
       operationId: updateRoomMessage
       summary: Edit a message in a room
       description: |
@@ -1538,6 +1558,12 @@ paths:
         allowed within a time window after the message was sent (default
         15 minutes); past it the server returns `403` with detail
         `edit window expired`. The window is configurable and may be disabled.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `user_mismatch` (not the author),
+        `edit_window_expired`, `message_deleted`,
+        `message_blocked_by_content_filter`, `message_not_found` and
+        `room_not_found`.
       tags:
         - messages
       parameters:
@@ -1566,6 +1592,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: deleteRoomMessage
       summary: Delete a message in a room
       description: |
@@ -1573,6 +1600,11 @@ paths:
         are allowed within a time window after the message was sent (default
         2 days); past it the server returns `403` with detail
         `delete window expired`. The window is configurable and may be disabled.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `user_mismatch` (not the author),
+        `delete_window_expired`, `message_deleted` (already deleted),
+        `message_not_found` and `room_not_found`.
       tags:
         - messages
       parameters:
@@ -1601,19 +1633,20 @@ paths:
 
   /rooms/{roomId}/messages/{messageId}/thread:
     get:
+      x-audience: user
       operationId: getMessageThread
       summary: Get the complete thread for a message
       description: |
         Returns the root message and all its replies (direct and nested) as a flat
-        array sorted by timestamp. Supports the same pagination parameters as
-        `GET /rooms/{roomId}/messages`.
+        array sorted by timestamp. Supports the same bidirectional pagination
+        parameters as `GET /rooms/{roomId}/messages`: page with `cursor` plus
+        `direction` (`older` | `newer`, default `newer`), and `hasMore` always
+        refers to the requested direction.
       tags:
         - messages
       parameters:
         - $ref: "#/components/parameters/pathRoomId"
         - $ref: "#/components/parameters/pathMessageId"
-        - $ref: "#/components/parameters/queryBefore"
-        - $ref: "#/components/parameters/queryAfter"
         - $ref: "#/components/parameters/queryLimit"
       responses:
         "200":
@@ -1629,6 +1662,8 @@ paths:
                       $ref: "#/components/schemas/Message"
                   hasMore:
                     type: boolean
+                    description: |
+                      Whether another page exists in the requested `direction`.
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
@@ -1640,6 +1675,7 @@ paths:
 
   /rooms/{roomId}/messages/{messageId}/receipts:
     put:
+      x-audience: user
       operationId: updateMessageReceipt
       summary: Update message delivery/read receipt
       description: |
@@ -1678,6 +1714,7 @@ paths:
   # ============================================================
   /rooms/{roomId}/messages/{messageId}/reactions:
     get:
+      x-audience: user
       operationId: getMessageReactions
       summary: Get aggregated reactions for a message
       description: Returns reactions grouped by emoji with count and list of users who reacted.
@@ -1719,20 +1756,29 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
-      operationId: addReaction
-      summary: Add the caller's reaction to a message
+      x-audience: user
+      operationId: postMessageReaction
+      summary: Add a reaction to a message
       description: |
-        Adds `emoji` as the authenticated user's reaction to the message.
-        This is the canonical reactions endpoint: a reaction is modelled as a
-        first-class sub-resource of the message rather than a synthetic
-        reaction-typed message, so it never appears in the message timeline.
-        Emits a `reaction_added` realtime event to every room member.
+        Canonical endpoint for adding an emoji reaction to a message.
 
-        Idempotent: re-adding the same emoji the caller already reacted with
-        returns `201` without creating a duplicate.
+        On success the server returns `201` with the public projection of the
+        reaction message.
 
-        Prefer this over `POST /rooms/{roomId}/messages` with
-        `messageType: "reaction"`, which is deprecated for reactions.
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `message_not_found` (target message missing),
+        `forbidden` (the caller may not react in this room) and `invalid_message`.
+
+        **Asynchronous ACK (`ack_mode = async`, the server default).** The
+        emoji is validated synchronously (a malformed body still returns
+        `400`), then the server ACKs `201` immediately with a minimal
+        provisional echo — `{messageId, from, reaction}`, where `messageId` is
+        the **target** message id from the path, not the full updated message
+        projection — and applies the reaction afterwards, in per-room order.
+        Failures after the ACK (message missing, forbidden) are logged
+        server-side and dropped. Deployments that need read-your-write REST
+        semantics can set `ack_mode = sync`, which returns the full updated
+        message.
       tags:
         - reactions
       parameters:
@@ -1749,12 +1795,16 @@ paths:
               properties:
                 emoji:
                   type: string
-                  description: The reaction emoji (e.g. "👍").
+                  description: The reaction emoji to add.
             example:
-              emoji: "👍"
+              emoji: "🚀"
       responses:
         "201":
           description: Reaction added
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -1765,17 +1815,24 @@ paths:
           $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          description: Internal error — the reaction could not be persisted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     delete:
+      x-audience: user
       operationId: deleteReaction
       summary: Delete own reaction from a message
       description: |
-        Removes the authenticated user's reaction from the message. Pass the
-        optional `emoji` query parameter to remove a specific reaction on
-        backends that track more than one reaction per user; omit it to clear
-        the user's reaction on the message wholesale (the historical
-        single-reaction-per-user behaviour). Other users' reactions are never
-        affected. Emits a `reaction_deleted` realtime event. Idempotent:
-        deleting when no reaction is present returns `200`.
+        Removes the caller's own reaction from a message. By default it removes
+        the caller's reaction; pass the optional `emoji` query parameter to
+        scope the removal to a specific reaction emoji.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `reaction_not_found` (the caller has no reaction
+        on the message) and `message_not_found`.
       tags:
         - reactions
       parameters:
@@ -1784,9 +1841,9 @@ paths:
         - name: emoji
           in: query
           required: false
-          description: |
-            Specific reaction emoji to remove. Omit to clear the caller's
-            reaction on the message wholesale.
+          description: >-
+            Optional specific reaction emoji to remove. When omitted, the
+            caller's reaction on the message is removed.
           schema:
             type: string
       responses:
@@ -1806,8 +1863,18 @@ paths:
   # ============================================================
   /messages/search:
     get:
+      x-audience: user
       operationId: searchMessages
-      summary: Search messages in a room by text content
+      summary: Search messages by text content across the caller's rooms
+      description: |
+        Full-text search over message bodies. When `roomId` is provided the
+        search is scoped to that single room; when `roomId` is omitted the
+        search spans all rooms the caller is a member of (the scope is resolved
+        server-side from the caller's membership — there is no parameter that
+        widens it beyond the caller's own rooms).
+
+        Search is backed by a MongoDB `$text` index over the `body_text` field;
+        match semantics follow that index.
       tags:
         - messages
       parameters:
@@ -1820,8 +1887,10 @@ paths:
             minLength: 2
         - name: roomId
           in: query
-          required: true
-          description: Room to search in
+          required: false
+          description: >-
+            Optional room to scope the search to. When omitted, the search spans
+            all of the caller's rooms.
           schema:
             $ref: "#/components/schemas/RoomId"
         - $ref: "#/components/parameters/queryLimit"
@@ -1861,6 +1930,7 @@ paths:
   # ============================================================
   /rooms/{roomId}/messages/{messageId}/star:
     put:
+      x-audience: user
       operationId: starMessage
       summary: Star a message for the authenticated user
       description: |
@@ -1892,6 +1962,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: unstarMessage
       summary: Remove a star from a message
       description: |
@@ -1923,6 +1994,7 @@ paths:
   # ============================================================
   /rooms/{roomId}/messages/{messageId}/pin:
     put:
+      x-audience: user
       operationId: pinMessage
       summary: Pin a message
       description: Pins a message in the room. Requires moderator role (room owner, room admin, or global admin).
@@ -1951,6 +2023,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: unpinMessage
       summary: Unpin a message
       description: Unpins a message from the room. Requires moderator role.
@@ -1981,6 +2054,7 @@ paths:
 
   /rooms/{roomId}/pins:
     get:
+      x-audience: user
       operationId: getRoomPins
       summary: List pinned messages
       description: Returns all pinned messages for the room. Any room member can access this endpoint.
@@ -2033,6 +2107,7 @@ paths:
   # ============================================================
   /rooms/{roomId}/messages/{messageId}/report:
     post:
+      x-audience: user
       operationId: reportMessage
       summary: Report a message
       description: Any room member can report a message for moderation review.
@@ -2078,6 +2153,7 @@ paths:
 
   /rooms/{roomId}/reports:
     get:
+      x-audience: user
       operationId: getRoomReports
       summary: List reports for a room
       description: Returns all reports for the room. Requires moderator role.
@@ -2131,6 +2207,7 @@ paths:
 
   /rooms/{roomId}/users/{userId}/ban:
     put:
+      x-audience: user
       operationId: banRoomUser
       summary: Ban a user from a room
       description: Bans a user from the room. Requires moderator role.
@@ -2172,6 +2249,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: unbanRoomUser
       summary: Unban a user from a room
       description: Removes a ban on a user. Requires moderator role.
@@ -2200,6 +2278,7 @@ paths:
 
   /rooms/{roomId}/users/{userId}/mute:
     put:
+      x-audience: user
       operationId: muteRoomUser
       summary: Mute a user in a room
       description: Mutes a user in the room. Requires moderator role.
@@ -2232,6 +2311,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: unmuteRoomUser
       summary: Unmute a user in a room
       description: Removes a mute on a user. Requires moderator role.
@@ -2265,6 +2345,7 @@ paths:
   # ============================================================
   /conversations/{conversationId}/messages:
     get:
+      x-audience: user
       operationId: getConversationMessages
       summary: Get messages for a conversation
       deprecated: true
@@ -2282,8 +2363,6 @@ paths:
             type: string
             format: uuid
         - $ref: "#/components/parameters/headerUserId"
-        - $ref: "#/components/parameters/queryBefore"
-        - $ref: "#/components/parameters/queryAfter"
         - $ref: "#/components/parameters/queryLimit"
       responses:
         "200":
@@ -2304,6 +2383,7 @@ paths:
   # ============================================================
   /rooms/{roomId}/scheduled-messages:
     post:
+      x-audience: user
       operationId: postScheduledMessage
       summary: Schedule a message to be sent later
       description: |
@@ -2349,6 +2429,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
+      x-audience: user
       operationId: getScheduledMessages
       summary: List scheduled messages for a room
       description: |
@@ -2386,6 +2467,7 @@ paths:
 
   /rooms/{roomId}/scheduled-messages/{scheduledId}:
     delete:
+      x-audience: user
       operationId: deleteScheduledMessage
       summary: Cancel a scheduled message
       description: |
@@ -2416,13 +2498,14 @@ paths:
 
   /rooms/{roomId}/attachments:
     get:
+      x-audience: user
       operationId: getRoomAttachments
       summary: List attachment messages in a room
       description: |
         Returns messages that contain attachments in the specified room.
         Messages are identified as attachments by having a non-empty `attachment` field
         or metadata containing `mimeType`/`getUrl` keys.
-        Supports pagination via `limit` and `before`/`after` query parameters.
+        Supports pagination via the `limit` query parameter.
         Returns `X-Total-Count` header with total attachment count.
       tags:
         - attachments
@@ -2430,8 +2513,6 @@ paths:
       parameters:
         - $ref: "#/components/parameters/pathRoomId"
         - $ref: "#/components/parameters/queryLimit"
-        - $ref: "#/components/parameters/queryBefore"
-        - $ref: "#/components/parameters/queryAfter"
 
       responses:
         "200":
@@ -2463,6 +2544,7 @@ paths:
 
   /rooms/{roomId}/attachments/{messageId}:
     delete:
+      x-audience: user
       operationId: deleteRoomAttachment
       summary: Delete an attachment message
       description: |
@@ -2494,6 +2576,7 @@ paths:
 
   /attachments:
     post:
+      x-audience: user
       operationId: uploadAttachment
       summary: Upload a file attachment
       description: |
@@ -2525,16 +2608,25 @@ paths:
 
   /attachments/{attachmentId}/signed-url:
     get:
+      x-audience: user
       operationId: getAttachmentSignedUrl
-      summary: Resolve a signed download URL for an attachment
+      summary: Mint a temporary signed download URL for an attachment (recommended)
       description: |
-        Primary, robust way to access an attachment. Verifies that the caller is
-        a member of `roomId` (fail-closed: returns `403 not_a_room_member`
-        otherwise) and returns a short-lived download URL carrying an HMAC
-        signature, an expiry, and the authorized user inline. The returned URL is
-        self-authorizing, so it can be handed straight to an `<img>` tag, an
-        image cache, or a native viewer without re-attaching auth headers. Treat
-        it as ephemeral; request a fresh one when it expires.
+        **Recommended/primary way to download an attachment.** Returns a
+        short-lived signed URL that downloads the attachment over
+        `GET /attachments/{attachmentId}` WITHOUT the custom
+        `x-attachment-metadata` header, so it can be placed directly in an
+        `<img>` tag, handed to a CDN, or opened by a native media viewer. Prefer
+        this over the legacy `x-attachment-metadata` header flow, which is
+        deprecated.
+
+        The caller must be a current member of the owning `roomId` (passed as a
+        query parameter); membership is enforced here, so an outsider cannot
+        obtain a capability. The returned URL is bound — via HMAC-SHA256 over
+        `attachmentId|roomId|userId|expiry` — to this attachment, this room, the
+        calling user and an expiry (`attachment_signed_url_ttl_seconds`, default
+        3600s). It does not outlive the user's membership: the download path
+        re-checks room membership when the URL is used.
       tags:
         - attachments
       parameters:
@@ -2546,10 +2638,9 @@ paths:
         - name: roomId
           in: query
           required: true
-          description: Room the attachment belongs to; membership is enforced.
+          description: External UUID of the room that owns the attachment.
           schema:
             $ref: "#/components/schemas/RoomId"
-        - $ref: "#/components/parameters/headerUserId"
       responses:
         "200":
           description: Signed download URL
@@ -2563,30 +2654,59 @@ paths:
                   url:
                     type: string
                     description: |
-                      Relative or absolute download URL with signature, expiry,
-                      and user encoded. Usable directly in an image element /
-                      cache / native viewer.
+                      Relative signed download URL (path + query string with
+                      `roomId`, `userId`, `expiry` and `sig`). Append to the API
+                      base URL to fetch the attachment without the
+                      `x-attachment-metadata` header.
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
           $ref: "#/components/responses/Forbidden"
-        "404":
-          $ref: "#/components/responses/NotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
+        "500":
+          description: |
+            Internal error — the signed URL could not be minted (e.g. no signing
+            secret is configured on the server).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /attachments/{attachmentId}:
     get:
+      x-audience: user
       operationId: getAttachment
-      deprecated: true
-      summary: Download an attachment (deprecated header-only flow)
+      summary: Download an attachment
       description: |
-        **Deprecated** — use `GET /attachments/{attachmentId}/signed-url` and
-        fetch the returned URL instead. This endpoint now enforces room
-        membership fail-closed: it requires the `roomId` query parameter and
-        returns `403 not_a_room_member` when the caller is not a member of that
-        room. The `x-attachment-metadata` header alone no longer authorizes a
-        download.
+        Download a previously uploaded attachment. Access is membership-checked:
+        the request must carry a server-verifiable binding to the owning room and
+        the caller must currently be a member of that room. Two ways supply the
+        binding:
+
+        - **(recommended)** a **signed URL** minted by
+          `GET /attachments/{attachmentId}/signed-url` (operation
+          `getAttachmentSignedUrl`), carrying the `roomId`, `userId`, `expiry`
+          and `sig` query parameters. This is the primary download path: the HMAC
+          proves the server issued the URL for an authorized member; the embedded
+          `userId` must match the caller and membership is re-checked at download
+          time, so the URL never outlives membership. No `x-attachment-metadata`
+          header is needed in this mode.
+        - **(deprecated)** the legacy **`x-attachment-metadata` header** flow,
+          which now ALSO requires a `roomId` query parameter the caller is a
+          member of. The header alone is no longer a sufficient capability. This
+          flow is deprecated in favor of signed URLs (obtained via
+          `getAttachmentSignedUrl`) and is kept only for backward compatibility.
+
+        If neither establishes membership, the attachment is never served and the
+        response is `403` with the `not_a_room_member` token. The owning room is
+        taken from the verified request binding, never from the opaque metadata.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `not_a_room_member` (membership could not be
+        confirmed), `attachment_not_found` and `message_not_attachment`.
       tags:
         - attachments
       parameters:
@@ -2595,19 +2715,51 @@ paths:
           required: true
           schema:
             $ref: "#/components/schemas/AttachmentId"
-        - name: roomId
-          in: query
-          required: true
-          description: Room the attachment belongs to; membership is enforced.
-          schema:
-            $ref: "#/components/schemas/RoomId"
         - name: x-attachment-metadata
           in: header
           required: false
+          deprecated: true
           description: |
-            Attachment metadata as base64 (returned from upload). Deprecated:
-            kept for source compatibility but no longer sufficient on its own —
-            membership on `roomId` is the authorization check.
+            DEPRECATED. Attachment metadata as base64 (returned from upload).
+            Required for the legacy header download mode; omitted when using a
+            signed URL. This header-only flow is deprecated in favor of signed
+            URLs obtained via `getAttachmentSignedUrl`, and now additionally
+            requires a membership-checked `roomId` query parameter. Kept only for
+            backward compatibility.
+          schema:
+            type: string
+        - name: roomId
+          in: query
+          required: false
+          description: |
+            External UUID of the owning room. Required for the legacy header mode
+            (the caller's membership of this room is checked). Also present, and
+            signed, on a minted signed URL.
+          schema:
+            $ref: "#/components/schemas/RoomId"
+        - name: userId
+          in: query
+          required: false
+          description: |
+            Signed-URL field: the user the URL was minted for. Must match the
+            authenticated caller. Present only on minted signed URLs.
+          schema:
+            type: string
+        - name: expiry
+          in: query
+          required: false
+          description: |
+            Signed-URL field: absolute unix expiry (seconds). Present only on
+            minted signed URLs.
+          schema:
+            type: integer
+            format: int64
+        - name: sig
+          in: query
+          required: false
+          description: |
+            Signed-URL field: lowercase-hex HMAC-SHA256 signature. Present only on
+            minted signed URLs.
           schema:
             type: string
         - $ref: "#/components/parameters/headerUserId"
@@ -2633,6 +2785,7 @@ paths:
   # ============================================================
   /presence:
     get:
+      x-audience: user
       operationId: getOwnPresence
       summary: Get own presence and contacts presence
       tags:
@@ -2656,6 +2809,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     put:
+      x-audience: user
       operationId: updateOwnPresence
       summary: Set own presence status
       tags:
@@ -2682,6 +2836,7 @@ paths:
 
   /contacts/{userId}/presence:
     get:
+      x-audience: user
       operationId: getContactPresence
       summary: Get a contact's presence (online, status, last seen)
       tags:
@@ -2707,6 +2862,7 @@ paths:
 
   /contacts/{userId}/activity:
     post:
+      x-audience: user
       operationId: postContactActivity
       summary: Send typing indicator to a contact (DM)
       description: |
@@ -2748,6 +2904,7 @@ paths:
   # ============================================================
   /contacts/{userId}/block:
     put:
+      x-audience: user
       operationId: blockUser
       summary: Block a user
       description: |
@@ -2758,6 +2915,9 @@ paths:
         blocked user. Any 1:1 DM room stays in place on their side, and their
         subsequent sends are silently dropped (the sender still gets `204`), so
         the block is not observable to the blocked party.
+
+        **Error tokens** (the optional `error` field in the error body): this
+        operation may surface `cannot_block_yourself` and `user_not_found`.
       tags:
         - contacts
       parameters:
@@ -2772,6 +2932,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: user
       operationId: unblockUser
       summary: Unblock a user
       description: |
@@ -2790,6 +2951,7 @@ paths:
 
   /starred:
     get:
+      x-audience: user
       operationId: getStarredMessages
       summary: List the caller's starred messages
       description: |
@@ -2844,6 +3006,7 @@ paths:
 
   /blocked:
     get:
+      x-audience: user
       operationId: getBlockedUsers
       summary: Get list of blocked users
       deprecated: true
@@ -2892,6 +3055,7 @@ paths:
   # ============================================================
   /events:
     get:
+      x-audience: user
       operationId: subscribeSSE
       summary: Subscribe to server-sent events
       description: |
@@ -2925,6 +3089,7 @@ paths:
 
   /ws:
     get:
+      x-audience: user
       operationId: connectWebSocket
       summary: Establish WebSocket connection
       description: |
@@ -2988,6 +3153,11 @@ paths:
           - **4005** `too_many_auth_attempts` — too many failed auth/refresh
             attempts on this connection (max 5); the client must not retry with
             the same credentials
+          - **4006** `transport_disabled` — the WebSocket transport is disabled
+            in server configuration; the client should fail over to SSE/polling
+            instead of reconnecting
+          - **4007** `account_deactivated` — the authenticated account was
+            deactivated; the client must not reconnect until reactivation
       tags:
         - events
       responses:
@@ -3003,6 +3173,7 @@ paths:
   # ============================================================
   /health:
     get:
+      x-audience: user
       operationId: getHealth
       summary: Health check with dependency status
       tags:
@@ -3058,6 +3229,7 @@ paths:
 
   /admin/login:
     post:
+      x-audience: admin
       operationId: postAdminLogin
       summary: Verify admin credentials
       description: |
@@ -3125,6 +3297,7 @@ paths:
 
   /admin/logout:
     post:
+      x-audience: admin
       operationId: postAdminLogout
       summary: Legacy admin logout
       description: |
@@ -3142,6 +3315,7 @@ paths:
 
   /admin/me:
     get:
+      x-audience: admin
       operationId: getAdminMe
       summary: Identify the authenticated admin
       description: |
@@ -3207,6 +3381,7 @@ paths:
 
   /admin/users:
     get:
+      x-audience: admin
       operationId: getAdminUsers
       summary: List all registered users
       description: |
@@ -3267,6 +3442,7 @@ paths:
 
   /admin/stats:
     get:
+      x-audience: admin
       operationId: getAdminStats
       summary: Get system statistics
       description: Requires admin role.
@@ -3288,6 +3464,7 @@ paths:
 
   /admin/sessions:
     get:
+      x-audience: admin
       operationId: getAdminSessions
       summary: List all active sessions
       description: Requires admin role.
@@ -3329,6 +3506,7 @@ paths:
 
   /admin/sessions/{userId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminSession
       summary: Force close a user session
       description: Requires admin role.
@@ -3354,6 +3532,7 @@ paths:
 
   /admin/config:
     get:
+      x-audience: admin
       operationId: getAdminConfig
       summary: Get runtime configuration
       description: |
@@ -3395,6 +3574,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     put:
+      x-audience: admin
       operationId: putAdminConfig
       summary: Update runtime configuration (cluster-wide)
       description: |
@@ -3460,6 +3640,7 @@ paths:
 
   /admin/broadcast:
     post:
+      x-audience: admin
       operationId: postAdminBroadcast
       summary: Broadcast a message
       deprecated: true
@@ -3528,6 +3709,7 @@ paths:
 
   /admin/announcement-room:
     post:
+      x-audience: admin
       operationId: postAdminAnnouncementRoom
       summary: Create an announcement room (legacy)
       deprecated: true
@@ -3582,6 +3764,7 @@ paths:
 
   /admin/announcement-rooms:
     get:
+      x-audience: admin
       operationId: getAdminAnnouncementRooms
       summary: List announcement rooms
       description: |
@@ -3636,6 +3819,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
+      x-audience: admin
       operationId: createAdminAnnouncementRoom
       summary: Create an announcement room
       description: |
@@ -3683,6 +3867,7 @@ paths:
 
   /admin/announcement-rooms/{roomId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminAnnouncementRoom
       summary: Delete an announcement room
       description: |
@@ -3707,6 +3892,7 @@ paths:
 
   /admin/announcement-rooms/{roomId}/messages:
     post:
+      x-audience: admin
       operationId: postAdminAnnouncementRoomMessage
       summary: Publish a message to an announcement room
       description: |
@@ -3757,6 +3943,7 @@ paths:
 
   /admin/users/{userId}/role:
     put:
+      x-audience: admin
       operationId: putAdminUserRole
       summary: Change a user's role
       description: Requires admin role.
@@ -3795,6 +3982,7 @@ paths:
 
   /admin/content-filters:
     post:
+      x-audience: admin
       operationId: postAdminContentFilter
       summary: Add a content filter pattern
       description: |
@@ -3832,6 +4020,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     get:
+      x-audience: admin
       operationId: getAdminContentFilters
       summary: List all content filter patterns
       description: |
@@ -3878,6 +4067,7 @@ paths:
 
   /admin/content-filters/{filterId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminContentFilter
       summary: Remove a content filter pattern
       description: |
@@ -3907,6 +4097,7 @@ paths:
 
   /admin/rooms:
     get:
+      x-audience: admin
       operationId: getAdminRooms
       summary: List all rooms
       description: |
@@ -3968,6 +4159,7 @@ paths:
 
   /admin/rooms/{roomId}:
     get:
+      x-audience: admin
       operationId: getAdminRoom
       summary: Get room details
       description: Requires admin role.
@@ -4007,6 +4199,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     put:
+      x-audience: admin
       operationId: putAdminRoom
       summary: Update a room's name, subject or avatar (admin)
       description: |
@@ -4048,6 +4241,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: admin
       operationId: deleteAdminRoom
       summary: Delete a room
       description: Deletes a room and all associated data. Requires admin role.
@@ -4069,6 +4263,7 @@ paths:
 
   /admin/rooms/{roomId}/messages:
     post:
+      x-audience: admin
       operationId: postAdminRoomMessage
       summary: Send a message as admin
       description: |
@@ -4120,6 +4315,7 @@ paths:
 
   /admin/messages:
     get:
+      x-audience: admin
       operationId: getAdminMessages
       summary: Search messages
       description: |
@@ -4174,6 +4370,7 @@ paths:
 
   /admin/messages/{messageId}:
     put:
+      x-audience: admin
       operationId: putAdminMessage
       summary: Edit a message (admin)
       description: |
@@ -4229,6 +4426,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: admin
       operationId: deleteAdminMessage
       summary: Delete a message
       description: Permanently deletes a message. Requires admin role.
@@ -4255,6 +4453,7 @@ paths:
 
   /admin/cluster:
     get:
+      x-audience: admin
       operationId: getAdminCluster
       summary: Get cluster status
       description: |
@@ -4317,6 +4516,7 @@ paths:
 
   /admin/metrics/delivery:
     get:
+      x-audience: admin
       operationId: getAdminDeliveryMetrics
       summary: Get message delivery metrics
       description: |
@@ -4357,6 +4557,7 @@ paths:
 
   /admin/moderation:
     get:
+      x-audience: admin
       operationId: getAdminModeration
       summary: Get moderation overview
       description: |
@@ -4425,6 +4626,7 @@ paths:
 
   /admin/moderation/reports:
     get:
+      x-audience: admin
       operationId: getAdminModerationReports
       summary: List moderation reports
       description: |
@@ -4471,6 +4673,7 @@ paths:
 
   /admin/audit:
     get:
+      x-audience: admin
       operationId: getAdminAuditLog
       summary: Get audit log
       description: |
@@ -4571,6 +4774,7 @@ paths:
 
   /admin/audit/options:
     get:
+      x-audience: admin
       operationId: getAdminAuditOptions
       summary: Get audit log filter options
       description: |
@@ -4606,6 +4810,7 @@ paths:
 
   /admin/bans:
     get:
+      x-audience: admin
       operationId: getAdminBans
       summary: List all bans
       description: |
@@ -4650,6 +4855,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
+      x-audience: admin
       operationId: postAdminBan
       summary: Create a ban (optionally temporary)
       description: |
@@ -4709,6 +4915,7 @@ paths:
 
   /admin/bans/{banId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminBan
       summary: Remove a ban
       description: |
@@ -4737,6 +4944,7 @@ paths:
 
   /admin/mutes:
     get:
+      x-audience: admin
       operationId: getAdminMutes
       summary: List all mutes
       description: |
@@ -4781,6 +4989,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     post:
+      x-audience: admin
       operationId: postAdminMute
       summary: Create a mute
       description: |
@@ -4833,6 +5042,7 @@ paths:
 
   /admin/mutes/{muteId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminMute
       summary: Remove a mute
       description: |
@@ -4861,6 +5071,7 @@ paths:
 
   /admin/reports:
     post:
+      x-audience: admin
       operationId: postAdminReport
       summary: File a moderation report (admin)
       description: |
@@ -4917,6 +5128,7 @@ paths:
 
   /admin/reports/{reportId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminReport
       summary: Delete a message report
       description: |
@@ -4944,6 +5156,7 @@ paths:
 
   /admin/health:
     get:
+      x-audience: admin
       operationId: getAdminHealth
       summary: Check service health
       description: |
@@ -4974,6 +5187,7 @@ paths:
 
   /admin/alerts:
     get:
+      x-audience: admin
       operationId: getAdminAlerts
       summary: Get system alerts
       description: |
@@ -5009,6 +5223,7 @@ paths:
 
   /admin/webhooks/status:
     get:
+      x-audience: admin
       operationId: getAdminWebhooksStatus
       summary: Get webhook circuit breaker status
       description: |
@@ -5076,6 +5291,7 @@ paths:
 
   /admin/webhooks/dlq:
     get:
+      x-audience: admin
       operationId: getAdminWebhooksDlq
       summary: List dead webhook deliveries
       description: |
@@ -5172,6 +5388,7 @@ paths:
 
   /admin/webhooks/dlq/{deliveryId}:
     delete:
+      x-audience: admin
       operationId: deleteAdminWebhooksDlq
       summary: Delete a dead webhook delivery
       description: |
@@ -5204,6 +5421,7 @@ paths:
 
   /admin/webhooks/dlq/{deliveryId}/retry:
     post:
+      x-audience: admin
       operationId: postAdminWebhooksDlqRetry
       summary: Redrive a dead webhook delivery
       description: |
@@ -5237,6 +5455,7 @@ paths:
 
   /admin/messages/{messageId}/context:
     get:
+      x-audience: admin
       operationId: getAdminMessageContext
       summary: Get message with surrounding context
       description: |
@@ -5280,6 +5499,7 @@ paths:
 
   /admin/attachments/{slot}:
     get:
+      x-audience: admin
       operationId: getAdminAttachment
       summary: Download an attachment by slot (admin)
       description: |
@@ -5347,6 +5567,7 @@ paths:
 
   /admin/users/{userId}:
     get:
+      x-audience: admin
       operationId: getAdminUserDetail
       summary: Get detailed user information
       description: |
@@ -5401,6 +5622,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     delete:
+      x-audience: admin
       operationId: deleteAdminUser
       summary: Hard-delete a user (admin)
       description: |
@@ -5435,6 +5657,7 @@ paths:
 
   /admin/users/{userId}/rate-limit/reset:
     post:
+      x-audience: admin
       operationId: postAdminResetRateLimit
       summary: Reset a user's rate limit counters
       description: |
@@ -5463,13 +5686,14 @@ paths:
 
   /admin/users/{userId}/messages:
     get:
+      x-audience: admin
       operationId: getAdminUserMessages
       summary: List messages sent by a user (admin)
       description: |
         Returns a paginated list of all messages authored by the target user
         across every room, sorted by timestamp descending (newest first).
-        The `userId` parameter is the full internal JID (e.g.
-        `user1@chat-core.com`), matching the convention used by other
+        The `userId` parameter is the canonical user id (e.g.
+        `user-123`), matching the convention used by other
         `/admin/users/{userId}` endpoints. Requires admin role.
       tags:
         - admin
@@ -5479,7 +5703,7 @@ paths:
           required: true
           schema:
             type: string
-          description: Target user's internal JID.
+          description: Target user's canonical id.
         - $ref: "#/components/parameters/queryOffset"
         - $ref: "#/components/parameters/queryLimit"
       responses:
@@ -5525,6 +5749,7 @@ paths:
   # a single audit entry with the count of successful items.
   /admin/users/bulk-delete:
     post:
+      x-audience: admin
       operationId: postAdminUsersBulkDelete
       summary: Hard-delete multiple users in one call
       description: |
@@ -5566,6 +5791,7 @@ paths:
 
   /admin/users/bulk-deactivate:
     post:
+      x-audience: admin
       operationId: postAdminUsersBulkDeactivate
       summary: Deactivate multiple users in one call
       description: |
@@ -5606,6 +5832,7 @@ paths:
 
   /admin/users/{userId}/active:
     put:
+      x-audience: admin
       operationId: putAdminUserActive
       summary: Toggle a user's active flag (admin)
       description: |
@@ -5648,6 +5875,7 @@ paths:
 
   /admin/sessions/bulk-kick:
     post:
+      x-audience: admin
       operationId: postAdminSessionsBulkKick
       summary: Force-close active sessions for multiple users
       description: |
@@ -5687,6 +5915,7 @@ paths:
 
   /admin/messages/bulk-delete:
     post:
+      x-audience: admin
       operationId: postAdminMessagesBulkDelete
       summary: Delete multiple messages in one call
       description: |
@@ -5726,6 +5955,7 @@ paths:
 
   /admin/bans/bulk-delete:
     post:
+      x-audience: admin
       operationId: postAdminBansBulkDelete
       summary: Remove multiple room bans in one call
       description: |
@@ -5765,6 +5995,7 @@ paths:
 
   /admin/mutes/bulk-delete:
     post:
+      x-audience: admin
       operationId: postAdminMutesBulkDelete
       summary: Remove multiple room mutes in one call
       description: |
@@ -5804,6 +6035,7 @@ paths:
 
   /admin/reports/bulk-delete:
     post:
+      x-audience: admin
       operationId: postAdminReportsBulkDelete
       summary: Remove multiple message reports in one call
       description: |
@@ -5842,6 +6074,7 @@ paths:
 
   /admin/blocks:
     get:
+      x-audience: admin
       operationId: getAdminBlocks
       summary: List user-to-user block records globally
       description: |
@@ -5902,6 +6135,7 @@ paths:
 
   /admin/webhooks/config:
     get:
+      x-audience: admin
       operationId: getAdminWebhooksConfig
       summary: Get webhook runtime configuration
       description: |
@@ -5934,6 +6168,7 @@ paths:
         "429":
           $ref: "#/components/responses/TooManyRequests"
     put:
+      x-audience: admin
       operationId: putAdminWebhooksConfig
       summary: Update webhook runtime configuration (cluster-wide)
       description: |
@@ -5992,6 +6227,7 @@ paths:
   # ============================================================
   /internal/users:
     post:
+      x-audience: internal
       operationId: postInternalUser
       summary: Create user (internal)
       description: Same as POST /users but authenticated via internal API key.
@@ -6013,6 +6249,7 @@ paths:
 
   /internal/users/{userId}:
     delete:
+      x-audience: internal
       operationId: deleteInternalUser
       summary: Delete user (internal)
       tags:
@@ -6029,6 +6266,7 @@ paths:
 
   /internal/rooms:
     post:
+      x-audience: internal
       operationId: postInternalRoom
       summary: Create room (internal)
       tags:
@@ -6065,6 +6303,7 @@ paths:
 
   /internal/rooms/{roomId}:
     delete:
+      x-audience: internal
       operationId: deleteInternalRoom
       summary: Delete room (internal)
       tags:
@@ -6083,6 +6322,7 @@ paths:
 
   /internal/rooms/{roomId}/users:
     post:
+      x-audience: internal
       operationId: postInternalRoomUser
       summary: Add user to room (internal)
       tags:
@@ -6135,6 +6375,7 @@ paths:
 
   /internal/rooms/{roomId}/users/{userId}:
     delete:
+      x-audience: internal
       operationId: deleteInternalRoomUser
       summary: Remove user from room (internal)
       description: Same as DELETE /rooms/{roomId}/users/{userId} but authenticated via internal API key.
@@ -6163,6 +6404,7 @@ paths:
 
   /internal/rooms/{roomId}/users/{userId}/role:
     put:
+      x-audience: internal
       operationId: putInternalRoomUserRole
       summary: Update user role in room (internal)
       description: Same as PUT /rooms/{roomId}/users/{userId}/role but authenticated via internal API key.
@@ -6195,6 +6437,7 @@ paths:
 
   /internal/rooms/{roomId}/config:
     put:
+      x-audience: internal
       operationId: putInternalRoomConfig
       summary: Update room configuration (internal)
       description: Same as PUT /rooms/{roomId}/config but authenticated via internal API key.
@@ -6240,6 +6483,7 @@ paths:
 
   /internal/rooms/{roomId}/messages:
     post:
+      x-audience: internal
       operationId: postInternalRoomMessage
       summary: Send message to room (internal)
       description: |
@@ -6304,6 +6548,7 @@ paths:
 
   /internal/contacts:
     post:
+      x-audience: internal
       operationId: postInternalContact
       summary: Add a mutual contact relationship (internal)
       description: |
@@ -6350,6 +6595,7 @@ paths:
 
   /internal/contacts/{userId}/block:
     put:
+      x-audience: internal
       operationId: putInternalBlockedUser
       summary: Block a user (internal)
       description: |
@@ -6376,6 +6622,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
     delete:
+      x-audience: internal
       operationId: deleteInternalBlockedUser
       summary: Unblock a user (internal)
       description: |
@@ -6401,10 +6648,11 @@ paths:
 
   /internal/sessions/{userId}:
     delete:
+      x-audience: internal
       operationId: deleteInternalSession
       summary: Force-close active session (internal)
       description: |
-        Terminates the active XMPP/WebSocket session of the given user. Used by
+        Terminates the active realtime (WebSocket) session of the given user. Used by
         WB backend during account deactivation to immediately invalidate the
         user's connection. Authenticated via internal API key.
       tags:
@@ -6423,6 +6671,7 @@ paths:
 
   /internal/revocations:
     post:
+      x-audience: internal
       operationId: postInternalRevocation
       summary: Mark all tokens of a user as revoked (internal)
       description: |
@@ -6618,6 +6867,86 @@ components:
           type: integer
         detail:
           type: string
+        error:
+          type: string
+          description: >
+            Optional stable, machine-readable error token drawn from a closed
+            vocabulary. When present, it identifies the failure semantics
+            independently of `detail` (human prose that may change) and `code`
+            (a coarse HTTP status), so clients can branch on it reliably. The
+            field is OPTIONAL: it is simply ABSENT (never `null`) when no token
+            applies to the failure. Clients MUST keep treating `code` and
+            `detail` exactly as before; `error` is additive and never replaces
+            them. Some tokens in the vocabulary may not yet be emitted by any
+            operation — the enum is the canonical set of values the field can
+            ever take. Note that the three membership tokens
+            `not_a_member`, `not_a_room_member` and `not_member` coexist in the
+            vocabulary as-is.
+          enum:
+            - room_not_found
+            - user_not_found
+            - managed_user_not_found
+            - message_not_found
+            - attachment_not_found
+            - reaction_not_found
+            - referenced_message_not_found
+            - announcement_room_not_found
+            - scheduled_message_not_found
+            - delivery_not_found
+            - report_not_found
+            - ban_not_found
+            - mute_not_found
+            - filter_not_found
+            - roster_not_found
+            - configuration_not_found
+            - not_found
+            - unauthorized
+            - not_authorized
+            - forbidden
+            - access_denied
+            - user_mismatch
+            - impersonation_denied
+            - admin_panel_disabled
+            - cannot_delete_other_user
+            - not_a_member
+            - not_a_room_member
+            - not_member
+            - notInvited
+            - alreadyMember
+            - not_a_contact
+            - missing_contacts
+            - blocked
+            - banned
+            - muted
+            - user_deactivated
+            - cannot_block_yourself
+            - cannot_ban_owner
+            - cannot_mute_owner
+            - cannot_modify_config_admin
+            - owner_immutable
+            - no_successor
+            - room_full
+            - already_exists
+            - message_deleted
+            - message_not_attachment
+            - message_blocked_by_content_filter
+            - edit_window_expired
+            - delete_window_expired
+            - invalid_message
+            - invalid_external_id
+            - unsupported_type
+            - invalid_cursor
+            - invalid_preferences
+            - rate_limited
+            - transient
+            - timeout
+            - ban_failed
+            - mute_failed
+            - pin_failed
+            - unpin_failed
+            - star_failed
+            - unstar_failed
+            - report_failed
 
     # --- Admin schemas ---
     AdminBan:
@@ -6853,27 +7182,6 @@ components:
           type: string
           enum: [ok]
 
-    RoomPreferences:
-      type: object
-      required: [muted, pinned, hidden]
-      properties:
-        muted:
-          type: boolean
-          description: >-
-            Effective mute state. For a timed mute this is `true` until
-            `muteUntil` passes.
-        pinned:
-          type: boolean
-        hidden:
-          type: boolean
-        muteUntil:
-          type: string
-          format: date-time
-          nullable: true
-          description: >-
-            When a timed mute expires (UTC). Absent/`null` means a permanent
-            mute (when `muted` is `true`) or no mute (when `muted` is `false`).
-
     BulkOperationResult:
       type: object
       required: [ok, errors]
@@ -7024,25 +7332,28 @@ components:
           $ref: "#/components/schemas/UserId"
         role:
           $ref: "#/components/schemas/UserRole"
+        displayName:
+          type: string
+          nullable: true
+          description: >-
+            Resolved display name of the member. Present ONLY when the request
+            carried `expand=users`; absent otherwise.
+        avatarUrl:
+          type: string
+          nullable: true
+          description: >-
+            Resolved avatar URL of the member. Present ONLY when the request
+            carried `expand=users`; absent otherwise.
 
     # --- Contacts ---
     Contact:
       type: object
       required:
         - userId
-        - jid
       properties:
         userId:
           type: string
-          description: |
-            Canonical external user ID of the contact. Prefer this field; the
-            server always emits it alongside `jid`.
-        jid:
-          type: string
-          deprecated: true
-          description: |
-            Legacy alias of `userId` (same value), retained for older SDK
-            builds. Use `userId` instead.
+          description: Canonical external user ID of the contact.
 
     # --- Rooms ---
     Room:
@@ -7126,51 +7437,47 @@ components:
             authenticated user. `0` when there are none. Lets clients show an
             "@" badge without fetching message bodies.
         lastUnreadMessage:
-          description: Last message object (internal format) or 0 if none
-          oneOf:
-            - type: object
-              properties:
-                from:
-                  type: string
-                  description: Canonical (normalized) user id of the message sender.
-                fromJid:
-                  type: string
-                  deprecated: true
-                  description: legacy alias of from; removal deferred
-                timestamp:
-                  type: string
-                  format: date-time
-                body:
-                  type: string
-                attachments:
-                  type: array
-                  items:
-                    type: object
-                metadata:
-                  type: object
-                  nullable: true
-                messageId:
-                  type: string
-                reaction:
-                  type: array
-                  nullable: true
-                  items:
-                    $ref: "#/components/schemas/ReactionSummary"
-                receipt:
-                  type: string
-                  enum: [sent, delivered, read]
-                  description: |
-                    WhatsApp-style delivery status of the last message. Present only
-                    when the message was sent by the current user (no receipt is
-                    emitted for incoming previews). DM semantics: `read` if the other
-                    participant's lastRead covers the message; `delivered` if their
-                    lastDelivered covers it; otherwise `sent`. Group semantics
-                    aggregate with ALL: `read`/`delivered` only when EVERY other
-                    current member's cursor covers the message. Members with a
-                    block relation with the caller never count as covering, so
-                    those previews stall at `sent`.
-            - type: integer
-              enum: [0]
+          type: object
+          nullable: true
+          description: >-
+            Last unread message preview, or `null` when there is no unread
+            message in the room.
+          properties:
+            from:
+              type: string
+              description: Canonical (normalized) user id of the message sender.
+            timestamp:
+              type: string
+              format: date-time
+            body:
+              type: string
+            attachments:
+              type: array
+              items:
+                type: object
+            metadata:
+              type: object
+              nullable: true
+            messageId:
+              type: string
+            reaction:
+              type: array
+              nullable: true
+              items:
+                $ref: "#/components/schemas/ReactionSummary"
+            receipt:
+              type: string
+              enum: [sent, delivered, read]
+              description: |
+                WhatsApp-style delivery status of the last message. Present only
+                when the message was sent by the current user (no receipt is
+                emitted for incoming previews). DM semantics: `read` if the other
+                participant's lastRead covers the message; `delivered` if their
+                lastDelivered covers it; otherwise `sent`. Group semantics
+                aggregate with ALL: `read`/`delivered` only when EVERY other
+                current member's cursor covers the message. Members with a
+                block relation with the caller never count as covering, so
+                those previews stall at `sent`.
         name:
           type: string
           description: Room name (group rooms only)
@@ -7222,6 +7529,10 @@ components:
     # --- Messages ---
     MessageType:
       type: string
+      description: |
+        Type of a stored/returned message. Reactions are not sent through the
+        message-send endpoint; use the canonical
+        `POST /rooms/{roomId}/messages/{messageId}/reactions` endpoint instead.
       enum:
         - regular
         - attachment
@@ -7372,12 +7683,13 @@ components:
       description: |
         Message payload. Required fields depend on messageType:
         - "regular": text is recommended
-        - "reaction": emoji and referencedMessageId are required (deprecated —
-          prefer POST /rooms/{roomId}/messages/{messageId}/reactions)
         - "reply": referencedMessageId and text (or reply) are required
         - "attachment" / "audio": attachmentUrl is required
         - "forward": referencedMessageId and sourceRoomId are required
         - "location": metadata.lat and metadata.lng are required and must be numbers
+
+        Reactions are not created here; use
+        `POST /rooms/{roomId}/messages/{messageId}/reactions`.
       required:
         - messageType
       properties:
@@ -7388,12 +7700,17 @@ components:
           type: string
           maxLength: 10000
         messageType:
-          $ref: "#/components/schemas/MessageType"
+          type: string
+          description: Type of message to send.
+          enum:
+            - regular
+            - attachment
+            - reply
+            - audio
+            - forward
+            - location
         referencedMessageId:
           $ref: "#/components/schemas/MessageId"
-        emoji:
-          type: string
-          description: Emoji character for reaction messages. Required when messageType is "reaction".
         attachmentUrl:
           type: string
           description: URL returned from attachment upload
@@ -7476,6 +7793,8 @@ components:
         - typing
         - presence_changed
         - receipt_updated
+        - message_delivered
+        - message_acked
         - reaction_added
         - reaction_deleted
         - broadcast
@@ -7511,7 +7830,11 @@ components:
           enum: [owner, admin, user]
         status:
           type: string
-          description: Receipt status (for receipt_updated)
+          description: >
+            Receipt status (for receipt_updated). Emitted by the backend ONLY
+            with the value `read`; delivery is NOT signaled here. A separate,
+            dedicated `message_delivered` event carries delivery confirmations,
+            so clients should not expect a `delivered` value on this field.
           enum: [read]
         contactId:
           $ref: "#/components/schemas/UserId"
@@ -7537,6 +7860,8 @@ components:
             - typing (DM): `userId`, `contactId`, and `activity`
             - presence_changed: `userId` and `status`
             - receipt_updated: `messageId`, `roomId`, `status`, and `userId` (who sent the receipt)
+            - message_delivered: `userId` (who confirmed delivery), `messageId`, `seq`, and optionally `roomId`
+            - message_acked: `userId`/`toUserId` (the acknowledging party), `messageId`, `seq`, optionally `metadata`, and optionally `roomId`
             - reaction_added: `messageId`, `roomId`, `userId`, and `emoji`
             - reaction_deleted: `messageId` and `roomId`
             - broadcast: `fromUserId` and `message` (text)
@@ -7589,24 +7914,6 @@ components:
       schema:
         $ref: "#/components/schemas/MessageId"
 
-    queryBefore:
-      name: before
-      in: query
-      required: false
-      description: Return messages before this timestamp (pagination)
-      schema:
-        type: string
-        format: date-time
-
-    queryAfter:
-      name: after
-      in: query
-      required: false
-      description: Return messages after this timestamp (pagination)
-      schema:
-        type: string
-        format: date-time
-
     queryLimit:
       name: limit
       in: query
@@ -7627,6 +7934,50 @@ components:
         type: integer
         minimum: 0
         default: 0
+
+    queryCursor:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Opaque pagination cursor. It is the base64 encoding of
+        `conversationId:seq:messageId` and is obtained from the `next` field of
+        a previous page response; clients MUST treat it as opaque and never
+        parse or construct it. When supplied it takes precedence over `offset`,
+        and the returned page is filtered to items whose
+        underlying sequence is strictly greater than the decoded `seq` (the
+        `seq` itself is never exposed in message JSON). An invalid or stale
+        cursor returns `400` with `error: invalid_cursor`.
+      schema:
+        type: string
+
+    queryDirection:
+      name: direction
+      in: query
+      required: false
+      description: |
+        Direction to page relative to the supplied `cursor`, for bidirectional
+        scrolling of message history. Ignored when no `cursor` is given (the
+        no-cursor request always returns the latest page).
+
+          - `older` — return the page of messages immediately BEFORE the cursor
+            (scroll-up case): items whose underlying sequence is strictly less
+            than the cursor's `seq`. Pair this with the response `prev` cursor to
+            walk further back into history.
+          - `newer` — return messages AFTER the cursor (catch-up case): items
+            whose underlying sequence is strictly greater than the cursor's
+            `seq`. This is the original forward-only behavior; pair it with the
+            response `next` cursor.
+
+        Defaults to `newer`, so a bare `?cursor=...` reproduces the prior
+        forward-only paging exactly. Unknown values fall back to `newer`. In
+        every direction the page is returned oldest-first and respects `limit`.
+      schema:
+        type: string
+        enum:
+          - older
+          - newer
+        default: newer
 
     querySort:
       name: sort
@@ -7667,6 +8018,20 @@ components:
         rows that involve this room.
       schema:
         $ref: "#/components/schemas/RoomId"
+
+    queryExpand:
+      name: expand
+      in: query
+      required: false
+      description: |
+        Opt-in resource expansion. When set to `users`, each returned member is
+        augmented with its profile fields (`displayName`, `avatarUrl`) resolved
+        server-side. Omitted by default, in which case members carry only their
+        identity and role.
+      schema:
+        type: string
+        enum:
+          - users
 
   # ----------------------------------------------------------
   # REQUEST BODIES
@@ -7894,12 +8259,6 @@ components:
               value:
                 text: "Ready! Let's go."
                 messageType: "reply"
-                referencedMessageId: "fbbc32b7-8f1a-4b5c-a685-556fd9ce1cc3"
-            reaction:
-              summary: Emoji reaction
-              value:
-                emoji: "🚀"
-                messageType: "reaction"
                 referencedMessageId: "fbbc32b7-8f1a-4b5c-a685-556fd9ce1cc3"
             forward:
               summary: Forward from another room
@@ -8163,10 +8522,39 @@ components:
             properties:
               messages:
                 type: array
+                description: |
+                  The page of messages, always ordered oldest-first (ascending by
+                  the underlying sequence), regardless of paging `direction`.
                 items:
                   $ref: "#/components/schemas/Message"
               hasMore:
                 type: boolean
+                description: |
+                  Whether another page exists IN THE REQUESTED `direction`. For
+                  `direction=older` it reports older history remaining; for
+                  `direction=newer` (the default) it reports newer messages
+                  remaining. Use the matching cursor field — `prev` for older,
+                  `next` for newer — to fetch that page.
+              prev:
+                type: string
+                nullable: true
+                description: |
+                  Opaque OLDER cursor, anchored on the OLDEST message in this
+                  page. Pass it back as the `cursor` query parameter together
+                  with `direction=older` to load older history; repeat with each
+                  new `prev` until `hasMore` is `false` (or `prev` is `null`).
+                  It is `null` when the page is empty or when its oldest message
+                  predates sequence-stamping. Treat the value as opaque.
+              next:
+                type: string
+                nullable: true
+                description: |
+                  Opaque NEWER cursor, anchored on the NEWEST message in this
+                  page. Pass it back as the `cursor` query parameter together
+                  with `direction=newer` to catch up on newer messages; repeat
+                  with each new `next` until `hasMore` is `false` (or `next` is
+                  `null`). It is `null` when the page is empty or when its newest
+                  message predates sequence-stamping. Treat the value as opaque.
 
     AttachmentMetadataResponse:
       description: Attachment uploaded successfully
@@ -8178,12 +8566,9 @@ components:
               attachment:
                 type: object
                 description: |
-                  Metadata returned by the upload (id, optional URL). To download
-                  later, resolve a signed URL via
-                  `GET /attachments/{attachmentId}/signed-url?roomId=...` and fetch
-                  it. The legacy `x-attachment-metadata` header flow on
-                  `GET /attachments/{attachmentId}` is deprecated and now also
-                  requires a membership-checked `roomId`.
+                  Opaque metadata returned by the upload. The client must pass
+                  this value as a base64-encoded string in the `x-attachment-metadata`
+                  header when downloading the attachment via GET /attachments/{attachmentId}.
 
     BadRequest:
       description: Bad request
@@ -8194,6 +8579,7 @@ components:
           example:
             code: 400
             detail: "Invalid request body"
+            error: "invalid_message"
 
     Unauthorized:
       description: Unauthorized
@@ -8204,6 +8590,7 @@ components:
           example:
             code: 401
             detail: "Invalid or missing credentials"
+            error: "unauthorized"
 
     Forbidden:
       description: Forbidden
@@ -8214,6 +8601,7 @@ components:
           example:
             code: 403
             detail: "You do not have permission to perform this action"
+            error: "forbidden"
 
     NotFound:
       description: Not found
@@ -8224,6 +8612,7 @@ components:
           example:
             code: 404
             detail: "The requested resource does not exist"
+            error: "room_not_found"
 
     TooManyRequests:
       description: Rate limit exceeded
@@ -8247,6 +8636,7 @@ components:
           example:
             code: 429
             detail: "rate_limited"
+            error: "rate_limited"
 
     Conflict:
       description: Conflict (resource already exists)
@@ -8257,3 +8647,4 @@ components:
           example:
             code: 409
             detail: "User already exists"
+            error: "already_exists"

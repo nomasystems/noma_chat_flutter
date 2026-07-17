@@ -124,6 +124,30 @@ void main() {
       expect(res.failed.single.detail, 'banned');
     });
 
+    test('invite() tolerates off-contract field types in the 207 array '
+        'without throwing (BAJA-001)', () async {
+      when(() => rest.postRaw(any(), data: any(named: 'data'))).thenAnswer(
+        (_) async => [
+          // `user` as a number, `code` as a String, `detail` as a bool — all
+          // off-contract. The parse must degrade gracefully, not throw.
+          {'user': 42, 'result': 'invited'},
+          {'user': 'u2', 'result': 'error', 'code': '403', 'detail': true},
+        ],
+      );
+
+      final r = await api.invite('r1', userIds: ['u1', 'u2']);
+
+      expect(r.isSuccess, true);
+      final res = r.dataOrNull!;
+      expect(res.results, hasLength(2));
+      // Off-contract user id collapses to empty string, not a crash.
+      expect(res.succeeded.single.userId, '');
+      final failed = res.failed.single;
+      expect(failed.userId, 'u2');
+      expect(failed.code, isNull);
+      expect(failed.detail, isNull);
+    });
+
     test('leave() posts to /rooms/{roomId}/users/{userId}/leave', () async {
       when(() => rest.postVoid(any())).thenAnswer((_) async {});
 

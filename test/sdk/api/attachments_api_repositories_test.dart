@@ -111,6 +111,51 @@ void main() {
       expect(result.dataOrNull!.metadata, contains('width'));
     });
 
+    test('upload() tolerates a non-Map "attachment" field, falling back to '
+        'the top-level body', () async {
+      final bytes = Uint8List.fromList([1]);
+      when(
+        () => rest.uploadBinary(
+          any(),
+          any(),
+          any(),
+          onProgress: any(named: 'onProgress'),
+        ),
+      ).thenAnswer(
+        (_) async => {
+          // Off-contract: "attachment" ships as a String, not a Map. The
+          // tolerant _asMap must not throw a cast error; it falls back to the
+          // top-level body for the id.
+          'attachment': 'oops-not-a-map',
+          'attachmentId': 'att-top',
+        },
+      );
+
+      final result = await api.upload(bytes, 'image/png');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrNull!.attachmentId, 'att-top');
+    });
+
+    test('download() without roomId logs a deprecation warning', () async {
+      final warnings = <String>[];
+      final loggedApi = AttachmentsApi(
+        rest: rest,
+        logger: (level, message) {
+          if (level == 'warn') warnings.add(message);
+        },
+      );
+      when(
+        () => rest.downloadBinary(any(), headers: any(named: 'headers')),
+      ).thenAnswer((_) async => Uint8List(0));
+
+      await loggedApi.download('att-1');
+
+      expect(warnings, hasLength(1));
+      expect(warnings.single, contains('deprecated'));
+      expect(warnings.single, contains('roomId'));
+    });
+
     test('download() gets binary with optional metadata header', () async {
       final expectedBytes = Uint8List.fromList([10, 20, 30]);
       when(

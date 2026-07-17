@@ -23,10 +23,25 @@ class WsTransport implements RealtimeTransport {
   ChatConnectionState _state = ChatConnectionState.disconnected;
   bool _shouldReconnect = false;
   bool _authTerminated = false;
+  bool _transportDisabled = false;
+  bool _disposed = false;
   int _reconnectAttempts = 0;
+  int _ackSeq = 0;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
   StreamSubscription<dynamic>? _channelSubscription;
+
+  /// Metadata key carrying the SDK-generated correlation id on an
+  /// ack-tracked WS send. The backend echoes the message metadata verbatim
+  /// on its `message_acked` frame, so a match on this key resolves the
+  /// pending send. Reserved — callers must not set it in their own metadata.
+  static const String ackIdKey = '_ackId';
+
+  /// In-flight ack-tracked sends keyed by [ackIdKey]. A completer resolves
+  /// `true` when the matching `message_acked` arrives and `false` when the
+  /// socket drops or the wait times out — so [sendMessageAwaitingAck]
+  /// callers can fall back to REST instead of losing the message silently.
+  final Map<String, Completer<bool>> _pendingAcks = {};
 
   WsTransport({
     required ChatConfig config,
@@ -48,6 +63,9 @@ class WsTransport implements RealtimeTransport {
   bool get authTerminated => _authTerminated;
 
   @override
+  bool get transportDisabled => _transportDisabled;
+
+  @override
   bool get supportsOutboundFrames => true;
 
   @override
@@ -66,12 +84,14 @@ class WsTransport implements RealtimeTransport {
     }
     _shouldReconnect = true;
     // A fresh connect implies the app re-authenticated — clear the
-    // terminal latch so failover and reconnect resume normally.
+    // terminal latches so failover and reconnect resume normally.
     _authTerminated = false;
+    _transportDisabled = false;
     await _doConnect();
   }
 
   Future<void> _doConnect() async {
+    if (_disposed) return;
     // Cancel any pending scheduled reconnect first: a connect() entered while
     // a reconnect timer is armed (foreground resume in error/reconnecting
     // state) must not let that timer fire a second _doConnect() and open two
@@ -115,7 +135,7 @@ class WsTransport implements RealtimeTransport {
     } catch (e) {
       _config.log('error', 'WS connection failed: $e');
       _setState(ChatConnectionState.error);
-      _eventController.add(
+      _emitEvent(
         ChatEvent.error(exception: ChatNetworkException(e.toString())),
       );
       _scheduleReconnect();
@@ -157,6 +177,16 @@ class WsTransport implements RealtimeTransport {
     timeout = Timer(_config.authTimeout, () {
       sub.cancel();
       if (!completer.isCompleted) {
+        _config.log(
+          'warn',
+          'WS auth handshake timed out after '
+              '${_config.authTimeout.inMilliseconds}ms '
+              '(attempt ${_reconnectAttempts + 1})',
+        );
+        _config.metricCallback?.call('ws_auth_timeout', {
+          'timeoutMs': _config.authTimeout.inMilliseconds,
+          'attempts': _reconnectAttempts,
+        });
         completer.completeError(
           const ChatTimeoutException(message: 'Auth timeout'),
         );
@@ -205,7 +235,7 @@ class WsTransport implements RealtimeTransport {
       _setState(ChatConnectionState.connected);
       _reconnectAttempts = 0;
       _startPing();
-      _eventController.add(const ChatEvent.connected());
+      _emitEvent(const ChatEvent.connected());
       return;
     }
     if (type == 'auth_error') {
@@ -220,9 +250,7 @@ class WsTransport implements RealtimeTransport {
         return;
       }
       _config.authInterceptor.invalidateCache();
-      _eventController.add(
-        const ChatEvent.error(exception: ChatAuthException()),
-      );
+      _emitEvent(const ChatEvent.error(exception: ChatAuthException()));
       return;
     }
     if (type == 'event') {
@@ -258,7 +286,7 @@ class WsTransport implements RealtimeTransport {
       final reason = json['reason'] as String? ?? 'unknown';
       final action = json['action'] as String?;
       _config.log('warn', 'WS error: action=$action reason=$reason');
-      _eventController.add(
+      _emitEvent(
         ChatEvent.error(
           exception: ChatWsOperationException(action: action, reason: reason),
         ),
@@ -269,24 +297,31 @@ class WsTransport implements RealtimeTransport {
         ? json['data'] as Map<String, dynamic>
         : json;
     final event = EventParser.parseJson(payload);
-    if (event != null && !_eventController.isClosed) {
-      _eventController.add(event);
+    if (event != null) {
+      // Resolve any ack-tracked send whose correlation id the backend echoed
+      // back in the acked message's metadata, before the event is broadcast.
+      if (event is MessageAckedEvent) {
+        final ackId = event.metadata?[ackIdKey];
+        if (ackId is String) _resolveAck(ackId);
+      }
+      _emitEvent(event);
     }
   }
 
   void _onError(Object error) {
     _stopPing();
+    _failPendingAcks();
     _setState(ChatConnectionState.error);
-    if (!_eventController.isClosed) {
-      _eventController.add(
-        ChatEvent.error(exception: ChatNetworkException(error.toString())),
-      );
-    }
+    _emitEvent(
+      ChatEvent.error(exception: ChatNetworkException(error.toString())),
+    );
     _scheduleReconnect();
   }
 
   void _onDone() {
     _stopPing();
+    // The socket closed: no ack can arrive for any in-flight tracked send.
+    _failPendingAcks();
     final closeCode = _channel?.closeCode;
     final closeReason = _channel?.closeReason;
     final tokenInvalidated = closeCode == 4003 || closeCode == 4004;
@@ -296,6 +331,12 @@ class WsTransport implements RealtimeTransport {
         'WS closed with auth-related code $closeCode, invalidating cached token',
       );
       _config.authInterceptor.invalidateCache();
+      // Release the half-closed socket before any reconnect is armed: the
+      // server closed its side, but the client sink stays open and would
+      // leak alongside the fresh socket the reconnect opens.
+      final staleChannel = _channel;
+      _channel = null;
+      _closeSinkQuietly(staleChannel);
     }
     _config.metricCallback?.call('ws_disconnect', {
       'closeCode': closeCode ?? 0,
@@ -309,6 +350,16 @@ class WsTransport implements RealtimeTransport {
       // token, and surface a terminal auth error for the app to
       // re-authenticate.
       _terminateForDeactivation('Too many authentication attempts');
+      return;
+    }
+    if (closeCode == 4006) {
+      // transport_disabled: the deployment turned the WebSocket transport
+      // off at runtime and force-closed the socket. Every new socket would
+      // be closed the same way, so retrying the WS is futile — suspend the
+      // reconnect loop and mark the transport unavailable for this session
+      // so AutoFailoverTransport promotes SSE/polling. The credential is
+      // untouched: this is a transport condition, not an auth one.
+      _terminateForTransportDisabled();
       return;
     }
     if (closeCode == 4007) {
@@ -326,18 +377,12 @@ class WsTransport implements RealtimeTransport {
         'WS connection closed (code=$closeCode), will reconnect',
       );
       _setState(ChatConnectionState.reconnecting);
-      if (!_eventController.isClosed) {
-        _eventController.add(
-          const ChatEvent.disconnected(reason: 'Connection closed'),
-        );
-      }
+      _emitEvent(const ChatEvent.disconnected(reason: 'Connection closed'));
       _scheduleReconnect();
     } else {
       _config.log('debug', 'WS disconnected (code=$closeCode)');
       _setState(ChatConnectionState.disconnected);
-      if (!_eventController.isClosed) {
-        _eventController.add(const ChatEvent.disconnected());
-      }
+      _emitEvent(const ChatEvent.disconnected());
     }
   }
 
@@ -357,6 +402,7 @@ class WsTransport implements RealtimeTransport {
   /// client to route to logout — mirroring the original 4005 handling.
   void _terminateForDeactivation(String message) {
     _shouldReconnect = false;
+    _failPendingAcks();
     // Set the terminal flag SYNCHRONOUSLY, before any stream emission, so
     // a composing AutoFailoverTransport reading `authTerminated` in its
     // state-change handler sees it regardless of which broadcast stream
@@ -365,7 +411,9 @@ class WsTransport implements RealtimeTransport {
     _reconnectTimer?.cancel();
     _channelSubscription?.cancel();
     _channelSubscription = null;
+    final staleChannel = _channel;
     _channel = null;
+    _closeSinkQuietly(staleChannel);
     _config.authInterceptor.invalidateCache();
     // Emit the terminal-auth error BEFORE the state change so a
     // composing transport (AutoFailoverTransport) latches the terminal
@@ -374,11 +422,38 @@ class WsTransport implements RealtimeTransport {
     // reusing the very token the server just rejected. Both streams are
     // async broadcast controllers, so adding to the event controller
     // first guarantees its listener runs first (FIFO microtask order).
-    if (!_eventController.isClosed) {
-      _eventController.add(
-        ChatEvent.error(exception: ChatAuthException.terminal(message)),
-      );
-    }
+    _emitEvent(ChatEvent.error(exception: ChatAuthException.terminal(message)));
+    _setState(ChatConnectionState.error);
+  }
+
+  /// Terminal-transport teardown for WS close 4006 (`transport_disabled`).
+  /// Mirrors [_terminateForDeactivation]'s ordering — latch the flag
+  /// synchronously before any stream emission so a composing
+  /// AutoFailoverTransport reading `transportDisabled` in its state-change
+  /// handler sees it regardless of stream-delivery order — but keeps the
+  /// cached token (the condition is transport-level, not auth-level) and
+  /// surfaces a plain disconnect instead of a terminal auth error, so the
+  /// failover machinery promotes the SSE/polling fallback rather than
+  /// routing the app to logout.
+  void _terminateForTransportDisabled() {
+    _config.log(
+      'warn',
+      'WS closed with 4006 (transport_disabled), suspending WS for this '
+          'session',
+    );
+    _shouldReconnect = false;
+    _failPendingAcks();
+    _transportDisabled = true;
+    _reconnectTimer?.cancel();
+    _channelSubscription?.cancel();
+    _channelSubscription = null;
+    final staleChannel = _channel;
+    _channel = null;
+    _closeSinkQuietly(staleChannel);
+    // The DisconnectedEvent unblocks a handshake in progress (the auth
+    // completer resolves on it) and tells consumers the socket is gone;
+    // the `error` state is what AutoFailoverTransport reacts to.
+    _emitEvent(const ChatEvent.disconnected(reason: 'transport_disabled'));
     _setState(ChatConnectionState.error);
   }
 
@@ -394,20 +469,18 @@ class WsTransport implements RealtimeTransport {
   }
 
   void _scheduleReconnect() {
-    if (!_shouldReconnect) return;
+    if (_disposed || !_shouldReconnect) return;
     final maxAttempts = _config.maxReconnectAttempts;
     if (maxAttempts != null && _reconnectAttempts >= maxAttempts) {
       _config.log('error', 'WS max reconnect attempts ($maxAttempts) reached');
       _setState(ChatConnectionState.error);
-      if (!_eventController.isClosed) {
-        _eventController.add(
-          ChatEvent.error(
-            exception: ChatNetworkException(
-              'Max reconnect attempts ($maxAttempts) reached',
-            ),
+      _emitEvent(
+        ChatEvent.error(
+          exception: ChatNetworkException(
+            'Max reconnect attempts ($maxAttempts) reached',
           ),
-        );
-      }
+        ),
+      );
       _shouldReconnect = false;
       return;
     }
@@ -449,10 +522,6 @@ class WsTransport implements RealtimeTransport {
       sendRaw({'type': 'typing', 'roomId': roomId, 'activity': activity});
 
   @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
-      sendRaw({'type': 'typing', 'contactId': contactId, 'activity': activity});
-
-  @override
   void sendReceipt(
     String roomId,
     String messageId, {
@@ -490,6 +559,71 @@ class WsTransport implements RealtimeTransport {
     if (metadata != null) 'metadata': metadata,
   });
 
+  @override
+  Future<bool> sendMessageAwaitingAck(
+    String roomId, {
+    String? text,
+    String messageType = 'regular',
+    String? referencedMessageId,
+    String? reaction,
+    String? attachmentUrl,
+    String? sourceRoomId,
+    Map<String, dynamic>? metadata,
+    String? clientMessageId,
+    Duration ackTimeout = const Duration(seconds: 5),
+  }) {
+    if (_state != ChatConnectionState.connected || _channel == null) {
+      return Future.value(false);
+    }
+    final ackId = 'ws-${DateTime.now().microsecondsSinceEpoch}-${_ackSeq++}';
+    final taggedMetadata = {...?metadata, ackIdKey: ackId};
+    final completer = Completer<bool>();
+    _pendingAcks[ackId] = completer;
+
+    final timer = Timer(ackTimeout, () {
+      final pending = _pendingAcks.remove(ackId);
+      if (pending != null && !pending.isCompleted) pending.complete(false);
+    });
+
+    // Carry `clientMessageId` as a top-level frame field: the backend routes
+    // the WS `message` frame through the same send path as REST and dedups on
+    // it, so a REST retry after this send times out (but actually landed)
+    // returns the persisted message instead of creating a duplicate.
+    sendRaw({
+      'type': 'message',
+      'roomId': roomId,
+      if (text != null) 'text': text,
+      'messageType': messageType,
+      if (referencedMessageId != null)
+        'referencedMessageId': referencedMessageId,
+      if (reaction != null) 'emoji': reaction,
+      if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+      if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
+      if (clientMessageId != null) 'clientMessageId': clientMessageId,
+      'metadata': taggedMetadata,
+    });
+
+    return completer.future.whenComplete(timer.cancel);
+  }
+
+  void _resolveAck(String ackId) {
+    final pending = _pendingAcks.remove(ackId);
+    if (pending != null && !pending.isCompleted) pending.complete(true);
+  }
+
+  /// Fails every in-flight ack-tracked send with `false`. Called on any
+  /// teardown (socket done/error, terminal auth, disconnect, dispose) so a
+  /// send whose ack can no longer arrive unblocks its awaiter, which then
+  /// falls back to the idempotent REST send instead of losing the message.
+  void _failPendingAcks() {
+    if (_pendingAcks.isEmpty) return;
+    final pending = List.of(_pendingAcks.values);
+    _pendingAcks.clear();
+    for (final completer in pending) {
+      if (!completer.isCompleted) completer.complete(false);
+    }
+  }
+
   void sendRaw(Map<String, dynamic> data) {
     if (_state != ChatConnectionState.connected || _channel == null) return;
     _channel!.sink.add(jsonEncode(data));
@@ -498,6 +632,7 @@ class WsTransport implements RealtimeTransport {
   @override
   Future<void> disconnect() async {
     _shouldReconnect = false;
+    _failPendingAcks();
     _reconnectTimer?.cancel();
     _stopPing();
     await _channelSubscription?.cancel();
@@ -508,16 +643,33 @@ class WsTransport implements RealtimeTransport {
 
   @override
   Future<void> dispose() async {
+    // Latch the flag synchronously before any await: emits scheduled by
+    // in-flight callbacks (reconnect timers, channel onDone) must be
+    // suppressed from this point on, not only after the controllers close.
+    _disposed = true;
     await disconnect();
     await _eventController.close();
     await _stateController.close();
   }
 
+  void _emitEvent(ChatEvent event) {
+    if (_disposed || _eventController.isClosed) return;
+    _eventController.add(event);
+  }
+
+  void _closeSinkQuietly(WebSocketChannel? channel) {
+    if (channel == null) return;
+    try {
+      unawaited(channel.sink.close().then<void>((_) {}, onError: (_) {}));
+    } catch (_) {
+      // Sink already closed.
+    }
+  }
+
   void _setState(ChatConnectionState newState) {
     if (_state == newState) return;
     _state = newState;
-    if (!_stateController.isClosed) {
-      _stateController.add(newState);
-    }
+    if (_disposed || _stateController.isClosed) return;
+    _stateController.add(newState);
   }
 }

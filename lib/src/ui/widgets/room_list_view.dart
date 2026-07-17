@@ -3,6 +3,7 @@ import '../controller/room_list_controller.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
 import 'empty_state.dart';
+import 'message_status_icon.dart';
 import 'room_context_menu.dart';
 import 'room_list_header.dart';
 import 'room_search_bar.dart';
@@ -39,6 +40,9 @@ class RoomListView extends StatelessWidget {
     this.onAcceptInvitation,
     this.onRejectInvitation,
     this.currentUserId,
+    this.selectedRoomId,
+    this.onSelectionChanged,
+    this.statusIconBuilder,
   });
 
   final RoomListController controller;
@@ -91,6 +95,28 @@ class RoomListView extends StatelessWidget {
   /// `adapter.rooms.rejectInvitation(room.id)`.
   final ValueChanged<RoomListItem>? onRejectInvitation;
 
+  /// Id of the room to visually highlight as "currently open" — typically
+  /// the room shown in a master-detail / tablet split view's detail pane.
+  /// Independent of the bulk multi-select mode (`controller.selectedIds`):
+  /// a tile renders highlighted when either this matches its id OR it's
+  /// part of the active multi-selection. `null` (default) highlights
+  /// nothing via this mechanism, preserving phone/single-pane behaviour.
+  final String? selectedRoomId;
+
+  /// Fired with the tapped [RoomListItem] whenever a room row is tapped
+  /// outside of multi-select mode — fires alongside [onTapRoom], not
+  /// instead of it. Wire this (rather than re-deriving from [onTapRoom])
+  /// when the host wants a single dedicated hook for driving
+  /// [selectedRoomId] in a master-detail layout without also handling
+  /// navigation in the same callback.
+  final ValueChanged<RoomListItem>? onSelectionChanged;
+
+  /// Overrides the receipt tick on every tile's last-message preview.
+  /// Forwarded verbatim to [RoomTile.statusIconBuilder] — see
+  /// `ChatViewBuilders.statusIconBuilder` for the equivalent bubble-side
+  /// override.
+  final MessageStatusIconBuilder? statusIconBuilder;
+
   Future<void> _handleLongPress(BuildContext context, RoomListItem room) async {
     if (onLongPressRoom != null) {
       onLongPressRoom!(room);
@@ -111,7 +137,9 @@ class RoomListView extends StatelessWidget {
   }
 
   Widget _buildTile(BuildContext context, RoomListItem room) {
-    final isSelected = controller.selectedIds.contains(room.id);
+    final isSelected =
+        controller.selectedIds.contains(room.id) ||
+        (selectedRoomId != null && selectedRoomId == room.id);
     if (tileBuilder != null) {
       return tileBuilder!(context, room, isSelected);
     }
@@ -122,11 +150,13 @@ class RoomListView extends StatelessWidget {
       theme: theme,
       currentUserId: currentUserId,
       lastMessageSenderName: lastMessageSenderNames[room.id],
+      statusIconBuilder: statusIconBuilder,
       onTap: () {
         if (controller.isSelecting) {
           controller.toggleSelect(room.id);
         } else {
           onTapRoom?.call(room);
+          onSelectionChanged?.call(room);
         }
       },
       onLongPress: () => _handleLongPress(context, room),

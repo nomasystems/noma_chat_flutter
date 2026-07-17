@@ -144,6 +144,10 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
   }) async {
+    if (!PlatformSupport.supportsFilePicker) {
+      logger?.call('warn', 'pickFile unsupported on this platform; ignoring');
+      return null;
+    }
     try {
       // file_picker 9+ exposes `pickFiles` as a static method on
       // `FilePicker` (previously through `FilePicker.platform`). The

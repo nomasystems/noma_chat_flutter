@@ -1,6 +1,6 @@
 # Testing
 
-`noma_chat` ships with **1474+ passing tests** (+ 4 skipped) across the SDK,
+`noma_chat` ships with **2700+ passing tests** (+ 2 skipped) across the SDK,
 cache, UI components, integration, accessibility and golden suites. Line coverage
 is enforced at **≥80%** in CI.
 
@@ -14,12 +14,15 @@ is enforced at **≥80%** in CI.
 | `test/facade/` | `NomaChat.create` / `fromClient` wiring. |
 | `test/integration/` | End-to-end flow against `MockChatClient` (load → open → send → edit → delete → pin → mute). |
 | `test/a11y/` | `meetsGuideline` audits for tap-target sizes, labels and contrast on the main widgets. |
-| `test/golden/` | 19 golden baselines for bubbles (7 widgets × 2 themes) and outgoing message status icons. |
+| `test/golden/` | 21 golden baselines for bubbles (7 widgets × 2 themes) and outgoing message status icons (5, light only). |
 
-4 golden tests are intentionally skipped (`ImageBubble` and
-`LinkPreviewBubble`, both themes) because `CachedNetworkImage` pulls in
-`flutter_cache_manager` → `sqflite` + `path_provider`, which isn't worth
-mocking for a widget test in this codebase.
+2 golden tests are intentionally skipped (`ImageBubble`, both themes) because
+`CachedNetworkImage` pulls in `flutter_cache_manager` → `sqflite` +
+`path_provider`, which isn't worth mocking for a widget test in this
+codebase — see `ISSUES.md` for the workaround and what it would take to
+unblock it. `LinkPreviewBubble` sidesteps the same dependency without being
+skipped: its golden renders with `imageUrl: null`, which never reaches the
+`CachedNetworkImage` branch.
 
 ## Running tests
 
@@ -47,6 +50,13 @@ For iterative work, use targeted suites. The full set takes a few minutes
 and is normally only run before releasing.
 
 ### Golden tests
+
+Golden tests run on [`alchemist`](https://pub.dev/packages/alchemist).
+`test/flutter_test_config.dart` disables alchemist's CI variant (obscured
+text, "Ahem" font) and resolves every baseline to the flat
+`test/golden/goldens/<name>.png` path this suite has always used —
+`goldenBubbleTest` in `test/golden/helpers/golden_helpers.dart` is the
+call-site wrapper around alchemist's `goldenTest`.
 
 ```bash
 # Verify (default)
@@ -143,8 +153,9 @@ to exercise the new behaviour.
 
 ## Known limitations
 
-- The 4 skipped golden tests listed above. Mocking the
+- The 2 skipped `ImageBubble` golden tests listed above. Mocking the
   `flutter_cache_manager` chain (with e.g. `sqflite_common_ffi`) would
-  unblock them; not done yet because the cost isn't worth the coverage.
+  unblock them; not done yet because the cost isn't worth the coverage. See
+  `ISSUES.md`.
 - Numeric coverage isn't enforced. Aim for high coverage on business logic
   and keep `flutter test` green.

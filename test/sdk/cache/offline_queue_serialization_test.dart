@@ -78,12 +78,14 @@ void main() {
         text: 'hello dm',
         messageType: MessageType.reaction,
         reaction: '❤️',
+        clientMessageId: 'cmid-dm-1',
       );
       final r = await roundTrip<PendingSendDirectMessage>(op);
       expect(r.contactUserId, 'alice');
       expect(r.text, 'hello dm');
       expect(r.messageType, MessageType.reaction);
       expect(r.reaction, '❤️');
+      expect(r.clientMessageId, 'cmid-dm-1');
     });
 
     test('PendingEditMessage', () async {
@@ -115,6 +117,55 @@ void main() {
       );
       final r = await roundTrip<PendingDeleteReaction>(op);
       expect(r.roomId, 'r1');
+    });
+
+    test('PendingAddReaction', () async {
+      final op = PendingAddReaction(
+        id: 'op-10',
+        roomId: 'r1',
+        messageId: 'm1',
+        emoji: '👍',
+      );
+      final r = await roundTrip<PendingAddReaction>(op);
+      expect(r.roomId, 'r1');
+      expect(r.messageId, 'm1');
+      expect(r.emoji, '👍');
+    });
+
+    test('PendingPinMessage', () async {
+      final op = PendingPinMessage(id: 'op-11', roomId: 'r1', messageId: 'm1');
+      final r = await roundTrip<PendingPinMessage>(op);
+      expect(r.roomId, 'r1');
+      expect(r.messageId, 'm1');
+    });
+
+    test('PendingUnpinMessage', () async {
+      final op = PendingUnpinMessage(
+        id: 'op-12',
+        roomId: 'r1',
+        messageId: 'm1',
+      );
+      final r = await roundTrip<PendingUnpinMessage>(op);
+      expect(r.roomId, 'r1');
+      expect(r.messageId, 'm1');
+    });
+
+    test('PendingStarMessage', () async {
+      final op = PendingStarMessage(id: 'op-13', roomId: 'r1', messageId: 'm1');
+      final r = await roundTrip<PendingStarMessage>(op);
+      expect(r.roomId, 'r1');
+      expect(r.messageId, 'm1');
+    });
+
+    test('PendingUnstarMessage', () async {
+      final op = PendingUnstarMessage(
+        id: 'op-14',
+        roomId: 'r1',
+        messageId: 'm1',
+      );
+      final r = await roundTrip<PendingUnstarMessage>(op);
+      expect(r.roomId, 'r1');
+      expect(r.messageId, 'm1');
     });
 
     test('PendingCreateRoom', () async {

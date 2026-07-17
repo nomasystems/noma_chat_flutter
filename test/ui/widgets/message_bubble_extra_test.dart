@@ -74,6 +74,53 @@ void main() {
     expect(find.byType(ForwardedBubble), findsOneWidget);
   });
 
+  testWidgets(
+    'forwarded message parses metadata.sourceTimestamp into ForwardedBubble',
+    (tester) async {
+      final message = ChatMessage(
+        id: 'm1',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'hi',
+        isForwarded: true,
+        metadata: const {'sourceTimestamp': '2025-03-12T09:00:00.000Z'},
+      );
+      await tester.pumpWidget(
+        wrap(MessageBubble(message: message, isOutgoing: true)),
+      );
+
+      final bubble = tester.widget<ForwardedBubble>(
+        find.byType(ForwardedBubble),
+      );
+      expect(
+        bubble.sourceTimestamp,
+        DateTime.parse('2025-03-12T09:00:00.000Z'),
+      );
+    },
+  );
+
+  testWidgets(
+    'forwarded message with unparsable sourceTimestamp falls back to null',
+    (tester) async {
+      final message = ChatMessage(
+        id: 'm1',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'hi',
+        isForwarded: true,
+        metadata: const {'sourceTimestamp': 'not-a-date'},
+      );
+      await tester.pumpWidget(
+        wrap(MessageBubble(message: message, isOutgoing: true)),
+      );
+
+      final bubble = tester.widget<ForwardedBubble>(
+        find.byType(ForwardedBubble),
+      );
+      expect(bubble.sourceTimestamp, isNull);
+    },
+  );
+
   testWidgets('reply preview shows the referenced sender', (tester) async {
     final ref = ChatMessage(
       id: 'm0',
