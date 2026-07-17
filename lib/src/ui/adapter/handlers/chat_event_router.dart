@@ -454,6 +454,23 @@ class ChatEventRouter {
   void _onNewMessage(ChatMessage message, String roomId) {
     _controllers[roomId]?.addMessage(message);
     _cache?.saveMessages(roomId, [message]);
+    // An own message carrying a clientMessageId is the authoritative echo
+    // of a send this device (or the offline queue) fired — the adapter
+    // keys pending-store rows by that same value (tempId), so drop the
+    // row here. Covers the ack_mode=async window where the REST 201 never
+    // returned but the send actually landed.
+    final cmid = message.clientMessageId;
+    if (message.from == _currentUser().id && cmid != null) {
+      unawaited(
+        (_cache?.deletePendingMessage(roomId, cmid) ??
+                Future.value(const ChatSuccess<void>(null)))
+            .catchError(
+              (_) => const ChatFailureResult<void>(
+                UnexpectedFailure('deletePendingMessage failed'),
+              ),
+            ),
+      );
+    }
     // Ensure the sender's profile lands in `_userCache` so bubble
     // resolvers (`displayNameFor`, `findCachedUser`) can render their
     // displayName + avatar instead of the raw UUID — important for

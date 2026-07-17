@@ -349,6 +349,7 @@ class NomaChatClient implements ChatClient {
           reaction: op.reaction,
           attachmentUrl: op.attachmentUrl,
           metadata: op.metadata,
+          clientMessageId: op.clientMessageId,
         );
       case PendingEditMessage():
         return messages.update(

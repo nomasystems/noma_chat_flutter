@@ -7,8 +7,9 @@ import 'realtime_transport.dart';
 
 /// Real-time transport composed of a [primary] (typically WS) and a
 /// [fallback] (typically SSE). Promotes the fallback when the primary
-/// drops after a first successful connection; cancels the fallback when
-/// the primary recovers.
+/// drops after a first successful connection, or immediately when the
+/// primary reports [RealtimeTransport.transportDisabled] (WS close 4006);
+/// cancels the fallback when the primary recovers.
 ///
 /// Selected by `RealtimeMode.auto`. Sibling implementations
 /// (`webSocketOnly`, `serverSentEventsOnly`, `polling`, `manual`) plug
@@ -60,6 +61,11 @@ class AutoFailoverTransport implements RealtimeTransport {
 
   @override
   bool get authTerminated => _authTerminated;
+
+  /// Always `false`: a disabled primary (WS close 4006) is absorbed by
+  /// promoting the fallback, so the composite as a whole stays available.
+  @override
+  bool get transportDisabled => false;
 
   /// Outbound frames work whenever the primary supports them and is
   /// connected; while the fallback (SSE) is active outbound frames go
@@ -125,7 +131,13 @@ class AutoFailoverTransport implements RealtimeTransport {
           _setState(ChatConnectionState.error);
           return;
         }
-        if (_primaryHasConnected) {
+        if (_primary.transportDisabled) {
+          // WS close 4006: the server disabled the WebSocket transport for
+          // this session. The primary suspended its own reconnect loop, so
+          // waiting for "first successful connection" or counting initial
+          // failures would strand us — promote the fallback right away.
+          _startFallback();
+        } else if (_primaryHasConnected) {
           _startFallback();
         } else if (!_fallbackActive) {
           // Primary never connected yet — promote the fallback once the
@@ -188,10 +200,6 @@ class AutoFailoverTransport implements RealtimeTransport {
   @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) =>
       _primary.sendTyping(roomId, activity: activity);
-
-  @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) =>
-      _primary.sendDmTyping(contactId, activity: activity);
 
   @override
   void sendReceipt(

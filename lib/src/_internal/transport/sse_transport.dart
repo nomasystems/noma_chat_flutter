@@ -43,6 +43,9 @@ class SseTransport implements RealtimeTransport {
   bool get authTerminated => false;
 
   @override
+  bool get transportDisabled => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   /// SSE is read-only; rotating the token means reconnecting so
@@ -63,9 +66,6 @@ class SseTransport implements RealtimeTransport {
   // distinction to call sites that operate generically.
   @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) {}
-
-  @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) {}
 
   @override
   void sendReceipt(

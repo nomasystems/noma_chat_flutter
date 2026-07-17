@@ -72,7 +72,6 @@ class ApiFactory {
 
   ContactsApi contacts() => ContactsApi(
     rest: rest,
-    transport: transport,
     cache: cache,
     cacheManager: cacheManager,
     offlineQueue: offlineQueue,

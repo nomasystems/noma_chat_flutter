@@ -1,5 +1,50 @@
 # Migration guide
 
+## 0.11.x → next release
+
+### Behavioural: the id returned by `send()` can be provisional
+
+Backends running `ack_mode = async` (an opt-in deployment mode; the backend default is `sync`) answer
+`POST /rooms/{id}/messages` and `POST /contacts/{id}/messages` with `201`
+and an echo built **before** persistence — its `id` does not correspond to
+the stored message. The SDK now surfaces this instead of pretending the id
+is final:
+
+- `ChatMessage.isProvisional` (new flag) is `true` on such echoes, and
+  `ChatMessage.clientMessageId` is always populated on them.
+- The authoritative message arrives via `NewMessageEvent` carrying the same
+  `clientMessageId`; the SDK's controller and cache reconcile by that key
+  automatically (no duplicates, nothing stranded under the provisional id).
+
+**Do not use the id returned by `send()` / `sendDirectMessage()` for
+immediate follow-ups** (react / edit / delete / pin). When
+`isProvisional == true`, wait for the matching `NewMessageEvent` and use its
+`id`:
+
+```dart
+final res = await chat.client.messages.send(roomId, text: 'hi');
+final sent = res.dataOrNull;
+if (sent != null && sent.isProvisional) {
+  // Correlate later: event.message.clientMessageId == sent.clientMessageId
+}
+```
+
+No action is needed if you only render through the bundled `ChatUiAdapter`
+/ `NomaChatView` — the bubble stays in the *sending* state until the event
+confirms it, then swaps to the authoritative message.
+
+### Non-breaking additions
+
+- `contacts.sendDirectMessage()` gained an optional `clientMessageId`
+  parameter (auto-generated when omitted) and now always sends the key, so
+  DM retries are idempotent. Custom `ChatContactsApi` implementers must add
+  the parameter to their override.
+- DM typing (`contacts.sendTyping()`) is now always sent over REST; the
+  broken contact-addressed WS `typing` frame was removed (the backend only
+  accepts room-scoped frames).
+- WS close code `4006` (`transport_disabled`) now suspends WS for the
+  session and `RealtimeMode.auto` fails over to SSE/polling immediately.
+
 ## 0.9.x → 0.10.0
 
 ### Breaking: message pagination is now bidirectional opaque cursors

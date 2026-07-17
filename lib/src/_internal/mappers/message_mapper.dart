@@ -26,6 +26,24 @@ class MessageMapper {
     'clientMessageId',
   };
 
+  /// Detects an `ack_mode = async` provisional send echo and marks it.
+  ///
+  /// A sync echo (and every realtime `new_message`) is built from the
+  /// persisted message, whose metadata the backend stamped with the
+  /// request's `clientMessageId` — so [fromDto] always lifts it out. The
+  /// async provisional echo is built BEFORE persistence from the raw
+  /// request body, whose metadata never carries the key. A missing
+  /// [ChatMessage.clientMessageId] on a send echo therefore means the id
+  /// is provisional: stamp the key back (so callers and the controller
+  /// reconciliation can correlate the authoritative event) and flag
+  /// [ChatMessage.isProvisional].
+  static ChatMessage stampIfProvisional(
+    ChatMessage echoed,
+    String clientMessageId,
+  ) => echoed.clientMessageId == null
+      ? echoed.copyWith(clientMessageId: clientMessageId, isProvisional: true)
+      : echoed;
+
   static ChatMessage fromDto(MessageDto dto, {bool isEdited = false}) {
     if (dto.id.isEmpty || dto.from.isEmpty) {
       logger?.call(

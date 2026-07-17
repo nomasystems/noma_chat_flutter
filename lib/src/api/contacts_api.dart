@@ -14,27 +14,26 @@ import '../models/message.dart';
 import '../models/presence.dart';
 import '../events/chat_event.dart';
 
+import 'package:uuid/uuid.dart';
+
 import '../client/chat_client.dart';
 
-import '../_internal/transport/transport_manager.dart';
+const Uuid _uuid = Uuid();
 
 /// REST implementation of [ChatContactsApi] (contacts list + DMs + block list).
 class ContactsApi implements ChatContactsApi {
   static int _pendingSeq = 0;
   final RestClient _rest;
-  final TransportManager? _transport;
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
   final OfflineQueue? _offlineQueue;
 
   ContactsApi({
     required RestClient rest,
-    TransportManager? transport,
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     OfflineQueue? offlineQueue,
   }) : _rest = rest,
-       _transport = transport,
        _cache = cache,
        _cacheManager = cacheManager,
        _offlineQueue = offlineQueue;
@@ -120,7 +119,13 @@ class ContactsApi implements ChatContactsApi {
     String? reaction,
     String? attachmentUrl,
     Map<String, dynamic>? metadata,
+    String? clientMessageId,
   }) async {
+    // Always carry a clientMessageId, mirroring the room send path: the
+    // server-side dedup only covers messages that have one, and it is the
+    // only correlation key between the (possibly provisional) echo and the
+    // authoritative `new_message` event under ack_mode=async.
+    final effectiveClientMessageId = clientMessageId ?? _uuid.v4();
     final result = await safeApiCall(() async {
       final json = await _rest.post(
         '/contacts/$contactUserId/messages',
@@ -132,6 +137,7 @@ class ContactsApi implements ChatContactsApi {
           if (reaction != null) 'emoji': reaction,
           if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
           if (metadata != null) 'metadata': metadata,
+          'clientMessageId': effectiveClientMessageId,
         },
       );
       // HTTP 204 (empty body): the backend accepted the message but silently
@@ -148,6 +154,7 @@ class ContactsApi implements ChatContactsApi {
           text: text,
           messageType: messageType,
           referencedMessageId: referencedMessageId,
+          clientMessageId: effectiveClientMessageId,
           reaction: reaction,
           attachmentUrl: attachmentUrl,
           metadata: metadata,
@@ -155,7 +162,10 @@ class ContactsApi implements ChatContactsApi {
           silentlyDropped: true,
         );
       }
-      return MessageMapper.fromJson(json);
+      return MessageMapper.stampIfProvisional(
+        MessageMapper.fromJson(json),
+        effectiveClientMessageId,
+      );
     });
     final failure = result.failureOrNull;
     // A DM send is non-idempotent, so only enqueue when the request
@@ -189,6 +199,10 @@ class ContactsApi implements ChatContactsApi {
           reaction: reaction,
           attachmentUrl: attachmentUrl,
           metadata: metadata,
+          // Reuse the same idempotency key on every retry so the server
+          // dedups a delivery that actually succeeded before the failure
+          // surfaced (returns the persisted message, no duplicate).
+          clientMessageId: effectiveClientMessageId,
         ),
       );
     }
@@ -261,27 +275,23 @@ class ContactsApi implements ChatContactsApi {
 
   /// Sends a typing activity to a DM contact.
   ///
-  /// Prefers the WS frame; when realtime is down it falls back to the
-  /// `postContactActivity` REST operation (`POST /contacts/{id}/activity`),
-  /// so DM typing degrades gracefully instead of being silently dropped.
-  /// The backend's contact-activity endpoint only models typing
-  /// (`startsTyping` / `stopsTyping`), so this is its full surface.
+  /// Always uses the `postContactActivity` REST operation
+  /// (`POST /contacts/{id}/activity`): the backend's WS `typing` frame is
+  /// room-scoped (it requires a `roomId` and rejects contact-addressed
+  /// frames), so REST is the only route that reaches the peer as a
+  /// contact-activity event. The backend's contact-activity endpoint only
+  /// models typing (`startsTyping` / `stopsTyping`), so this is its full
+  /// surface.
   @override
   Future<ChatResult<void>> sendTyping(
     String contactUserId, {
     ChatActivity activity = ChatActivity.startsTyping,
-  }) {
-    if (_transport != null && _transport.isWsConnected) {
-      _transport.sendDmTyping(contactUserId, activity: activity.name);
-      return Future.value(const ChatSuccess(null));
-    }
-    return safeVoidCall(
-      () => _rest.postVoid(
-        '/contacts/$contactUserId/activity',
-        data: {'activity': activity.name},
-      ),
-    );
-  }
+  }) => safeVoidCall(
+    () => _rest.postVoid(
+      '/contacts/$contactUserId/activity',
+      data: {'activity': activity.name},
+    ),
+  );
 
   // Block
 

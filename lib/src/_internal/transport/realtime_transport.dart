@@ -37,6 +37,18 @@ abstract class RealtimeTransport {
   /// (the only auth-bearing primary) overrides it.
   bool get authTerminated => false;
 
+  /// `true` once the server declared this transport unavailable for the
+  /// session (WS close 4006 `transport_disabled`: the deployment turned
+  /// the WebSocket transport off at runtime). Reconnecting is futile —
+  /// the server closes every new socket the same way — so the transport
+  /// suspends its reconnect loop and a composing transport
+  /// (`AutoFailoverTransport`) promotes the fallback immediately. Set
+  /// synchronously, before the matching state change is delivered, for
+  /// the same ordering reason as [authTerminated]. Cleared on a fresh
+  /// [connect]. Constant `false` everywhere except [WsTransport], the
+  /// only transport the server can disable via a close code.
+  bool get transportDisabled => false;
+
   /// `true` when this transport carries an outbound real-time channel
   /// (today only WS). [MessagesApi]/[ContactsApi] gate WS frame attempts
   /// on this getter combined with `state == connected`; everything else
@@ -59,11 +71,10 @@ abstract class RealtimeTransport {
 
   /// Outbound typing indicator for a room (WS frame). Transports without
   /// outbound channel ignore silently — callers should branch on
-  /// [supportsOutboundFrames] first.
+  /// [supportsOutboundFrames] first. DM typing has no WS frame — the
+  /// backend's `typing` frame is room-scoped — so [ChatContactsApi]
+  /// always routes it over REST.
   void sendTyping(String roomId, {String activity});
-
-  /// Outbound typing indicator for a 1-to-1 DM (WS frame).
-  void sendDmTyping(String contactId, {String activity});
 
   /// Outbound read/delivery receipt (WS frame).
   void sendReceipt(String roomId, String messageId, {ReceiptStatus status});

@@ -32,6 +32,8 @@ void main() {
       when(() => primary.state).thenReturn(ChatConnectionState.disconnected);
       when(() => primary.authTerminated).thenReturn(false);
       when(() => fallback.authTerminated).thenReturn(false);
+      when(() => primary.transportDisabled).thenReturn(false);
+      when(() => fallback.transportDisabled).thenReturn(false);
       when(() => primary.connect()).thenAnswer((_) async {});
       when(() => primary.disconnect()).thenAnswer((_) async {});
       when(() => primary.supportsOutboundFrames).thenReturn(true);
@@ -75,6 +77,42 @@ void main() {
       primaryStates.add(ChatConnectionState.error);
       await Future<void>.delayed(Duration.zero);
       verify(() => fallback.connect()).called(1);
+    });
+
+    test(
+      'promotes the fallback immediately when the primary reports '
+      'transportDisabled (WS close 4006), even though the primary never '
+      'connected once and the initial-failure threshold is not reached',
+      () async {
+        await transport.connect();
+
+        // The server disabled the WS transport: the primary latches the flag
+        // synchronously and suspends its own reconnect loop, so no further
+        // error states would ever arrive — waiting for the threshold (3)
+        // would strand the session without realtime.
+        when(() => primary.transportDisabled).thenReturn(true);
+        primaryStates.add(ChatConnectionState.error);
+        await Future<void>.delayed(Duration.zero);
+
+        verify(() => fallback.connect()).called(1);
+      },
+    );
+
+    test('transportDisabled promotion also applies after the primary had '
+        'connected: the fallback is armed and the primary is not re-promoted '
+        'by the failover itself', () async {
+      await transport.connect();
+      primaryStates.add(ChatConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+
+      when(() => primary.transportDisabled).thenReturn(true);
+      primaryStates.add(ChatConnectionState.error);
+      await Future<void>.delayed(Duration.zero);
+
+      verify(() => fallback.connect()).called(1);
+      // The composite absorbs the disabled primary — it does not surface
+      // as disabled itself.
+      expect(transport.transportDisabled, isFalse);
     });
 
     test('fallback re-arms on every primary drop after recovery', () async {

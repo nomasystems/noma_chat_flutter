@@ -127,6 +127,52 @@ void main() {
       expect((captured['clientMessageId'] as String).isNotEmpty, isTrue);
     });
 
+    test(
+      'send() flags an ack_mode=async provisional echo (no '
+      'metadata.clientMessageId round-trip) and stamps the sent key',
+      () async {
+        when(
+          () => rest.post(any(), data: any(named: 'data')),
+        ).thenAnswer((_) async => messageJson(id: 'provisional-1'));
+
+        final result = await api.send('r1', text: 'hello');
+
+        final captured =
+            verify(
+                  () => rest.post(
+                    '/rooms/r1/messages',
+                    data: captureAny(named: 'data'),
+                  ),
+                ).captured.single
+                as Map<String, dynamic>;
+        final message = result.dataOrNull!;
+        expect(message.isProvisional, isTrue);
+        expect(message.id, 'provisional-1');
+        expect(message.clientMessageId, captured['clientMessageId']);
+      },
+    );
+
+    test('send() treats a sync echo (metadata.clientMessageId round-tripped) '
+        'as authoritative', () async {
+      when(() => rest.post(any(), data: any(named: 'data'))).thenAnswer(
+        (_) async => {
+          ...messageJson(id: 'stored-1'),
+          'metadata': {'clientMessageId': 'my-key-123'},
+        },
+      );
+
+      final result = await api.send(
+        'r1',
+        text: 'hello',
+        clientMessageId: 'my-key-123',
+      );
+
+      final message = result.dataOrNull!;
+      expect(message.isProvisional, isFalse);
+      expect(message.id, 'stored-1');
+      expect(message.clientMessageId, 'my-key-123');
+    });
+
     test('send() honours a caller-supplied clientMessageId', () async {
       when(
         () => rest.post(any(), data: any(named: 'data')),
@@ -361,41 +407,43 @@ void main() {
       );
     });
 
-    test('sendViaWs() returns synthetic message when WS acks the send',
-        () async {
-      final transport = _MockTransportManager();
-      when(() => transport.isWsConnected).thenReturn(true);
-      when(() => rest.userId).thenReturn('user-1');
-      when(
-        () => transport.sendMessageAwaitingAck(
-          any(),
-          text: any(named: 'text'),
-          messageType: any(named: 'messageType'),
-          referencedMessageId: any(named: 'referencedMessageId'),
-          reaction: any(named: 'reaction'),
-          attachmentUrl: any(named: 'attachmentUrl'),
-          sourceRoomId: any(named: 'sourceRoomId'),
-          metadata: any(named: 'metadata'),
-          clientMessageId: any(named: 'clientMessageId'),
-          ackTimeout: any(named: 'ackTimeout'),
-        ),
-      ).thenAnswer((_) async => true);
+    test(
+      'sendViaWs() returns synthetic message when WS acks the send',
+      () async {
+        final transport = _MockTransportManager();
+        when(() => transport.isWsConnected).thenReturn(true);
+        when(() => rest.userId).thenReturn('user-1');
+        when(
+          () => transport.sendMessageAwaitingAck(
+            any(),
+            text: any(named: 'text'),
+            messageType: any(named: 'messageType'),
+            referencedMessageId: any(named: 'referencedMessageId'),
+            reaction: any(named: 'reaction'),
+            attachmentUrl: any(named: 'attachmentUrl'),
+            sourceRoomId: any(named: 'sourceRoomId'),
+            metadata: any(named: 'metadata'),
+            clientMessageId: any(named: 'clientMessageId'),
+            ackTimeout: any(named: 'ackTimeout'),
+          ),
+        ).thenAnswer((_) async => true);
 
-      final apiWithTransport = RestMessagesApi(
-        rest: rest,
-        transport: transport,
-      );
-      final result = await apiWithTransport.sendViaWs('r1', text: 'hello');
+        final apiWithTransport = RestMessagesApi(
+          rest: rest,
+          transport: transport,
+        );
+        final result = await apiWithTransport.sendViaWs('r1', text: 'hello');
 
-      expect(result.isSuccess, isTrue);
-      final msg = result.dataOrNull!;
-      expect(msg.id, startsWith('temp-ws-'));
-      expect(msg.from, 'user-1');
-      expect(msg.text, 'hello');
-      expect(msg.messageType, MessageType.regular);
-      expect(msg.receipt, ReceiptStatus.sent);
-      verifyNever(() => rest.post(any(), data: any(named: 'data')));
-    });
+        expect(result.isSuccess, isTrue);
+        final msg = result.dataOrNull!;
+        expect(msg.id, startsWith('temp-ws-'));
+        expect(msg.from, 'user-1');
+        expect(msg.text, 'hello');
+        expect(msg.messageType, MessageType.regular);
+        expect(msg.receipt, ReceiptStatus.sent);
+        verifyNever(() => rest.post(any(), data: any(named: 'data')));
+      },
+    );
 
     test('sendViaWs() falls back to REST when the WS send is not acked '
         '(socket drop / timeout) so the message is not lost', () async {
@@ -568,7 +616,16 @@ void main() {
         );
         when(
           () => rest.post('/rooms/r1/messages', data: any(named: 'data')),
-        ).thenAnswer((_) async => messageJson());
+        ).thenAnswer(
+          (_) async => {
+            ...messageJson(),
+            // Sync-mode echo: the backend stamps the request's
+            // clientMessageId into the persisted metadata, which is what
+            // marks the echo as authoritative (non-provisional) and keeps
+            // the cache write-through on.
+            'metadata': {'clientMessageId': 'cmid-1'},
+          },
+        );
 
         final result = await apiWithCache.send('r1', text: 'hello');
 

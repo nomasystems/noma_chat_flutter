@@ -18,6 +18,7 @@ Map<String, dynamic> messageToMap(ChatMessage msg) => {
   if (msg.attachmentUrl != null) 'attachmentUrl': msg.attachmentUrl,
   if (msg.referencedMessageId != null)
     'referencedMessageId': msg.referencedMessageId,
+  if (msg.clientMessageId != null) 'clientMessageId': msg.clientMessageId,
   if (msg.reaction != null) 'reaction': msg.reaction,
   if (msg.reply != null) 'reply': msg.reply,
   if (msg.metadata != null) 'metadata': msg.metadata,
@@ -54,6 +55,7 @@ ChatMessage messageFromMap(
   ),
   attachmentUrl: map['attachmentUrl'] as String?,
   referencedMessageId: map['referencedMessageId'] as String?,
+  clientMessageId: map['clientMessageId'] as String?,
   reaction: map['reaction'] as String?,
   reply: map['reply'] as String?,
   metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),

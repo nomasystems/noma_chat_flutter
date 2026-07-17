@@ -53,6 +53,18 @@ abstract class ChatMessage with _$ChatMessage {
     /// showing "sent" and then silently never advancing to
     /// delivered/read.
     @Default(false) bool silentlyDropped,
+
+    /// `true` when [id] is NOT the stored message's id. Under the
+    /// backend's `ack_mode = async` (the default) a REST send returns
+    /// `201` with a provisional echo whose id is minted before
+    /// persistence; the authoritative message — with its real [id] —
+    /// arrives afterwards via the `new_message` realtime event carrying
+    /// the same [clientMessageId]. Do not use a provisional [id] for
+    /// follow-up operations (react / edit / delete / pin); wait for the
+    /// event-confirmed message, correlated by [clientMessageId]. Also
+    /// set on the synthetic message [ChatMessagesApi.sendViaWs] returns
+    /// after a WS ack.
+    @Default(false) bool isProvisional,
   }) = _ChatMessage;
 
   /// Extracts forwarding metadata if this is a forwarded message.

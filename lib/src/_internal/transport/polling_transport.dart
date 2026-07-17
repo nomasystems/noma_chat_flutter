@@ -78,6 +78,9 @@ class PollingTransport implements RealtimeTransport {
   bool get authTerminated => false;
 
   @override
+  bool get transportDisabled => false;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
@@ -153,9 +156,6 @@ class PollingTransport implements RealtimeTransport {
   // [supportsOutboundFrames] and use REST instead.
   @override
   void sendTyping(String roomId, {String activity = 'startsTyping'}) {}
-
-  @override
-  void sendDmTyping(String contactId, {String activity = 'startsTyping'}) {}
 
   @override
   void sendReceipt(
