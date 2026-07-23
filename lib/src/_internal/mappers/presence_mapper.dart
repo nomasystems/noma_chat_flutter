@@ -1,5 +1,6 @@
 import '../../models/presence.dart';
 import '../dto/presence_dto.dart';
+import '../util/json_safe.dart';
 
 class PresenceMapper {
   static ChatPresence fromDto(PresenceDto dto) => ChatPresence(
@@ -14,14 +15,15 @@ class PresenceMapper {
       fromDto(PresenceDto.fromJson(json));
 
   static BulkPresenceResponse bulkFromJson(Map<String, dynamic> json) {
-    final ownData = json['own'] as Map<String, dynamic>?;
+    final ownData = jsonMapOrNull(json['own']);
     final own = ownData != null ? fromJson(ownData) : fromJson(json);
-    final contactsList = json['contacts'] as List?;
-    final contacts =
-        contactsList
-            ?.map((e) => fromJson(e as Map<String, dynamic>))
-            .toList() ??
-        [];
+    final contactsList = json['contacts'];
+    final contacts = contactsList is List
+        ? [
+            for (final e in contactsList)
+              if (e is Map<String, dynamic>) fromJson(e),
+          ]
+        : <ChatPresence>[];
     return BulkPresenceResponse(own: own, contacts: contacts);
   }
 

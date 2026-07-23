@@ -28,7 +28,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^0.11.0
+  noma_chat: ^0.13.0
   # The default persistent cache is Hive-backed; you initialise it (see below).
   hive_ce_flutter: ^2.3.4
 ```
@@ -106,6 +106,12 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 **SDK**
 - Real-time: WebSocket → SSE → polling, automatic failover between transports
 - Circuit breaker + exponential backoff + offline message queue
+- Dead-peer detection — a pong watchdog forces a reconnect on a "zombie" WS
+  a NAT timeout or network handoff left half-open
+- SDK-owned app lifecycle — reconnects and resyncs on resume by default
+  (`manageAppLifecycle`); opt out to drive it yourself
+- Cache-first room list — never flashes empty across a background/reconnect
+  cycle; self-heals in the background instead
 - Token rotation without reconnecting
 - 8 sub-APIs: auth, users, rooms, members, messages, contacts, presence, attachments
 - Global or per-room message search — `messages.search(query)` spans every room the user belongs to; `messages.search(query, roomId:)` stays scoped
@@ -116,10 +122,13 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 **Security & observability**
 - Standard TLS transport — the SDK relies on the operating system's CA trust store to validate server certificates; it does **not** pin certificates
 - Optional at-rest cache encryption — hand `NomaChat.create` a Hive AES cipher and the offline message / room store is encrypted on device
-- Structured `logger` + `metricCallback` hooks; an official OpenTelemetry adapter, `noma_chat_otel`, turns every WebSocket / HTTP / cache event into a span with zero boilerplate
+- Structured logging pipeline (`ChatLogTag`/`ChatLogLevel`, pluggable `ChatLogSink`s, one-tap file export via `ChatLogExporter`) alongside the classic `logger` callback + `metricCallback` hook; an official OpenTelemetry adapter, `noma_chat_otel`, turns every WebSocket / HTTP / cache event into a span with zero boilerplate
 
 **UI components — messages**
-- Text, image, audio, video, file and link-preview bubbles
+- Text, image, audio, video, file and link-preview bubbles — media bubbles
+  re-mint an expired signed download URL automatically and retry once
+- Attachment picker rejections (too large, wrong type, unreadable) surface
+  via `onRejected` instead of a silent drop
 - Voice recording with lock-to-record gesture
 - Emoji reactions + reaction picker
 - @mentions with autocomplete overlay
@@ -134,6 +143,9 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 
 **UI components — rooms & people**
 - Room list with unread badges, mute, pin and hide
+- Deep-link-safe room open (`adapter.rooms.open(roomId)`) — fetches an
+  unsynced room (push notification, shared link) with typed failures
+  instead of a blind "this chat doesn't exist"
 - WhatsApp-style DM flow (lazy room creation before first message)
 - Block / unblock (blocker syncs list; blocked user is never notified)
 - Group creation, name + avatar edit, member add / remove / promote

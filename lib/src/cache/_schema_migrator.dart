@@ -63,8 +63,23 @@ class CacheSchemaMigrator {
   /// caller's responsibility to handle (the cache stays unstamped so
   /// the next launch retries).
   Future<void> migrateIfNeeded() async {
-    final stored = metaBox.get(versionKey);
-    final storedVersion = (stored?['version'] as int?) ?? 0;
+    // Read defensively: a corrupted meta box entry (bit flip, partial
+    // write cut short by a kill mid-`put`, or a future/foreign format)
+    // can hand back a value that isn't a Map at all, or a `version` of
+    // an unexpected type. `Box<Map>.get()` itself casts to `Map?`
+    // internally and throws a TypeError when the decoded value doesn't
+    // match, and an `as int?` on a wrong-typed `version` field would
+    // throw too — either one happening here, before any box is even
+    // open, would crash the whole `HiveChatDatasource.create()` startup
+    // path instead of just leaving this cache treated as unversioned.
+    Map<dynamic, dynamic>? stored;
+    try {
+      stored = metaBox.get(versionKey);
+    } catch (_) {
+      stored = null;
+    }
+    final rawVersion = stored is Map ? stored['version'] : null;
+    final storedVersion = rawVersion is int ? rawVersion : 0;
     if (storedVersion == targetVersion) return;
 
     if (storedVersion < targetVersion) {

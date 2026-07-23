@@ -5,7 +5,10 @@ import '../../models/pin.dart';
 import '../../models/report.dart';
 import '../../models/reaction.dart';
 import '../../models/starred_message.dart';
+import '../../ui/services/attachment_url_resolver.dart'
+    show attachmentIdFromUrl;
 import '../dto/message_dto.dart';
+import '../util/json_safe.dart';
 
 class MessageMapper {
   static void Function(String level, String message)? logger;
@@ -21,6 +24,7 @@ class MessageMapper {
     'fileSize',
     'thumbnailUrl',
     'attachmentUrl',
+    'attachmentId',
     // Idempotency key — surfaced via [ChatMessage.clientMessageId], kept out
     // of the public metadata map.
     'clientMessageId',
@@ -55,12 +59,23 @@ class MessageMapper {
     final isForwarded = meta?['forwarded'] == true;
     final isSystem = meta?['system'] == true;
     final mimeType =
-        meta?['mimeType'] as String? ?? meta?['mime_type'] as String?;
+        jsonStringOrNull(meta?['mimeType']) ??
+        jsonStringOrNull(meta?['mime_type']);
     final fileName =
-        meta?['fileName'] as String? ?? meta?['file_name'] as String?;
-    final fileSize = meta?['fileSize'] as String?;
-    final thumbnailUrl = meta?['thumbnailUrl'] as String?;
-    final metaAttachmentUrl = meta?['attachmentUrl'] as String?;
+        jsonStringOrNull(meta?['fileName']) ??
+        jsonStringOrNull(meta?['file_name']);
+    final fileSize = jsonStringOrNull(meta?['fileSize']);
+    final thumbnailUrl = jsonStringOrNull(meta?['thumbnailUrl']);
+    final metaAttachmentUrl = jsonStringOrNull(meta?['attachmentUrl']);
+    final resolvedAttachmentUrl = dto.attachmentUrl ?? metaAttachmentUrl;
+    // dto.attachmentId already covers the metadata fallback (see
+    // MessageDto.fromJson); attachmentIdFromUrl is the last resort for a
+    // backend that hasn't rolled out the field at all yet.
+    final attachmentId =
+        dto.attachmentId ??
+        (resolvedAttachmentUrl != null
+            ? attachmentIdFromUrl(resolvedAttachmentUrl)
+            : null);
 
     Map<String, dynamic>? cleanMeta;
     if (meta != null) {
@@ -89,7 +104,8 @@ class MessageMapper {
                 (dto.messageType == null || dto.messageType == 'regular')
           ? MessageType.location
           : _parseMessageType(dto.messageType),
-      attachmentUrl: dto.attachmentUrl ?? metaAttachmentUrl,
+      attachmentUrl: resolvedAttachmentUrl,
+      attachmentId: attachmentId,
       referencedMessageId: dto.referencedMessageId,
       clientMessageId: dto.clientMessageId,
       reaction: dto.reaction,
@@ -121,8 +137,8 @@ class MessageMapper {
       final users = <String, List<String>>{};
       for (final r in rawReactions) {
         if (r is Map) {
-          final emoji = (r['reaction'] ?? r['emoji']) as String?;
-          final from = r['from'] as String?;
+          final emoji = jsonStringOrNull(r['reaction'] ?? r['emoji']);
+          final from = jsonStringOrNull(r['from']);
           if (emoji != null) {
             counts[emoji] = (counts[emoji] ?? 0) + 1;
             if (from != null) {
@@ -144,22 +160,32 @@ class MessageMapper {
     return msg;
   }
 
-  static List<ChatMessage> fromJsonList(List<dynamic> list) =>
-      list.map((e) => fromJson(e as Map<String, dynamic>)).toList();
+  static List<ChatMessage> fromJsonList(List<dynamic> list) => [
+    for (final e in list)
+      if (e is Map<String, dynamic>) fromJson(e),
+  ];
 
   /// Extracts inline reactions from a list of message JSONs.
   /// Returns a map of messageId -> {emoji -> count}.
   static Map<String, Map<String, int>> extractReactions(List<dynamic> list) {
     final result = <String, Map<String, int>>{};
     for (final item in list) {
-      final json = item as Map<String, dynamic>;
-      final id = (json['id'] ?? json['messageId'] ?? '') as String;
-      final reactions = json['reaction'];
+      if (item is! Map<String, dynamic>) continue;
+      final id = jsonIdOr(
+        item['id'] ?? item['messageId'],
+        '',
+        onEmptyFromPresent: () => logger?.call(
+          'warn',
+          'MessageMapper.extractReactions: id/messageId present but coerced '
+              'to empty (raw: ${item['id'] ?? item['messageId']})',
+        ),
+      );
+      final reactions = item['reaction'];
       if (id.isEmpty || reactions is! List || reactions.isEmpty) continue;
       final counts = <String, int>{};
       for (final r in reactions) {
         if (r is Map) {
-          final emoji = (r['reaction'] ?? r['emoji']) as String?;
+          final emoji = jsonStringOrNull(r['reaction'] ?? r['emoji']);
           if (emoji != null) {
             counts[emoji] = (counts[emoji] ?? 0) + 1;
           }
@@ -172,67 +198,173 @@ class MessageMapper {
 
   static ReadReceipt readReceiptFromJson(Map<String, dynamic> json) =>
       ReadReceipt(
-        userId: (json['userId'] ?? '') as String,
-        lastReadMessageId: json['lastReadMessageId'] as String?,
-        lastReadAt: json['lastReadAt'] != null
+        userId: jsonIdOr(
+          json['userId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.readReceiptFromJson: userId present but coerced '
+                'to empty (raw: ${json['userId']})',
+          ),
+        ),
+        lastReadMessageId: jsonStringOrNull(json['lastReadMessageId']),
+        lastReadAt: jsonStringOrNull(json['lastReadAt']) != null
             ? DateTime.tryParse(json['lastReadAt'] as String)
             : null,
-        lastDeliveredMessageId: json['lastDeliveredMessageId'] as String?,
-        lastDeliveredAt: json['lastDeliveredAt'] != null
+        lastDeliveredMessageId: jsonStringOrNull(
+          json['lastDeliveredMessageId'],
+        ),
+        lastDeliveredAt: jsonStringOrNull(json['lastDeliveredAt']) != null
             ? DateTime.tryParse(json['lastDeliveredAt'] as String)
             : null,
       );
 
   static ScheduledMessage scheduledFromJson(Map<String, dynamic> json) =>
       ScheduledMessage(
-        id: (json['id'] ?? '') as String,
-        userId: (json['userId'] ?? '') as String,
-        roomId: (json['roomId'] ?? '') as String,
+        id: jsonIdOr(
+          json['id'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.scheduledFromJson: id present but coerced to '
+                'empty (raw: ${json['id']})',
+          ),
+        ),
+        userId: jsonIdOr(
+          json['userId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.scheduledFromJson: userId present but coerced to '
+                'empty (raw: ${json['userId']})',
+          ),
+        ),
+        roomId: jsonIdOr(
+          json['roomId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.scheduledFromJson: roomId present but coerced to '
+                'empty (raw: ${json['roomId']})',
+          ),
+        ),
         sendAt:
-            DateTime.tryParse((json['sendAt'] ?? '') as String) ??
+            DateTime.tryParse(jsonStringOr(json['sendAt'], '')) ??
             DateTime.fromMillisecondsSinceEpoch(0),
         createdAt:
-            DateTime.tryParse((json['createdAt'] ?? '') as String) ??
+            DateTime.tryParse(jsonStringOr(json['createdAt'], '')) ??
             DateTime.fromMillisecondsSinceEpoch(0),
-        text: json['text'] as String?,
-        metadata: json['metadata'] as Map<String, dynamic>?,
+        text: jsonStringOrNull(json['text']),
+        metadata: jsonMapOrNull(json['metadata']),
       );
 
   static MessagePin pinFromJson(Map<String, dynamic> json) => MessagePin(
-    roomId: (json['roomId'] ?? '') as String,
-    messageId: (json['messageId'] ?? '') as String,
-    pinnedBy: (json['pinnedBy'] ?? '') as String,
+    roomId: jsonIdOr(
+      json['roomId'],
+      '',
+      onEmptyFromPresent: () => logger?.call(
+        'warn',
+        'MessageMapper.pinFromJson: roomId present but coerced to empty '
+            '(raw: ${json['roomId']})',
+      ),
+    ),
+    messageId: jsonIdOr(
+      json['messageId'],
+      '',
+      onEmptyFromPresent: () => logger?.call(
+        'warn',
+        'MessageMapper.pinFromJson: messageId present but coerced to empty '
+            '(raw: ${json['messageId']})',
+      ),
+    ),
+    pinnedBy: jsonIdOr(
+      json['pinnedBy'],
+      '',
+      onEmptyFromPresent: () => logger?.call(
+        'warn',
+        'MessageMapper.pinFromJson: pinnedBy present but coerced to empty '
+            '(raw: ${json['pinnedBy']})',
+      ),
+    ),
     pinnedAt:
-        DateTime.tryParse((json['pinnedAt'] ?? '') as String) ??
+        DateTime.tryParse(jsonStringOr(json['pinnedAt'], '')) ??
         DateTime.fromMillisecondsSinceEpoch(0),
   );
 
   static StarredMessage starredFromJson(Map<String, dynamic> json) =>
       StarredMessage(
-        userId: (json['userId'] ?? '') as String,
-        messageId: (json['messageId'] ?? '') as String,
-        roomId: (json['roomId'] ?? '') as String,
+        userId: jsonIdOr(
+          json['userId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.starredFromJson: userId present but coerced to '
+                'empty (raw: ${json['userId']})',
+          ),
+        ),
+        messageId: jsonIdOr(
+          json['messageId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.starredFromJson: messageId present but coerced '
+                'to empty (raw: ${json['messageId']})',
+          ),
+        ),
+        roomId: jsonIdOr(
+          json['roomId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.starredFromJson: roomId present but coerced to '
+                'empty (raw: ${json['roomId']})',
+          ),
+        ),
         starredAt:
-            DateTime.tryParse((json['starredAt'] ?? '') as String) ??
+            DateTime.tryParse(jsonStringOr(json['starredAt'], '')) ??
             DateTime.fromMillisecondsSinceEpoch(0),
       );
 
   static MessageReport reportFromJson(Map<String, dynamic> json) =>
       MessageReport(
-        reporterId: (json['reporterId'] ?? '') as String,
-        messageId: (json['messageId'] ?? '') as String,
-        roomId: (json['roomId'] ?? '') as String,
-        reason: (json['reason'] ?? '') as String,
+        reporterId: jsonIdOr(
+          json['reporterId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.reportFromJson: reporterId present but coerced '
+                'to empty (raw: ${json['reporterId']})',
+          ),
+        ),
+        messageId: jsonIdOr(
+          json['messageId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.reportFromJson: messageId present but coerced '
+                'to empty (raw: ${json['messageId']})',
+          ),
+        ),
+        roomId: jsonIdOr(
+          json['roomId'],
+          '',
+          onEmptyFromPresent: () => logger?.call(
+            'warn',
+            'MessageMapper.reportFromJson: roomId present but coerced to '
+                'empty (raw: ${json['roomId']})',
+          ),
+        ),
+        reason: jsonStringOr(json['reason'], ''),
         reportedAt:
-            DateTime.tryParse((json['reportedAt'] ?? '') as String) ??
+            DateTime.tryParse(jsonStringOr(json['reportedAt'], '')) ??
             DateTime.fromMillisecondsSinceEpoch(0),
       );
 
   static AggregatedReaction reactionFromJson(Map<String, dynamic> json) =>
       AggregatedReaction(
-        emoji: (json['emoji'] ?? '') as String,
-        count: (json['count'] ?? 0) as int,
-        users: (json['users'] as List?)?.cast<String>() ?? [],
+        emoji: jsonStringOr(json['emoji'], ''),
+        count: jsonIntOr(json['count'], 0),
+        users: jsonStringListOrNull(json['users']) ?? [],
       );
 
   static MessageType _parseMessageType(String? type) => switch (type) {

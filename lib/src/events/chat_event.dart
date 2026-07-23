@@ -7,6 +7,14 @@ import '../models/room_user.dart';
 enum ChatConnectionState {
   disconnected,
   connecting,
+
+  /// The transport socket is open and the auth frame was sent, but the
+  /// server has not yet confirmed it (`auth_ok`). Distinct from
+  /// [connecting] so hosts and internal guards (`WsTransport.connect`'s
+  /// reentrancy check, `AutoFailoverTransport`'s promotion logic) can
+  /// tell "socket open, not yet usable" apart from "no socket at all".
+  /// Treat like [connecting] for UI purposes — [isWorking] covers both.
+  authenticating,
   connected,
   reconnecting,
   error;
@@ -17,10 +25,11 @@ enum ChatConnectionState {
   bool get isConnected => this == ChatConnectionState.connected;
 
   /// `true` while the SDK is establishing or restoring the connection
-  /// (`connecting` or `reconnecting`). Use to drive spinners and
-  /// suppress retry buttons.
+  /// (`connecting`, `authenticating` or `reconnecting`). Use to drive
+  /// spinners and suppress retry buttons.
   bool get isWorking =>
       this == ChatConnectionState.connecting ||
+      this == ChatConnectionState.authenticating ||
       this == ChatConnectionState.reconnecting;
 
   /// `true` when the connection is in an end-user-visible failure

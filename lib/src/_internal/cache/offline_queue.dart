@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,29 @@ import 'package:flutter/foundation.dart';
 import '../../models/message.dart';
 import '../../cache/local_datasource.dart';
 import 'cache_manager.dart' show MetricCallback;
+
+/// Memoizes the base64 encoding of a queued attachment's bytes, keyed by
+/// the [Uint8List] instance itself. `OfflineQueue._persist` re-serializes
+/// the WHOLE queue (every pending op's `toJson()`) on every enqueue and on
+/// every drain step — without this cache a single large queued attachment
+/// would be base64-re-encoded on the UI isolate on every one of those
+/// persists, even though its bytes never change between them. The same
+/// [Uint8List] reference survives every [PendingSendAttachment.withRetry]
+/// copy (only `attempts`/`nextRetryAt` change on retry), so the cache stays
+/// hot for the operation's whole lifetime in the queue; it naturally misses
+/// again after a restart, where [OfflineQueue.restore] decodes a fresh
+/// [Uint8List] from disk anyway.
+final Expando<String> _attachmentBase64Cache = Expando<String>(
+  'attachmentBase64Cache',
+);
+
+String _cachedBase64OfBytes(Uint8List bytes) {
+  final cached = _attachmentBase64Cache[bytes];
+  if (cached != null) return cached;
+  final encoded = base64Encode(bytes);
+  _attachmentBase64Cache[bytes] = encoded;
+  return encoded;
+}
 
 sealed class PendingOperation {
   final String id;
@@ -63,6 +87,7 @@ final class PendingSendMessage extends PendingOperation {
   final String? referencedMessageId;
   final String? reaction;
   final String? attachmentUrl;
+  final String? attachmentId;
   final String? sourceRoomId;
   final Map<String, dynamic>? metadata;
   final String? tempId;
@@ -80,6 +105,7 @@ final class PendingSendMessage extends PendingOperation {
     this.referencedMessageId,
     this.reaction,
     this.attachmentUrl,
+    this.attachmentId,
     this.sourceRoomId,
     this.metadata,
     this.tempId,
@@ -99,6 +125,7 @@ final class PendingSendMessage extends PendingOperation {
     if (referencedMessageId != null) 'referencedMessageId': referencedMessageId,
     if (reaction != null) 'reaction': reaction,
     if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+    if (attachmentId != null) 'attachmentId': attachmentId,
     if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
     if (metadata != null) 'metadata': metadata,
     if (tempId != null) 'tempId': tempId,
@@ -115,7 +142,85 @@ final class PendingSendMessage extends PendingOperation {
         referencedMessageId: referencedMessageId,
         reaction: reaction,
         attachmentUrl: attachmentUrl,
+        attachmentId: attachmentId,
         sourceRoomId: sourceRoomId,
+        metadata: metadata,
+        tempId: tempId,
+        clientMessageId: clientMessageId,
+        createdAt: createdAt,
+        attempts: attempts ?? this.attempts,
+        nextRetryAt: nextRetryAt ?? this.nextRetryAt,
+      );
+}
+
+final class PendingSendAttachment extends PendingOperation {
+  final String roomId;
+
+  /// Raw bytes of the not-yet-uploaded attachment (photo/video/audio/file).
+  /// Persisted base64-encoded via [toJson] — see [OfflineQueue._persist] —
+  /// so a queued attachment survives an app restart, not just a
+  /// reconnect within the same process. The encoding itself is memoized in
+  /// [_cachedBase64OfBytes] so repeated persists of an unchanged queue don't
+  /// re-encode these bytes every time. `NomaChatClient.enqueueOfflineAttachment`
+  /// rejects anything over `CacheConfig.offlineQueueMaxAttachmentBytes`
+  /// before it ever reaches here.
+  final Uint8List bytes;
+  final String mimeType;
+  final String? fileName;
+  final MessageType messageType;
+  final String? text;
+
+  /// Extra fields folded into the eventual `send()` metadata alongside
+  /// the post-upload `mimeType`/`attachmentUrl`/`fileName`/`fileSize` —
+  /// e.g. `duration`/`waveform` for a queued voice message.
+  final Map<String, dynamic>? metadata;
+  final String? tempId;
+
+  /// Idempotency key reused across every retry of this queued send —
+  /// same rationale as [PendingSendMessage.clientMessageId].
+  final String? clientMessageId;
+
+  PendingSendAttachment({
+    required super.id,
+    required this.roomId,
+    required this.bytes,
+    required this.mimeType,
+    this.fileName,
+    this.messageType = MessageType.attachment,
+    this.text,
+    this.metadata,
+    this.tempId,
+    this.clientMessageId,
+    super.createdAt,
+    super.attempts,
+    super.nextRetryAt,
+  });
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...baseJson(),
+    'type': 'sendAttachment',
+    'roomId': roomId,
+    'bytes': _cachedBase64OfBytes(bytes),
+    'mimeType': mimeType,
+    if (fileName != null) 'fileName': fileName,
+    'messageType': messageType.name,
+    if (text != null) 'text': text,
+    if (metadata != null) 'metadata': metadata,
+    if (tempId != null) 'tempId': tempId,
+    if (clientMessageId != null) 'clientMessageId': clientMessageId,
+  };
+
+  @override
+  PendingSendAttachment withRetry({int? attempts, DateTime? nextRetryAt}) =>
+      PendingSendAttachment(
+        id: id,
+        roomId: roomId,
+        bytes: bytes,
+        mimeType: mimeType,
+        fileName: fileName,
+        messageType: messageType,
+        text: text,
         metadata: metadata,
         tempId: tempId,
         clientMessageId: clientMessageId,
@@ -858,7 +963,23 @@ class OfflineQueue {
             referencedMessageId: map['referencedMessageId'] as String?,
             reaction: map['reaction'] as String?,
             attachmentUrl: map['attachmentUrl'] as String?,
+            attachmentId: map['attachmentId'] as String?,
             sourceRoomId: map['sourceRoomId'] as String?,
+            metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            tempId: map['tempId'] as String?,
+            clientMessageId: map['clientMessageId'] as String?,
+          );
+        case 'sendAttachment':
+          return PendingSendAttachment(
+            id: id,
+            createdAt: createdAt,
+            attempts: attempts,
+            roomId: map['roomId'] as String,
+            bytes: base64Decode(map['bytes'] as String),
+            mimeType: map['mimeType'] as String,
+            fileName: map['fileName'] as String?,
+            messageType: _parseMessageType(map['messageType'] as String?),
+            text: map['text'] as String?,
             metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
             tempId: map['tempId'] as String?,
             clientMessageId: map['clientMessageId'] as String?,

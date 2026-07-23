@@ -6,6 +6,7 @@ import '../../../core/result.dart';
 import '../../../models/message.dart';
 import '../../../models/pin.dart';
 import '../../../models/user.dart';
+import '../../../observability/chat_logger.dart';
 import '../../controller/chat_controller.dart';
 import '../../controller/room_list_controller.dart';
 import '../operation_error.dart';
@@ -60,6 +61,7 @@ class OptimisticHandler {
     })
     emitOperationSuccess,
     required ChatResult<void> Function(Object _) swallowCacheThrow,
+    ChatLogger? logs,
   }) : _currentUser = currentUser,
        _ensureDmRoomMaterialized = ensureDmRoomMaterialized,
        _updateRoomLastMessage = updateRoomLastMessage,
@@ -70,13 +72,15 @@ class OptimisticHandler {
        _onModerationLock = onModerationLock,
        _emitFailure = emitFailure,
        _emitOperationSuccess = emitOperationSuccess,
-       _swallowCacheThrow = swallowCacheThrow;
+       _swallowCacheThrow = swallowCacheThrow,
+       _logs = logs;
 
   final ChatClient client;
   final ChatControllerRegistry controllers;
   final RoomListController roomList;
   final PendingReactionsRegistry pendingReactions;
   final ChatLocalDatasource? cache;
+  final ChatLogger? _logs;
 
   final ChatUser Function() _currentUser;
   final Future<ChatResult<String>> Function(String otherUserId)
@@ -123,6 +127,7 @@ class OptimisticHandler {
     MessageType messageType = MessageType.regular,
     Map<String, dynamic>? metadata,
     String? attachmentUrl,
+    String? attachmentId,
     OperationKind? operationKind,
   }) async {
     final controller = controllers[roomIdOrDraftKey];
@@ -141,6 +146,7 @@ class OptimisticHandler {
       // so a POST that actually landed before failing is never duplicated.
       clientMessageId: tempId,
       attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
       mimeType: metadata?['mimeType'] as String?,
       fileName: metadata?['fileName'] as String?,
       metadata: metadata,
@@ -188,6 +194,7 @@ class OptimisticHandler {
       messageType: messageType,
       metadata: metadata,
       attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
       tempId: tempId,
       clientMessageId: tempId,
     );
@@ -214,6 +221,23 @@ class OptimisticHandler {
       );
       _updateRoomLastMessage(effectiveRoomId, sent);
       return ChatSuccess<ChatMessage>(sent);
+    }
+
+    final logs = _logs;
+    if (logs != null) {
+      if (result.isSuccess) {
+        logs.message(
+          ChatLogLevel.debug,
+          'sendMessage confirmed: ${logs.content(text)}',
+          fields: {'roomId': effectiveRoomId, 'tempId': tempId},
+        );
+      } else {
+        logs.message(
+          ChatLogLevel.warn,
+          'sendMessage failed: ${result.failureOrNull}',
+          fields: {'roomId': effectiveRoomId, 'tempId': tempId},
+        );
+      }
     }
 
     final confirmed = result.isSuccess
@@ -506,6 +530,7 @@ class OptimisticHandler {
       messageType: message.messageType,
       referencedMessageId: message.referencedMessageId,
       attachmentUrl: message.attachmentUrl,
+      attachmentId: message.attachmentId,
       metadata: message.metadata,
       tempId: messageId,
       // Reuse the original optimistic id as the idempotency key so a manual

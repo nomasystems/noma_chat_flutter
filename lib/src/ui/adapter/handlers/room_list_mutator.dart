@@ -202,6 +202,12 @@ class RoomListMutator {
   /// the message in question is the last one displayed in the row.
   /// Only relevant for outgoing messages — incoming rows do not show
   /// a receipt icon.
+  ///
+  /// Rank-guarded so the list tick never regresses: `receipt_updated`
+  /// frames can arrive out of order (a backlog `delivered` after a live
+  /// `read` for the same `lastMessageId`), and writing the raw status
+  /// would flip a read row back to delivered. The bubble already has this
+  /// guard via `ChatController` aggregation; this gives the row parity.
   void updateRoomListReceipt(
     String roomId,
     String messageId,
@@ -211,6 +217,8 @@ class RoomListMutator {
     if (existing == null) return;
     if (existing.lastMessageId != messageId) return;
     if (existing.lastMessageUserId != _currentUser().id) return;
+    final currentRank = existing.lastMessageReceipt?.rank ?? 0;
+    if (status.rank <= currentRank) return;
     roomListController.updateRoom(
       existing.copyWith(lastMessageReceipt: status),
     );

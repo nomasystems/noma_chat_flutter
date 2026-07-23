@@ -197,6 +197,30 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
+  /// Overrides `NomaChatView`'s default gallery picker (which uses
+  /// `AttachmentPolicy.unrestricted` with no `onRejected`) to demonstrate a
+  /// stricter app policy plus a visible rejection — the SDK gives you the
+  /// hook (`ChatViewCallbacks.onPickGallery`), the policy and the snackbar
+  /// are this app's own choice, not something the SDK should default to.
+  Future<void> _pickAndSendGalleryImage() async {
+    final pick = await AttachmentPickers.pickImageFromGallery(
+      policy: AttachmentPolicy.whatsappLike,
+      onRejected: (rejection) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(rejection.message)));
+      },
+    );
+    if (pick == null || !mounted) return;
+    await _chat.adapter.messages.sendAttachment(
+      _navKey,
+      bytes: pick.bytes,
+      mimeType: pick.mimeType,
+      fileName: pick.fileName,
+    );
+  }
+
   Future<void> _refresh() async {
     Future<Object?> swallow(Future<Object?> fut) async {
       try {
@@ -248,6 +272,7 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
         onAppBarTap: _openRoomInfo,
         callbacks: ChatViewCallbacks(
           onTapImage: _openImageViewer,
+          onPickGallery: _pickAndSendGalleryImage,
           onContextMenuAction: (message, action) {
             if (action == MessageAction.forward) {
               _openForwardSheet(message);

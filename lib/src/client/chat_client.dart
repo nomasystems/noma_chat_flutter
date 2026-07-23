@@ -160,6 +160,35 @@ abstract class ChatClient {
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   );
+
+  /// Queues an attachment upload+send for automatic retry once the
+  /// connection returns, instead of requiring the caller to re-drive the
+  /// whole upload manually.
+  ///
+  /// Call this from an upload-failure branch — i.e. AFTER
+  /// [ChatAttachmentsApi.upload] already failed — passing the failure that
+  /// caused it as [causeFailure] so the client can decide whether it is
+  /// safe to retry (a [NetworkFailure] or [TimeoutFailure] queues; a
+  /// permanent failure like [ValidationFailure] or [AuthFailure] does
+  /// not). [tempId] should match the optimistic bubble's id: when the
+  /// queued retry eventually succeeds, [onOfflineMessageSent] fires with
+  /// it so the UI can reconcile the bubble exactly like a queued text
+  /// send. A no-op on clients without an offline queue configured
+  /// ([ChatConfig.cacheConfig] `null`) — the caller has already shown its
+  /// own failed/manual-retry state and there is nothing durable to fall
+  /// back to.
+  void enqueueOfflineAttachment({
+    required String roomId,
+    required Uint8List bytes,
+    required String mimeType,
+    ChatFailure? causeFailure,
+    String? fileName,
+    MessageType messageType = MessageType.attachment,
+    String? text,
+    Map<String, dynamic>? metadata,
+    String? tempId,
+    String? clientMessageId,
+  });
 }
 
 /// Server health and authentication checks.
@@ -738,6 +767,13 @@ abstract class ChatMessagesApi {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+
+    /// Stable id of an attachment already uploaded via
+    /// [ChatAttachmentsApi.upload] (its `attachmentId`). Echoed back on
+    /// every read of this message so the UI can re-mint a fresh signed
+    /// download URL on expiry instead of trusting the persisted
+    /// [attachmentUrl] forever — see `SignedAttachmentUrlResolver`.
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
@@ -763,6 +799,7 @@ abstract class ChatMessagesApi {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   });

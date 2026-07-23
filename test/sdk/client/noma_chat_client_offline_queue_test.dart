@@ -245,6 +245,68 @@ void main() {
     expect(client.isOperationPermanentlyFailed('op-real'), isTrue);
   });
 
+  test(
+    'a queued sendMessage does not self-duplicate across two consecutive '
+    'drain failures for the same op (R2-15)',
+    () async {
+      when(
+        () => rest.post(any(), data: any(named: 'data')),
+      ).thenThrow(const ChatNetworkException());
+
+      await store.saveOfflineQueue([
+        {
+          'id': 'op-send-1',
+          'type': 'sendMessage',
+          'createdAt': DateTime.now().toIso8601String(),
+          'attempts': 0,
+          'roomId': 'r1',
+          'text': 'hi',
+          'messageType': 'regular',
+          'clientMessageId': 'cmid-1',
+        },
+      ]);
+
+      final client = build();
+      await client.connect();
+
+      // First reconnect cycle: the drain attempt fails. Before the fix,
+      // `OfflineQueuedMessagesApi.send` (called from `_executeOfflineOp`)
+      // enqueued a FRESH copy on top of the backoff-requeued original —
+      // one failure, two queued entries.
+      events.add(const ConnectedEvent());
+      events.add(const DisconnectedEvent());
+      events.add(const ConnectedEvent());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      var queued = (await store.getOfflineQueue()).dataOrNull ?? const [];
+      expect(
+        queued.length,
+        1,
+        reason: 'a single failed drain attempt must leave exactly one '
+            'queued copy of the op, not a duplicate',
+      );
+
+      // Wait out the exponential backoff (attempts=1 → 2^1 + jitter(0..2) =
+      // 2..4s) so the second reconnect actually re-attempts the SAME op
+      // instead of skipping it as still-backing-off.
+      await Future<void>.delayed(const Duration(milliseconds: 4300));
+
+      events.add(const ConnectedEvent());
+      events.add(const DisconnectedEvent());
+      events.add(const ConnectedEvent());
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+
+      queued = (await store.getOfflineQueue()).dataOrNull ?? const [];
+      expect(
+        queued.length,
+        1,
+        reason: 'two consecutive failed drain attempts of the same op must '
+            'still leave exactly one queued copy, never a growing pile',
+      );
+    },
+    timeout: const Timeout(Duration(seconds: 20)),
+  );
+
   group('offline queue payload coverage (serialised PendingOperation)', () {
     Future<void> seedAndDrain(Map<String, dynamic> op) async {
       await store.saveOfflineQueue([

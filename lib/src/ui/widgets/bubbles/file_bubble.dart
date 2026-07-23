@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../theme/chat_theme.dart';
 import '../../utils/date_formatter.dart';
+import '_attachment_upload_overlay.dart';
 import '_bubble_metadata.dart';
 
 /// Bubble for a generic file attachment: shows name + size + open action.
@@ -15,6 +17,7 @@ class FileBubble extends StatelessWidget {
     this.isOutgoing = false,
     this.theme = ChatTheme.defaults,
     this.statusWidget,
+    this.uploadProgress,
   });
 
   final String fileName;
@@ -25,6 +28,11 @@ class FileBubble extends StatelessWidget {
   final bool isOutgoing;
   final ChatTheme theme;
   final Widget? statusWidget;
+
+  /// While not null, the leading file-type icon is replaced by an
+  /// upload-progress ring and tap-to-open is disabled. Same contract as
+  /// `ImageBubble.uploadProgress`/`VideoBubble.uploadProgress`.
+  final ValueListenable<double>? uploadProgress;
 
   IconData _iconForMimeType() {
     final mime = mimeType?.toLowerCase() ?? '';
@@ -45,19 +53,31 @@ class FileBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final progress = uploadProgress;
     return Semantics(
       label: fileName,
-      button: onTap != null,
+      button: onTap != null && progress == null,
       child: GestureDetector(
-        onTap: onTap,
+        // No tap-to-open while the upload is still in flight.
+        onTap: progress == null ? onTap : null,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              _iconForMimeType(),
-              size: 36,
-              color: theme.fileIconColor ?? Colors.blue,
-            ),
+            progress != null
+                ? SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: AttachmentUploadRing(
+                      progress: progress,
+                      theme: theme,
+                      size: 36,
+                    ),
+                  )
+                : Icon(
+                    _iconForMimeType(),
+                    size: 36,
+                    color: theme.fileIconColor ?? Colors.blue,
+                  ),
             const SizedBox(width: 8),
             Flexible(
               // `stretch` makes both the filename and the meta row span

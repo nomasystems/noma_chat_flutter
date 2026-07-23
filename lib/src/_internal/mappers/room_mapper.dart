@@ -5,6 +5,7 @@ import '../../models/user_rooms.dart';
 import '../../models/unread_room.dart';
 import '../../models/invited_room.dart';
 import '../dto/room_dto.dart';
+import '../util/json_safe.dart';
 
 class RoomMapper {
   static ChatRoom fromDto(RoomDto dto) => ChatRoom(
@@ -35,7 +36,7 @@ class RoomMapper {
     memberCount: dto.memberCount,
     userRole: _parseRoomRole(dto.userRole),
     config: RoomConfig(
-      allowInvitations: dto.config?['allowInvitations'] as bool? ?? false,
+      allowInvitations: jsonBoolOr(dto.config?['allowInvitations'], false),
     ),
     muted: dto.muted,
     muteUntil: dto.muteUntil != null ? DateTime.tryParse(dto.muteUntil!) : null,
@@ -55,9 +56,9 @@ class RoomMapper {
   /// non-string when not a timed mute.
   static RoomPreferences preferencesFromJson(Map<String, dynamic> json) =>
       RoomPreferences(
-        muted: (json['muted'] ?? false) as bool,
-        pinned: (json['pinned'] ?? false) as bool,
-        hidden: (json['hidden'] ?? false) as bool,
+        muted: jsonBoolOr(json['muted'], false),
+        pinned: jsonBoolOr(json['pinned'], false),
+        hidden: jsonBoolOr(json['hidden'], false),
         muteUntil: json['muteUntil'] is String
             ? DateTime.tryParse(json['muteUntil'] as String)
             : null,
@@ -65,13 +66,13 @@ class RoomMapper {
 
   static DiscoveredRoom discoveredFromJson(Map<String, dynamic> json) =>
       DiscoveredRoom(
-        id: (json['roomId'] ?? json['id'] ?? '') as String,
-        name: json['name'] as String?,
-        subject: json['subject'] as String?,
-        owner: json['owner'] as String?,
-        memberCount: json['memberCount'] as int?,
-        avatarUrl: json['avatarUrl'] as String?,
-        custom: json['custom'] as Map<String, dynamic>?,
+        id: jsonIdOr(json['roomId'] ?? json['id'], ''),
+        name: jsonStringOrNull(json['name']),
+        subject: jsonStringOrNull(json['subject']),
+        owner: jsonStringOrNull(json['owner']),
+        memberCount: jsonIntOrNull(json['memberCount']),
+        avatarUrl: jsonStringOrNull(json['avatarUrl']),
+        custom: jsonMapOrNull(json['custom']),
       );
 
   static UserRooms userRoomsFromDto(UserRoomsDto dto) => UserRooms(
@@ -121,7 +122,7 @@ class RoomMapper {
         if (dur is num) lastMessageDurationMs = dur.toInt();
         lastMessageMimeType ??= _asString(meta['mimeType']);
       }
-      lastMessageIsDeleted = (lastMsg['isDeleted'] as bool?) ?? false;
+      lastMessageIsDeleted = jsonBoolOr(lastMsg['isDeleted'], false);
       lastMessageReactionEmoji = _parseReactionEmoji(lastMsg['reaction']);
       lastMessageReceipt = _parseReceiptStatus(_asString(lastMsg['receipt']));
     }
@@ -133,9 +134,9 @@ class RoomMapper {
     }
 
     return UnreadRoom(
-      roomId: (json['roomId'] ?? '') as String,
-      unreadMessages: (json['unreadMessages'] ?? 0) as int,
-      unreadMentions: (json['unreadMentions'] ?? 0) as int,
+      roomId: jsonIdOr(json['roomId'], ''),
+      unreadMessages: jsonIntOr(json['unreadMessages'], 0),
+      unreadMentions: jsonIntOr(json['unreadMentions'], 0),
       lastMessage: lastMessage,
       lastMessageTime: lastMessageTime,
       lastMessageUserId: lastMessageUserId,
@@ -147,18 +148,18 @@ class RoomMapper {
       lastMessageIsDeleted: lastMessageIsDeleted,
       lastMessageReactionEmoji: lastMessageReactionEmoji,
       lastMessageReceipt: lastMessageReceipt,
-      name: json['name'] as String?,
-      avatarUrl: json['avatarUrl'] as String?,
-      type: json['type'] as String?,
-      memberCount: json['memberCount'] as int?,
-      userRole: _parseRoomRoleNullable(json['userRole'] as String?),
-      muted: (json['muted'] ?? false) as bool,
+      name: jsonStringOrNull(json['name']),
+      avatarUrl: jsonStringOrNull(json['avatarUrl']),
+      type: jsonStringOrNull(json['type']),
+      memberCount: jsonIntOrNull(json['memberCount']),
+      userRole: _parseRoomRoleNullable(jsonStringOrNull(json['userRole'])),
+      muted: jsonBoolOr(json['muted'], false),
       muteUntil: json['muteUntil'] is String
           ? DateTime.tryParse(json['muteUntil'] as String)
           : null,
-      pinned: (json['pinned'] ?? false) as bool,
-      hidden: (json['hidden'] ?? false) as bool,
-      selfMuted: (json['selfMuted'] ?? false) as bool,
+      pinned: jsonBoolOr(json['pinned'], false),
+      hidden: jsonBoolOr(json['hidden'], false),
+      selfMuted: jsonBoolOr(json['selfMuted'], false),
     );
   }
 
@@ -200,11 +201,11 @@ class RoomMapper {
 
   static InvitedRoom _invitedRoomFromJson(Map<String, dynamic> json) =>
       InvitedRoom(
-        roomId: (json['roomId'] ?? '') as String,
-        invitedBy: (json['invitedBy'] ?? '') as String,
-        roomName: json['roomName'] as String?,
-        subject: json['subject'] as String?,
-        roomType: json['roomType'] as String?,
+        roomId: jsonIdOr(json['roomId'], ''),
+        invitedBy: jsonIdOr(json['invitedBy'], ''),
+        roomName: jsonStringOrNull(json['roomName']),
+        subject: jsonStringOrNull(json['subject']),
+        roomType: jsonStringOrNull(json['roomType']),
       );
 
   static RoomAudience _parseAudience(String? audience) => switch (audience) {

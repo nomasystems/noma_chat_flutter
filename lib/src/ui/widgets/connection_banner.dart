@@ -19,6 +19,7 @@ class ConnectionBanner extends StatelessWidget {
   String _defaultLabel() {
     switch (state) {
       case ChatConnectionState.connecting:
+      case ChatConnectionState.authenticating:
         return theme.l10n.connecting;
       case ChatConnectionState.reconnecting:
         return theme.l10n.reconnecting;
@@ -34,6 +35,7 @@ class ConnectionBanner extends StatelessWidget {
   Color _defaultColor() {
     switch (state) {
       case ChatConnectionState.connecting:
+      case ChatConnectionState.authenticating:
       case ChatConnectionState.reconnecting:
         return Colors.orange.shade100;
       case ChatConnectionState.disconnected:
@@ -62,6 +64,7 @@ class ConnectionBanner extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             if (state == ChatConnectionState.connecting ||
+                state == ChatConnectionState.authenticating ||
                 state == ChatConnectionState.reconnecting)
               const Padding(
                 padding: EdgeInsets.only(right: 8),

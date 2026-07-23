@@ -186,6 +186,58 @@ void main() {
       mutator.updateRoomListReceipt('r1', 'm1', ReceiptStatus.read);
       expect(roomList.getRoomById('r1')?.lastMessageReceipt, isNull);
     });
+
+    test(
+      'rank-guard: an out-of-order downgrade never regresses the list tick '
+      '(R2-12)',
+      () {
+        roomList.addRoom(
+          RoomListItem(
+            id: 'r1',
+            name: 'Team',
+            lastMessageId: 'm1',
+            lastMessageUserId: me.id,
+            lastMessageReceipt: ReceiptStatus.sent,
+          ),
+        );
+        // Live read lands first.
+        mutator.updateRoomListReceipt('r1', 'm1', ReceiptStatus.read);
+        expect(
+          roomList.getRoomById('r1')?.lastMessageReceipt,
+          ReceiptStatus.read,
+        );
+
+        // A backlog `delivered` for the SAME message arrives out of order —
+        // it must NOT flip the row back from read to delivered.
+        mutator.updateRoomListReceipt('r1', 'm1', ReceiptStatus.delivered);
+        expect(
+          roomList.getRoomById('r1')?.lastMessageReceipt,
+          ReceiptStatus.read,
+        );
+      },
+    );
+
+    test('rank-guard still lets the tick advance forward (sent → read)', () {
+      roomList.addRoom(
+        RoomListItem(
+          id: 'r1',
+          name: 'Team',
+          lastMessageId: 'm1',
+          lastMessageUserId: me.id,
+          lastMessageReceipt: ReceiptStatus.sent,
+        ),
+      );
+      mutator.updateRoomListReceipt('r1', 'm1', ReceiptStatus.delivered);
+      expect(
+        roomList.getRoomById('r1')?.lastMessageReceipt,
+        ReceiptStatus.delivered,
+      );
+      mutator.updateRoomListReceipt('r1', 'm1', ReceiptStatus.read);
+      expect(
+        roomList.getRoomById('r1')?.lastMessageReceipt,
+        ReceiptStatus.read,
+      );
+    });
   });
 
   group('updateRoomUnread', () {

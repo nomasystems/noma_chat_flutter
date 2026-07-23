@@ -94,6 +94,24 @@ void main() {
       adapter.setActiveRoom(null);
       expect(adapter.activeRoomId, isNull);
     });
+
+    test('setActiveRoom clears the room-list unread badge optimistically, '
+        'without waiting for markAsRead\'s network round-trip', () async {
+      adapter = ChatUiAdapter(client: client, currentUser: me);
+      client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
+      await adapter.rooms.load();
+
+      final room = adapter.roomListController.getRoomById('r1')!;
+      adapter.roomListController.updateRoom(room.copyWith(unreadCount: 5));
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 5);
+
+      adapter.setActiveRoom('r1');
+
+      // No `await` before this assertion: markAsRead is fired
+      // (`unawaited`) but its network round-trip has not had a chance to
+      // resolve yet — the badge must already be 0 synchronously.
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
+    });
   });
 
   group('autoMarkAsRead = false', () {

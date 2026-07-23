@@ -317,4 +317,61 @@ void main() {
       expect(msg.messageType, MessageType.attachment);
     });
   });
+
+  group('MessageMapper attachmentId', () {
+    test('propagates a top-level attachmentId onto ChatMessage', () {
+      final msg = MessageMapper.fromJson({
+        'id': 'msg-1',
+        'from': 'user-1',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'attachmentUrl': 'https://cdn.example/attachments/att-1',
+        'attachmentId': 'att-1',
+      });
+      expect(msg.attachmentId, 'att-1');
+    });
+
+    test('falls back to attachmentIdFromUrl when the backend has not '
+        'rolled out the field yet', () {
+      final msg = MessageMapper.fromJson({
+        'id': 'msg-1',
+        'from': 'user-1',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'attachmentUrl': 'https://cdn.example/attachments/att-legacy/download',
+      });
+      expect(msg.attachmentId, 'att-legacy');
+    });
+
+    test('is null when there is no attachmentId and the URL does not '
+        'embed one', () {
+      final msg = MessageMapper.fromJson({
+        'id': 'msg-1',
+        'from': 'user-1',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'attachmentUrl': 'https://cdn.example/files/opaque-signed-blob?sig=x',
+      });
+      expect(msg.attachmentId, isNull);
+    });
+
+    test('is null for text messages with no attachment at all', () {
+      final msg = MessageMapper.fromJson({
+        'id': 'msg-1',
+        'from': 'user-1',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'text': 'hello',
+      });
+      expect(msg.attachmentId, isNull);
+    });
+
+    test('attachmentId is stripped out of the public metadata map', () {
+      final msg = MessageMapper.fromJson({
+        'id': 'msg-1',
+        'from': 'user-1',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'metadata': {'attachmentId': 'att-legacy', 'custom': 'value'},
+      });
+      expect(msg.attachmentId, 'att-legacy');
+      expect(msg.metadata?.containsKey('attachmentId'), isFalse);
+      expect(msg.metadata?['custom'], 'value');
+    });
+  });
 }

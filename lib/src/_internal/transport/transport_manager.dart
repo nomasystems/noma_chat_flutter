@@ -4,6 +4,7 @@ import 'dart:collection';
 import '../../config/chat_config.dart';
 import '../../events/chat_event.dart';
 import '../../models/message.dart';
+import '../../observability/chat_logger.dart';
 import '../cache/cache_manager.dart' show MetricCallback;
 import 'auto_failover_transport.dart';
 import 'manual_transport.dart';
@@ -99,11 +100,11 @@ class TransportManager {
         // protects against runaway polling.
         const minInterval = Duration(seconds: 5);
         if (pc.interval < minInterval) {
-          config.log(
-            'warn',
-            'pollingConfig.interval=${pc.interval.inMilliseconds}ms '
-                '< 5 s — clamping to 5 s. Pick a higher value to silence '
-                'this warning.',
+          config.logs.polling(
+            ChatLogLevel.warn,
+            'pollingConfig.interval below 5s minimum — clamping to 5s. '
+            'Pick a higher value to silence this warning.',
+            fields: {'requestedMs': pc.interval.inMilliseconds},
           );
           pc = PollingConfig(
             interval: minInterval,
@@ -270,6 +271,7 @@ class TransportManager {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) => _transport.sendMessage(
@@ -279,6 +281,7 @@ class TransportManager {
     referencedMessageId: referencedMessageId,
     reaction: reaction,
     attachmentUrl: attachmentUrl,
+    attachmentId: attachmentId,
     sourceRoomId: sourceRoomId,
     metadata: metadata,
   );
@@ -294,6 +297,7 @@ class TransportManager {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,
@@ -305,6 +309,7 @@ class TransportManager {
     referencedMessageId: referencedMessageId,
     reaction: reaction,
     attachmentUrl: attachmentUrl,
+    attachmentId: attachmentId,
     sourceRoomId: sourceRoomId,
     metadata: metadata,
     clientMessageId: clientMessageId,

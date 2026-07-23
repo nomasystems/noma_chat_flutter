@@ -12,6 +12,16 @@ class CacheConfig {
   final CachePolicy defaultReadPolicy;
   final int offlineQueueMaxRetries;
 
+  /// Upper bound, in bytes, on a single attachment queued for offline retry
+  /// (`NomaChatClient.enqueueOfflineAttachment`). An attachment upload that
+  /// fails while over this size is NOT queued — queuing it would mean
+  /// carrying its raw bytes through Hive on every persist of the offline
+  /// queue, base64-encoded, indefinitely. Defaults to 10 MB, comfortably
+  /// above a compressed photo/voice note but well under a raw video. The
+  /// drop is reported via `onOperationDropped` (reason
+  /// `'attachment_too_large'`) instead of failing silently.
+  final int offlineQueueMaxAttachmentBytes;
+
   const CacheConfig({
     this.maxMessagesPerRoom = 500,
     this.maxRooms = 100,
@@ -20,10 +30,15 @@ class CacheConfig {
     this.ttlUsers = const Duration(hours: 6),
     this.defaultReadPolicy = CachePolicy.networkFirst,
     this.offlineQueueMaxRetries = 5,
+    this.offlineQueueMaxAttachmentBytes = 10 * 1024 * 1024,
   }) : assert(maxMessagesPerRoom > 0, 'maxMessagesPerRoom must be > 0'),
        assert(maxRooms > 0, 'maxRooms must be > 0'),
        assert(
          offlineQueueMaxRetries >= 0,
          'offlineQueueMaxRetries must be >= 0',
+       ),
+       assert(
+         offlineQueueMaxAttachmentBytes > 0,
+         'offlineQueueMaxAttachmentBytes must be > 0',
        );
 }

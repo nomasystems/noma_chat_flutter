@@ -158,8 +158,10 @@ class _ChatViewState extends State<ChatView> {
     final behaviors = widget.behaviors;
     final builders = widget.builders;
     final callbacks = widget.callbacks;
-    if (widget.controller.messages.isEmpty &&
-        !widget.controller.isLoadingMore) {
+    if (widget.controller.messages.isEmpty) {
+      if (widget.controller.isLoadingInitial || widget.controller.isLoadingMore) {
+        return const Center(child: CircularProgressIndicator());
+      }
       return EmptyState(
         icon: behaviors.emptyIcon ?? Icons.chat_bubble_outline,
         title: behaviors.emptyTitle ?? widget.theme.l10n.noMessages,
@@ -172,6 +174,7 @@ class _ChatViewState extends State<ChatView> {
       theme: widget.theme,
       audioCoordinator: _audioCoordinator,
       audioUploadProgressFor: builders.audioUploadProgressFor,
+      attachmentUploadProgressFor: builders.attachmentUploadProgressFor,
       initialMessageId: behaviors.initialMessageId,
       unreadBoundaryMessageId: behaviors.unreadBoundaryMessageId,
       unreadCount: behaviors.unreadCount,
@@ -204,6 +207,7 @@ class _ChatViewState extends State<ChatView> {
       isGroup: behaviors.isGroup,
       avatarRebuildSignal: builders.avatarRebuildSignal,
       statusIconBuilder: builders.statusIconBuilder,
+      attachmentUrlResolver: builders.attachmentUrlResolver,
     );
   }
 

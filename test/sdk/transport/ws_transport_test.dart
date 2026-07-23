@@ -7,7 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
 
 class _FakeWebSocketChannel implements WebSocketChannel {
-  _FakeWebSocketChannel({bool autoAuthOk = false}) {
+  _FakeWebSocketChannel({bool autoAuthOk = false, bool autoPong = false}) {
     if (autoAuthOk) {
       _streamController.onListen = () {
         scheduleMicrotask(() {
@@ -15,6 +15,19 @@ class _FakeWebSocketChannel implements WebSocketChannel {
             _streamController.add(jsonEncode({'type': 'auth_ok'}));
           }
         });
+      };
+    }
+    if (autoPong) {
+      sink.onAdd = (data) {
+        if (data is! String) return;
+        final decoded = jsonDecode(data) as Map<String, dynamic>;
+        if (decoded['type'] == 'ping') {
+          scheduleMicrotask(() {
+            if (!_streamController.isClosed) {
+              _streamController.add(jsonEncode({'type': 'pong'}));
+            }
+          });
+        }
       };
     }
   }
@@ -51,6 +64,7 @@ class _FakeWebSocketSink implements WebSocketSink {
   final StreamController<dynamic> _controller;
   final List<dynamic> messages = [];
   int closeCalls = 0;
+  void Function(dynamic data)? onAdd;
 
   _FakeWebSocketSink(this._controller);
 
@@ -58,6 +72,7 @@ class _FakeWebSocketSink implements WebSocketSink {
   void add(dynamic data) {
     messages.add(data);
     _controller.add(data);
+    onAdd?.call(data);
   }
 
   @override
@@ -874,6 +889,364 @@ void main() {
       expect(states, statesAtDispose);
 
       await sub.cancel();
+    });
+
+    group('authenticating state', () {
+      test('emitted between channel-ready and auth_ok, then connected',
+          () async {
+        late _FakeWebSocketChannel fakeChannel;
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+        );
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            fakeChannel = _FakeWebSocketChannel();
+            return fakeChannel;
+          },
+        );
+
+        final states = <ChatConnectionState>[];
+        final sub = transport.stateChanges.listen(states.add);
+
+        final connectFuture = transport.connect();
+        await Future<void>.delayed(Duration.zero);
+        expect(transport.state, ChatConnectionState.authenticating);
+        expect(transport.state.isWorking, isTrue);
+
+        fakeChannel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
+        await connectFuture;
+
+        expect(
+          states,
+          containsAllInOrder([
+            ChatConnectionState.connecting,
+            ChatConnectionState.authenticating,
+            ChatConnectionState.connected,
+          ]),
+        );
+
+        await sub.cancel();
+        await transport.dispose();
+      });
+
+      test('a reentrant connect() during the handshake window does not '
+          'open a parallel socket', () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+        );
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            final channel = _FakeWebSocketChannel();
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        final connectFuture = transport.connect();
+        await Future<void>.delayed(Duration.zero);
+        expect(transport.state, ChatConnectionState.authenticating);
+
+        // A second connect() call while still authenticating (e.g. an app
+        // resume racing an in-flight reconnect) must be a no-op — it must
+        // NOT open a second parallel socket.
+        await transport.connect();
+        expect(channels, hasLength(1));
+
+        channels.first.receiveMessage(jsonEncode({'type': 'auth_ok'}));
+        await connectFuture;
+        expect(transport.state, ChatConnectionState.connected);
+
+        await transport.dispose();
+      });
+    });
+
+    group('pong watchdog', () {
+      test('forces a reconnect when the peer never answers a ping',
+          () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          // Pong timeout deliberately shorter than the ping interval: it
+          // must elapse (and fire the watchdog) well before the NEXT ping
+          // tick would otherwise cancel/re-arm it, so the test isn't racing
+          // its own periodic ping timer.
+          wsPingInterval: const Duration(milliseconds: 60),
+          wsPongTimeout: const Duration(milliseconds: 15),
+          wsReconnectDelay: const Duration(milliseconds: 5),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            // Zombie socket: authenticates fine but never answers a ping
+            // with a pong — the scenario onError/onDone alone would never
+            // surface.
+            final channel = _FakeWebSocketChannel(autoAuthOk: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        await transport.connect();
+        expect(channels, hasLength(1));
+
+        for (var i = 0; i < 300 && channels.length < 2; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+
+        expect(
+          channels,
+          hasLength(2),
+          reason:
+              'the pong watchdog must force a reconnect when no pong ever '
+              'arrives, opening a fresh socket',
+        );
+
+        await transport.dispose();
+      });
+
+      test('a pong in time cancels the watchdog — no reconnect', () async {
+        late _FakeWebSocketChannel fakeChannel;
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          wsPingInterval: const Duration(milliseconds: 20),
+          wsPongTimeout: const Duration(milliseconds: 200),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            fakeChannel = _FakeWebSocketChannel(
+              autoAuthOk: true,
+              autoPong: true,
+            );
+            return fakeChannel;
+          },
+        );
+
+        await transport.connect();
+        expect(transport.lastPongAge, isNull);
+
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(transport.state, ChatConnectionState.connected);
+        expect(transport.lastPongAge, isNotNull);
+        expect(transport.lastPongAge!.inMilliseconds, lessThan(200));
+
+        await transport.dispose();
+      });
+
+      test('wsPongWatchdogEnabled: false disables it — a zombie socket '
+          'never reconnects on its own', () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          wsPingInterval: const Duration(milliseconds: 20),
+          wsPongTimeout: const Duration(milliseconds: 20),
+          wsPongWatchdogEnabled: false,
+          wsReconnectDelay: const Duration(milliseconds: 5),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            final channel = _FakeWebSocketChannel(autoAuthOk: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        await transport.connect();
+        await Future<void>.delayed(const Duration(milliseconds: 150));
+
+        expect(
+          channels,
+          hasLength(1),
+          reason: 'disabled watchdog must never force a reconnect on its own',
+        );
+        expect(transport.state, ChatConnectionState.connected);
+
+        await transport.dispose();
+      });
+    });
+
+    group('resume liveness probe (verifyLiveness)', () {
+      test(
+          'a zombie socket is detected on resume and forced through a real '
+          'reconnect that re-emits ConnectedEvent', () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          // Long ping interval so the ordinary periodic keep-alive can NOT
+          // fire during the test — the reconnect must come from the resume
+          // probe alone, not the normal ~ping+pong watchdog window.
+          wsPingInterval: const Duration(seconds: 30),
+          wsPongTimeout: const Duration(milliseconds: 20),
+          wsReconnectDelay: const Duration(milliseconds: 5),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            // Zombie socket: authenticates fine but never answers a ping —
+            // exactly the iOS-suspend case where the OS drops the TCP with no
+            // FIN/RST, so onError/onDone never fire and state stays connected.
+            final channel = _FakeWebSocketChannel(autoAuthOk: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        var connectedEvents = 0;
+        final sub = transport.events.listen((e) {
+          if (e is ConnectedEvent) connectedEvents++;
+        });
+
+        await transport.connect();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(channels, hasLength(1));
+        expect(connectedEvents, 1);
+        expect(transport.state, ChatConnectionState.connected);
+
+        // App returns to foreground: the transport still reports itself
+        // connected over the dead socket. A plain connect() would no-op here;
+        // verifyLiveness must probe and, on the missing pong, cycle a real
+        // reconnect.
+        await transport.verifyLiveness();
+
+        for (var i = 0; i < 300 && channels.length < 2; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+
+        expect(
+          channels,
+          hasLength(2),
+          reason: 'the resume probe must reconnect a zombie socket instead of '
+              'trusting the stale connected state',
+        );
+        expect(
+          connectedEvents,
+          2,
+          reason: 'the forced reconnect must re-emit ConnectedEvent so the '
+              'router runs the presence bootstrap + resync',
+        );
+
+        await sub.cancel();
+        await transport.dispose();
+      });
+
+      test(
+          'a live socket answers the resume probe — no reconnect and no extra '
+          'ConnectedEvent', () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          wsPingInterval: const Duration(seconds: 30),
+          wsPongTimeout: const Duration(milliseconds: 50),
+          wsReconnectDelay: const Duration(milliseconds: 5),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            final channel =
+                _FakeWebSocketChannel(autoAuthOk: true, autoPong: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        var connectedEvents = 0;
+        final sub = transport.events.listen((e) {
+          if (e is ConnectedEvent) connectedEvents++;
+        });
+
+        await transport.connect();
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+        expect(channels, hasLength(1));
+        expect(connectedEvents, 1);
+
+        await transport.verifyLiveness();
+        // Give the probe's pong time to arrive AND the watchdog deadline time
+        // to have elapsed — if the probe wrongly tore the socket down it would
+        // show up as a second channel by now.
+        await Future<void>.delayed(const Duration(milliseconds: 90));
+
+        expect(
+          channels,
+          hasLength(1),
+          reason: 'a live socket must be left untouched by the resume probe',
+        );
+        expect(
+          connectedEvents,
+          1,
+          reason: 'no reconnect means no second ConnectedEvent',
+        );
+        expect(transport.state, ChatConnectionState.connected);
+
+        await sub.cancel();
+        await transport.dispose();
+      });
+    });
+
+    group('reconnect backoff tunables', () {
+      test('wsMaxReconnectDelay caps the delay even with a large base',
+          () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          // Deliberately huge so an uncapped exponential backoff would take
+          // far longer than the test timeout to reconnect.
+          wsReconnectDelay: const Duration(seconds: 10),
+          wsMaxReconnectDelay: const Duration(milliseconds: 30),
+          wsReconnectJitterMs: 0,
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            final channel = _FakeWebSocketChannel(autoAuthOk: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        await transport.connect();
+        await channels.first.simulateDrop();
+
+        for (var i = 0; i < 200 && channels.length < 2; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+
+        expect(
+          channels,
+          hasLength(2),
+          reason:
+              'wsMaxReconnectDelay must cap the exponential backoff — an '
+              'uncapped 10s base would never reconnect within this wait',
+        );
+
+        await transport.dispose();
+      });
     });
   });
 }

@@ -118,6 +118,17 @@ class MockChatClient implements ChatClient {
 
   void emitEvent(ChatEvent event) => _eventController.add(event);
 
+  /// Test helper: pushes a raw connection-state transition (e.g.
+  /// `connecting` / `authenticating` / `reconnecting`) without going
+  /// through [connect]/[disconnect] — those two only ever emit
+  /// `connected`/`disconnected`. Lets tests exercise the intermediate
+  /// states real transports report via `stateChanges` alone (no
+  /// accompanying `ChatEvent`).
+  void emitConnectionState(ChatConnectionState state) {
+    _connectionState = state;
+    _stateController.add(state);
+  }
+
   /// Test helper: register a room directly in the mock store so subsequent
   /// `client.rooms.get(roomId)` calls return a proper `RoomDetail`.
   void seedRoom(ChatRoom room) {
@@ -212,6 +223,21 @@ class MockChatClient implements ChatClient {
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) {}
+
+  // The mock does not have an offline queue to enqueue into.
+  @override
+  void enqueueOfflineAttachment({
+    required String roomId,
+    required Uint8List bytes,
+    required String mimeType,
+    ChatFailure? causeFailure,
+    String? fileName,
+    MessageType messageType = MessageType.attachment,
+    String? text,
+    Map<String, dynamic>? metadata,
+    String? tempId,
+    String? clientMessageId,
+  }) {}
 }
 
 class MockAuthApi implements ChatAuthApi {
@@ -365,6 +391,15 @@ class MockRoomsApi implements ChatRoomsApi {
   final MockChatClient _client;
   MockRoomsApi(this._client);
 
+  /// When `true`, the next [getUserRooms] call made with
+  /// `cachePolicy: CachePolicy.networkOnly` fails with a [NetworkFailure]
+  /// instead of succeeding, then resets to `false`. Scoped to the
+  /// network-only pass (rather than any call) so it exercises the "network
+  /// resync failed" path (e.g. `ChatUiAdapter.resync` not consuming its
+  /// debounce window on a failed attempt) without also tripping the
+  /// cache-only pass `loadAll` always tries first.
+  bool failNextGetUserRooms = false;
+
   @override
   Future<ChatResult<ChatRoom>> create({
     required RoomAudience audience,
@@ -399,6 +434,10 @@ class MockRoomsApi implements ChatRoomsApi {
     ChatPaginationParams? pagination,
     CachePolicy? cachePolicy,
   }) async {
+    if (failNextGetUserRooms && cachePolicy == CachePolicy.networkOnly) {
+      failNextGetUserRooms = false;
+      return const ChatFailureResult(NetworkFailure('mock getUserRooms failure'));
+    }
     final rooms = _client._rooms.values.map((r) {
       final msgs = _client._messages[r.id] ?? const <ChatMessage>[];
       final last = msgs.isEmpty
@@ -675,6 +714,13 @@ class MockMessagesApi implements ChatMessagesApi {
   final MockChatClient _client;
   MockMessagesApi(this._client);
 
+  /// When `true`, the next [list] call made with
+  /// `cachePolicy: CachePolicy.networkOnly` *throws* (rather than returning
+  /// a failed [ChatResult]), then resets to `false`. Lets tests exercise the
+  /// "an awaited call inside a flow threw" path — e.g. `ChatUiAdapter.resync`
+  /// reverting its debounce seal on an exception, not just on `isFailure`.
+  bool throwNextList = false;
+
   @override
   Future<ChatResult<ChatMessage>> get(String roomId, String messageId) async {
     final messages = _client._messages[roomId] ?? [];
@@ -691,6 +737,7 @@ class MockMessagesApi implements ChatMessagesApi {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
@@ -706,6 +753,7 @@ class MockMessagesApi implements ChatMessagesApi {
       clientMessageId: clientMessageId,
       reaction: reaction,
       attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
       metadata: metadata,
     );
     _client._messages.putIfAbsent(roomId, () => []);
@@ -732,6 +780,10 @@ class MockMessagesApi implements ChatMessagesApi {
     bool? unreadOnly,
     CachePolicy? cachePolicy,
   }) async {
+    if (throwNextList && cachePolicy == CachePolicy.networkOnly) {
+      throwNextList = false;
+      throw StateError('mock messages.list failure');
+    }
     final messages = _client._messages[roomId] ?? [];
     return ChatSuccess(ChatPaginatedResponse(items: messages, hasMore: false));
   }
@@ -744,6 +796,7 @@ class MockMessagesApi implements ChatMessagesApi {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) => send(
@@ -753,6 +806,7 @@ class MockMessagesApi implements ChatMessagesApi {
     referencedMessageId: referencedMessageId,
     reaction: reaction,
     attachmentUrl: attachmentUrl,
+    attachmentId: attachmentId,
     sourceRoomId: sourceRoomId,
     metadata: metadata,
   );
@@ -1157,17 +1211,29 @@ class MockPresenceApi implements ChatPresenceApi {
 }
 
 class MockAttachmentsApi implements ChatAttachmentsApi {
+  /// When `true`, the next [upload] call fails with a [NetworkFailure]
+  /// instead of succeeding, then resets to `false`. Lets a test exercise
+  /// the upload-failure path (e.g. `sendAttachment` marking the optimistic
+  /// bubble failed) without a bespoke fake.
+  bool failNextUpload = false;
+
   @override
   Future<ChatResult<AttachmentUploadResult>> upload(
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
-  }) async => const ChatSuccess(
-    AttachmentUploadResult(
-      attachmentId: 'mock-attachment-1',
-      raw: {'attachmentId': 'mock-attachment-1'},
-    ),
-  );
+  }) async {
+    if (failNextUpload) {
+      failNextUpload = false;
+      return const ChatFailureResult(NetworkFailure('mock upload failure'));
+    }
+    return const ChatSuccess(
+      AttachmentUploadResult(
+        attachmentId: 'mock-attachment-1',
+        raw: {'attachmentId': 'mock-attachment-1'},
+      ),
+    );
+  }
 
   @override
   Future<ChatResult<AttachmentSignedUrl>> signedUrl(

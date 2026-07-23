@@ -6,6 +6,7 @@ import 'package:dio/dio.dart';
 import '../../config/chat_config.dart';
 import '../../events/chat_event.dart';
 import '../../models/message.dart';
+import '../../observability/chat_logger.dart';
 import '../http/chat_exception.dart';
 import '../util/backoff.dart';
 import 'event_parser.dart';
@@ -44,6 +45,11 @@ class SseTransport implements RealtimeTransport {
 
   @override
   bool get transportDisabled => false;
+
+  /// SSE has no ping/pong of its own; `sseIdleTimeout` (chunk-silence
+  /// watchdog) plays the equivalent role, so there's no pong age to report.
+  @override
+  Duration? get lastPongAge => null;
 
   @override
   bool get supportsOutboundFrames => false;
@@ -85,6 +91,7 @@ class SseTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) {}
@@ -97,6 +104,7 @@ class SseTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,
@@ -107,6 +115,13 @@ class SseTransport implements RealtimeTransport {
   /// live, so an explicit refresh is a no-op.
   @override
   Future<void> refresh({String? singleRoomId}) async {}
+
+  /// SSE has no pong-style liveness probe — its `sseIdleTimeout` watchdog
+  /// already forces a reconnect on a silent stream. A resume-time check
+  /// therefore just re-attempts the connection, which is a no-op while the
+  /// stream is healthy.
+  @override
+  Future<void> verifyLiveness() => connect();
 
   @override
   Future<void> connect() async {
@@ -176,18 +191,21 @@ class SseTransport implements RealtimeTransport {
       unawaited(_consumeStream(response.data!.stream));
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel) {
-        _config.log('debug', 'SSE cancelled by caller');
+        _config.logs.sse(ChatLogLevel.debug, 'SSE cancelled by caller');
         return;
       }
-      _config.log(
-        'warn',
-        'SSE DioException type=${e.type} '
-            'status=${e.response?.statusCode} '
-            'body=${e.response?.data}',
+      _config.logs.sse(
+        ChatLogLevel.warn,
+        'SSE DioException',
+        fields: {
+          'type': '${e.type}',
+          'status': e.response?.statusCode,
+          'body': '${e.response?.data}',
+        },
       );
       _onError(e);
     } catch (e, st) {
-      _config.log('warn', 'SSE unexpected exception: $e\n$st');
+      _config.logs.sse(ChatLogLevel.warn, 'SSE unexpected exception: $e\n$st');
       _onError(e);
     }
   }
@@ -215,17 +233,20 @@ class SseTransport implements RealtimeTransport {
       _onStreamEnd();
     } on DioException catch (e) {
       if (e.type == DioExceptionType.cancel) {
-        _config.log('debug', 'SSE stream cancelled');
+        _config.logs.sse(ChatLogLevel.debug, 'SSE stream cancelled');
         return;
       }
-      _config.log(
-        'warn',
-        'SSE stream DioException type=${e.type} '
-            'status=${e.response?.statusCode}',
+      _config.logs.sse(
+        ChatLogLevel.warn,
+        'SSE stream DioException',
+        fields: {'type': '${e.type}', 'status': e.response?.statusCode},
       );
       _onError(e);
     } catch (e, st) {
-      _config.log('warn', 'SSE stream unexpected exception: $e\n$st');
+      _config.logs.sse(
+        ChatLogLevel.warn,
+        'SSE stream unexpected exception: $e\n$st',
+      );
       _onError(e);
     }
   }
@@ -251,7 +272,10 @@ class SseTransport implements RealtimeTransport {
     final event = EventParser.parseNrte(data);
     if (event == null) {
       final preview = data.length > 80 ? '${data.substring(0, 80)}…' : data;
-      _config.log('warn', 'SSE: unrecognised event frame: $preview');
+      _config.logs.sse(
+        ChatLogLevel.warn,
+        'SSE: unrecognised event frame: $preview',
+      );
       return;
     }
     if (!_eventController.isClosed) {
@@ -261,7 +285,7 @@ class SseTransport implements RealtimeTransport {
 
   void _onError(Object error) {
     _cancelIdleTimer();
-    _config.log('error', 'SSE error: $error');
+    _config.logs.sse(ChatLogLevel.error, 'SSE error: $error');
     _setState(ChatConnectionState.error);
     if (!_eventController.isClosed) {
       final exception = error is ChatException
@@ -275,7 +299,7 @@ class SseTransport implements RealtimeTransport {
   void _onStreamEnd() {
     _cancelIdleTimer();
     if (_shouldReconnect) {
-      _config.log('warn', 'SSE stream ended, will reconnect');
+      _config.logs.sse(ChatLogLevel.warn, 'SSE stream ended, will reconnect');
       _setState(ChatConnectionState.reconnecting);
       if (!_eventController.isClosed) {
         _eventController.add(
@@ -293,13 +317,18 @@ class SseTransport implements RealtimeTransport {
 
   void _scheduleReconnect() {
     if (!_shouldReconnect) return;
-    _config.log(
-      'debug',
-      'SSE scheduling reconnect attempt #$_reconnectAttempts',
+    _config.logs.sse(
+      ChatLogLevel.debug,
+      'SSE scheduling reconnect',
+      fields: {'attempt': _reconnectAttempts},
     );
     final maxAttempts = _config.maxReconnectAttempts;
     if (maxAttempts != null && _reconnectAttempts >= maxAttempts) {
-      _config.log('error', 'SSE max reconnect attempts ($maxAttempts) reached');
+      _config.logs.sse(
+        ChatLogLevel.error,
+        'SSE max reconnect attempts reached',
+        fields: {'maxAttempts': maxAttempts},
+      );
       _setState(ChatConnectionState.error);
       if (!_eventController.isClosed) {
         _eventController.add(
@@ -314,9 +343,10 @@ class SseTransport implements RealtimeTransport {
       return;
     }
     if (_reconnectAttempts >= 3 && _lastEventId != null) {
-      _config.log(
-        'warn',
-        'SSE resetting stale Last-Event-ID after $_reconnectAttempts failed reconnects',
+      _config.logs.sse(
+        ChatLogLevel.warn,
+        'SSE resetting stale Last-Event-ID after failed reconnects',
+        fields: {'failedReconnects': _reconnectAttempts},
       );
       _lastEventId = null;
     }
@@ -350,9 +380,10 @@ class SseTransport implements RealtimeTransport {
     if (timeout == null) return;
     _idleTimer?.cancel();
     _idleTimer = Timer(timeout, () {
-      _config.log(
-        'warn',
-        'SSE idle timeout: no chunks in ${timeout.inSeconds}s, reconnecting',
+      _config.logs.sse(
+        ChatLogLevel.warn,
+        'SSE idle timeout, reconnecting',
+        fields: {'idleSeconds': timeout.inSeconds},
       );
       _cancelToken?.cancel();
       _onError(const ChatSseIdleTimeoutException());

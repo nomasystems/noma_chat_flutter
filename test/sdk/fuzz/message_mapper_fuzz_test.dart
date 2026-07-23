@@ -222,6 +222,19 @@ void main() {
       ];
       expect(() => MessageMapper.extractReactions(list), returnsNormally);
     });
+
+    test('id as int is coerced to string, not dropped to empty', () {
+      final result = MessageMapper.extractReactions([
+        {
+          'id': 42,
+          'reaction': [
+            {'reaction': '👍'},
+          ],
+        },
+      ]);
+      expect(result.containsKey('42'), isTrue);
+      expect(result.containsKey(''), isFalse);
+    });
   });
 
   group('MessageMapper supplementary fromJsons fuzz', () {
@@ -237,6 +250,12 @@ void main() {
       }
     });
 
+    test('readReceiptFromJson userId as int is coerced, not dropped to '
+        'empty', () {
+      final receipt = MessageMapper.readReceiptFromJson({'userId': 42});
+      expect(receipt.userId, '42');
+    });
+
     test('scheduledFromJson tolerates garbage', () {
       final inputs = <Map<String, dynamic>>[
         <String, dynamic>{},
@@ -246,6 +265,18 @@ void main() {
       for (final input in inputs) {
         expect(() => MessageMapper.scheduledFromJson(input), returnsNormally);
       }
+    });
+
+    test('scheduledFromJson id/userId/roomId as int are coerced, not '
+        'dropped to empty', () {
+      final scheduled = MessageMapper.scheduledFromJson({
+        'id': 1,
+        'userId': 2,
+        'roomId': 3,
+      });
+      expect(scheduled.id, '1');
+      expect(scheduled.userId, '2');
+      expect(scheduled.roomId, '3');
     });
 
     test('pinFromJson tolerates garbage', () {
@@ -258,6 +289,30 @@ void main() {
       }
     });
 
+    test('pinFromJson roomId/messageId/pinnedBy as int are coerced, not '
+        'dropped to empty', () {
+      final pin = MessageMapper.pinFromJson({
+        'roomId': 1,
+        'messageId': 2,
+        'pinnedBy': 3,
+      });
+      expect(pin.roomId, '1');
+      expect(pin.messageId, '2');
+      expect(pin.pinnedBy, '3');
+    });
+
+    test('starredFromJson userId/messageId/roomId as int are coerced, not '
+        'dropped to empty', () {
+      final starred = MessageMapper.starredFromJson({
+        'userId': 1,
+        'messageId': 2,
+        'roomId': 3,
+      });
+      expect(starred.userId, '1');
+      expect(starred.messageId, '2');
+      expect(starred.roomId, '3');
+    });
+
     test('reportFromJson tolerates garbage', () {
       final inputs = <Map<String, dynamic>>[
         <String, dynamic>{},
@@ -266,6 +321,18 @@ void main() {
       for (final input in inputs) {
         expect(() => MessageMapper.reportFromJson(input), returnsNormally);
       }
+    });
+
+    test('reportFromJson reporterId/messageId/roomId as int are coerced, '
+        'not dropped to empty', () {
+      final report = MessageMapper.reportFromJson({
+        'reporterId': 1,
+        'messageId': 2,
+        'roomId': 3,
+      });
+      expect(report.reporterId, '1');
+      expect(report.messageId, '2');
+      expect(report.roomId, '3');
     });
 
     test('reactionFromJson tolerates garbage', () {

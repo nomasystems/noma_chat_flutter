@@ -78,6 +78,107 @@ void main() {
     });
   });
 
+  group('ChatUiLocalizations — attachment rejection strings (R2-4)', () {
+    test('en defaults are in English', () {
+      const l10n = ChatUiLocalizations.en;
+      expect(l10n.attachmentTooLarge, 'File is too large to send.');
+      expect(l10n.attachmentTypeNotAllowed, 'This file type is not allowed.');
+      expect(l10n.attachmentUnreadable, 'Could not read the selected file.');
+    });
+
+    test('es, fr, de, it, pt each have their own translation — none of '
+        'them silently falls back to the English default', () {
+      const locales = {
+        ChatUiLocalizations.es: 'es',
+        ChatUiLocalizations.fr: 'fr',
+        ChatUiLocalizations.de: 'de',
+        ChatUiLocalizations.it: 'it',
+        ChatUiLocalizations.pt: 'pt',
+      };
+      for (final entry in locales.entries) {
+        final l10n = entry.key;
+        final code = entry.value;
+        expect(
+          l10n.attachmentTooLarge,
+          isNot('File is too large to send.'),
+          reason: '$code.attachmentTooLarge must not fall back to English',
+        );
+        expect(
+          l10n.attachmentTypeNotAllowed,
+          isNot('This file type is not allowed.'),
+          reason:
+              '$code.attachmentTypeNotAllowed must not fall back to English',
+        );
+        expect(
+          l10n.attachmentUnreadable,
+          isNot('Could not read the selected file.'),
+          reason: '$code.attachmentUnreadable must not fall back to English',
+        );
+      }
+    });
+
+    test('fr has the expected French translations', () {
+      const l10n = ChatUiLocalizations.fr;
+      expect(
+        l10n.attachmentTooLarge,
+        'Le fichier est trop volumineux pour être envoyé.',
+      );
+      expect(
+        l10n.attachmentTypeNotAllowed,
+        "Ce type de fichier n'est pas autorisé.",
+      );
+      expect(
+        l10n.attachmentUnreadable,
+        'Impossible de lire le fichier sélectionné.',
+      );
+    });
+
+    test('de has the expected German translations', () {
+      const l10n = ChatUiLocalizations.de;
+      expect(l10n.attachmentTooLarge, 'Die Datei ist zu groß zum Senden.');
+      expect(
+        l10n.attachmentTypeNotAllowed,
+        'Dieser Dateityp ist nicht erlaubt.',
+      );
+      expect(
+        l10n.attachmentUnreadable,
+        'Die ausgewählte Datei konnte nicht gelesen werden.',
+      );
+    });
+
+    test('it has the expected Italian translations', () {
+      const l10n = ChatUiLocalizations.it;
+      expect(
+        l10n.attachmentTooLarge,
+        'Il file è troppo grande per essere inviato.',
+      );
+      expect(
+        l10n.attachmentTypeNotAllowed,
+        'Questo tipo di file non è consentito.',
+      );
+      expect(
+        l10n.attachmentUnreadable,
+        'Impossibile leggere il file selezionato.',
+      );
+    });
+
+    test('pt has the expected Portuguese translations', () {
+      const l10n = ChatUiLocalizations.pt;
+      expect(
+        l10n.attachmentTooLarge,
+        'O arquivo é muito grande para ser enviado.',
+      );
+      expect(
+        l10n.attachmentTypeNotAllowed,
+        'Este tipo de arquivo não é permitido.',
+      );
+      expect(
+        l10n.attachmentUnreadable,
+        'Não foi possível ler o arquivo selecionado.',
+      );
+    });
+  });
+
   group('ChatUiLocalizations.plural', () {
     test('static const instances expose their localeCode', () {
       expect(ChatUiLocalizations.en.localeCode, 'en');
@@ -221,6 +322,28 @@ void main() {
       const l10n = ChatUiLocalizations.en;
       final copy = l10n.copyWith(localeCode: 'fr');
       expect(copy.localeCode, 'fr');
+    });
+  });
+
+  group('ChatUiLocalizations.lastSeen', () {
+    test('en interpolates the last-seen template', () {
+      expect(ChatUiLocalizations.en.lastSeen('5 min'), 'last seen 5 min');
+    });
+
+    test('each of the 6 core locales has its own translation', () {
+      expect(ChatUiLocalizations.en.lastSeen('X'), 'last seen X');
+      expect(ChatUiLocalizations.es.lastSeen('X'), 'última vez hace X');
+      expect(ChatUiLocalizations.fr.lastSeen('X'), 'vu(e) il y a X');
+      expect(ChatUiLocalizations.de.lastSeen('X'), 'zuletzt online vor X');
+      expect(ChatUiLocalizations.it.lastSeen('X'), 'ultimo accesso X fa');
+      expect(ChatUiLocalizations.pt.lastSeen('X'), 'visto por último há X');
+    });
+
+    test('copyWith overrides lastSeenTemplate', () {
+      final l10n = ChatUiLocalizations.en.copyWith(
+        lastSeenTemplate: 'seen {time} ago',
+      );
+      expect(l10n.lastSeen('2 h'), 'seen 2 h ago');
     });
   });
 

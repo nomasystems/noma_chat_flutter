@@ -234,6 +234,62 @@ void main() {
     });
   });
 
+  group('corrupted meta box entries do not crash startup', () {
+    test(
+      'create() survives a schemaVersion entry with a wrong-typed '
+      '"version" field',
+      () async {
+        await ds.saveRooms([const ChatRoom(id: 'room-1', name: 'Keep')]);
+        await ds.dispose();
+        await Hive.close();
+
+        Hive.init(tempDir.path);
+        final metaBox = await Hive.openBox<Map>('chat_meta');
+        // Simulates a partial/corrupted write leaving a scalar of the
+        // wrong type where an int is expected — e.g. a future format,
+        // or a bit flip during a previous run's `put`.
+        await metaBox.put('schemaVersion', {'version': 'not-a-number'});
+        await metaBox.close();
+        await Hive.close();
+
+        // Must not throw. Before the fix, `stored?['version'] as int?`
+        // threw synchronously inside `create()`, crashing app startup
+        // entirely instead of just falling back to "unversioned".
+        final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
+        await ds2.dispose();
+        ds = await HiveChatDatasource.create(basePath: tempDir.path);
+      },
+    );
+
+    test(
+      'create() survives a messageRoomIds entry whose "ids" is not a list',
+      () async {
+        await ds.saveMessages('room-1', [
+          ChatMessage(
+            id: 'msg-1',
+            from: 'user-1',
+            timestamp: DateTime.utc(2026),
+            text: 'hi',
+          ),
+        ]);
+        await ds.dispose();
+        await Hive.close();
+
+        Hive.init(tempDir.path);
+        final metaBox = await Hive.openBox<Map>('chat_meta');
+        await metaBox.put('messageRoomIds', {'ids': 'not-a-list'});
+        await metaBox.close();
+        await Hive.close();
+
+        // `_cleanOrphanedMessageBoxes()` reads this entry unguarded
+        // during `create()` — a bad cast here must not crash startup.
+        final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
+        await ds2.dispose();
+        ds = await HiveChatDatasource.create(basePath: tempDir.path);
+      },
+    );
+  });
+
   group('schema versioning', () {
     test('wipes data on downgrade', () async {
       await ds.saveRooms([const ChatRoom(id: 'room-1', name: 'Old Room')]);
@@ -492,6 +548,38 @@ void main() {
       expect(loaded.metadata!['bool'], true);
       expect(loaded.metadata!['list'], [1, 'two', 3.0]);
       expect((loaded.metadata!['nested'] as Map)['deep'], {'key': 'val'});
+    });
+
+    test('message attachmentId survives a cache round-trip', () async {
+      // attachmentId lets the UI re-mint a fresh signed download URL once
+      // the persisted attachmentUrl expires. If it isn't serialized to
+      // Hive, every cached attachment message loses its attachmentId the
+      // moment the app is killed and restarted, even though the message
+      // was saved under the current (0.13) schema — re-mint then falls
+      // back to attachmentIdFromUrl or fails outright.
+      // saveRooms first: on restart _cleanOrphanedMessageBoxes() wipes any
+      // message box whose roomId isn't present in the rooms box, so a
+      // room-less message box would be a false negative for this test.
+      await ds.saveRooms([const ChatRoom(id: 'room-1')]);
+      final msg = ChatMessage(
+        id: 'msg-attachment',
+        from: 'user-1',
+        timestamp: DateTime.utc(2026, 1, 1),
+        messageType: MessageType.attachment,
+        attachmentUrl: 'https://example.com/signed/abc?exp=123',
+        attachmentId: 'att-stable-id-1',
+      );
+      await ds.saveMessages('room-1', [msg]);
+
+      await ds.dispose();
+      await Hive.close();
+      final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
+
+      final loaded = (await ds2.getMessages('room-1')).dataOrNull!.first;
+      expect(loaded.attachmentId, 'att-stable-id-1');
+
+      await ds2.dispose();
+      ds = await HiveChatDatasource.create(basePath: tempDir.path);
     });
 
     test('message with only required fields roundtrips', () async {

@@ -35,4 +35,61 @@ void main() {
       expect(tapped, isTrue);
     });
   });
+
+  group('FileBubble — upload progress (R3a-6)', () {
+    testWidgets(
+      'shows a progress ring instead of the file-type icon while '
+      'uploadProgress is non-null',
+      (tester) async {
+        final progress = ValueNotifier<double>(0.7);
+        addTearDown(progress.dispose);
+        await tester.pumpWidget(
+          wrap(
+            FileBubble(
+              fileName: 'report.pdf',
+              mimeType: 'application/pdf',
+              uploadProgress: progress,
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.picture_as_pdf), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
+
+    testWidgets('disables tap-to-open while uploading', (tester) async {
+      final progress = ValueNotifier<double>(0.7);
+      addTearDown(progress.dispose);
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          FileBubble(
+            fileName: 'report.pdf',
+            uploadProgress: progress,
+            onTap: () => tapped = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('report.pdf'), warnIfMissed: false);
+      expect(tapped, isFalse);
+    });
+
+    testWidgets('shows the file-type icon again once uploadProgress clears', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const FileBubble(
+            fileName: 'report.pdf',
+            mimeType: 'application/pdf',
+            uploadProgress: null,
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.picture_as_pdf), findsOneWidget);
+    });
+  });
 }

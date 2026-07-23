@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../_internal/ui_debug_log.dart';
 import '../../controller/audio_playback_coordinator.dart';
+import '../../services/attachment_url_resolver.dart';
 import '../../theme/chat_theme.dart';
 import '../user_avatar.dart';
 import '_bubble_metadata.dart';
@@ -31,6 +32,8 @@ class AudioBubble extends StatefulWidget {
     this.showSenderPortrait = true,
     this.initialPlaybackSpeed = 1.0,
     this.onPlaybackSpeedChanged,
+    this.attachmentRef,
+    this.urlResolver,
   });
 
   final String audioUrl;
@@ -94,6 +97,17 @@ class AudioBubble extends StatefulWidget {
   /// only; voice *recording* is untouched.
   final ValueChanged<double>? onPlaybackSpeedChanged;
 
+  /// Identifies this attachment for [urlResolver]. When non-null (together
+  /// with [urlResolver]), the bubble resolves a fresh URL before playing
+  /// instead of trusting [audioUrl] forever. `null` (default) — same
+  /// behaviour as before this parameter existed.
+  final AttachmentRef? attachmentRef;
+
+  /// Resolves a playable URL for [attachmentRef] on demand, re-minting on
+  /// expiry. Called once before the first play, and once more (via the
+  /// same function) if `setSource` throws — see `_ensureInitialized`.
+  final AttachmentUrlResolver? urlResolver;
+
   @override
   State<AudioBubble> createState() => _AudioBubbleState();
 }
@@ -126,6 +140,8 @@ class _AudioBubbleState extends State<AudioBubble> {
   );
   PlayerState _playerState = PlayerState.stopped;
   bool _completedFired = false;
+  String? _resolvedUrl;
+  bool _retriedResolve = false;
 
   @override
   void initState() {
@@ -159,11 +175,34 @@ class _AudioBubbleState extends State<AudioBubble> {
     return UrlSource(url);
   }
 
+  /// Resolves the URL to actually play. With no [AudioBubble.urlResolver]
+  /// wired (the default), this is [AudioBubble.audioUrl] unchanged — zero
+  /// behaviour change from before this parameter existed. Otherwise
+  /// resolves once and caches the result for the life of this state; a
+  /// caller can force a fresh resolve by clearing [_resolvedUrl] first
+  /// (see the retry branch in [_ensureInitialized]).
+  Future<String> _resolveEffectiveUrl() async {
+    final resolver = widget.urlResolver;
+    final ref = widget.attachmentRef;
+    if (resolver == null || ref == null) return widget.audioUrl;
+    final cached = _resolvedUrl;
+    if (cached != null) return cached;
+    try {
+      final resolved = await resolver(ref);
+      _resolvedUrl = resolved;
+      return resolved;
+    } catch (_) {
+      return ref.fallbackUrl;
+    }
+  }
+
   Future<void> _ensureInitialized() async {
     if (_initialized || _hasError) return;
+    final url = await _resolveEffectiveUrl();
+    if (!mounted) return;
     _player ??= AudioPlayer();
     try {
-      await _player!.setSource(_resolveSource(widget.audioUrl));
+      await _player!.setSource(_resolveSource(url));
       // Faster position updates for a smooth waveform fill.
       await _player!.setPlayerMode(PlayerMode.mediaPlayer);
       if (mounted) setState(() => _initialized = true);
@@ -177,16 +216,23 @@ class _AudioBubbleState extends State<AudioBubble> {
       }
       _attachStateListener();
     } catch (e, st) {
+      // A resolver-backed URL may have expired since it was cached (or the
+      // signed URL was simply wrong) — re-mint once and retry before
+      // surfacing "Audio unavailable".
+      if (widget.urlResolver != null &&
+          widget.attachmentRef != null &&
+          !_retriedResolve) {
+        _retriedResolve = true;
+        _resolvedUrl = null;
+        return _ensureInitialized();
+      }
       // Surface the real cause instead of silently flipping
       // to "Audio unavailable". Most common reasons in /observa-noma:
       // the upstream file_upload service returned 404/500 (slot
       // expired, GFS misconfigured, file wiped) or the device cannot
       // reach the URL (cleartext-traffic policy in release builds,
       // host-network unreachable from a remote sim).
-      uiDebugLog(
-        'AudioBubble',
-        'setSource failed for ${widget.audioUrl}: $e\n$st',
-      );
+      uiDebugLog('AudioBubble', 'setSource failed for $url: $e\n$st');
       if (mounted) setState(() => _hasError = true);
     }
   }
@@ -232,7 +278,9 @@ class _AudioBubbleState extends State<AudioBubble> {
   @override
   void didUpdateWidget(covariant AudioBubble oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.audioUrl != widget.audioUrl) {
+    if (oldWidget.audioUrl != widget.audioUrl ||
+        oldWidget.attachmentRef?.attachmentId !=
+            widget.attachmentRef?.attachmentId) {
       _unregister();
       _stateSub?.cancel();
       _stateSub = null;
@@ -247,6 +295,8 @@ class _AudioBubbleState extends State<AudioBubble> {
       _player = null;
       _initialized = false;
       _hasError = false;
+      _resolvedUrl = null;
+      _retriedResolve = false;
     }
   }
 
@@ -322,7 +372,9 @@ class _AudioBubbleState extends State<AudioBubble> {
         // for any fresh playback. Cached internally by audioplayers,
         // so no new network fetch.
         if (completed) {
-          await _player!.setSource(_resolveSource(widget.audioUrl));
+          await _player!.setSource(
+            _resolveSource(_resolvedUrl ?? widget.audioUrl),
+          );
           // setSource may reset the playback rate on some platforms;
           // reapply.
           await _player!.setPlaybackRate(_speed);

@@ -120,6 +120,13 @@ class ContactsApi implements ChatContactsApi {
     String? attachmentUrl,
     Map<String, dynamic>? metadata,
     String? clientMessageId,
+
+    /// Set to `false` when replaying this op from [OfflineQueue.drain] —
+    /// the drain loop already owns retry/backoff for the instance it is
+    /// replaying, so enqueueing here too would leave two copies of the
+    /// same send in the queue. Defaults to `true` for every normal
+    /// (non-replay) caller.
+    bool enqueueOnFailure = true,
   }) async {
     // Always carry a clientMessageId, mirroring the room send path: the
     // server-side dedup only covers messages that have one, and it is the
@@ -186,7 +193,8 @@ class ContactsApi implements ChatContactsApi {
       // conversation surfaces and reorders immediately.
       _cacheManager?.invalidate('rooms:all');
       _cacheManager?.invalidate('rooms:unread');
-    } else if (result.isFailure &&
+    } else if (enqueueOnFailure &&
+        result.isFailure &&
         canQueueDirectSend &&
         _offlineQueue != null) {
       _offlineQueue.enqueue(

@@ -4,6 +4,7 @@ import '../../models/user.dart';
 import '../controller/chat_controller.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
+import '../utils/date_formatter.dart';
 import 'user_avatar.dart';
 
 /// Drop-in AppBar for a chat room.
@@ -144,6 +145,10 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
         }
       } else if (r.isOnline == true) {
         return theme.l10n.online;
+      } else if (r.lastSeen != null) {
+        return theme.l10n.lastSeen(
+          DateFormatter.formatRelative(r.lastSeen!, l10n: theme.l10n),
+        );
       }
     }
     return null;

@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:noma_chat/src/_internal/cache/offline_queue.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -119,5 +122,71 @@ void main() {
       expect(op.roomId, 'room-1');
       expect(op.messageId, 'msg-1');
     });
+  });
+
+  group('PendingSendAttachment base64 caching (C1)', () {
+    test('toJson caches the base64 encoding across repeated calls on the '
+        'same instance', () {
+      final bytes = Uint8List.fromList(List<int>.filled(4096, 7));
+      final op = PendingSendAttachment(
+        id: 'op-1',
+        roomId: 'room-1',
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+
+      final first = op.toJson()['bytes'] as String;
+      final second = op.toJson()['bytes'] as String;
+
+      // `OfflineQueue._persist` re-serializes the whole queue on every
+      // enqueue/drain step — without memoization each of these calls would
+      // produce a fresh String from a fresh base64Encode(bytes) pass.
+      expect(identical(first, second), isTrue);
+      expect(base64Decode(second), bytes);
+    });
+
+    test(
+      'withRetry keeps the cache hot — the retried copy reuses the same '
+      'encoded String instance since the bytes reference is unchanged',
+      () {
+        final bytes = Uint8List.fromList(List<int>.filled(4096, 3));
+        final op = PendingSendAttachment(
+          id: 'op-1',
+          roomId: 'room-1',
+          bytes: bytes,
+          mimeType: 'image/png',
+        );
+        final beforeRetry = op.toJson()['bytes'] as String;
+
+        final retried = op.withRetry(attempts: 1);
+        final afterRetry = retried.toJson()['bytes'] as String;
+
+        expect(identical(beforeRetry, afterRetry), isTrue);
+      },
+    );
+
+    test(
+      'two different PendingSendAttachment with distinct bytes instances '
+      'encode independently',
+      () {
+        final bytesA = Uint8List.fromList([1, 2, 3]);
+        final bytesB = Uint8List.fromList([4, 5, 6]);
+        final opA = PendingSendAttachment(
+          id: 'op-a',
+          roomId: 'room-1',
+          bytes: bytesA,
+          mimeType: 'image/png',
+        );
+        final opB = PendingSendAttachment(
+          id: 'op-b',
+          roomId: 'room-1',
+          bytes: bytesB,
+          mimeType: 'image/png',
+        );
+
+        expect(opA.toJson()['bytes'], base64Encode(bytesA));
+        expect(opB.toJson()['bytes'], base64Encode(bytesB));
+      },
+    );
   });
 }

@@ -98,6 +98,19 @@ class _HomePageState extends State<HomePage> {
     super.dispose();
   }
 
+  /// Demonstrates `ChatLogExporter.exportToFile`: renders `chatLogBuffer`
+  /// (wired as one of the `logSink`s in `chat_session.dart`) to a plain-text
+  /// file and shows the path. A real app would hand that path to a share
+  /// sheet (`share_plus`, `Share.shareXFiles`, ...) instead — writing the
+  /// file is the SDK's job, presenting the share UI is the host's.
+  Future<void> _exportLogs() async {
+    final path = await ChatLogExporter.exportToFile(chatLogBuffer);
+    if (!mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('Logs exported to $path')));
+  }
+
   /// Bottom sheet language picker — surfaces every code in
   /// `ChatUiLocalizations.supportedLanguageCodes` with its native
   /// label, marks the currently active one, and persists the
@@ -538,6 +551,8 @@ class _HomePageState extends State<HomePage> {
                       builder: (_) => const CatalogPage(),
                     ),
                   );
+                } else if (value == 'export_logs') {
+                  await _exportLogs();
                 } else if (value == 'logout') {
                   await widget.onLogout?.call();
                 }
@@ -558,6 +573,10 @@ class _HomePageState extends State<HomePage> {
                 const PopupMenuItem(
                   value: 'catalog',
                   child: Text('Widget Catalog'),
+                ),
+                const PopupMenuItem(
+                  value: 'export_logs',
+                  child: Text('Export logs'),
                 ),
                 if (widget.onLogout != null) ...[
                   const PopupMenuDivider(),

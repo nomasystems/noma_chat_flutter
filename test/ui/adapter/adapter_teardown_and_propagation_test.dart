@@ -13,18 +13,29 @@ void main() {
     adapter.start();
   });
 
-  group('disconnect resets connection state (resumable)', () {
-    test('clears controllers, dm mapping and active room', () async {
+  group('disconnect() default (clearRooms: false) is cache-first', () {
+    test('preserves the active room controller, dm mapping and active '
+        'room id', () async {
       client.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
       adapter.dm.registerRoom('bob', 'r1');
-      adapter.getChatController('r1');
+      final controller = adapter.getChatController('r1');
       adapter.setActiveRoom('r1');
 
       await adapter.disconnect();
 
-      expect(adapter.findChatController('r1'), isNull);
-      expect(adapter.getDmRoomId('bob'), isNull);
-      expect(adapter.activeRoomId, isNull);
+      expect(adapter.findChatController('r1'), same(controller));
+      expect(adapter.getDmRoomId('bob'), 'r1');
+      expect(adapter.activeRoomId, 'r1');
+    });
+
+    test('does not clear the room list', () async {
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      await adapter.rooms.load();
+      expect(adapter.roomListController.rooms, isNotEmpty);
+
+      await adapter.disconnect();
+
+      expect(adapter.roomListController.rooms, isNotEmpty);
     });
 
     test('keeps cross-session caches warm for reconnect', () async {
@@ -35,6 +46,26 @@ void main() {
 
       expect(adapter.findCachedUser('bob'), isNotNull);
       expect(adapter.blockedUserIds, contains('carol'));
+    });
+  });
+
+  group('disconnect(clearRooms: true) is the old eager-wipe behavior', () {
+    test('disposes controllers, clears dm mapping, active room and room '
+        'list', () async {
+      client.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      adapter.dm.registerRoom('bob', 'r1');
+      adapter.getChatController('r1');
+      adapter.setActiveRoom('r1');
+      await adapter.rooms.load();
+      expect(adapter.roomListController.rooms, isNotEmpty);
+
+      await adapter.disconnect(clearRooms: true);
+
+      expect(adapter.findChatController('r1'), isNull);
+      expect(adapter.getDmRoomId('bob'), isNull);
+      expect(adapter.activeRoomId, isNull);
+      expect(adapter.roomListController.rooms, isEmpty);
     });
   });
 

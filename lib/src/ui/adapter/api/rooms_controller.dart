@@ -15,6 +15,11 @@ final class ChatRoomsController {
   final ChatUiAdapter _a;
 
   /// Refreshes the room list (cache-then-network).
+  ///
+  /// A successful network pass is always authoritative for the caller's
+  /// complete room set — see [ChatUiAdapter.loadRooms] for the full
+  /// rationale. A failed one (network error, timeout, 5xx) never touches
+  /// the list.
   Future<ChatResult<void>> load({
     String type = 'all',
     bool forceNetwork = false,
@@ -355,4 +360,51 @@ final class ChatRoomsController {
   /// user was removed (kicked / banned).
   Future<void> deleteKicked(String roomId) =>
       _a._memberEventHandler.deleteKickedChat(roomId);
+
+  /// Opens [roomId], fetching its detail from the server when it isn't
+  /// already known to [ChatUiAdapter.roomListController] — the deep-link
+  /// case, e.g. a push notification or a shared link pointing at a room
+  /// the local list/cache hasn't synced yet.
+  ///
+  /// Returns a ready [ChatController] on success. On failure the
+  /// [ChatFailure] is typed so the host can branch instead of collapsing
+  /// every case to "this chat doesn't exist": [NotFoundFailure] (the room
+  /// truly doesn't exist, or the user isn't a member), [AuthFailure] /
+  /// [ForbiddenFailure] (session/permission problem — NOT the same as "not
+  /// found"), or [NetworkFailure] / [TimeoutFailure] (transient — retry,
+  /// don't tell the user the chat is gone).
+  ///
+  /// Pass `fetchIfMissing: false` to restrict the lookup to what's already
+  /// in the room list (returns [NotFoundFailure] instead of hitting the
+  /// network) — e.g. for a caller that wants to distinguish "known room" UI
+  /// from "unknown, would need a fetch" without paying for the round-trip.
+  Future<ChatResult<ChatController>> open(
+    String roomId, {
+    bool fetchIfMissing = true,
+  }) async {
+    if (_a.roomListController.getRoomById(roomId) != null) {
+      return ChatSuccess(_a.getChatController(roomId));
+    }
+    if (!fetchIfMissing) {
+      return const ChatFailureResult<ChatController>(NotFoundFailure());
+    }
+    // Fast-fail instead of waiting out the full `requestTimeout` (default
+    // 30s): the client already knows the realtime channel is down, so a
+    // fresh REST round-trip is very unlikely to fare any better. Only
+    // `disconnected` counts as "known offline" — `connecting` /
+    // `reconnecting` / `authenticating` are still actively trying and a
+    // REST call can succeed independently of the WS state.
+    if (_a.connectionState == ChatConnectionState.disconnected) {
+      return const ChatFailureResult<ChatController>(
+        NetworkFailure('Offline: room not fetched'),
+      );
+    }
+    final result = await _a.client.rooms.get(
+      roomId,
+      cachePolicy: CachePolicy.networkOnly,
+    );
+    if (result.isFailure) return result.castFailure<ChatController>();
+    _a._enricher.applyFetchedDetail(roomId, result.dataOrThrow);
+    return ChatSuccess(_a.getChatController(roomId));
+  }
 }

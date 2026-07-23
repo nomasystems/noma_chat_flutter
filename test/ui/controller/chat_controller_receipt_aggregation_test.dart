@@ -359,4 +359,59 @@ void main() {
       },
     );
   });
+
+  group('wholesale receipt (fromUserId == null) rank-guard (R2-12)', () {
+    test('an out-of-order delivered never regresses a read bubble', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+
+      // Backlog `delivered` for the same message arrives late — must be
+      // ignored, not flip the bubble back to a single gray double-check.
+      c.updateReceipt('m1', ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('the guard honours the message\'s own baseline receipt', () {
+      // The message already loaded as `read` from the server; no aggregated
+      // entry recorded yet. A stale wholesale `delivered` must not downgrade.
+      final c = ChatController(
+        initialMessages: [
+          ChatMessage(
+            id: 'm1',
+            from: 'me',
+            timestamp: t0,
+            text: 'm1',
+            receipt: ReceiptStatus.read,
+          ),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m1'], isNot(ReceiptStatus.delivered));
+    });
+
+    test('still advances forward (sent → delivered → read)', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      c.updateReceipt('m1', ReceiptStatus.read);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+  });
 }

@@ -159,10 +159,7 @@ void main() {
       {'type': 'room_created', 'room': null},
       {'type': 'room_created', 'room': <String, dynamic>{}},
       {'type': 'room_updated'},
-      // FUZZ-BUG-1: _parseRoomDeleted casts `reason`/`adminReason` as
-      // `String?` without `is String` guard — non-string from backend
-      // crashes. Re-enable once parser hardened.
-      // {'type': 'room_deleted', 'roomId': 'r', 'reason': 42},
+      {'type': 'room_deleted', 'roomId': 'r', 'reason': 42},
       {'type': 'typing'},
       {'type': 'typing', 'userId': 'u'},
       {'type': 'typing', 'userId': 'u', 'roomId': null, 'contactId': null},
