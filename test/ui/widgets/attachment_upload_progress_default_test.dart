@@ -162,8 +162,9 @@ void main() {
   });
 
   tearDown(() async {
-    if (!client.attachments.gate.isCompleted)
+    if (!client.attachments.gate.isCompleted) {
       client.attachments.gate.complete();
+    }
     await adapter.dispose();
     await mockClient.dispose();
   });
