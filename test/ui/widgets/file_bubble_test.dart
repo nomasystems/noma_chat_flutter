@@ -37,26 +37,23 @@ void main() {
   });
 
   group('FileBubble — upload progress (R3a-6)', () {
-    testWidgets(
-      'shows a progress ring instead of the file-type icon while '
-      'uploadProgress is non-null',
-      (tester) async {
-        final progress = ValueNotifier<double>(0.7);
-        addTearDown(progress.dispose);
-        await tester.pumpWidget(
-          wrap(
-            FileBubble(
-              fileName: 'report.pdf',
-              mimeType: 'application/pdf',
-              uploadProgress: progress,
-            ),
+    testWidgets('shows a progress ring instead of the file-type icon while '
+        'uploadProgress is non-null', (tester) async {
+      final progress = ValueNotifier<double>(0.7);
+      addTearDown(progress.dispose);
+      await tester.pumpWidget(
+        wrap(
+          FileBubble(
+            fileName: 'report.pdf',
+            mimeType: 'application/pdf',
+            uploadProgress: progress,
           ),
-        );
+        ),
+      );
 
-        expect(find.byIcon(Icons.picture_as_pdf), findsNothing);
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      },
-    );
+      expect(find.byIcon(Icons.picture_as_pdf), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
 
     testWidgets('disables tap-to-open while uploading', (tester) async {
       final progress = ValueNotifier<double>(0.7);

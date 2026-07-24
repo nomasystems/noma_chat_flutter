@@ -17,25 +17,27 @@ void main() {
   });
 
   group('resync()', () {
-    test('is a no-op before the first loadRooms ever completed — nothing '
-        'to resync yet, and it must not race the host\'s own initial load',
-        () async {
-      var loadedCount = 0;
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-        manageAppLifecycle: false,
-        onRoomsLoaded: (_) => loadedCount++,
-      );
-      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+    test(
+      'is a no-op before the first loadRooms ever completed — nothing '
+      'to resync yet, and it must not race the host\'s own initial load',
+      () async {
+        var loadedCount = 0;
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+          manageAppLifecycle: false,
+          onRoomsLoaded: (_) => loadedCount++,
+        );
+        client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
 
-      await adapter.resync();
+        await adapter.resync();
 
-      expect(loadedCount, 0);
-      expect(adapter.roomListController.rooms, isEmpty);
+        expect(loadedCount, 0);
+        expect(adapter.roomListController.rooms, isEmpty);
 
-      await adapter.dispose();
-    });
+        await adapter.dispose();
+      },
+    );
 
     test('once initialized, loads rooms from the network', () async {
       final adapter = ChatUiAdapter(
@@ -165,41 +167,38 @@ void main() {
       },
     );
 
-    test(
-      'a trigger that lands while a resync is in flight is coalesced into a '
-      'follow-up pass, not swallowed by the debounce (R2-11)',
-      () async {
-        var loadedCount = 0;
-        final adapter = ChatUiAdapter(
-          client: client,
-          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-          manageAppLifecycle: false,
-          onRoomsLoaded: (_) => loadedCount++,
-        );
-        await adapter.rooms.load();
-        expect(loadedCount, 1);
+    test('a trigger that lands while a resync is in flight is coalesced into a '
+        'follow-up pass, not swallowed by the debounce (R2-11)', () async {
+      var loadedCount = 0;
+      final adapter = ChatUiAdapter(
+        client: client,
+        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+        manageAppLifecycle: false,
+        onRoomsLoaded: (_) => loadedCount++,
+      );
+      await adapter.rooms.load();
+      expect(loadedCount, 1);
 
-        client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
 
-        // Two reconnects <5s apart: the first starts a resync that suspends
-        // on its first network await; the second lands mid-flight. The old
-        // "stamp-then-debounce" path dropped the second (2 total loads);
-        // coalescing runs a follow-up pass instead (3 total).
-        final f1 = adapter.resync();
-        final f2 = adapter.resync();
-        await Future.wait([f1, f2]);
+      // Two reconnects <5s apart: the first starts a resync that suspends
+      // on its first network await; the second lands mid-flight. The old
+      // "stamp-then-debounce" path dropped the second (2 total loads);
+      // coalescing runs a follow-up pass instead (3 total).
+      final f1 = adapter.resync();
+      final f2 = adapter.resync();
+      await Future.wait([f1, f2]);
 
-        expect(
-          loadedCount,
-          3,
-          reason:
-              'the mid-flight trigger must run a follow-up resync — a live '
-              'reconnection carries its own backlog and must not be dropped',
-        );
+      expect(
+        loadedCount,
+        3,
+        reason:
+            'the mid-flight trigger must run a follow-up resync — a live '
+            'reconnection carries its own backlog and must not be dropped',
+      );
 
-        await adapter.dispose();
-      },
-    );
+      await adapter.dispose();
+    });
 
     test(
       'a resync that THROWS (not just returns a failure) reverts its debounce '
@@ -245,210 +244,212 @@ void main() {
       },
     );
 
-    test(
-      'a trigger dropped by the time debounce is not lost — it runs '
-      'deferred once the window clears (BLOCKER/MAJOR-3)',
-      () async {
-        var loadedCount = 0;
-        final adapter = ChatUiAdapter(
-          client: client,
-          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-          manageAppLifecycle: false,
-          onRoomsLoaded: (_) => loadedCount++,
-          resyncDebounce: const Duration(milliseconds: 50),
-        );
-        await adapter.rooms.load();
-        expect(loadedCount, 1);
+    test('a trigger dropped by the time debounce is not lost — it runs '
+        'deferred once the window clears (BLOCKER/MAJOR-3)', () async {
+      var loadedCount = 0;
+      final adapter = ChatUiAdapter(
+        client: client,
+        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+        manageAppLifecycle: false,
+        onRoomsLoaded: (_) => loadedCount++,
+        resyncDebounce: const Duration(milliseconds: 50),
+      );
+      await adapter.rooms.load();
+      expect(loadedCount, 1);
 
-        client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
-        await adapter.resync();
-        expect(loadedCount, 2);
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      await adapter.resync();
+      expect(loadedCount, 2);
 
-        // Lands inside the debounce window: must not be dropped outright —
-        // it should arm a single deferred pass for the remainder of it.
-        await adapter.resync();
-        expect(
-          loadedCount,
-          2,
-          reason: 'still inside the window — no immediate network round-trip',
-        );
+      // Lands inside the debounce window: must not be dropped outright —
+      // it should arm a single deferred pass for the remainder of it.
+      await adapter.resync();
+      expect(
+        loadedCount,
+        2,
+        reason: 'still inside the window — no immediate network round-trip',
+      );
 
-        await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
 
-        expect(
-          loadedCount,
-          3,
-          reason:
-              'the debounce-dropped trigger must still run once the window '
-              'clears, catching up on whatever prompted it instead of being '
-              'silently lost',
-        );
+      expect(
+        loadedCount,
+        3,
+        reason:
+            'the debounce-dropped trigger must still run once the window '
+            'clears, catching up on whatever prompted it instead of being '
+            'silently lost',
+      );
 
-        await adapter.dispose();
-      },
-    );
+      await adapter.dispose();
+    });
 
-    test(
-      'a burst of triggers inside the same debounce window coalesces into '
-      'a single deferred pass, not one per trigger',
-      () async {
-        var loadedCount = 0;
-        final adapter = ChatUiAdapter(
-          client: client,
-          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-          manageAppLifecycle: false,
-          onRoomsLoaded: (_) => loadedCount++,
-          resyncDebounce: const Duration(milliseconds: 50),
-        );
-        await adapter.rooms.load();
-        expect(loadedCount, 1);
+    test('a burst of triggers inside the same debounce window coalesces into '
+        'a single deferred pass, not one per trigger', () async {
+      var loadedCount = 0;
+      final adapter = ChatUiAdapter(
+        client: client,
+        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+        manageAppLifecycle: false,
+        onRoomsLoaded: (_) => loadedCount++,
+        resyncDebounce: const Duration(milliseconds: 50),
+      );
+      await adapter.rooms.load();
+      expect(loadedCount, 1);
 
-        client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
-        await adapter.resync();
-        expect(loadedCount, 2);
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      await adapter.resync();
+      expect(loadedCount, 2);
 
-        await adapter.resync();
-        await adapter.resync();
-        await adapter.resync();
+      await adapter.resync();
+      await adapter.resync();
+      await adapter.resync();
 
-        await Future<void>.delayed(const Duration(milliseconds: 120));
+      await Future<void>.delayed(const Duration(milliseconds: 120));
 
-        expect(
-          loadedCount,
-          3,
-          reason:
-              'three debounced triggers in the same window must coalesce '
-              'into exactly one deferred pass, not three',
-        );
+      expect(
+        loadedCount,
+        3,
+        reason:
+            'three debounced triggers in the same window must coalesce '
+            'into exactly one deferred pass, not three',
+      );
 
-        await adapter.dispose();
-      },
-    );
+      await adapter.dispose();
+    });
   });
 
   group('connect()/start() subscription wiring', () {
-    test('client.stateChanges keeps delivering after connect() — a fresh '
-        'connect must not leave the state subscription cancelled by a '
-        'stale _cancelSubscriptions() call racing start()\'s reassignment',
-        () async {
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-        manageAppLifecycle: false,
-      );
+    test(
+      'client.stateChanges keeps delivering after connect() — a fresh '
+      'connect must not leave the state subscription cancelled by a '
+      'stale _cancelSubscriptions() call racing start()\'s reassignment',
+      () async {
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+          manageAppLifecycle: false,
+        );
 
-      await adapter.connect();
-      client.emitConnectionState(ChatConnectionState.reconnecting);
-      await Future<void>.delayed(Duration.zero);
+        await adapter.connect();
+        client.emitConnectionState(ChatConnectionState.reconnecting);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(
-        adapter.connectionStateNotifier.value,
-        ChatConnectionState.reconnecting,
-        reason:
-            'an intermediate state with no accompanying ChatEvent (as WS '
-            'connecting/authenticating/reconnecting all are) only ever '
-            'reaches connectionStateNotifier via the stateChanges '
-            'subscription — if that subscription was silently cancelled '
-            'right after being created, this value would still read '
-            'connected from the earlier ConnectedEvent.',
-      );
+        expect(
+          adapter.connectionStateNotifier.value,
+          ChatConnectionState.reconnecting,
+          reason:
+              'an intermediate state with no accompanying ChatEvent (as WS '
+              'connecting/authenticating/reconnecting all are) only ever '
+              'reaches connectionStateNotifier via the stateChanges '
+              'subscription — if that subscription was silently cancelled '
+              'right after being created, this value would still read '
+              'connected from the earlier ConnectedEvent.',
+        );
 
-      await adapter.dispose();
-    });
+        await adapter.dispose();
+      },
+    );
 
-    test('a second connect() does not leak the previous event subscription '
-        '— each event is delivered exactly once, not once per past connect',
-        () async {
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-        manageAppLifecycle: false,
-      );
+    test(
+      'a second connect() does not leak the previous event subscription '
+      '— each event is delivered exactly once, not once per past connect',
+      () async {
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+          manageAppLifecycle: false,
+        );
 
-      var reconnectedCount = 0;
-      adapter.onReconnected = () => reconnectedCount++;
+        var reconnectedCount = 0;
+        adapter.onReconnected = () => reconnectedCount++;
 
-      await adapter.connect();
-      await adapter.disconnect();
-      await adapter.connect();
-      await adapter.disconnect();
-      await adapter.connect();
-      await Future<void>.delayed(Duration.zero);
+        await adapter.connect();
+        await adapter.disconnect();
+        await adapter.connect();
+        await adapter.disconnect();
+        await adapter.connect();
+        await Future<void>.delayed(Duration.zero);
 
-      expect(
-        reconnectedCount,
-        3,
-        reason:
-            'three connects must fire onReconnected exactly three times — '
-            'a stale, never-actually-cancelled event subscription from an '
-            'earlier connect() would double- or triple-count the same '
-            'ConnectedEvent once enough reconnect cycles piled up.',
-      );
+        expect(
+          reconnectedCount,
+          3,
+          reason:
+              'three connects must fire onReconnected exactly three times — '
+              'a stale, never-actually-cancelled event subscription from an '
+              'earlier connect() would double- or triple-count the same '
+              'ConnectedEvent once enough reconnect cycles piled up.',
+        );
 
-      await adapter.dispose();
-    });
+        await adapter.dispose();
+      },
+    );
   });
 
   group('automatic reconnect-triggered resync', () {
-    test('enableReconnectResync (default true): a reconnect after rooms '
-        'have already loaded once triggers resync via the reconnect hook',
-        () async {
-      var loadedCount = 0;
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-        manageAppLifecycle: false,
-        onRoomsLoaded: (_) => loadedCount++,
-      );
+    test(
+      'enableReconnectResync (default true): a reconnect after rooms '
+      'have already loaded once triggers resync via the reconnect hook',
+      () async {
+        var loadedCount = 0;
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+          manageAppLifecycle: false,
+          onRoomsLoaded: (_) => loadedCount++,
+        );
 
-      // First connect: nothing to resync yet (rooms never loaded).
-      await adapter.connect();
-      await adapter.rooms.load();
-      expect(loadedCount, 1);
+        // First connect: nothing to resync yet (rooms never loaded).
+        await adapter.connect();
+        await adapter.rooms.load();
+        expect(loadedCount, 1);
 
-      // A drop + reconnect now has something to catch up on.
-      await adapter.disconnect();
-      await adapter.connect();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        // A drop + reconnect now has something to catch up on.
+        await adapter.disconnect();
+        await adapter.connect();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(
-        loadedCount,
-        greaterThanOrEqualTo(2),
-        reason:
-            'the reconnect must trigger an automatic resync now that rooms '
-            'have been loaded once',
-      );
+        expect(
+          loadedCount,
+          greaterThanOrEqualTo(2),
+          reason:
+              'the reconnect must trigger an automatic resync now that rooms '
+              'have been loaded once',
+        );
 
-      await adapter.dispose();
-    });
+        await adapter.dispose();
+      },
+    );
 
-    test('enableReconnectResync: false disables the automatic trigger',
-        () async {
-      var loadedCount = 0;
-      final adapter = ChatUiAdapter(
-        client: client,
-        currentUser: const ChatUser(id: 'me', displayName: 'Me'),
-        manageAppLifecycle: false,
-        enableReconnectResync: false,
-        onRoomsLoaded: (_) => loadedCount++,
-      );
+    test(
+      'enableReconnectResync: false disables the automatic trigger',
+      () async {
+        var loadedCount = 0;
+        final adapter = ChatUiAdapter(
+          client: client,
+          currentUser: const ChatUser(id: 'me', displayName: 'Me'),
+          manageAppLifecycle: false,
+          enableReconnectResync: false,
+          onRoomsLoaded: (_) => loadedCount++,
+        );
 
-      await adapter.connect();
-      await adapter.rooms.load();
-      expect(loadedCount, 1);
+        await adapter.connect();
+        await adapter.rooms.load();
+        expect(loadedCount, 1);
 
-      await adapter.disconnect();
-      await adapter.connect();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        await adapter.disconnect();
+        await adapter.connect();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(
-        loadedCount,
-        1,
-        reason: 'no automatic resync must fire beyond the explicit load',
-      );
+        expect(
+          loadedCount,
+          1,
+          reason: 'no automatic resync must fire beyond the explicit load',
+        );
 
-      await adapter.dispose();
-    });
+        await adapter.dispose();
+      },
+    );
   });
 
   group('manageAppLifecycle / lifecyclePolicy constructor wiring', () {

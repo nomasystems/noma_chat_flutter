@@ -381,8 +381,7 @@ class ChatConfig {
       authInterceptor: BearerAuthInterceptor(
         tokenProvider: tokenProvider,
         onAuthFailure: onAuthFailure,
-        logger: (level, message) =>
-            authLogs.auth(_parseLevel(level), message),
+        logger: (level, message) => authLogs.auth(_parseLevel(level), message),
         metricCallback: metricCallback,
       ),
       sseUrl: sseUrl,

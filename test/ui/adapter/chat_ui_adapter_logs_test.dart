@@ -45,7 +45,11 @@ void main() {
       );
       adapter.logger = (level, message) => calls.add((level, message));
 
-      adapter.logs!.log(ChatLogLevel.debug, ChatLogTag.attachments, 're-minted');
+      adapter.logs!.log(
+        ChatLogLevel.debug,
+        ChatLogTag.attachments,
+        're-minted',
+      );
       expect(
         calls,
         hasLength(1),

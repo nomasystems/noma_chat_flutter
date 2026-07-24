@@ -95,8 +95,7 @@ void main() {
       when(() => rest.post(any(), data: any(named: 'data'))).thenAnswer((
         invocation,
       ) async {
-        final data =
-            invocation.namedArguments[#data] as Map<String, dynamic>;
+        final data = invocation.namedArguments[#data] as Map<String, dynamic>;
         return {
           'id': 'm1',
           'from': 'u1',

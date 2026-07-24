@@ -343,61 +343,56 @@ void main() {
     },
   );
 
-  test(
-    'the REST layer reporting a NetworkFailure (client otherwise connected) '
-    'still propagates as NetworkFailure, not NotFoundFailure',
-    () async {
-      final mock = MockChatClient(currentUserId: 'me');
-      await mock.connect();
-      final client = _StubRoomsClient(
-        mock,
-        const ChatFailureResult(NetworkFailure()),
-      );
-      final adapter = ChatUiAdapter(client: client, currentUser: me);
-      addTearDown(adapter.dispose);
+  test('the REST layer reporting a NetworkFailure (client otherwise connected) '
+      'still propagates as NetworkFailure, not NotFoundFailure', () async {
+    final mock = MockChatClient(currentUserId: 'me');
+    await mock.connect();
+    final client = _StubRoomsClient(
+      mock,
+      const ChatFailureResult(NetworkFailure()),
+    );
+    final adapter = ChatUiAdapter(client: client, currentUser: me);
+    addTearDown(adapter.dispose);
 
-      final result = await adapter.rooms.open('some-room');
+    final result = await adapter.rooms.open('some-room');
 
-      expect(result.failureOrNull, isA<NetworkFailure>());
-      expect(client.rooms.getCalls, 1);
-    },
-  );
+    expect(result.failureOrNull, isA<NetworkFailure>());
+    expect(client.rooms.getCalls, 1);
+  });
 
-  test(
-    'a client that already knows it is offline (disconnected) fast-fails '
-    'without a network round-trip (R2-17)',
-    () async {
-      final mock = MockChatClient(currentUserId: 'me');
-      // Deliberately NOT connected — MockChatClient defaults to
-      // ChatConnectionState.disconnected, mirroring a cold app launch with
-      // no network before the first `connect()` succeeds.
-      final client = _StubRoomsClient(
-        mock,
-        const ChatSuccess(
-          RoomDetail(
-            id: 'some-room',
-            name: 'Should never be reached',
-            type: RoomType.group,
-            memberCount: 2,
-            userRole: RoomRole.member,
-            config: RoomConfig(allowInvitations: false),
-          ),
+  test('a client that already knows it is offline (disconnected) fast-fails '
+      'without a network round-trip (R2-17)', () async {
+    final mock = MockChatClient(currentUserId: 'me');
+    // Deliberately NOT connected — MockChatClient defaults to
+    // ChatConnectionState.disconnected, mirroring a cold app launch with
+    // no network before the first `connect()` succeeds.
+    final client = _StubRoomsClient(
+      mock,
+      const ChatSuccess(
+        RoomDetail(
+          id: 'some-room',
+          name: 'Should never be reached',
+          type: RoomType.group,
+          memberCount: 2,
+          userRole: RoomRole.member,
+          config: RoomConfig(allowInvitations: false),
         ),
-      );
-      final adapter = ChatUiAdapter(client: client, currentUser: me);
-      addTearDown(adapter.dispose);
+      ),
+    );
+    final adapter = ChatUiAdapter(client: client, currentUser: me);
+    addTearDown(adapter.dispose);
 
-      final result = await adapter.rooms.open('some-room');
+    final result = await adapter.rooms.open('some-room');
 
-      expect(result.failureOrNull, isA<NetworkFailure>());
-      expect(
-        client.rooms.getCalls,
-        0,
-        reason: 'a known-offline client must fast-fail before ever '
-            'attempting the network round-trip',
-      );
-    },
-  );
+    expect(result.failureOrNull, isA<NetworkFailure>());
+    expect(
+      client.rooms.getCalls,
+      0,
+      reason:
+          'a known-offline client must fast-fail before ever '
+          'attempting the network round-trip',
+    );
+  });
 
   test(
     'a network timeout maps to TimeoutFailure, not NotFoundFailure',

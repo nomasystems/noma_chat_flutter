@@ -66,9 +66,8 @@ class _StallingAttachmentsApi implements ChatAttachmentsApi {
 /// [_StallingAttachmentsApi] so a test can pause mid-upload — every other
 /// member forwards straight through.
 class _StallingClient implements ChatClient {
-  _StallingClient(this._delegate) : attachments = _StallingAttachmentsApi(
-    _delegate.attachments,
-  );
+  _StallingClient(this._delegate)
+    : attachments = _StallingAttachmentsApi(_delegate.attachments);
 
   final MockChatClient _delegate;
   @override
@@ -163,7 +162,8 @@ void main() {
   });
 
   tearDown(() async {
-    if (!client.attachments.gate.isCompleted) client.attachments.gate.complete();
+    if (!client.attachments.gate.isCompleted)
+      client.attachments.gate.complete();
     await adapter.dispose();
     await mockClient.dispose();
   });
@@ -251,7 +251,10 @@ void main() {
       await tester.pump();
 
       final chatView = tester.widget<ChatView>(find.byType(ChatView));
-      expect(chatView.builders.attachmentUploadProgressFor!('anything'), custom);
+      expect(
+        chatView.builders.attachmentUploadProgressFor!('anything'),
+        custom,
+      );
     },
   );
 }

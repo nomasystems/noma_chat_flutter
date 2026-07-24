@@ -305,48 +305,45 @@ void main() {
       expect(pm.length, 2);
     });
 
-    test(
-      'bootstrap applies every changed DM room in a single batch instead of '
-      'one RoomListController rebuild per room',
-      () async {
-        for (var i = 0; i < 5; i++) {
-          roomList.addRoom(RoomListItem(id: 'r$i', otherUserId: 'u$i'));
-        }
+    test('bootstrap applies every changed DM room in a single batch instead of '
+        'one RoomListController rebuild per room', () async {
+      for (var i = 0; i < 5; i++) {
+        roomList.addRoom(RoomListItem(id: 'r$i', otherUserId: 'u$i'));
+      }
 
-        when(() => api.getAll()).thenAnswer(
-          (_) async => ChatSuccess(
-            BulkPresenceResponse(
-              own: const ChatPresence(
-                userId: 'me',
-                online: true,
-                status: PresenceStatus.available,
-              ),
-              contacts: [
-                for (var i = 0; i < 5; i++)
-                  ChatPresence(
-                    userId: 'u$i',
-                    online: true,
-                    status: PresenceStatus.available,
-                  ),
-              ],
+      when(() => api.getAll()).thenAnswer(
+        (_) async => ChatSuccess(
+          BulkPresenceResponse(
+            own: const ChatPresence(
+              userId: 'me',
+              online: true,
+              status: PresenceStatus.available,
             ),
+            contacts: [
+              for (var i = 0; i < 5; i++)
+                ChatPresence(
+                  userId: 'u$i',
+                  online: true,
+                  status: PresenceStatus.available,
+                ),
+            ],
           ),
-        );
+        ),
+      );
 
-        var notifyCount = 0;
-        roomList.addListener(() => notifyCount++);
+      var notifyCount = 0;
+      roomList.addListener(() => notifyCount++);
 
-        await make().bootstrap();
+      await make().bootstrap();
 
-        // All 5 DM rooms flipped isOnline in one go — a single
-        // mergeRooms(authoritative: false) call — not 5 separate
-        // updateRoom calls (which would each sort + reindex + notify).
-        expect(notifyCount, 1);
-        for (var i = 0; i < 5; i++) {
-          expect(roomList.getRoomById('r$i')!.isOnline, isTrue);
-        }
-      },
-    );
+      // All 5 DM rooms flipped isOnline in one go — a single
+      // mergeRooms(authoritative: false) call — not 5 separate
+      // updateRoom calls (which would each sort + reindex + notify).
+      expect(notifyCount, 1);
+      for (var i = 0; i < 5; i++) {
+        expect(roomList.getRoomById('r$i')!.isOnline, isTrue);
+      }
+    });
 
     test(
       'bootstrap does not notify listeners when no room actually changed',

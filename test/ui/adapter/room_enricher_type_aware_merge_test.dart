@@ -141,7 +141,8 @@ class _ScriptedRoomsApi implements ChatRoomsApi {
 }
 
 class _ScriptedRoomsClient implements ChatClient {
-  _ScriptedRoomsClient(this._delegate) : rooms = _ScriptedRoomsApi(_delegate.rooms);
+  _ScriptedRoomsClient(this._delegate)
+    : rooms = _ScriptedRoomsApi(_delegate.rooms);
 
   final ChatClient _delegate;
   @override
@@ -252,10 +253,10 @@ void main() {
       ],
     );
     await adapter.rooms.load();
-    expect(
-      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-      {'r1', 'r2'},
-    );
+    expect(adapter.roomListController.allRooms.map((r) => r.id).toSet(), {
+      'r1',
+      'r2',
+    });
   });
 
   tearDown(() async {
@@ -263,70 +264,61 @@ void main() {
     await mock.dispose();
   });
 
-  test(
-    "load(type: 'unread') must NOT prune the read room from the shared list "
-    '(BLOCKER-2)',
-    () async {
-      // The 'unread' filtered view only ever contains r2 — r1 has nothing
-      // pending. A naive unconditional-authoritative merge would treat this
-      // as the complete set and drop r1.
-      scripted.rooms.nextNetworkResult = const UserRooms(
-        rooms: [UnreadRoom(roomId: 'r2', unreadMessages: 3)],
-      );
+  test("load(type: 'unread') must NOT prune the read room from the shared list "
+      '(BLOCKER-2)', () async {
+    // The 'unread' filtered view only ever contains r2 — r1 has nothing
+    // pending. A naive unconditional-authoritative merge would treat this
+    // as the complete set and drop r1.
+    scripted.rooms.nextNetworkResult = const UserRooms(
+      rooms: [UnreadRoom(roomId: 'r2', unreadMessages: 3)],
+    );
 
-      await adapter.rooms.load(type: 'unread', forceNetwork: true);
+    await adapter.rooms.load(type: 'unread', forceNetwork: true);
 
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-        reason:
-            'a filtered (type: unread) response is not the complete room '
-            'set, so it must only add/update rows — never prune the read '
-            'room that legitimately falls outside the filter',
-      );
-    },
-  );
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1', 'r2'},
+      reason:
+          'a filtered (type: unread) response is not the complete room '
+          'set, so it must only add/update rows — never prune the read '
+          'room that legitimately falls outside the filter',
+    );
+  });
 
-  test(
-    "load(type: 'all') with a genuinely honest response STILL prunes a room "
-    'the backend no longer reports — no regression on the existing '
-    'authoritative-prune behavior',
-    () async {
-      scripted.rooms.nextNetworkResult = const UserRooms(
-        rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
-      );
+  test("load(type: 'all') with a genuinely honest response STILL prunes a room "
+      'the backend no longer reports — no regression on the existing '
+      'authoritative-prune behavior', () async {
+    scripted.rooms.nextNetworkResult = const UserRooms(
+      rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
+    );
 
-      await adapter.rooms.load(forceNetwork: true);
+    await adapter.rooms.load(forceNetwork: true);
 
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1'},
-        reason:
-            "a complete ('all', no hasMore) authoritative response must "
-            'still prune rooms it no longer reports — the type-aware guard '
-            'must not weaken the existing cross-device-removal behavior',
-      );
-    },
-  );
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1'},
+      reason:
+          "a complete ('all', no hasMore) authoritative response must "
+          'still prune rooms it no longer reports — the type-aware guard '
+          'must not weaken the existing cross-device-removal behavior',
+    );
+  });
 
-  test(
-    'a truncated first page (hasMore: true) must NOT prune rooms past page '
-    '1 even when type is "all" (BLOCKER-2)',
-    () async {
-      scripted.rooms.nextNetworkResult = const UserRooms(
-        rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
-        hasMore: true,
-      );
+  test('a truncated first page (hasMore: true) must NOT prune rooms past page '
+      '1 even when type is "all" (BLOCKER-2)', () async {
+    scripted.rooms.nextNetworkResult = const UserRooms(
+      rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
+      hasMore: true,
+    );
 
-      await adapter.rooms.load(forceNetwork: true);
+    await adapter.rooms.load(forceNetwork: true);
 
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-        reason:
-            'a truncated page is demonstrably not the complete room set, so '
-            'r2 (which simply landed on a later page) must survive',
-      );
-    },
-  );
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1', 'r2'},
+      reason:
+          'a truncated page is demonstrably not the complete room set, so '
+          'r2 (which simply landed on a later page) must survive',
+    );
+  });
 }

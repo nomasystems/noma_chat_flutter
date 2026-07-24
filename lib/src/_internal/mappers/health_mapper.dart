@@ -5,9 +5,9 @@ class HealthMapper {
   static HealthStatus fromJson(Map<String, dynamic> json) => HealthStatus(
     status: json['status'] == 'ok' ? ServiceStatus.ok : ServiceStatus.degraded,
     checks:
-        jsonMapOrNull(json['checks'])?.map(
-          (k, v) => MapEntry(k, v.toString()),
-        ) ??
+        jsonMapOrNull(
+          json['checks'],
+        )?.map((k, v) => MapEntry(k, v.toString())) ??
         {},
   );
 }

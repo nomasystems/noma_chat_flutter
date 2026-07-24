@@ -892,45 +892,47 @@ void main() {
     });
 
     group('authenticating state', () {
-      test('emitted between channel-ready and auth_ok, then connected',
-          () async {
-        late _FakeWebSocketChannel fakeChannel;
-        final config = ChatConfig(
-          baseUrl: 'http://localhost:8077/v1',
-          realtimeUrl: 'http://localhost:8077',
-          tokenProvider: () async => 'test-token',
-        );
-        final transport = WsTransport(
-          config: config,
-          channelFactory: (uri) {
-            fakeChannel = _FakeWebSocketChannel();
-            return fakeChannel;
-          },
-        );
+      test(
+        'emitted between channel-ready and auth_ok, then connected',
+        () async {
+          late _FakeWebSocketChannel fakeChannel;
+          final config = ChatConfig(
+            baseUrl: 'http://localhost:8077/v1',
+            realtimeUrl: 'http://localhost:8077',
+            tokenProvider: () async => 'test-token',
+          );
+          final transport = WsTransport(
+            config: config,
+            channelFactory: (uri) {
+              fakeChannel = _FakeWebSocketChannel();
+              return fakeChannel;
+            },
+          );
 
-        final states = <ChatConnectionState>[];
-        final sub = transport.stateChanges.listen(states.add);
+          final states = <ChatConnectionState>[];
+          final sub = transport.stateChanges.listen(states.add);
 
-        final connectFuture = transport.connect();
-        await Future<void>.delayed(Duration.zero);
-        expect(transport.state, ChatConnectionState.authenticating);
-        expect(transport.state.isWorking, isTrue);
+          final connectFuture = transport.connect();
+          await Future<void>.delayed(Duration.zero);
+          expect(transport.state, ChatConnectionState.authenticating);
+          expect(transport.state.isWorking, isTrue);
 
-        fakeChannel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
-        await connectFuture;
+          fakeChannel.receiveMessage(jsonEncode({'type': 'auth_ok'}));
+          await connectFuture;
 
-        expect(
-          states,
-          containsAllInOrder([
-            ChatConnectionState.connecting,
-            ChatConnectionState.authenticating,
-            ChatConnectionState.connected,
-          ]),
-        );
+          expect(
+            states,
+            containsAllInOrder([
+              ChatConnectionState.connecting,
+              ChatConnectionState.authenticating,
+              ChatConnectionState.connected,
+            ]),
+          );
 
-        await sub.cancel();
-        await transport.dispose();
-      });
+          await sub.cancel();
+          await transport.dispose();
+        },
+      );
 
       test('a reentrant connect() during the handshake window does not '
           'open a parallel socket', () async {
@@ -968,8 +970,7 @@ void main() {
     });
 
     group('pong watchdog', () {
-      test('forces a reconnect when the peer never answers a ping',
-          () async {
+      test('forces a reconnect when the peer never answers a ping', () async {
         final channels = <_FakeWebSocketChannel>[];
         final config = ChatConfig(
           baseUrl: 'http://localhost:8077/v1',
@@ -1084,8 +1085,7 @@ void main() {
     });
 
     group('resume liveness probe (verifyLiveness)', () {
-      test(
-          'a zombie socket is detected on resume and forced through a real '
+      test('a zombie socket is detected on resume and forced through a real '
           'reconnect that re-emits ConnectedEvent', () async {
         final channels = <_FakeWebSocketChannel>[];
         final config = ChatConfig(
@@ -1136,13 +1136,15 @@ void main() {
         expect(
           channels,
           hasLength(2),
-          reason: 'the resume probe must reconnect a zombie socket instead of '
+          reason:
+              'the resume probe must reconnect a zombie socket instead of '
               'trusting the stale connected state',
         );
         expect(
           connectedEvents,
           2,
-          reason: 'the forced reconnect must re-emit ConnectedEvent so the '
+          reason:
+              'the forced reconnect must re-emit ConnectedEvent so the '
               'router runs the presence bootstrap + resync',
         );
 
@@ -1150,8 +1152,7 @@ void main() {
         await transport.dispose();
       });
 
-      test(
-          'a live socket answers the resume probe — no reconnect and no extra '
+      test('a live socket answers the resume probe — no reconnect and no extra '
           'ConnectedEvent', () async {
         final channels = <_FakeWebSocketChannel>[];
         final config = ChatConfig(
@@ -1166,8 +1167,10 @@ void main() {
         final transport = WsTransport(
           config: config,
           channelFactory: (uri) {
-            final channel =
-                _FakeWebSocketChannel(autoAuthOk: true, autoPong: true);
+            final channel = _FakeWebSocketChannel(
+              autoAuthOk: true,
+              autoPong: true,
+            );
             channels.add(channel);
             return channel;
           },
@@ -1207,46 +1210,48 @@ void main() {
     });
 
     group('reconnect backoff tunables', () {
-      test('wsMaxReconnectDelay caps the delay even with a large base',
-          () async {
-        final channels = <_FakeWebSocketChannel>[];
-        final config = ChatConfig(
-          baseUrl: 'http://localhost:8077/v1',
-          realtimeUrl: 'http://localhost:8077',
-          tokenProvider: () async => 'test-token',
-          // Deliberately huge so an uncapped exponential backoff would take
-          // far longer than the test timeout to reconnect.
-          wsReconnectDelay: const Duration(seconds: 10),
-          wsMaxReconnectDelay: const Duration(milliseconds: 30),
-          wsReconnectJitterMs: 0,
-        );
+      test(
+        'wsMaxReconnectDelay caps the delay even with a large base',
+        () async {
+          final channels = <_FakeWebSocketChannel>[];
+          final config = ChatConfig(
+            baseUrl: 'http://localhost:8077/v1',
+            realtimeUrl: 'http://localhost:8077',
+            tokenProvider: () async => 'test-token',
+            // Deliberately huge so an uncapped exponential backoff would take
+            // far longer than the test timeout to reconnect.
+            wsReconnectDelay: const Duration(seconds: 10),
+            wsMaxReconnectDelay: const Duration(milliseconds: 30),
+            wsReconnectJitterMs: 0,
+          );
 
-        final transport = WsTransport(
-          config: config,
-          channelFactory: (uri) {
-            final channel = _FakeWebSocketChannel(autoAuthOk: true);
-            channels.add(channel);
-            return channel;
-          },
-        );
+          final transport = WsTransport(
+            config: config,
+            channelFactory: (uri) {
+              final channel = _FakeWebSocketChannel(autoAuthOk: true);
+              channels.add(channel);
+              return channel;
+            },
+          );
 
-        await transport.connect();
-        await channels.first.simulateDrop();
+          await transport.connect();
+          await channels.first.simulateDrop();
 
-        for (var i = 0; i < 200 && channels.length < 2; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+          for (var i = 0; i < 200 && channels.length < 2; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          }
 
-        expect(
-          channels,
-          hasLength(2),
-          reason:
-              'wsMaxReconnectDelay must cap the exponential backoff — an '
-              'uncapped 10s base would never reconnect within this wait',
-        );
+          expect(
+            channels,
+            hasLength(2),
+            reason:
+                'wsMaxReconnectDelay must cap the exponential backoff — an '
+                'uncapped 10s base would never reconnect within this wait',
+          );
 
-        await transport.dispose();
-      });
+          await transport.dispose();
+        },
+      );
     });
   });
 }

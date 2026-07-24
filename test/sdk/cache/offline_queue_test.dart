@@ -145,48 +145,42 @@ void main() {
       expect(base64Decode(second), bytes);
     });
 
-    test(
-      'withRetry keeps the cache hot — the retried copy reuses the same '
-      'encoded String instance since the bytes reference is unchanged',
-      () {
-        final bytes = Uint8List.fromList(List<int>.filled(4096, 3));
-        final op = PendingSendAttachment(
-          id: 'op-1',
-          roomId: 'room-1',
-          bytes: bytes,
-          mimeType: 'image/png',
-        );
-        final beforeRetry = op.toJson()['bytes'] as String;
+    test('withRetry keeps the cache hot — the retried copy reuses the same '
+        'encoded String instance since the bytes reference is unchanged', () {
+      final bytes = Uint8List.fromList(List<int>.filled(4096, 3));
+      final op = PendingSendAttachment(
+        id: 'op-1',
+        roomId: 'room-1',
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+      final beforeRetry = op.toJson()['bytes'] as String;
 
-        final retried = op.withRetry(attempts: 1);
-        final afterRetry = retried.toJson()['bytes'] as String;
+      final retried = op.withRetry(attempts: 1);
+      final afterRetry = retried.toJson()['bytes'] as String;
 
-        expect(identical(beforeRetry, afterRetry), isTrue);
-      },
-    );
+      expect(identical(beforeRetry, afterRetry), isTrue);
+    });
 
-    test(
-      'two different PendingSendAttachment with distinct bytes instances '
-      'encode independently',
-      () {
-        final bytesA = Uint8List.fromList([1, 2, 3]);
-        final bytesB = Uint8List.fromList([4, 5, 6]);
-        final opA = PendingSendAttachment(
-          id: 'op-a',
-          roomId: 'room-1',
-          bytes: bytesA,
-          mimeType: 'image/png',
-        );
-        final opB = PendingSendAttachment(
-          id: 'op-b',
-          roomId: 'room-1',
-          bytes: bytesB,
-          mimeType: 'image/png',
-        );
+    test('two different PendingSendAttachment with distinct bytes instances '
+        'encode independently', () {
+      final bytesA = Uint8List.fromList([1, 2, 3]);
+      final bytesB = Uint8List.fromList([4, 5, 6]);
+      final opA = PendingSendAttachment(
+        id: 'op-a',
+        roomId: 'room-1',
+        bytes: bytesA,
+        mimeType: 'image/png',
+      );
+      final opB = PendingSendAttachment(
+        id: 'op-b',
+        roomId: 'room-1',
+        bytes: bytesB,
+        mimeType: 'image/png',
+      );
 
-        expect(opA.toJson()['bytes'], base64Encode(bytesA));
-        expect(opB.toJson()['bytes'], base64Encode(bytesB));
-      },
-    );
+      expect(opA.toJson()['bytes'], base64Encode(bytesA));
+      expect(opB.toJson()['bytes'], base64Encode(bytesB));
+    });
   });
 }

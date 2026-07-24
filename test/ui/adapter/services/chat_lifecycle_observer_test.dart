@@ -10,8 +10,7 @@ void main() {
     // path is genuinely exercised (mirrors a `ChatUiAdapter` built inside a
     // plain SDK unit test that never called
     // `TestWidgetsFlutterBinding.ensureInitialized()`).
-    test('attach()/detach() are safe no-ops without a Flutter binding',
-        () {
+    test('attach()/detach() are safe no-ops without a Flutter binding', () {
       var resumeCalls = 0;
       final observer = ChatLifecycleObserver(
         policy: const ChatLifecyclePolicy.standard(),
@@ -52,61 +51,71 @@ void main() {
       expect(resumeCalls, 0);
     });
 
-    test('paused never calls onPause under the standard (keepAlive) policy',
-        () async {
-      var pauseCalls = 0;
-      final observer = ChatLifecycleObserver(
-        policy: const ChatLifecyclePolicy.standard(),
-        onResume: () {},
-        onPause: () => pauseCalls++,
-      );
+    test(
+      'paused never calls onPause under the standard (keepAlive) policy',
+      () async {
+        var pauseCalls = 0;
+        final observer = ChatLifecycleObserver(
+          policy: const ChatLifecyclePolicy.standard(),
+          onResume: () {},
+          onPause: () => pauseCalls++,
+        );
 
-      observer.didChangeAppLifecycleState(AppLifecycleState.paused);
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+        observer.didChangeAppLifecycleState(AppLifecycleState.paused);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      expect(pauseCalls, 0);
-    });
+        expect(pauseCalls, 0);
+      },
+    );
 
-    test('paused calls onPause after pauseGracePeriod under pushOptimized',
-        () async {
-      var pauseCalls = 0;
-      final observer = ChatLifecycleObserver(
-        policy: const ChatLifecyclePolicy(
-          onPause: ChatPauseAction.disconnect,
-          pauseGracePeriod: Duration(milliseconds: 20),
-        ),
-        onResume: () {},
-        onPause: () => pauseCalls++,
-      );
+    test(
+      'paused calls onPause after pauseGracePeriod under pushOptimized',
+      () async {
+        var pauseCalls = 0;
+        final observer = ChatLifecycleObserver(
+          policy: const ChatLifecyclePolicy(
+            onPause: ChatPauseAction.disconnect,
+            pauseGracePeriod: Duration(milliseconds: 20),
+          ),
+          onResume: () {},
+          onPause: () => pauseCalls++,
+        );
 
-      observer.didChangeAppLifecycleState(AppLifecycleState.paused);
-      expect(pauseCalls, 0, reason: 'must wait for the grace period');
+        observer.didChangeAppLifecycleState(AppLifecycleState.paused);
+        expect(pauseCalls, 0, reason: 'must wait for the grace period');
 
-      await Future<void>.delayed(const Duration(milliseconds: 60));
-      expect(pauseCalls, 1);
-    });
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        expect(pauseCalls, 1);
+      },
+    );
 
-    test('a resume within the grace period cancels the pending onPause',
-        () async {
-      var pauseCalls = 0;
-      var resumeCalls = 0;
-      final observer = ChatLifecycleObserver(
-        policy: const ChatLifecyclePolicy(
-          onPause: ChatPauseAction.disconnect,
-          pauseGracePeriod: Duration(milliseconds: 30),
-        ),
-        onResume: () => resumeCalls++,
-        onPause: () => pauseCalls++,
-      );
+    test(
+      'a resume within the grace period cancels the pending onPause',
+      () async {
+        var pauseCalls = 0;
+        var resumeCalls = 0;
+        final observer = ChatLifecycleObserver(
+          policy: const ChatLifecyclePolicy(
+            onPause: ChatPauseAction.disconnect,
+            pauseGracePeriod: Duration(milliseconds: 30),
+          ),
+          onResume: () => resumeCalls++,
+          onPause: () => pauseCalls++,
+        );
 
-      observer.didChangeAppLifecycleState(AppLifecycleState.paused);
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-      observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
-      await Future<void>.delayed(const Duration(milliseconds: 60));
+        observer.didChangeAppLifecycleState(AppLifecycleState.paused);
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        observer.didChangeAppLifecycleState(AppLifecycleState.resumed);
+        await Future<void>.delayed(const Duration(milliseconds: 60));
 
-      expect(pauseCalls, 0, reason: 'the grace-period timer must be cancelled');
-      expect(resumeCalls, 1);
-    });
+        expect(
+          pauseCalls,
+          0,
+          reason: 'the grace-period timer must be cancelled',
+        );
+        expect(resumeCalls, 1);
+      },
+    );
 
     test('a second paused restarts the grace-period timer', () async {
       var pauseCalls = 0;

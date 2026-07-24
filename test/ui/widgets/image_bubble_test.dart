@@ -78,25 +78,22 @@ void main() {
       expect(tapped, isFalse);
     });
 
-    testWidgets(
-      'renders the real image and re-enables tap once uploadProgress '
-      'clears',
-      (tester) async {
-        var tapped = false;
-        await tester.pumpWidget(
-          wrap(
-            ImageBubble(
-              imageUrl: 'https://example.com/photo.jpg',
-              uploadProgress: null,
-              onTap: () => tapped = true,
-            ),
+    testWidgets('renders the real image and re-enables tap once uploadProgress '
+        'clears', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          ImageBubble(
+            imageUrl: 'https://example.com/photo.jpg',
+            uploadProgress: null,
+            onTap: () => tapped = true,
           ),
-        );
+        ),
+      );
 
-        expect(find.byType(CachedNetworkImage), findsOneWidget);
-        await tester.tap(find.byType(CachedNetworkImage));
-        expect(tapped, isTrue);
-      },
-    );
+      expect(find.byType(CachedNetworkImage), findsOneWidget);
+      await tester.tap(find.byType(CachedNetworkImage));
+      expect(tapped, isTrue);
+    });
   });
 }

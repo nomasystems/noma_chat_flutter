@@ -436,7 +436,9 @@ class MockRoomsApi implements ChatRoomsApi {
   }) async {
     if (failNextGetUserRooms && cachePolicy == CachePolicy.networkOnly) {
       failNextGetUserRooms = false;
-      return const ChatFailureResult(NetworkFailure('mock getUserRooms failure'));
+      return const ChatFailureResult(
+        NetworkFailure('mock getUserRooms failure'),
+      );
     }
     final rooms = _client._rooms.values.map((r) {
       final msgs = _client._messages[r.id] ?? const <ChatMessage>[];

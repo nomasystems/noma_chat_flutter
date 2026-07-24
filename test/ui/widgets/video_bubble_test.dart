@@ -39,20 +39,17 @@ void main() {
   });
 
   group('VideoBubble — upload progress (R3a-6)', () {
-    testWidgets(
-      'shows a progress placeholder instead of the play icon while '
-      'uploadProgress is non-null',
-      (tester) async {
-        final progress = ValueNotifier<double>(0.2);
-        addTearDown(progress.dispose);
-        await tester.pumpWidget(
-          wrap(VideoBubble(videoUrl: '', uploadProgress: progress)),
-        );
+    testWidgets('shows a progress placeholder instead of the play icon while '
+        'uploadProgress is non-null', (tester) async {
+      final progress = ValueNotifier<double>(0.2);
+      addTearDown(progress.dispose);
+      await tester.pumpWidget(
+        wrap(VideoBubble(videoUrl: '', uploadProgress: progress)),
+      );
 
-        expect(find.byIcon(Icons.play_arrow), findsNothing);
-        expect(find.byType(CircularProgressIndicator), findsOneWidget);
-      },
-    );
+      expect(find.byIcon(Icons.play_arrow), findsNothing);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    });
 
     testWidgets('disables tap-to-open while uploading', (tester) async {
       final progress = ValueNotifier<double>(0.2);

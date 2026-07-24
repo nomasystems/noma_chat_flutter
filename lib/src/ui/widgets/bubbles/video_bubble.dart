@@ -152,8 +152,7 @@ class _VideoBubbleState extends State<VideoBubble> {
                             placeholder: (_, __) => Container(
                               height: theme.videoHeight ?? 180,
                               color:
-                                  theme.videoPlaceholderColor ??
-                                  Colors.black26,
+                                  theme.videoPlaceholderColor ?? Colors.black26,
                             ),
                             errorWidget: (_, __, ___) {
                               _retryAfterError();
@@ -175,7 +174,8 @@ class _VideoBubbleState extends State<VideoBubble> {
                           Container(
                             height: theme.videoHeight ?? 180,
                             width: double.infinity,
-                            color: theme.videoPlaceholderColor ?? Colors.black26,
+                            color:
+                                theme.videoPlaceholderColor ?? Colors.black26,
                             child: const Icon(
                               Icons.videocam,
                               color: Colors.white54,

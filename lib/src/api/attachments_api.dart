@@ -113,8 +113,8 @@ class AttachmentsApi implements ChatAttachmentsApi {
     _logs?.attach(
       ChatLogLevel.warn,
       'attachments.download called without roomId — this legacy path is '
-          'deprecated and the backend will reject it (403 not_a_room_member). '
-          'Pass roomId to use the signed-URL flow.',
+      'deprecated and the backend will reject it (403 not_a_room_member). '
+      'Pass roomId to use the signed-URL flow.',
     );
     return _rest.downloadBinary(
       '/attachments/$attachmentId',

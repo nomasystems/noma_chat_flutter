@@ -287,10 +287,10 @@ void main() {
         adapter.connectionStateNotifier.value,
         ChatConnectionState.connected,
       );
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-      );
+      expect(adapter.roomListController.allRooms.map((r) => r.id).toSet(), {
+        'r1',
+        'r2',
+      });
     });
 
     tearDown(() async {
@@ -298,185 +298,173 @@ void main() {
       await mock.dispose();
     });
 
-    test(
-      'a stale background revalidation that resolves AFTER a newer '
-      'forceNetwork fetch already confirmed the room must not re-prune it '
-      '(fix-de-fondo: monotonic seq gate)',
-      () async {
-        // The next `rooms.load()` takes the trust-the-cache fast path and
-        // fires an unawaited background revalidation. Script that
-        // revalidation's response to omit r2 — as if the backend, at the
-        // time THIS fetch was dispatched, no longer listed it — but stall
-        // it on `staleGate` so it doesn't actually land yet.
-        final staleGate = Completer<void>();
-        scripted.rooms.nextNetworkResult = const UserRooms(
-          rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
-        );
-        scripted.rooms.nextNetworkGate = staleGate;
+    test('a stale background revalidation that resolves AFTER a newer '
+        'forceNetwork fetch already confirmed the room must not re-prune it '
+        '(fix-de-fondo: monotonic seq gate)', () async {
+      // The next `rooms.load()` takes the trust-the-cache fast path and
+      // fires an unawaited background revalidation. Script that
+      // revalidation's response to omit r2 — as if the backend, at the
+      // time THIS fetch was dispatched, no longer listed it — but stall
+      // it on `staleGate` so it doesn't actually land yet.
+      final staleGate = Completer<void>();
+      scripted.rooms.nextNetworkResult = const UserRooms(
+        rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
+      );
+      scripted.rooms.nextNetworkGate = staleGate;
 
-        await adapter.rooms.load();
+      await adapter.rooms.load();
 
-        // A forceNetwork fetch starts AFTER the stale one was dispatched
-        // and — unlike it — resolves immediately, confirming BOTH rooms are
-        // still current. This is the fresher pass.
-        scripted.rooms.nextNetworkResult = const UserRooms(
-          rooms: [
-            UnreadRoom(roomId: 'r1', unreadMessages: 0),
-            UnreadRoom(roomId: 'r2', unreadMessages: 0),
-          ],
-        );
-        final freshResult = await adapter.rooms.load(forceNetwork: true);
-        expect(freshResult.isSuccess, isTrue);
-        expect(
-          adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-          {'r1', 'r2'},
-        );
+      // A forceNetwork fetch starts AFTER the stale one was dispatched
+      // and — unlike it — resolves immediately, confirming BOTH rooms are
+      // still current. This is the fresher pass.
+      scripted.rooms.nextNetworkResult = const UserRooms(
+        rooms: [
+          UnreadRoom(roomId: 'r1', unreadMessages: 0),
+          UnreadRoom(roomId: 'r2', unreadMessages: 0),
+        ],
+      );
+      final freshResult = await adapter.rooms.load(forceNetwork: true);
+      expect(freshResult.isSuccess, isTrue);
+      expect(adapter.roomListController.allRooms.map((r) => r.id).toSet(), {
+        'r1',
+        'r2',
+      });
 
-        // Only now does the stale (older) background revalidation resolve.
-        staleGate.complete();
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+      // Only now does the stale (older) background revalidation resolve.
+      staleGate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        expect(
-          adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-          {'r1', 'r2'},
-          reason:
-              'the stale pass omitted r2, but it was dispatched before — and '
-              'resolved after — a fresher fetch that already confirmed r2; '
-              'an out-of-order result must never undo what a newer pass '
-              'already established',
-        );
-      },
-    );
+      expect(
+        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+        {'r1', 'r2'},
+        reason:
+            'the stale pass omitted r2, but it was dispatched before — and '
+            'resolved after — a fresher fetch that already confirmed r2; '
+            'an out-of-order result must never undo what a newer pass '
+            'already established',
+      );
+    });
 
-    test(
-      'a genuinely fresher full snapshot still prunes a room the backend no '
-      'longer reports — the seq gate never blocks in-order authoritative '
-      'pruning (no regression)',
-      () async {
-        scripted.rooms.nextNetworkResult = const UserRooms(
-          rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
-        );
+    test('a genuinely fresher full snapshot still prunes a room the backend no '
+        'longer reports — the seq gate never blocks in-order authoritative '
+        'pruning (no regression)', () async {
+      scripted.rooms.nextNetworkResult = const UserRooms(
+        rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
+      );
 
-        final result = await adapter.rooms.load(forceNetwork: true);
+      final result = await adapter.rooms.load(forceNetwork: true);
 
-        expect(result.isSuccess, isTrue);
-        expect(
-          adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-          {'r1'},
-        );
-      },
-    );
+      expect(result.isSuccess, isTrue);
+      expect(adapter.roomListController.allRooms.map((r) => r.id).toSet(), {
+        'r1',
+      });
+    });
   });
 
   group('DM dedupe under a partial/paginated view', () {
-    test(
-      'a duplicate-DM eviction discovered while resolving a filtered/'
-      'truncated page suppresses the loser from the visible list but does '
-      'NOT evict it from the persistent cache — a later complete snapshot '
-      'can still reconcile it (fix-de-fondo: representsCompleteSet gate '
-      'applies to the DM dedupe path too)',
-      () async {
-        final mock = MockChatClient(currentUserId: 'me');
-        final scripted = _ScriptedGatedRoomsClient(mock);
-        final cache = _RecordingCache();
-        final adapter = ChatUiAdapter(
-          client: scripted,
-          currentUser: me,
-          cache: cache,
-          manageAppLifecycle: false,
-          // MockRoomsApi.get always returns RoomType.group. Drive DM
-          // detection by member count instead so the dedupe path runs.
-          isDmRoom: (detail) => detail.memberCount == 2,
-        );
-        adapter.start();
-        mock.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
-        mock.seedRoom(
-          const ChatRoom(id: 'room-old', members: ['me', 'bob']),
-        );
+    test('a duplicate-DM eviction discovered while resolving a filtered/'
+        'truncated page suppresses the loser from the visible list but does '
+        'NOT evict it from the persistent cache — a later complete snapshot '
+        'can still reconcile it (fix-de-fondo: representsCompleteSet gate '
+        'applies to the DM dedupe path too)', () async {
+      final mock = MockChatClient(currentUserId: 'me');
+      final scripted = _ScriptedGatedRoomsClient(mock);
+      final cache = _RecordingCache();
+      final adapter = ChatUiAdapter(
+        client: scripted,
+        currentUser: me,
+        cache: cache,
+        manageAppLifecycle: false,
+        // MockRoomsApi.get always returns RoomType.group. Drive DM
+        // detection by member count instead so the dedupe path runs.
+        isDmRoom: (detail) => detail.memberCount == 2,
+      );
+      adapter.start();
+      mock.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
+      mock.seedRoom(const ChatRoom(id: 'room-old', members: ['me', 'bob']));
 
-        // Bootstrap with only `room-old` in play — a single DM room, no
-        // duplicate yet, so the mapping binds deterministically.
-        await adapter.rooms.load();
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-        expect(adapter.dm.getRoomId('bob'), 'room-old');
+      // Bootstrap with only `room-old` in play — a single DM room, no
+      // duplicate yet, so the mapping binds deterministically.
+      await adapter.rooms.load();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+      expect(adapter.dm.getRoomId('bob'), 'room-old');
 
-        // A second DM room for the same contact shows up (the usual
-        // find-existing-DM-vs-background-resolution race). Surface it via a
-        // TRUNCATED page (`hasMore: true`) — the client can tell this fetch
-        // is not the caller's complete room set. The cache-only phase is
-        // scripted to still see only `room-old` — `MockRoomsApi` otherwise
-        // ignores `cachePolicy` and would leak `room-new-empty` into that
-        // non-authoritative pass, resolving the dedupe there (already
-        // always gated) instead of in the authoritative-but-partial network
-        // phase this test targets.
-        mock.seedRoom(
-          const ChatRoom(id: 'room-new-empty', members: ['me', 'bob']),
-        );
-        scripted.rooms.nextCacheOnlyResult = const UserRooms(
-          rooms: [UnreadRoom(roomId: 'room-old', unreadMessages: 0)],
-        );
-        scripted.rooms.nextNetworkResult = const UserRooms(
-          rooms: [UnreadRoom(roomId: 'room-new-empty', unreadMessages: 1)],
-          hasMore: true,
-        );
-        await adapter.rooms.load(forceNetwork: true);
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+      // A second DM room for the same contact shows up (the usual
+      // find-existing-DM-vs-background-resolution race). Surface it via a
+      // TRUNCATED page (`hasMore: true`) — the client can tell this fetch
+      // is not the caller's complete room set. The cache-only phase is
+      // scripted to still see only `room-old` — `MockRoomsApi` otherwise
+      // ignores `cachePolicy` and would leak `room-new-empty` into that
+      // non-authoritative pass, resolving the dedupe there (already
+      // always gated) instead of in the authoritative-but-partial network
+      // phase this test targets.
+      mock.seedRoom(
+        const ChatRoom(id: 'room-new-empty', members: ['me', 'bob']),
+      );
+      scripted.rooms.nextCacheOnlyResult = const UserRooms(
+        rooms: [UnreadRoom(roomId: 'room-old', unreadMessages: 0)],
+      );
+      scripted.rooms.nextNetworkResult = const UserRooms(
+        rooms: [UnreadRoom(roomId: 'room-new-empty', unreadMessages: 1)],
+        hasMore: true,
+      );
+      await adapter.rooms.load(forceNetwork: true);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
 
-        expect(
-          cache.deleteRoomCalls,
-          0,
-          reason:
-              'a truncated page is not the complete room set — the dedupe '
-              'loser must not be permanently evicted from the cache on its '
-              'say-so alone',
-        );
-        expect(
-          cache.deleteRoomDetailCalls,
-          0,
-          reason: 'same as above for the detail cache entry',
-        );
+      expect(
+        cache.deleteRoomCalls,
+        0,
+        reason:
+            'a truncated page is not the complete room set — the dedupe '
+            'loser must not be permanently evicted from the cache on its '
+            'say-so alone',
+      );
+      expect(
+        cache.deleteRoomDetailCalls,
+        0,
+        reason: 'same as above for the detail cache entry',
+      );
 
-        final dmRoomsAfterPartial = adapter.roomListController.allRooms
-            .where((r) => r.otherUserId == 'bob')
-            .map((r) => r.id)
-            .toSet();
-        expect(
-          dmRoomsAfterPartial.length,
-          1,
-          reason:
-              'the loser is still suppressed from the VISIBLE list — '
-              'showing both rows would never be correct',
-        );
+      final dmRoomsAfterPartial = adapter.roomListController.allRooms
+          .where((r) => r.otherUserId == 'bob')
+          .map((r) => r.id)
+          .toSet();
+      expect(
+        dmRoomsAfterPartial.length,
+        1,
+        reason:
+            'the loser is still suppressed from the VISIBLE list — '
+            'showing both rows would never be correct',
+      );
 
-        // A later, genuinely complete snapshot re-lists BOTH rooms (the
-        // loser was never actually deleted server-side, and the client
-        // never told the server to delete it either — it only hid it).
-        scripted.rooms.nextNetworkResult = const UserRooms(
-          rooms: [
-            UnreadRoom(roomId: 'room-old', unreadMessages: 0),
-            UnreadRoom(roomId: 'room-new-empty', unreadMessages: 1),
-          ],
-        );
-        await adapter.rooms.load(forceNetwork: true);
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+      // A later, genuinely complete snapshot re-lists BOTH rooms (the
+      // loser was never actually deleted server-side, and the client
+      // never told the server to delete it either — it only hid it).
+      scripted.rooms.nextNetworkResult = const UserRooms(
+        rooms: [
+          UnreadRoom(roomId: 'room-old', unreadMessages: 0),
+          UnreadRoom(roomId: 'room-new-empty', unreadMessages: 1),
+        ],
+      );
+      await adapter.rooms.load(forceNetwork: true);
+      await Future<void>.delayed(const Duration(milliseconds: 30));
 
-        expect(
-          cache.deleteRoomCalls,
-          greaterThan(0),
-          reason:
-              'once a complete, authoritative snapshot resolves the same '
-              'duplicate, the eviction DOES persist — the row was never '
-              'permanently lost, only deferred until a trustworthy pass',
-        );
-        final dmRoomsAfterComplete = adapter.roomListController.allRooms
-            .where((r) => r.otherUserId == 'bob')
-            .map((r) => r.id)
-            .toSet();
-        expect(dmRoomsAfterComplete.length, 1);
+      expect(
+        cache.deleteRoomCalls,
+        greaterThan(0),
+        reason:
+            'once a complete, authoritative snapshot resolves the same '
+            'duplicate, the eviction DOES persist — the row was never '
+            'permanently lost, only deferred until a trustworthy pass',
+      );
+      final dmRoomsAfterComplete = adapter.roomListController.allRooms
+          .where((r) => r.otherUserId == 'bob')
+          .map((r) => r.id)
+          .toSet();
+      expect(dmRoomsAfterComplete.length, 1);
 
-        await adapter.dispose();
-        await mock.dispose();
-      },
-    );
+      await adapter.dispose();
+      await mock.dispose();
+    });
   });
 }

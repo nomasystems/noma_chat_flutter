@@ -235,31 +235,28 @@ void main() {
   });
 
   group('corrupted meta box entries do not crash startup', () {
-    test(
-      'create() survives a schemaVersion entry with a wrong-typed '
-      '"version" field',
-      () async {
-        await ds.saveRooms([const ChatRoom(id: 'room-1', name: 'Keep')]);
-        await ds.dispose();
-        await Hive.close();
+    test('create() survives a schemaVersion entry with a wrong-typed '
+        '"version" field', () async {
+      await ds.saveRooms([const ChatRoom(id: 'room-1', name: 'Keep')]);
+      await ds.dispose();
+      await Hive.close();
 
-        Hive.init(tempDir.path);
-        final metaBox = await Hive.openBox<Map>('chat_meta');
-        // Simulates a partial/corrupted write leaving a scalar of the
-        // wrong type where an int is expected — e.g. a future format,
-        // or a bit flip during a previous run's `put`.
-        await metaBox.put('schemaVersion', {'version': 'not-a-number'});
-        await metaBox.close();
-        await Hive.close();
+      Hive.init(tempDir.path);
+      final metaBox = await Hive.openBox<Map>('chat_meta');
+      // Simulates a partial/corrupted write leaving a scalar of the
+      // wrong type where an int is expected — e.g. a future format,
+      // or a bit flip during a previous run's `put`.
+      await metaBox.put('schemaVersion', {'version': 'not-a-number'});
+      await metaBox.close();
+      await Hive.close();
 
-        // Must not throw. Before the fix, `stored?['version'] as int?`
-        // threw synchronously inside `create()`, crashing app startup
-        // entirely instead of just falling back to "unversioned".
-        final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
-        await ds2.dispose();
-        ds = await HiveChatDatasource.create(basePath: tempDir.path);
-      },
-    );
+      // Must not throw. Before the fix, `stored?['version'] as int?`
+      // threw synchronously inside `create()`, crashing app startup
+      // entirely instead of just falling back to "unversioned".
+      final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
+      await ds2.dispose();
+      ds = await HiveChatDatasource.create(basePath: tempDir.path);
+    });
 
     test(
       'create() survives a messageRoomIds entry whose "ids" is not a list',

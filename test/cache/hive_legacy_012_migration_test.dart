@@ -28,80 +28,77 @@ void main() {
     }
   });
 
-  test(
-    '0.12 messages (no attachmentId, no clientMessageId) load with sane '
-    'defaults and are usable by 0.13',
-    () async {
-      Hive.init(tempDir.path);
-      final metaBox = await Hive.openBox<Map>('chat_meta');
-      // 0.12.1's own on-disk schema version — no migration/wipe should
-      // fire for this upgrade.
-      await metaBox.put('schemaVersion', {'version': 2});
-      await metaBox.close();
+  test('0.12 messages (no attachmentId, no clientMessageId) load with sane '
+      'defaults and are usable by 0.13', () async {
+    Hive.init(tempDir.path);
+    final metaBox = await Hive.openBox<Map>('chat_meta');
+    // 0.12.1's own on-disk schema version — no migration/wipe should
+    // fire for this upgrade.
+    await metaBox.put('schemaVersion', {'version': 2});
+    await metaBox.close();
 
-      final roomsBox = await Hive.openBox<Map>('chat_rooms');
-      await roomsBox.put('room-legacy', {
-        'id': 'room-legacy',
-        'audience': 'contacts',
-        'allowInvitations': false,
-        'members': ['user-1', 'user-2'],
-      });
-      await roomsBox.close();
+    final roomsBox = await Hive.openBox<Map>('chat_rooms');
+    await roomsBox.put('room-legacy', {
+      'id': 'room-legacy',
+      'audience': 'contacts',
+      'allowInvitations': false,
+      'members': ['user-1', 'user-2'],
+    });
+    await roomsBox.close();
 
-      final msgBox = await Hive.openBox<Map>('chat_messages_room-legacy');
-      // Shape a 0.12 attachment message actually would have had: a
-      // (possibly by-now-expired) attachmentUrl and no attachmentId key
-      // at all — the field didn't exist yet.
-      await msgBox.put('2026-01-01T00:00:00.000Z_msg-legacy-1', {
-        'id': 'msg-legacy-1',
-        'from': 'user-1',
-        'timestamp': '2026-01-01T00:00:00.000Z',
-        'messageType': 'attachment',
-        'attachmentUrl': 'https://cdn.example.com/dead/expired-signed-url',
-        'mimeType': 'image/jpeg',
-      });
-      // A plain text message, the common case.
-      await msgBox.put('2026-01-01T00:01:00.000Z_msg-legacy-2', {
-        'id': 'msg-legacy-2',
-        'from': 'user-2',
-        'timestamp': '2026-01-01T00:01:00.000Z',
-        'text': 'hello from 0.12',
-      });
-      await msgBox.close();
-      await Hive.close();
+    final msgBox = await Hive.openBox<Map>('chat_messages_room-legacy');
+    // Shape a 0.12 attachment message actually would have had: a
+    // (possibly by-now-expired) attachmentUrl and no attachmentId key
+    // at all — the field didn't exist yet.
+    await msgBox.put('2026-01-01T00:00:00.000Z_msg-legacy-1', {
+      'id': 'msg-legacy-1',
+      'from': 'user-1',
+      'timestamp': '2026-01-01T00:00:00.000Z',
+      'messageType': 'attachment',
+      'attachmentUrl': 'https://cdn.example.com/dead/expired-signed-url',
+      'mimeType': 'image/jpeg',
+    });
+    // A plain text message, the common case.
+    await msgBox.put('2026-01-01T00:01:00.000Z_msg-legacy-2', {
+      'id': 'msg-legacy-2',
+      'from': 'user-2',
+      'timestamp': '2026-01-01T00:01:00.000Z',
+      'text': 'hello from 0.12',
+    });
+    await msgBox.close();
+    await Hive.close();
 
-      final ds = await HiveChatDatasource.create(basePath: tempDir.path);
+    final ds = await HiveChatDatasource.create(basePath: tempDir.path);
 
-      final rooms = (await ds.getRooms()).dataOrNull!;
-      expect(rooms, hasLength(1));
-      expect(rooms.first.id, 'room-legacy');
-      expect(rooms.first.members, ['user-1', 'user-2']);
+    final rooms = (await ds.getRooms()).dataOrNull!;
+    expect(rooms, hasLength(1));
+    expect(rooms.first.id, 'room-legacy');
+    expect(rooms.first.members, ['user-1', 'user-2']);
 
-      final messages = (await ds.getMessages('room-legacy')).dataOrNull!;
-      expect(messages, hasLength(2));
+    final messages = (await ds.getMessages('room-legacy')).dataOrNull!;
+    expect(messages, hasLength(2));
 
-      final attachment = messages.firstWhere((m) => m.id == 'msg-legacy-1');
-      expect(attachment.messageType, MessageType.attachment);
-      expect(
-        attachment.attachmentUrl,
-        'https://cdn.example.com/dead/expired-signed-url',
-      );
-      // The field 0.13 added: absent in the legacy row, must default to
-      // null (not throw) so the UI's attachmentIdFromUrl fallback can
-      // take over instead of crashing on a missing key.
-      expect(attachment.attachmentId, isNull);
-      expect(attachment.isEdited, isFalse);
-      expect(attachment.silentlyDropped, isFalse);
-      expect(attachment.receipt, isNull);
+    final attachment = messages.firstWhere((m) => m.id == 'msg-legacy-1');
+    expect(attachment.messageType, MessageType.attachment);
+    expect(
+      attachment.attachmentUrl,
+      'https://cdn.example.com/dead/expired-signed-url',
+    );
+    // The field 0.13 added: absent in the legacy row, must default to
+    // null (not throw) so the UI's attachmentIdFromUrl fallback can
+    // take over instead of crashing on a missing key.
+    expect(attachment.attachmentId, isNull);
+    expect(attachment.isEdited, isFalse);
+    expect(attachment.silentlyDropped, isFalse);
+    expect(attachment.receipt, isNull);
 
-      final text = messages.firstWhere((m) => m.id == 'msg-legacy-2');
-      expect(text.text, 'hello from 0.12');
-      expect(text.messageType, MessageType.regular);
+    final text = messages.firstWhere((m) => m.id == 'msg-legacy-2');
+    expect(text.text, 'hello from 0.12');
+    expect(text.messageType, MessageType.regular);
 
-      await ds.dispose();
-      await Hive.close();
-    },
-  );
+    await ds.dispose();
+    await Hive.close();
+  });
 
   test(
     '0.12 users/contacts/unreads without newer optional keys load cleanly',
@@ -149,32 +146,29 @@ void main() {
     },
   );
 
-  test(
-    'a message saved fresh under 0.13 (with attachmentId) survives '
-    'a simulated app restart on the same on-disk cache',
-    () async {
-      final ds = await HiveChatDatasource.create(basePath: tempDir.path);
-      await ds.saveRooms([const ChatRoom(id: 'room-fresh')]);
-      await ds.saveMessages('room-fresh', [
-        ChatMessage(
-          id: 'msg-fresh',
-          from: 'user-1',
-          timestamp: DateTime.utc(2026, 2, 1),
-          messageType: MessageType.attachment,
-          attachmentUrl: 'https://cdn.example.com/fresh/signed-url',
-          attachmentId: 'att-fresh-1',
-        ),
-      ]);
-      await ds.dispose();
-      await Hive.close();
+  test('a message saved fresh under 0.13 (with attachmentId) survives '
+      'a simulated app restart on the same on-disk cache', () async {
+    final ds = await HiveChatDatasource.create(basePath: tempDir.path);
+    await ds.saveRooms([const ChatRoom(id: 'room-fresh')]);
+    await ds.saveMessages('room-fresh', [
+      ChatMessage(
+        id: 'msg-fresh',
+        from: 'user-1',
+        timestamp: DateTime.utc(2026, 2, 1),
+        messageType: MessageType.attachment,
+        attachmentUrl: 'https://cdn.example.com/fresh/signed-url',
+        attachmentId: 'att-fresh-1',
+      ),
+    ]);
+    await ds.dispose();
+    await Hive.close();
 
-      final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
-      final messages = (await ds2.getMessages('room-fresh')).dataOrNull!;
-      expect(messages, hasLength(1));
-      expect(messages.first.attachmentId, 'att-fresh-1');
+    final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
+    final messages = (await ds2.getMessages('room-fresh')).dataOrNull!;
+    expect(messages, hasLength(1));
+    expect(messages.first.attachmentId, 'att-fresh-1');
 
-      await ds2.dispose();
-      await Hive.close();
-    },
-  );
+    await ds2.dispose();
+    await Hive.close();
+  });
 }

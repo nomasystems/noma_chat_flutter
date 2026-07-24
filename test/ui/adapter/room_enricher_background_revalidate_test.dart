@@ -154,7 +154,8 @@ class _ScriptedRoomsApi implements ChatRoomsApi {
 }
 
 class _ScriptedRoomsClient implements ChatClient {
-  _ScriptedRoomsClient(this._delegate) : rooms = _ScriptedRoomsApi(_delegate.rooms);
+  _ScriptedRoomsClient(this._delegate)
+    : rooms = _ScriptedRoomsApi(_delegate.rooms);
 
   final ChatClient _delegate;
   @override
@@ -255,11 +256,14 @@ void main() {
     // both rooms.
     await adapter.rooms.load();
     expect(adapter.initializedNotifier.value, isTrue);
-    expect(adapter.connectionStateNotifier.value, ChatConnectionState.connected);
     expect(
-      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-      {'r1', 'r2'},
+      adapter.connectionStateNotifier.value,
+      ChatConnectionState.connected,
     );
+    expect(adapter.roomListController.allRooms.map((r) => r.id).toSet(), {
+      'r1',
+      'r2',
+    });
   });
 
   tearDown(() async {
@@ -311,66 +315,53 @@ void main() {
     },
   );
 
-  test(
-    'a background revalidation whose network read FAILS (5xx/timeout) '
-    'leaves the list completely intact',
-    () async {
-      scripted.rooms.nextNetworkFailure = const ServerFailure(
-        statusCode: 503,
-      );
+  test('a background revalidation whose network read FAILS (5xx/timeout) '
+      'leaves the list completely intact', () async {
+    scripted.rooms.nextNetworkFailure = const ServerFailure(statusCode: 503);
 
-      await adapter.rooms.load();
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+    await adapter.rooms.load();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-        reason:
-            'a failed network read must never touch the list, regardless '
-            'of which caller triggered it',
-      );
-    },
-  );
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1', 'r2'},
+      reason:
+          'a failed network read must never touch the list, regardless '
+          'of which caller triggered it',
+    );
+  });
 
-  test(
-    'an explicit forceNetwork refresh (pull-to-refresh) whose response '
-    'omits a room prunes it — stays authoritative',
-    () async {
-      scripted.rooms.nextNetworkResult = const UserRooms(
-        rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
-      );
+  test('an explicit forceNetwork refresh (pull-to-refresh) whose response '
+      'omits a room prunes it — stays authoritative', () async {
+    scripted.rooms.nextNetworkResult = const UserRooms(
+      rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
+    );
 
-      final result = await adapter.rooms.load(forceNetwork: true);
+    final result = await adapter.rooms.load(forceNetwork: true);
 
-      expect(result.isSuccess, isTrue);
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1'},
-        reason:
-            'an explicit, user-initiated pull-to-refresh is a deliberate '
-            'request for a fresh authoritative snapshot and must keep '
-            'reconciling deletions',
-      );
-    },
-  );
+    expect(result.isSuccess, isTrue);
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1'},
+      reason:
+          'an explicit, user-initiated pull-to-refresh is a deliberate '
+          'request for a fresh authoritative snapshot and must keep '
+          'reconciling deletions',
+    );
+  });
 
-  test(
-    'an explicit forceNetwork refresh (pull-to-refresh) whose network read '
-    'FAILS leaves the list intact',
-    () async {
-      scripted.rooms.nextNetworkFailure = const ServerFailure(
-        statusCode: 503,
-      );
+  test('an explicit forceNetwork refresh (pull-to-refresh) whose network read '
+      'FAILS leaves the list intact', () async {
+    scripted.rooms.nextNetworkFailure = const ServerFailure(statusCode: 503);
 
-      final result = await adapter.rooms.load(forceNetwork: true);
+    final result = await adapter.rooms.load(forceNetwork: true);
 
-      expect(result.isFailure, isTrue);
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-      );
-    },
-  );
+    expect(result.isFailure, isTrue);
+    expect(adapter.roomListController.allRooms.map((r) => r.id).toSet(), {
+      'r1',
+      'r2',
+    });
+  });
 
   test(
     'resync() after a reconnect whose network response comes back short '
@@ -396,61 +387,50 @@ void main() {
     },
   );
 
-  test(
-    'resync() after a reconnect whose network response comes back entirely '
-    'empty clears the list — the last room was removed on another device '
-    'while this one was offline, and reconnecting converges to that truth '
-    '(closes the N0 permanent-ghost regression)',
-    () async {
-      scripted.rooms.nextNetworkResult = const UserRooms(rooms: []);
+  test('resync() after a reconnect whose network response comes back entirely '
+      'empty clears the list — the last room was removed on another device '
+      'while this one was offline, and reconnecting converges to that truth '
+      '(closes the N0 permanent-ghost regression)', () async {
+    scripted.rooms.nextNetworkResult = const UserRooms(rooms: []);
 
-      await adapter.resync();
+    await adapter.resync();
 
-      expect(adapter.roomListController.allRooms, isEmpty);
-    },
-  );
+    expect(adapter.roomListController.allRooms, isEmpty);
+  });
 
-  test(
-    'resync() after a reconnect whose network read FAILS (5xx/timeout) '
-    'leaves the list completely intact',
-    () async {
-      scripted.rooms.nextNetworkFailure = const ServerFailure(
-        statusCode: 503,
-      );
+  test('resync() after a reconnect whose network read FAILS (5xx/timeout) '
+      'leaves the list completely intact', () async {
+    scripted.rooms.nextNetworkFailure = const ServerFailure(statusCode: 503);
 
-      await adapter.resync();
+    await adapter.resync();
 
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-        reason:
-            'a failed resync must never touch the list — the whole point '
-            'of failing outright instead of answering 200-partial is that '
-            'the client can trust every success and ignore every failure',
-      );
-    },
-  );
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1', 'r2'},
+      reason:
+          'a failed resync must never touch the list — the whole point '
+          'of failing outright instead of answering 200-partial is that '
+          'the client can trust every success and ignore every failure',
+    );
+  });
 
-  test(
-    'a truncated first page (hasMore: true) never prunes — the client '
-    'knows this view is incomplete, so it upserts without dropping rows '
-    'until either a full page arrives or a realtime event confirms the '
-    'removal',
-    () async {
-      scripted.rooms.nextNetworkResult = const UserRooms(
-        rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
-        hasMore: true,
-      );
+  test('a truncated first page (hasMore: true) never prunes — the client '
+      'knows this view is incomplete, so it upserts without dropping rows '
+      'until either a full page arrives or a realtime event confirms the '
+      'removal', () async {
+    scripted.rooms.nextNetworkResult = const UserRooms(
+      rooms: [UnreadRoom(roomId: 'r1', unreadMessages: 0)],
+      hasMore: true,
+    );
 
-      await adapter.resync();
+    await adapter.resync();
 
-      expect(
-        adapter.roomListController.allRooms.map((r) => r.id).toSet(),
-        {'r1', 'r2'},
-        reason:
-            'hasMore:true means the backend truncated the page — pruning '
-            'against it would drop every room past page 1',
-      );
-    },
-  );
+    expect(
+      adapter.roomListController.allRooms.map((r) => r.id).toSet(),
+      {'r1', 'r2'},
+      reason:
+          'hasMore:true means the backend truncated the page — pruning '
+          'against it would drop every room past page 1',
+    );
+  });
 }

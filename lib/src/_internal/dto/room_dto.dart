@@ -134,6 +134,9 @@ class UserRoomsDto {
 
   static List<Map<String, dynamic>> _jsonMapList(Object? value) {
     if (value is! List) return [];
-    return [for (final e in value) if (e is Map<String, dynamic>) e];
+    return [
+      for (final e in value)
+        if (e is Map<String, dynamic>) e,
+    ];
   }
 }

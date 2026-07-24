@@ -86,11 +86,7 @@ void main() {
 
     test('type/userRole as int does not throw', () {
       expect(
-        () => RoomDetailDto.fromJson({
-          'id': 'r',
-          'type': 1,
-          'userRole': 2,
-        }),
+        () => RoomDetailDto.fromJson({'id': 'r', 'type': 1, 'userRole': 2}),
         returnsNormally,
       );
     });
@@ -141,10 +137,7 @@ void main() {
     });
 
     test('hasMore as string does not throw', () {
-      expect(
-        () => UserRoomsDto.fromJson({'hasMore': 'yes'}),
-        returnsNormally,
-      );
+      expect(() => UserRoomsDto.fromJson({'hasMore': 'yes'}), returnsNormally);
     });
   });
 
@@ -335,10 +328,7 @@ void main() {
 
   group('UserMapper supplementary fromJson cross-type fuzz', () {
     test('contactFromJson userId as int does not throw', () {
-      expect(
-        () => UserMapper.contactFromJson({'userId': 42}),
-        returnsNormally,
-      );
+      expect(() => UserMapper.contactFromJson({'userId': 42}), returnsNormally);
     });
 
     test('roomUserFromJson userId/role as int does not throw', () {

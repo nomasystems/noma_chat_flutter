@@ -319,52 +319,46 @@ void main() {
   });
 
   group('background revalidation temporal debounce', () {
-    test(
-      'a reopen inside the debounce window is skipped; one past the window '
-      'fires a fresh revalidation',
-      () async {
-        final mock = MockChatClient(currentUserId: 'me');
-        final counting = _CountingRoomsClient(mock);
-        final adapter = ChatUiAdapter(
-          client: counting,
-          currentUser: me,
-          manageAppLifecycle: false,
-          roomRevalidateDebounce: const Duration(milliseconds: 150),
-        );
-        adapter.start();
-        mock.seedRoom(const ChatRoom(id: 'boot', name: 'Bootstrap'));
-        await counting.connect();
-        await Future<void>.delayed(Duration.zero);
-        // Bootstrap: blocking network path, unrelated to the debounce.
-        await adapter.rooms.load();
-        expect(adapter.initializedNotifier.value, isTrue);
+    test('a reopen inside the debounce window is skipped; one past the window '
+        'fires a fresh revalidation', () async {
+      final mock = MockChatClient(currentUserId: 'me');
+      final counting = _CountingRoomsClient(mock);
+      final adapter = ChatUiAdapter(
+        client: counting,
+        currentUser: me,
+        manageAppLifecycle: false,
+        roomRevalidateDebounce: const Duration(milliseconds: 150),
+      );
+      adapter.start();
+      mock.seedRoom(const ChatRoom(id: 'boot', name: 'Bootstrap'));
+      await counting.connect();
+      await Future<void>.delayed(Duration.zero);
+      // Bootstrap: blocking network path, unrelated to the debounce.
+      await adapter.rooms.load();
+      expect(adapter.initializedNotifier.value, isTrue);
 
-        // First reopen: cache-fresh branch fires + completes a background
-        // revalidation.
-        await adapter.rooms.load();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        final afterFirstReopen = counting.rooms.networkOnlyCalls;
+      // First reopen: cache-fresh branch fires + completes a background
+      // revalidation.
+      await adapter.rooms.load();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final afterFirstReopen = counting.rooms.networkOnlyCalls;
 
-        // Second reopen, well inside the debounce window — the temporal
-        // gate (not the in-flight guard, which already cleared) must skip
-        // dispatching a new network pass.
-        await adapter.rooms.load();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(counting.rooms.networkOnlyCalls, afterFirstReopen);
+      // Second reopen, well inside the debounce window — the temporal
+      // gate (not the in-flight guard, which already cleared) must skip
+      // dispatching a new network pass.
+      await adapter.rooms.load();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(counting.rooms.networkOnlyCalls, afterFirstReopen);
 
-        // Once the debounce window has elapsed, a reopen fires again.
-        await Future<void>.delayed(const Duration(milliseconds: 160));
-        await adapter.rooms.load();
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(
-          counting.rooms.networkOnlyCalls,
-          greaterThan(afterFirstReopen),
-        );
+      // Once the debounce window has elapsed, a reopen fires again.
+      await Future<void>.delayed(const Duration(milliseconds: 160));
+      await adapter.rooms.load();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(counting.rooms.networkOnlyCalls, greaterThan(afterFirstReopen));
 
-        await adapter.dispose();
-        await mock.dispose();
-      },
-    );
+      await adapter.dispose();
+      await mock.dispose();
+    });
   });
 
   group('DM dedupe determinism', () {

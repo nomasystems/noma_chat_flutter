@@ -25,9 +25,7 @@ void main() {
     testWidgets('authenticating shows the same label and spinner as '
         'connecting', (tester) async {
       await tester.pumpWidget(
-        wrap(
-          const ConnectionBanner(state: ChatConnectionState.authenticating),
-        ),
+        wrap(const ConnectionBanner(state: ChatConnectionState.authenticating)),
       );
       expect(find.text('Connecting...'), findsOneWidget);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);

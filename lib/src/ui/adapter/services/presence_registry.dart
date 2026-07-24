@@ -96,7 +96,10 @@ class PresenceRegistry {
       if (updated.isEmpty) return;
       _roomList.mergeRooms(updated, authoritative: false);
     } catch (e) {
-      _logs?.presence(ChatLogLevel.warn, 'Failed to bootstrap chat presence: $e');
+      _logs?.presence(
+        ChatLogLevel.warn,
+        'Failed to bootstrap chat presence: $e',
+      );
     }
   }
 
@@ -126,7 +129,11 @@ class PresenceRegistry {
     final room = _roomList.getRoomById(roomId);
     if (room == null || room.isGroup) return;
     _roomList.updateRoom(
-      room.copyWith(isOnline: online, presenceStatus: status, lastSeen: lastSeen),
+      room.copyWith(
+        isOnline: online,
+        presenceStatus: status,
+        lastSeen: lastSeen,
+      ),
     );
   }
 

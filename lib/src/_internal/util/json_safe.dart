@@ -32,5 +32,8 @@ Map<String, dynamic>? jsonMapOrNull(Object? value) =>
 
 List<String>? jsonStringListOrNull(Object? value) {
   if (value is! List) return null;
-  return [for (final e in value) if (e is String) e];
+  return [
+    for (final e in value)
+      if (e is String) e,
+  ];
 }

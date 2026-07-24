@@ -159,7 +159,8 @@ class _ChatViewState extends State<ChatView> {
     final builders = widget.builders;
     final callbacks = widget.callbacks;
     if (widget.controller.messages.isEmpty) {
-      if (widget.controller.isLoadingInitial || widget.controller.isLoadingMore) {
+      if (widget.controller.isLoadingInitial ||
+          widget.controller.isLoadingMore) {
         return const Center(child: CircularProgressIndicator());
       }
       return EmptyState(

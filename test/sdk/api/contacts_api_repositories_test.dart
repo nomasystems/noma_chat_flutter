@@ -495,24 +495,21 @@ void main() {
       expect(offlineQueue.pending.single, isA<PendingSendDirectMessage>());
     });
 
-    test(
-      'does NOT enqueue when enqueueOnFailure is false — the caller (the '
-      'offline queue drain loop replaying this same op) already owns '
-      'retry/backoff for it',
-      () async {
-        when(
-          () => rest.post('/contacts/c1/messages', data: any(named: 'data')),
-        ).thenThrow(const ChatNetworkException());
+    test('does NOT enqueue when enqueueOnFailure is false — the caller (the '
+        'offline queue drain loop replaying this same op) already owns '
+        'retry/backoff for it', () async {
+      when(
+        () => rest.post('/contacts/c1/messages', data: any(named: 'data')),
+      ).thenThrow(const ChatNetworkException());
 
-        final result = await api.sendDirectMessage(
-          'c1',
-          text: 'hi',
-          enqueueOnFailure: false,
-        );
+      final result = await api.sendDirectMessage(
+        'c1',
+        text: 'hi',
+        enqueueOnFailure: false,
+      );
 
-        expect(result.isFailure, isTrue);
-        expect(offlineQueue.pending, isEmpty);
-      },
-    );
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
   });
 }

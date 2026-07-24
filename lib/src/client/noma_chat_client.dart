@@ -196,10 +196,7 @@ class NomaChatClient implements ChatClient {
       }
       final (opRoomId, opTempId) = switch (op) {
         PendingSendMessage(:final roomId, :final tempId) => (roomId, tempId),
-        PendingSendAttachment(:final roomId, :final tempId) => (
-          roomId,
-          tempId,
-        ),
+        PendingSendAttachment(:final roomId, :final tempId) => (roomId, tempId),
         _ => (null, null),
       };
       if (result.isSuccess &&
