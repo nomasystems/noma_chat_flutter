@@ -165,8 +165,7 @@ class ReplyPreview extends StatelessWidget {
                           cacheWidth: 120,
                           cacheHeight: 120,
                           fit: BoxFit.cover,
-                          errorBuilder: (_, __, ___) =>
-                              const SizedBox.shrink(),
+                          errorBuilder: (_, __, ___) => const SizedBox.shrink(),
                         ),
                 ),
               ),

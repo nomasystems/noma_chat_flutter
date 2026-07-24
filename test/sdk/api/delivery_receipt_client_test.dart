@@ -124,29 +124,26 @@ void main() {
     expect(failure, isA<ChatFailure>());
   });
 
-  test(
-    'propagates a 401 without retrying (no refresh loop in the lightweight '
-    'client)',
-    () async {
-      final adapter = _FakeAdapter(
-        0,
-        throwOn: (options) => DioException(
-          requestOptions: options,
-          type: DioExceptionType.badResponse,
-          response: Response<dynamic>(requestOptions: options, statusCode: 401),
-        ),
-      );
+  test('propagates a 401 without retrying (no refresh loop in the lightweight '
+      'client)', () async {
+    final adapter = _FakeAdapter(
+      0,
+      throwOn: (options) => DioException(
+        requestOptions: options,
+        type: DioExceptionType.badResponse,
+        response: Response<dynamic>(requestOptions: options, statusCode: 401),
+      ),
+    );
 
-      final result = await DeliveryReceiptClient.confirmMessageDelivered(
-        config: config,
-        idToken: 'expired-token',
-        roomId: 'r1',
-        messageId: 'msg-1',
-        debugDio: _dioWith(adapter),
-      );
+    final result = await DeliveryReceiptClient.confirmMessageDelivered(
+      config: config,
+      idToken: 'expired-token',
+      roomId: 'r1',
+      messageId: 'msg-1',
+      debugDio: _dioWith(adapter),
+    );
 
-      expect(result.isFailure, isTrue);
-      expect(adapter.requests, hasLength(1));
-    },
-  );
+    expect(result.isFailure, isTrue);
+    expect(adapter.requests, hasLength(1));
+  });
 }

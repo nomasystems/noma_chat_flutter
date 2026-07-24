@@ -62,29 +62,32 @@ void main() {
     expect(result.dataOrThrow.text, isEmpty);
   });
 
-  test('exportChat prepends a header and echoes roomTitle when passed', () async {
-    final created = await client.rooms.create(
-      audience: RoomAudience.contacts,
-      name: 'Group',
-      members: ['u2'],
-    );
-    final roomId = created.dataOrThrow.id;
-    await client.messages.send(roomId, text: 'hello');
+  test(
+    'exportChat prepends a header and echoes roomTitle when passed',
+    () async {
+      final created = await client.rooms.create(
+        audience: RoomAudience.contacts,
+        name: 'Group',
+        members: ['u2'],
+      );
+      final roomId = created.dataOrThrow.id;
+      await client.messages.send(roomId, text: 'hello');
 
-    final result = await adapter.messages.exportChat(
-      roomId,
-      roomTitle: 'Family',
-      displayNameFor: (id) => id == 'u1' ? 'Me' : id,
-    );
+      final result = await adapter.messages.exportChat(
+        roomId,
+        roomTitle: 'Family',
+        displayNameFor: (id) => id == 'u1' ? 'Me' : id,
+      );
 
-    expect(result.isSuccess, true);
-    final export = result.dataOrThrow;
-    expect(export.roomTitle, 'Family');
-    final lines = export.text.split('\n');
-    expect(lines.first, 'Chat: Family');
-    expect(lines[1], isEmpty);
-    expect(export.text, contains('Me: hello'));
-  });
+      expect(result.isSuccess, true);
+      final export = result.dataOrThrow;
+      expect(export.roomTitle, 'Family');
+      final lines = export.text.split('\n');
+      expect(lines.first, 'Chat: Family');
+      expect(lines[1], isEmpty);
+      expect(export.text, contains('Me: hello'));
+    },
+  );
 
   test('exportChat omits the header when roomTitle is null (no behaviour '
       'change)', () async {

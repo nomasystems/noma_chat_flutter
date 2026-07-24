@@ -68,9 +68,7 @@ void main() {
         'is wired but attachmentRef is not (no behaviour change)', (
       tester,
     ) async {
-      final loader = _FakeMediaLoader(
-        onLoadBytes: (_) async => validPngBytes,
-      );
+      final loader = _FakeMediaLoader(onLoadBytes: (_) async => validPngBytes);
 
       await tester.pumpWidget(
         wrap(
@@ -88,9 +86,7 @@ void main() {
 
     testWidgets('fetches bytes via mediaLoader.loadBytes and renders '
         'Image.memory instead of CachedNetworkImage', (tester) async {
-      final loader = _FakeMediaLoader(
-        onLoadBytes: (_) async => validPngBytes,
-      );
+      final loader = _FakeMediaLoader(onLoadBytes: (_) async => validPngBytes);
 
       await tester.pumpWidget(
         wrap(
@@ -179,9 +175,7 @@ void main() {
     });
 
     testWidgets('has a close button that pops the route', (tester) async {
-      final loader = _FakeMediaLoader(
-        onLoadBytes: (_) async => validPngBytes,
-      );
+      final loader = _FakeMediaLoader(onLoadBytes: (_) async => validPngBytes);
 
       await tester.pumpWidget(
         MaterialApp(

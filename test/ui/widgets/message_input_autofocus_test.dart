@@ -33,7 +33,10 @@ void main() {
     await tester.pumpWidget(
       wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
     );
-    expect(tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus, false);
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
+      false,
+    );
 
     controller.setReplyTo(otherMessage);
     await tester.pump();

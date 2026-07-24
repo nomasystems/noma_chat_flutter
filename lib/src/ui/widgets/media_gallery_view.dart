@@ -116,7 +116,8 @@ class _MediaCell extends StatelessWidget {
   final VoidCallback? onTap;
   final AttachmentMediaLoader? mediaLoader;
 
-  bool get _usesMediaLoader => mediaLoader != null && item.attachmentRef != null;
+  bool get _usesMediaLoader =>
+      mediaLoader != null && item.attachmentRef != null;
 
   static IconData _fileIcon(String? mimeType) {
     final mime = mimeType?.toLowerCase() ?? '';

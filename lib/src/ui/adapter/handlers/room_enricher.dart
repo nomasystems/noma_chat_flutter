@@ -339,8 +339,7 @@ class RoomEnricher {
     // wired one directly before this client-level surface existed.
     final localCacheForDeleted = cache;
     final clientDeletedIds =
-        (await client.rooms.getDeletedRoomIds()).dataOrNull ??
-        const <String>{};
+        (await client.rooms.getDeletedRoomIds()).dataOrNull ?? const <String>{};
     final adapterDeletedIds = localCacheForDeleted == null
         ? const <String>{}
         : (await localCacheForDeleted.getDeletedRoomIds()).dataOrNull ??

@@ -150,9 +150,9 @@ final class ChatRoomsController {
     await _a.client.messages
         .setLocalClearedAt(roomId, now)
         .catchError(_swallowCacheThrow);
-    await _a.client.rooms.markRoomDeleted(roomId).catchError(
-      _swallowCacheThrow,
-    );
+    await _a.client.rooms
+        .markRoomDeleted(roomId)
+        .catchError(_swallowCacheThrow);
     // Persist the cutoff so any prior history stays hidden if the room is
     // re-fetched later (twin of the never-evictable deleted marker).
     if (cache != null) {

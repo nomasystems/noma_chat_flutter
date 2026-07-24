@@ -61,51 +61,60 @@ void main() {
     expect(clearedAt!.isAfter(before), true);
   });
 
-  test('marks the room deleted in the in-memory room list immediately', () async {
-    final created = await client.rooms.create(
-      audience: RoomAudience.contacts,
-      name: 'Group',
-      members: ['u2'],
-    );
-    final roomId = created.dataOrThrow.id;
+  test(
+    'marks the room deleted in the in-memory room list immediately',
+    () async {
+      final created = await client.rooms.create(
+        audience: RoomAudience.contacts,
+        name: 'Group',
+        members: ['u2'],
+      );
+      final roomId = created.dataOrThrow.id;
 
-    await adapter.rooms.delete(roomId);
+      await adapter.rooms.delete(roomId);
 
-    expect(adapter.roomListController.deletedRoomIds, contains(roomId));
-  });
+      expect(adapter.roomListController.deletedRoomIds, contains(roomId));
+    },
+  );
 
-  test('end-to-end: a fresh full room-list load excludes the deleted room '
-      'even without an adapter cache (was: reappears with full history)', () async {
-    final created = await client.rooms.create(
-      audience: RoomAudience.contacts,
-      name: 'Group',
-      members: ['u2'],
-    );
-    final roomId = created.dataOrThrow.id;
-    client.addMessage(
-      roomId,
-      ChatMessage(
-        id: 'm1',
-        from: 'u2',
-        timestamp: DateTime.now().toUtc(),
-        text: 'old history',
-      ),
-    );
+  test(
+    'end-to-end: a fresh full room-list load excludes the deleted room '
+    'even without an adapter cache (was: reappears with full history)',
+    () async {
+      final created = await client.rooms.create(
+        audience: RoomAudience.contacts,
+        name: 'Group',
+        members: ['u2'],
+      );
+      final roomId = created.dataOrThrow.id;
+      client.addMessage(
+        roomId,
+        ChatMessage(
+          id: 'm1',
+          from: 'u2',
+          timestamp: DateTime.now().toUtc(),
+          text: 'old history',
+        ),
+      );
 
-    await adapter.rooms.delete(roomId);
-    // A fresh adapter/session: the in-memory `RoomListController` markers
-    // set by `delete` above are irrelevant here — only what persisted
-    // through the client surface matters.
-    final freshAdapter = ChatUiAdapter(client: client, currentUser: currentUser);
-    addTearDown(freshAdapter.dispose);
+      await adapter.rooms.delete(roomId);
+      // A fresh adapter/session: the in-memory `RoomListController` markers
+      // set by `delete` above are irrelevant here — only what persisted
+      // through the client surface matters.
+      final freshAdapter = ChatUiAdapter(
+        client: client,
+        currentUser: currentUser,
+      );
+      addTearDown(freshAdapter.dispose);
 
-    final result = await freshAdapter.rooms.load(forceNetwork: true);
-    expect(result.isSuccess, true);
-    expect(
-      freshAdapter.roomListController.allRooms.map((r) => r.id),
-      isNot(contains(roomId)),
-    );
-  });
+      final result = await freshAdapter.rooms.load(forceNetwork: true);
+      expect(result.isSuccess, true);
+      expect(
+        freshAdapter.roomListController.allRooms.map((r) => r.id),
+        isNot(contains(roomId)),
+      );
+    },
+  );
 
   test('end-to-end: a peer message after the delete resurrects the room '
       'empty (prior history stays hidden behind clearedAt)', () async {
@@ -139,7 +148,10 @@ void main() {
       ),
     );
 
-    final freshAdapter = ChatUiAdapter(client: client, currentUser: currentUser);
+    final freshAdapter = ChatUiAdapter(
+      client: client,
+      currentUser: currentUser,
+    );
     addTearDown(freshAdapter.dispose);
 
     await freshAdapter.rooms.load(forceNetwork: true);

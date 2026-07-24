@@ -83,10 +83,7 @@ class AuthenticatedAttachmentLoader implements AttachmentMediaLoader {
           '${ref.fallbackUrl}',
         );
       }
-      final result = await _client.attachments.download(
-        id,
-        roomId: ref.roomId,
-      );
+      final result = await _client.attachments.download(id, roomId: ref.roomId);
       return result.fold((failure) {
         _logger?.attach(
           ChatLogLevel.warn,
