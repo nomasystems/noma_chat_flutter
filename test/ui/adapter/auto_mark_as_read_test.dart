@@ -106,10 +106,11 @@ void main() {
       expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 5);
 
       adapter.setActiveRoom('r1');
+      await Future<void>.microtask(() {});
 
-      // No `await` before this assertion: markAsRead is fired
-      // (`unawaited`) but its network round-trip has not had a chance to
-      // resolve yet — the badge must already be 0 synchronously.
+      // The optimistic clear is deferred to a microtask so it never notifies
+      // mid-build, but still resolves long before markAsRead's network
+      // round-trip: after the microtask the badge is 0, not after the request.
       expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
     });
   });

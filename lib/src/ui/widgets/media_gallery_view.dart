@@ -1,6 +1,9 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
+import '../services/attachment_bytes_loader.dart';
+import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '_authenticated_media_image.dart';
 import 'empty_state.dart';
 
 /// Kind of media listed in the gallery.
@@ -16,6 +19,7 @@ class MediaItem {
     this.senderId,
     this.fileName,
     this.mimeType,
+    this.attachmentRef,
   });
 
   final String url;
@@ -24,6 +28,10 @@ class MediaItem {
   final String? senderId;
   final String? fileName;
   final String? mimeType;
+
+  /// Identifies this item for [MediaGalleryView.mediaLoader]. `null` keeps
+  /// [url] as the sole source, unchanged from before this field existed.
+  final AttachmentRef? attachmentRef;
 }
 
 /// Grid view of [MediaItem]s, used as the Media tab of [MediaGalleryPage].
@@ -36,6 +44,7 @@ class MediaGalleryView extends StatelessWidget {
     this.crossAxisCount = 3,
     this.spacing = 2,
     this.includeAudioFiles = false,
+    this.mediaLoader,
   });
 
   final List<MediaItem> items;
@@ -43,6 +52,13 @@ class MediaGalleryView extends StatelessWidget {
   final ValueChanged<MediaItem>? onTapItem;
   final int crossAxisCount;
   final double spacing;
+
+  /// Fetches each item's bytes through the authenticated client and
+  /// renders from memory instead of handing `CachedNetworkImage` a signed
+  /// URL it can't attach a Bearer token to. Consulted per-item alongside
+  /// [MediaItem.attachmentRef] — `null` (default) keeps every cell on the
+  /// plain-URL path, unchanged from before this parameter existed.
+  final AttachmentMediaLoader? mediaLoader;
 
   /// Whether audio attachments (`mimeType: audio/*`) should be rendered.
   ///
@@ -79,6 +95,7 @@ class MediaGalleryView extends StatelessWidget {
         return _MediaCell(
           item: item,
           theme: theme,
+          mediaLoader: mediaLoader,
           onTap: onTapItem != null ? () => onTapItem!(item) : null,
         );
       },
@@ -87,11 +104,20 @@ class MediaGalleryView extends StatelessWidget {
 }
 
 class _MediaCell extends StatelessWidget {
-  const _MediaCell({required this.item, required this.theme, this.onTap});
+  const _MediaCell({
+    required this.item,
+    required this.theme,
+    this.onTap,
+    this.mediaLoader,
+  });
 
   final MediaItem item;
   final ChatTheme theme;
   final VoidCallback? onTap;
+  final AttachmentMediaLoader? mediaLoader;
+
+  bool get _usesMediaLoader =>
+      mediaLoader != null && item.attachmentRef != null;
 
   static IconData _fileIcon(String? mimeType) {
     final mime = mimeType?.toLowerCase() ?? '';
@@ -156,15 +182,34 @@ class _MediaCell extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              CachedNetworkImage(
-                imageUrl: item.url,
-                fit: BoxFit.cover,
-                placeholder: (_, __) => Container(color: Colors.grey.shade200),
-                errorWidget: (_, __, ___) => Container(
-                  color: Colors.grey.shade200,
-                  child: const Icon(Icons.broken_image, color: Colors.grey),
-                ),
-              ),
+              _usesMediaLoader
+                  ? AuthenticatedMediaImage(
+                      loader: mediaLoader!,
+                      attachmentRef: item.attachmentRef!,
+                      fit: BoxFit.cover,
+                      placeholderBuilder: (_) =>
+                          Container(color: Colors.grey.shade200),
+                      errorBuilder: (_) => Container(
+                        color: Colors.grey.shade200,
+                        child: const Icon(
+                          Icons.broken_image,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    )
+                  : CachedNetworkImage(
+                      imageUrl: item.url,
+                      fit: BoxFit.cover,
+                      placeholder: (_, __) =>
+                          Container(color: Colors.grey.shade200),
+                      errorWidget: (_, __, ___) => Container(
+                        color: Colors.grey.shade200,
+                        child: const Icon(
+                          Icons.broken_image,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ),
               if (item.type == MediaItemType.video)
                 const Center(
                   child: Icon(

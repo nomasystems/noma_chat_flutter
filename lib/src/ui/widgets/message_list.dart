@@ -5,6 +5,7 @@ import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
 import '../controller/chat_controller.dart';
+import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
@@ -62,6 +63,7 @@ class MessageList extends StatefulWidget {
     this.avatarRebuildSignal,
     this.statusIconBuilder,
     this.attachmentUrlResolver,
+    this.attachmentMediaLoader,
   });
 
   final ChatController controller;
@@ -181,6 +183,11 @@ class MessageList extends StatefulWidget {
   /// keeps every bubble on the plain `ChatMessage.attachmentUrl` path —
   /// see `ChatViewBuilders.attachmentUrlResolver`.
   final AttachmentUrlResolver? attachmentUrlResolver;
+
+  /// Fetches an attachment's bytes/file through the authenticated client,
+  /// forwarded to every media bubble alongside `controller.roomId` — see
+  /// `ChatViewBuilders.attachmentMediaLoader`.
+  final AttachmentMediaLoader? attachmentMediaLoader;
 
   @override
   State<MessageList> createState() => _MessageListState();
@@ -799,6 +806,7 @@ class _MessageListState extends State<MessageList> {
       statusIconBuilder: widget.statusIconBuilder,
       roomId: widget.controller.roomId,
       attachmentUrlResolver: widget.attachmentUrlResolver,
+      attachmentMediaLoader: widget.attachmentMediaLoader,
       isFirstInGroup: isFirstInGroup,
       isLastInGroup: isLastInGroup,
       referencedMessage: referenced,

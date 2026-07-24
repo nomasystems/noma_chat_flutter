@@ -483,6 +483,8 @@ class _NomaChatViewState extends State<NomaChatView> {
       userFetcher: user.userFetcher ?? _defaultUserFetcher,
       attachmentUrlResolver:
           user.attachmentUrlResolver ?? adapter.defaultAttachmentUrlResolver,
+      attachmentMediaLoader:
+          user.attachmentMediaLoader ?? adapter.defaultAttachmentMediaLoader,
     );
   }
 

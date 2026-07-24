@@ -544,6 +544,30 @@ abstract class ChatRoomsApi {
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
   });
+
+  /// Marks [roomId] deleted for the current user (WhatsApp "Delete chat"
+  /// parity) — pure local, no network call. Persists through the local
+  /// datasource the client itself was configured with
+  /// (`ChatConfig.localDatasource`), mirroring how [ChatMessagesApi
+  /// .getClearedAt]/`clearChat` survive a `ChatUiAdapter` built without its
+  /// own `cache:` argument: as long as the client has a local datasource,
+  /// `ChatRoomsController.delete` writing through here persists the marker
+  /// even when the adapter's own cache is `null`. No-op (never throws) when
+  /// no local datasource is configured.
+  Future<ChatResult<void>> markRoomDeleted(String roomId);
+
+  /// Clears a previous [markRoomDeleted] marker. Called by the resurrection
+  /// path when a peer writes to a previously-deleted 1:1 room again — the
+  /// room reappears (empty, `clearedAt` cutoff still in place). No-op if
+  /// the room was never marked deleted or no local datasource is
+  /// configured.
+  Future<ChatResult<void>> clearRoomDeleted(String roomId);
+
+  /// Every room id currently marked deleted for the current user. Used to
+  /// filter deleted rooms out of a freshly (re)loaded list — e.g. on cold
+  /// start, before any per-room resurrection event has had a chance to run.
+  /// Empty when no local datasource is configured.
+  Future<ChatResult<Set<String>>> getDeletedRoomIds();
 }
 
 /// Room membership: invitations, removal, bans, and role management.
@@ -1107,6 +1131,14 @@ abstract class ChatMessagesApi {
   /// Pure-local read — cheap to call on every chat-screen open to
   /// decide whether to filter the rendered message list.
   Future<ChatResult<DateTime?>> getClearedAt(String roomId);
+
+  /// Pure-local counterpart to [clearChat]: sets the clear-chat cutoff
+  /// without also calling [markRoomAsRead] server-side. Used by
+  /// `ChatRoomsController.delete` (WhatsApp "Delete chat"), which — unlike
+  /// [clearChat] — must stay purely local and never fail on account of
+  /// connectivity (deleting a chat has no server-side counterpart at all).
+  /// No-op (never throws) when no local datasource is configured.
+  Future<ChatResult<void>> setLocalClearedAt(String roomId, DateTime clearedAt);
 }
 
 /// Contact list, direct messaging, typing indicators, and blocking.

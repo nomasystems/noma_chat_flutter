@@ -21,7 +21,7 @@ import 'retry_interceptor.dart';
 /// if the two drift, so bumping the package version forces an update here
 /// too. A future build_runner-generated constant can drop in without
 /// changing the call sites.
-const String nomaChatSdkVersion = '0.13.0';
+const String nomaChatSdkVersion = '0.13.1';
 
 const String _requestIdExtraKey = 'requestId';
 const Uuid _uuid = Uuid();

@@ -331,12 +331,20 @@ class RoomEnricher {
     // surface the row empty-but-for-the-new-message); otherwise skip the
     // room entirely. `deletedRoomIds` tracks the survivors so the
     // controller's getters keep them excluded after [setRooms].
+    // Read through the CLIENT surface — this is where
+    // `ChatRoomsController.delete` persists the marker via
+    // `client.rooms.markRoomDeleted`, so the filter survives even when the
+    // adapter itself was built without a `cache:` arg (e.g. WB). The
+    // adapter-level `cache` is consulted too as a backstop for hosts that
+    // wired one directly before this client-level surface existed.
     final localCacheForDeleted = cache;
-    final deletedRoomIds = localCacheForDeleted == null
-        ? <String>{}
-        : ((await localCacheForDeleted.getDeletedRoomIds()).dataOrNull ??
-                  const <String>{})
-              .toSet();
+    final clientDeletedIds =
+        (await client.rooms.getDeletedRoomIds()).dataOrNull ?? const <String>{};
+    final adapterDeletedIds = localCacheForDeleted == null
+        ? const <String>{}
+        : (await localCacheForDeleted.getDeletedRoomIds()).dataOrNull ??
+              const <String>{};
+    final deletedRoomIds = {...clientDeletedIds, ...adapterDeletedIds};
 
     final items = <RoomListItem>[];
     for (var i = 0; i < userRooms.rooms.length; i++) {
@@ -360,6 +368,15 @@ class RoomEnricher {
             unread.lastMessageTime!.isAfter(clearedAt);
         if (resurrected) {
           deletedRoomIds.remove(unread.roomId);
+          unawaited(
+            client.rooms
+                .clearRoomDeleted(unread.roomId)
+                .catchError(
+                  (_) => const ChatFailureResult<void>(
+                    UnexpectedFailure('clearRoomDeleted threw'),
+                  ),
+                ),
+          );
           unawaited(
             (localCacheForDeleted?.clearDeletedRoom(unread.roomId) ??
                     Future<void>.value())

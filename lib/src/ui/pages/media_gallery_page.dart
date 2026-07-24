@@ -5,6 +5,8 @@ import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../models/message.dart';
 import '../controller/chat_controller.dart';
+import '../services/attachment_bytes_loader.dart';
+import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
 import '../utils/mime_classifier.dart';
@@ -33,6 +35,7 @@ class MediaGalleryPage extends StatefulWidget {
     this.linkSourceMessages = const [],
     this.includeAudioFiles = false,
     this.senderNameResolver,
+    this.mediaLoader,
   });
 
   final ChatClient client;
@@ -41,6 +44,15 @@ class MediaGalleryPage extends StatefulWidget {
   final ValueChanged<MediaItem>? onTapMedia;
   final ValueChanged<MediaItem>? onTapDoc;
   final ValueChanged<SharedLink>? onTapLink;
+
+  /// Fetches attachment bytes through the authenticated client and renders
+  /// from memory instead of handing the grid/viewer a signed URL that 401s
+  /// without a Bearer token. Typically wired to
+  /// `ChatUiAdapter.defaultAttachmentMediaLoader`. `null` (default) builds
+  /// an [AuthenticatedAttachmentLoader] over [client] internally, so media
+  /// renders through an authenticated download out of the box even when
+  /// the host never wires one in.
+  final AttachmentMediaLoader? mediaLoader;
 
   /// Messages used as the source for the Links tab. The consumer typically
   /// passes the ones from its [ChatController] / cache so they show up
@@ -68,6 +80,15 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
   String? _errorMessage;
   List<MediaItem> _media = const [];
   List<MediaItem> _docs = const [];
+
+  /// Effective loader for the grid and the full-screen viewer. Falls back
+  /// to an [AuthenticatedAttachmentLoader] over [MediaGalleryPage.client] so
+  /// media renders through a Bearer-authenticated download by default
+  /// instead of a raw `CachedNetworkImage(url)` that 401s — a host that
+  /// wires its own [MediaGalleryPage.mediaLoader] still takes priority.
+  late final AttachmentMediaLoader _loader =
+      widget.mediaLoader ??
+      AuthenticatedAttachmentLoader(client: widget.client);
 
   @override
   void initState() {
@@ -123,6 +144,11 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
               senderId: msg.from,
               fileName: msg.fileName,
               mimeType: mime,
+              attachmentRef: AttachmentRef(
+                roomId: widget.roomId,
+                attachmentId: msg.attachmentId,
+                fallbackUrl: url,
+              ),
             );
             if (type == MediaItemType.file) {
               docs.add(item);
@@ -204,7 +230,12 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     if (item.type == MediaItemType.image) {
       Navigator.of(context).push(
         MaterialPageRoute<void>(
-          builder: (_) => ImageViewer(imageUrl: item.url, theme: widget.theme),
+          builder: (_) => ImageViewer(
+            imageUrl: item.url,
+            theme: widget.theme,
+            mediaLoader: _loader,
+            attachmentRef: item.attachmentRef,
+          ),
         ),
       );
       return;
@@ -226,12 +257,18 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final theme = widget.theme;
+    final l10n = theme.l10n;
     return Scaffold(
+      backgroundColor: theme.backgroundColor,
       appBar: AppBar(
+        backgroundColor: theme.galleryAppBarBackgroundColor,
+        foregroundColor: theme.galleryAppBarForegroundColor,
         title: Text(l10n.galleryTitle),
         bottom: TabBar(
           controller: _tabController,
+          indicatorColor: theme.galleryTabIndicatorColor,
+          labelColor: theme.galleryAppBarForegroundColor,
           tabs: [
             Tab(text: l10n.galleryMediaTab),
             Tab(text: l10n.galleryDocsTab),
@@ -258,6 +295,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
                       widget.onTapMedia ??
                       (item) => _defaultOpenMedia(context, item),
                   includeAudioFiles: widget.includeAudioFiles,
+                  mediaLoader: _loader,
                 ),
                 _DocsTab(
                   items: _docs,

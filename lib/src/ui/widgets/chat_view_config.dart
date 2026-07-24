@@ -9,6 +9,7 @@ import '../../models/user.dart';
 import '../models/reaction_user.dart';
 import '../models/send_message_request.dart';
 import '../models/voice_message_data.dart';
+import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
 import 'attachment_picker_sheet.dart';
@@ -42,6 +43,7 @@ class ChatViewBuilders {
     this.avatarRebuildSignal,
     this.statusIconBuilder,
     this.attachmentUrlResolver,
+    this.attachmentMediaLoader,
   });
 
   /// Overrides the bubble long-press / right-click context menu. When
@@ -150,6 +152,16 @@ class ChatViewBuilders {
   /// adapter's default `SignedAttachmentUrlResolver` automatically when
   /// this is left unset.
   final AttachmentUrlResolver? attachmentUrlResolver;
+
+  /// Fetches an attachment's bytes (or a local file) through the
+  /// authenticated client for media bubbles to render from — required
+  /// because the download endpoints are Bearer-protected and no
+  /// URL-loading widget (`CachedNetworkImage`, `UrlSource`, a video
+  /// player) ever sends that header. `null` (default via [ChatView])
+  /// disables authenticated media loading; `NomaChatView` wires the
+  /// adapter's default `AuthenticatedAttachmentLoader` automatically when
+  /// this is left unset.
+  final AttachmentMediaLoader? attachmentMediaLoader;
 }
 
 /// Imperative callbacks fired by [ChatView] in response to user

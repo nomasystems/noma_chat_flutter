@@ -546,6 +546,19 @@ class ChatEventRouter {
     // rooms are NOT touched here: they must STAY archived on a new message.
     if (_roomList.deletedRoomIds.contains(roomId)) {
       _roomList.clearDeleted(roomId);
+      // Client surface first — this is where `ChatRoomsController.delete`
+      // persists the marker (survives even when the adapter's own `cache:`
+      // is `null`, e.g. WB). Adapter cache is a backstop for hosts that DO
+      // wire one directly.
+      unawaited(
+        _client.rooms
+            .clearRoomDeleted(roomId)
+            .catchError(
+              (_) => const ChatFailureResult<void>(
+                UnexpectedFailure('clearRoomDeleted threw'),
+              ),
+            ),
+      );
       unawaited(
         (_cache?.clearDeletedRoom(roomId) ?? Future<void>.value()).catchError(
           (_) {},

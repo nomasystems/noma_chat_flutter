@@ -132,13 +132,27 @@ final class ChatRoomsController {
   /// leaves the `clearedAt` cutoff in place so prior history stays hidden).
   ///
   /// Unlike [hide] (archive) this is NOT just a `hidden` flag: it writes a
-  /// dedicated, never-evictable per-user `deletedRooms` marker to the cache
-  /// AND sets the `clearedAt` cutoff to now (reusing the same mechanism as
+  /// dedicated, never-evictable per-user `deletedRooms` marker AND sets the
+  /// `clearedAt` cutoff to now (reusing the same mechanism as
   /// `messages.clearChat`), then drops the row from the controller. No
   /// server membership change happens (use [leave] to leave a group).
+  ///
+  /// Both markers are written through the CLIENT surface
+  /// (`client.messages.setLocalClearedAt` / `client.rooms.markRoomDeleted`)
+  /// — same pattern `messages.clearChat` already uses — so they persist
+  /// even when this [ChatUiAdapter] was built without its own `cache:` arg
+  /// (e.g. WB, which only wires `ChatConfig.localDatasource` at the client
+  /// level). The adapter-level cache, when present, is written to as well
+  /// as a backstop for hosts that relied on it directly.
   Future<ChatResult<void>> delete(String roomId) async {
     final cache = _a._cache;
     final now = DateTime.now().toUtc();
+    await _a.client.messages
+        .setLocalClearedAt(roomId, now)
+        .catchError(_swallowCacheThrow);
+    await _a.client.rooms
+        .markRoomDeleted(roomId)
+        .catchError(_swallowCacheThrow);
     // Persist the cutoff so any prior history stays hidden if the room is
     // re-fetched later (twin of the never-evictable deleted marker).
     if (cache != null) {

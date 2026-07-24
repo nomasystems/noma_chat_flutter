@@ -142,6 +142,18 @@ class _FailableRoomsApi implements ChatRoomsApi {
     lastMessageIsDeleted: lastMessageIsDeleted,
     lastMessageReactionEmoji: lastMessageReactionEmoji,
   );
+
+  @override
+  Future<ChatResult<void>> markRoomDeleted(String roomId) =>
+      _delegate.markRoomDeleted(roomId);
+
+  @override
+  Future<ChatResult<void>> clearRoomDeleted(String roomId) =>
+      _delegate.clearRoomDeleted(roomId);
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() =>
+      _delegate.getDeletedRoomIds();
 }
 
 class _FailableMessagesApi implements ChatMessagesApi {
@@ -420,6 +432,12 @@ class _FailableMessagesApi implements ChatMessagesApi {
   @override
   Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>
       _delegate.getClearedAt(roomId);
+
+  @override
+  Future<ChatResult<void>> setLocalClearedAt(
+    String roomId,
+    DateTime clearedAt,
+  ) => _delegate.setLocalClearedAt(roomId, clearedAt);
 }
 
 class _FailableChatClient implements ChatClient {

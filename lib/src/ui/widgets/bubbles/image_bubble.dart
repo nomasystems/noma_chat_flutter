@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import '../../../_internal/ui_debug_log.dart';
+import '../../services/attachment_bytes_loader.dart';
 import '../../services/attachment_url_resolver.dart';
 import '../../theme/chat_theme.dart';
 import '_attachment_upload_overlay.dart';
@@ -23,6 +24,7 @@ class ImageBubble extends StatefulWidget {
     this.statusWidget,
     this.attachmentRef,
     this.urlResolver,
+    this.mediaLoader,
     this.uploadProgress,
   });
 
@@ -49,8 +51,18 @@ class ImageBubble extends StatefulWidget {
 
   /// Resolves a fresh image URL for [attachmentRef] on demand, re-minting
   /// on expiry. Consulted before the first load and once more if the
-  /// network image errors.
+  /// network image errors. Ignored once [mediaLoader] is wired — the
+  /// signed URL this resolves still requires a Bearer token
+  /// `CachedNetworkImage` never sends, so [mediaLoader] takes over
+  /// rendering entirely when present.
   final AttachmentUrlResolver? urlResolver;
+
+  /// Fetches this attachment's bytes through the authenticated client and
+  /// renders from memory (`Image.memory`) instead of handing
+  /// `CachedNetworkImage` a URL it can't authenticate. Preferred over
+  /// [urlResolver] whenever both are set (together with [attachmentRef]).
+  /// `null` (default) keeps the plain-URL path unchanged.
+  final AttachmentMediaLoader? mediaLoader;
 
   @override
   State<ImageBubble> createState() => _ImageBubbleState();
@@ -60,12 +72,23 @@ class _ImageBubbleState extends State<ImageBubble> {
   String? _resolvedUrl;
   bool _retried = false;
 
+  Uint8List? _bytes;
+  Object? _bytesError;
+  bool _bytesRetried = false;
+
+  bool get _usesMediaLoader =>
+      widget.mediaLoader != null && widget.attachmentRef != null;
+
   String get _effectiveUrl => _resolvedUrl ?? widget.imageUrl;
 
   @override
   void initState() {
     super.initState();
-    _resolve();
+    if (_usesMediaLoader) {
+      _loadBytes();
+    } else {
+      _resolve();
+    }
   }
 
   @override
@@ -76,8 +99,44 @@ class _ImageBubbleState extends State<ImageBubble> {
             widget.attachmentRef?.attachmentId) {
       _retried = false;
       _resolvedUrl = null;
-      _resolve();
+      _bytesRetried = false;
+      _bytes = null;
+      _bytesError = null;
+      if (_usesMediaLoader) {
+        _loadBytes();
+      } else {
+        _resolve();
+      }
     }
+  }
+
+  void _loadBytes() {
+    final loader = widget.mediaLoader;
+    final ref = widget.attachmentRef;
+    if (loader == null || ref == null) return;
+    unawaited(
+      loader
+          .loadBytes(ref)
+          .then((bytes) {
+            if (!mounted) return;
+            setState(() {
+              _bytes = bytes;
+              _bytesError = null;
+            });
+          })
+          .catchError((Object error) {
+            uiDebugLog('ImageBubble', 'authenticated download failed: $error');
+            if (!mounted) return;
+            setState(() => _bytesError = error);
+            _retryBytesAfterError();
+          }),
+    );
+  }
+
+  void _retryBytesAfterError() {
+    if (_bytesRetried) return;
+    _bytesRetried = true;
+    _loadBytes();
   }
 
   void _resolve() {
@@ -142,6 +201,8 @@ class _ImageBubbleState extends State<ImageBubble> {
                         height: theme.imageMaxHeight ?? 250,
                         icon: Icons.image,
                       )
+                    : _usesMediaLoader
+                    ? _buildAuthenticatedImage(theme)
                     : CachedNetworkImage(
                         key: ValueKey(_effectiveUrl),
                         imageUrl: _effectiveUrl,
@@ -196,6 +257,39 @@ class _ImageBubbleState extends State<ImageBubble> {
           ],
         ),
       ),
+    );
+  }
+
+  /// Renders the image from authenticated bytes (`Image.memory`) instead
+  /// of handing `CachedNetworkImage` a URL it can't attach a Bearer token
+  /// to. Shows the same loading/error affordances as the plain-URL path.
+  Widget _buildAuthenticatedImage(ChatTheme theme) {
+    final error = _bytesError;
+    final bytes = _bytes;
+    if (error != null && bytes == null) {
+      return const SizedBox(
+        height: 100,
+        child: Center(child: Icon(Icons.broken_image)),
+      );
+    }
+    if (bytes == null) {
+      return const SizedBox(
+        height: 150,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    return Image.memory(
+      bytes,
+      key: ValueKey(widget.attachmentRef?.attachmentId ?? widget.imageUrl),
+      fit: BoxFit.cover,
+      errorBuilder: (_, error, __) {
+        uiDebugLog('ImageBubble', 'Image.memory decode failed: $error');
+        _retryBytesAfterError();
+        return const SizedBox(
+          height: 100,
+          child: Center(child: Icon(Icons.broken_image)),
+        );
+      },
     );
   }
 }

@@ -138,6 +138,18 @@ class _ScriptedRoomsApi implements ChatRoomsApi {
     lastMessageIsDeleted: lastMessageIsDeleted,
     lastMessageReactionEmoji: lastMessageReactionEmoji,
   );
+
+  @override
+  Future<ChatResult<void>> markRoomDeleted(String roomId) =>
+      _delegate.markRoomDeleted(roomId);
+
+  @override
+  Future<ChatResult<void>> clearRoomDeleted(String roomId) =>
+      _delegate.clearRoomDeleted(roomId);
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() =>
+      _delegate.getDeletedRoomIds();
 }
 
 class _ScriptedRoomsClient implements ChatClient {

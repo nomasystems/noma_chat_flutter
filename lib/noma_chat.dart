@@ -50,6 +50,7 @@ export 'src/api/messages_api.dart';
 export 'src/api/contacts_api.dart';
 export 'src/api/presence_api.dart';
 export 'src/api/attachments_api.dart';
+export 'src/api/delivery_receipt_client.dart';
 
 // === SDK: Core ===
 export 'src/core/result.dart';
@@ -190,6 +191,7 @@ export 'src/ui/widgets/bubbles/location_bubble.dart';
 export 'src/ui/models/link_preview_metadata.dart';
 export 'src/ui/services/link_preview_fetcher.dart';
 export 'src/ui/services/attachment_pickers.dart';
+export 'src/ui/services/attachment_bytes_loader.dart';
 export 'src/ui/services/attachment_url_resolver.dart';
 export 'src/ui/widgets/bubbles/link_preview_bubble.dart';
 export 'src/ui/widgets/bubbles/forwarded_bubble.dart';

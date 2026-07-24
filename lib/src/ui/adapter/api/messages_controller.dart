@@ -1301,6 +1301,14 @@ final class ChatMessagesController {
   /// [deletedPlaceholder] / [mediaPlaceholder] (attachment file names are
   /// used when present). Override [displayNameFor] to control the name
   /// column, or [dateFormat] for a different timestamp format.
+  ///
+  /// [roomTitle], when non-null and non-empty, prepends a `Chat:
+  /// $roomTitle` header line (plus a blank line) before the transcript and
+  /// is echoed back on [ChatExport.roomTitle]. `null` (default) keeps the
+  /// transcript exactly as before this parameter existed — the SDK doesn't
+  /// resolve a title itself (it has no opinion on room naming) nor does it
+  /// prepend any app/branding name; a host wanting that composes it from
+  /// [ChatExport.roomTitle]/[ChatExport.text] on its side.
   Future<ChatResult<ChatExport>> exportChat(
     String roomId, {
     int pageSize = 100,
@@ -1309,9 +1317,17 @@ final class ChatMessagesController {
     DateFormat? dateFormat,
     String mediaPlaceholder = '<media omitted>',
     String deletedPlaceholder = 'This message was deleted',
+    String? roomTitle,
   }) async {
     if (_a._disposed) {
-      return ChatSuccess(ChatExport(roomId: roomId, text: '', messageCount: 0));
+      return ChatSuccess(
+        ChatExport(
+          roomId: roomId,
+          text: '',
+          messageCount: 0,
+          roomTitle: roomTitle,
+        ),
+      );
     }
     final byId = <String, ChatMessage>{};
     // Opaque older-history cursor: `null` on the first page (server returns the
@@ -1355,6 +1371,10 @@ final class ChatMessagesController {
     final ordered = byId.values.toList()
       ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
     final buffer = StringBuffer();
+    if (roomTitle != null && roomTitle.isNotEmpty) {
+      buffer.writeln('Chat: $roomTitle');
+      buffer.writeln();
+    }
     for (final m in ordered) {
       final String body;
       final text = m.text?.trim();
@@ -1378,6 +1398,7 @@ final class ChatMessagesController {
         roomId: roomId,
         text: buffer.toString(),
         messageCount: ordered.length,
+        roomTitle: roomTitle,
       ),
     );
   }

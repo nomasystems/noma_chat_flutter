@@ -4,6 +4,7 @@ import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
+import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/url_detector.dart';
@@ -70,6 +71,7 @@ class MessageBubble extends StatelessWidget {
     this.statusIconBuilder,
     this.roomId,
     this.attachmentUrlResolver,
+    this.attachmentMediaLoader,
   });
 
   final ChatMessage message;
@@ -175,6 +177,14 @@ class MessageBubble extends StatelessWidget {
   /// `SignedAttachmentUrlResolver` automatically.
   final AttachmentUrlResolver? attachmentUrlResolver;
 
+  /// Fetches this attachment's bytes/file through the authenticated
+  /// client. `NomaChatView`/`ChatView` wire the adapter's default
+  /// `AuthenticatedAttachmentLoader` automatically. Media bubbles use this
+  /// — not [attachmentUrlResolver] — to actually load their content: the
+  /// signed URL the resolver mints still requires a Bearer token no
+  /// URL-loading widget sends.
+  final AttachmentMediaLoader? attachmentMediaLoader;
+
   bool get _isEdited => message.isEdited;
 
   /// Read each admin-action flag from `metadata`. Backend sets these
@@ -220,6 +230,19 @@ class MessageBubble extends StatelessWidget {
     return AttachmentRef(
       roomId: rid,
       attachmentId: message.attachmentId,
+      fallbackUrl: url,
+    );
+  }
+
+  /// Same as [_attachmentRef] but for [referencedMessage] — the message a
+  /// reply bubble quotes, whose thumbnail [ReplyPreview] renders.
+  AttachmentRef? get _referencedAttachmentRef {
+    final rid = roomId;
+    final url = referencedMessage?.attachmentUrl;
+    if (rid == null || url == null) return null;
+    return AttachmentRef(
+      roomId: rid,
+      attachmentId: referencedMessage!.attachmentId,
       fallbackUrl: url,
     );
   }
@@ -351,6 +374,7 @@ class MessageBubble extends StatelessWidget {
         showSenderPortrait: true,
         attachmentRef: _attachmentRef,
         urlResolver: attachmentUrlResolver,
+        mediaLoader: attachmentMediaLoader,
       );
     }
 
@@ -376,6 +400,7 @@ class MessageBubble extends StatelessWidget {
           showSenderPortrait: true,
           attachmentRef: _attachmentRef,
           urlResolver: attachmentUrlResolver,
+          mediaLoader: attachmentMediaLoader,
         );
       }
       if (mimeType.startsWith('image/')) {
@@ -389,6 +414,7 @@ class MessageBubble extends StatelessWidget {
           statusWidget: outgoingStatusWidget,
           attachmentRef: _attachmentRef,
           urlResolver: attachmentUrlResolver,
+          mediaLoader: attachmentMediaLoader,
           uploadProgress: attachmentUploadProgress,
         );
       }
@@ -403,6 +429,7 @@ class MessageBubble extends StatelessWidget {
           statusWidget: outgoingStatusWidget,
           attachmentRef: _attachmentRef,
           urlResolver: attachmentUrlResolver,
+          mediaLoader: attachmentMediaLoader,
           uploadProgress: attachmentUploadProgress,
         );
       }
@@ -449,6 +476,8 @@ class MessageBubble extends StatelessWidget {
         senderName: referencedSenderName,
         onTap: onTapReply,
         theme: theme,
+        mediaLoader: attachmentMediaLoader,
+        attachmentRef: _referencedAttachmentRef,
       );
     }
 
