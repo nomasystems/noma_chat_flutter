@@ -427,4 +427,12 @@ class CachedMessagesApi extends RestMessagesApi {
   @override
   Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>
       safeApiCall(() async => (await _cache.getClearedAt(roomId)).dataOrNull);
+
+  @override
+  Future<ChatResult<void>> setLocalClearedAt(
+    String roomId,
+    DateTime clearedAt,
+  ) => safeVoidCall(() async {
+    await _cache.setClearedAt(roomId, clearedAt);
+  });
 }

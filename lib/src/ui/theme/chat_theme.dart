@@ -162,6 +162,14 @@ abstract class ChatTheme with _$ChatTheme {
     Color? presenceAwayColor,
     Color? presenceBusyColor,
     Color? presenceDndColor,
+
+    // Media Gallery page (`MediaGalleryPage`'s own Scaffold/AppBar/TabBar
+    // chrome — everything else in the page already reads `backgroundColor`
+    // via its child widgets). `null` falls back to the ambient Material
+    // `Theme`, unchanged from before these fields existed.
+    Color? galleryAppBarBackgroundColor,
+    Color? galleryAppBarForegroundColor,
+    Color? galleryTabIndicatorColor,
   }) = _ChatTheme;
 
   /// Empty defaults — every slot is `null` and falls back to the

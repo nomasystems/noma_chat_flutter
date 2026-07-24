@@ -209,6 +209,7 @@ class _ChatViewState extends State<ChatView> {
       avatarRebuildSignal: builders.avatarRebuildSignal,
       statusIconBuilder: builders.statusIconBuilder,
       attachmentUrlResolver: builders.attachmentUrlResolver,
+      attachmentMediaLoader: builders.attachmentMediaLoader,
     );
   }
 
@@ -323,6 +324,7 @@ class _ChatViewState extends State<ChatView> {
       mentionUsers: behaviors.enableMentions
           ? widget.controller.otherUsers
           : const [],
+      attachmentMediaLoader: builders.attachmentMediaLoader,
     );
   }
 

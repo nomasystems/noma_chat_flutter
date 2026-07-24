@@ -611,6 +611,24 @@ class MockRoomsApi implements ChatRoomsApi {
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
   }) async {}
+
+  final Set<String> _deletedRoomIds = {};
+
+  @override
+  Future<ChatResult<void>> markRoomDeleted(String roomId) async {
+    _deletedRoomIds.add(roomId);
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<void>> clearRoomDeleted(String roomId) async {
+    _deletedRoomIds.remove(roomId);
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() async =>
+      ChatSuccess(Set.of(_deletedRoomIds));
 }
 
 class MockMembersApi implements ChatMembersApi {
@@ -1058,13 +1076,26 @@ class MockMessagesApi implements ChatMessagesApi {
     String scheduledId,
   ) async => const ChatSuccess(null);
 
+  final Map<String, DateTime> _clearedAt = {};
+
   @override
-  Future<ChatResult<void>> clearChat(String roomId) async =>
-      const ChatSuccess(null);
+  Future<ChatResult<void>> clearChat(String roomId) async {
+    _clearedAt[roomId] = DateTime.now().toUtc();
+    return const ChatSuccess(null);
+  }
 
   @override
   Future<ChatResult<DateTime?>> getClearedAt(String roomId) async =>
-      const ChatSuccess(null);
+      ChatSuccess(_clearedAt[roomId]);
+
+  @override
+  Future<ChatResult<void>> setLocalClearedAt(
+    String roomId,
+    DateTime clearedAt,
+  ) async {
+    _clearedAt[roomId] = clearedAt;
+    return const ChatSuccess(null);
+  }
 }
 
 class MockContactsApi implements ChatContactsApi {

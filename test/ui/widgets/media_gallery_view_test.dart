@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -11,6 +13,26 @@ class _MockHttpOverrides extends HttpOverrides {
     return super.createHttpClient(context)
       ..badCertificateCallback = (_, __, ___) => true;
   }
+}
+
+class _FakeMediaLoader implements AttachmentMediaLoader {
+  _FakeMediaLoader({required this.onLoadBytes});
+
+  final Future<Uint8List> Function(AttachmentRef ref) onLoadBytes;
+  final List<AttachmentRef> requested = [];
+
+  @override
+  Future<Uint8List> loadBytes(AttachmentRef ref) {
+    requested.add(ref);
+    return onLoadBytes(ref);
+  }
+
+  @override
+  Future<String> loadToTempFile(AttachmentRef ref, {String suffix = ''}) =>
+      throw UnimplementedError();
+
+  @override
+  void clear() {}
 }
 
 void main() {
@@ -141,6 +163,102 @@ void main() {
       await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
       await tester.pump();
       expect(find.byType(EmptyState), findsOneWidget);
+    });
+
+    group('mediaLoader (B2 authenticated download)', () {
+      // Minimal valid 1x1 transparent PNG so `Image.memory` decodes
+      // without erroring.
+      final validPngBytes = base64Decode(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk'
+        '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+      );
+
+      testWidgets('fetches bytes via mediaLoader when the item carries an '
+          'attachmentRef, instead of handing CachedNetworkImage the URL', (
+        tester,
+      ) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/photo.jpg',
+            type: MediaItemType.image,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'att-1',
+              fallbackUrl: 'https://signed.example/photo.jpg',
+            ),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        final image = tester.widget<Image>(find.byType(Image));
+        expect(image.image, isA<MemoryImage>());
+        expect((image.image as MemoryImage).bytes, validPngBytes);
+        expect(loader.requested.single.attachmentId, 'att-1');
+      });
+
+      testWidgets('renders via CachedNetworkImage unchanged when the item '
+          'has no attachmentRef, even with a mediaLoader wired', (
+        tester,
+      ) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://example.com/photo.jpg',
+            type: MediaItemType.image,
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+
+        expect(find.byType(CachedNetworkImage), findsOneWidget);
+        expect(loader.requested, isEmpty);
+      });
+
+      testWidgets('shows the broken-image fallback and retries once when '
+          'the authenticated download fails', (tester) async {
+        var calls = 0;
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async {
+            calls++;
+            throw StateError('401 unauthorized');
+          },
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/photo.jpg',
+            type: MediaItemType.image,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'att-1',
+              fallbackUrl: 'https://signed.example/photo.jpg',
+            ),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byIcon(Icons.broken_image), findsOneWidget);
+        expect(calls, 2);
+      });
     });
   });
 }

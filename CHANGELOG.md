@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.13.1
+
+### Added
+
+- `DeliveryReceiptClient` (`confirmMessageDelivered`) — a standalone,
+  lightweight REST entry point that confirms a message as *delivered*
+  without a full `NomaChatClient`. It takes a `ChatConfig`, an auth token,
+  a room id and a message id and issues the delivery receipt over REST only
+  (no WebSocket, cache, or DI), so it can run from a background push isolate.
+- `AuthenticatedAttachmentLoader` — media bubbles, the media gallery, the
+  full-screen viewer and the reply preview now load attachment bytes through
+  the authenticated client instead of fetching the signed download URL
+  directly.
+
+### Fixed
+
+- Image, audio and video attachments that silently failed to display when
+  the signed download URL was fetched without the auth header (a `401` that
+  degraded to a fallback). Media is now loaded via the authenticated client
+  and renders reliably.
+- `setActiveRoom`'s optimistic unread-count clear is deferred to a microtask
+  so it never notifies the room list mid-build, which could otherwise surface
+  as a build-phase error in a consumer that also listens to the room list.
+- `exportChat` now includes the room title in the exported header.
+
+### Changed
+
+- The media gallery page picks up the chat theme (new AppBar/TabBar theme
+  fields), and the message input can autofocus when a chat opens.
+
 ## 0.13.0
 
 ### Added

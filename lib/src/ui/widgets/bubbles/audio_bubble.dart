@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../../_internal/ui_debug_log.dart';
 import '../../controller/audio_playback_coordinator.dart';
+import '../../services/attachment_bytes_loader.dart';
 import '../../services/attachment_url_resolver.dart';
 import '../../theme/chat_theme.dart';
 import '../user_avatar.dart';
@@ -34,6 +35,7 @@ class AudioBubble extends StatefulWidget {
     this.onPlaybackSpeedChanged,
     this.attachmentRef,
     this.urlResolver,
+    this.mediaLoader,
   });
 
   final String audioUrl;
@@ -106,7 +108,16 @@ class AudioBubble extends StatefulWidget {
   /// Resolves a playable URL for [attachmentRef] on demand, re-minting on
   /// expiry. Called once before the first play, and once more (via the
   /// same function) if `setSource` throws — see `_ensureInitialized`.
+  /// Ignored once [mediaLoader] is wired — the signed URL this resolves
+  /// still requires a Bearer token `UrlSource` never sends.
   final AttachmentUrlResolver? urlResolver;
+
+  /// Downloads this attachment through the authenticated client to a temp
+  /// file and plays it via `DeviceFileSource` instead of handing
+  /// `UrlSource` a URL it can't authenticate. Preferred over [urlResolver]
+  /// whenever both are set (together with [attachmentRef]). `null`
+  /// (default) keeps the plain-URL path unchanged.
+  final AttachmentMediaLoader? mediaLoader;
 
   @override
   State<AudioBubble> createState() => _AudioBubbleState();
@@ -141,7 +152,11 @@ class _AudioBubbleState extends State<AudioBubble> {
   PlayerState _playerState = PlayerState.stopped;
   bool _completedFired = false;
   String? _resolvedUrl;
+  String? _resolvedFilePath;
   bool _retriedResolve = false;
+
+  bool get _usesMediaLoader =>
+      widget.mediaLoader != null && widget.attachmentRef != null;
 
   @override
   void initState() {
@@ -196,13 +211,37 @@ class _AudioBubbleState extends State<AudioBubble> {
     }
   }
 
+  /// Resolves the `audioplayers` [Source] to actually play. When
+  /// [AudioBubble.mediaLoader] is wired (together with [attachmentRef]),
+  /// downloads the attachment through the authenticated client to a temp
+  /// file and plays it via `DeviceFileSource` — `UrlSource` never sends
+  /// the Bearer token the download/signed-url endpoints require. `.m4a`
+  /// matches the SDK's own voice-recorder output (`AudioEncoder.aacLc`);
+  /// it is used as the temp file's extension for every media-loader-backed
+  /// clip since the bubble has no per-message mime type to pick from.
+  /// Falls back to [_resolveEffectiveUrl] otherwise — zero behaviour
+  /// change from before [mediaLoader] existed.
+  Future<Source> _resolveEffectiveSource() async {
+    if (_usesMediaLoader) {
+      final cached = _resolvedFilePath;
+      if (cached != null) return DeviceFileSource(cached);
+      final path = await widget.mediaLoader!.loadToTempFile(
+        widget.attachmentRef!,
+        suffix: '.m4a',
+      );
+      _resolvedFilePath = path;
+      return DeviceFileSource(path);
+    }
+    return _resolveSource(await _resolveEffectiveUrl());
+  }
+
   Future<void> _ensureInitialized() async {
     if (_initialized || _hasError) return;
-    final url = await _resolveEffectiveUrl();
+    final source = await _resolveEffectiveSource();
     if (!mounted) return;
     _player ??= AudioPlayer();
     try {
-      await _player!.setSource(_resolveSource(url));
+      await _player!.setSource(source);
       // Faster position updates for a smooth waveform fill.
       await _player!.setPlayerMode(PlayerMode.mediaPlayer);
       if (mounted) setState(() => _initialized = true);
@@ -216,14 +255,15 @@ class _AudioBubbleState extends State<AudioBubble> {
       }
       _attachStateListener();
     } catch (e, st) {
-      // A resolver-backed URL may have expired since it was cached (or the
-      // signed URL was simply wrong) — re-mint once and retry before
-      // surfacing "Audio unavailable".
-      if (widget.urlResolver != null &&
+      // A resolver-backed URL/file may have expired or gone stale since it
+      // was cached (signed URL wrong, temp file evicted) — re-mint/re-
+      // download once and retry before surfacing "Audio unavailable".
+      if ((widget.urlResolver != null || widget.mediaLoader != null) &&
           widget.attachmentRef != null &&
           !_retriedResolve) {
         _retriedResolve = true;
         _resolvedUrl = null;
+        _resolvedFilePath = null;
         return _ensureInitialized();
       }
       // Surface the real cause instead of silently flipping
@@ -232,7 +272,7 @@ class _AudioBubbleState extends State<AudioBubble> {
       // expired, GFS misconfigured, file wiped) or the device cannot
       // reach the URL (cleartext-traffic policy in release builds,
       // host-network unreachable from a remote sim).
-      uiDebugLog('AudioBubble', 'setSource failed for $url: $e\n$st');
+      uiDebugLog('AudioBubble', 'setSource failed for $source: $e\n$st');
       if (mounted) setState(() => _hasError = true);
     }
   }
@@ -296,6 +336,7 @@ class _AudioBubbleState extends State<AudioBubble> {
       _initialized = false;
       _hasError = false;
       _resolvedUrl = null;
+      _resolvedFilePath = null;
       _retriedResolve = false;
     }
   }
@@ -373,7 +414,9 @@ class _AudioBubbleState extends State<AudioBubble> {
         // so no new network fetch.
         if (completed) {
           await _player!.setSource(
-            _resolveSource(_resolvedUrl ?? widget.audioUrl),
+            _usesMediaLoader && _resolvedFilePath != null
+                ? DeviceFileSource(_resolvedFilePath!)
+                : _resolveSource(_resolvedUrl ?? widget.audioUrl),
           );
           // setSource may reset the playback rate on some platforms;
           // reapply.

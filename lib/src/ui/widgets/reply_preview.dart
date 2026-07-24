@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
+import '../services/attachment_bytes_loader.dart';
+import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '_authenticated_media_image.dart';
 
 /// Compact preview of the message being replied to. Shown inside reply
 /// bubbles and above the composer while drafting a reply.
@@ -12,6 +15,8 @@ class ReplyPreview extends StatelessWidget {
     this.onDismiss,
     this.onTap,
     this.theme = ChatTheme.defaults,
+    this.mediaLoader,
+    this.attachmentRef,
   });
 
   final ChatMessage message;
@@ -19,6 +24,19 @@ class ReplyPreview extends StatelessWidget {
   final VoidCallback? onDismiss;
   final VoidCallback? onTap;
   final ChatTheme theme;
+
+  /// Fetches the referenced image's bytes through the authenticated
+  /// client and renders the thumbnail from memory instead of handing
+  /// `Image.network` a signed URL that 401s without a Bearer token.
+  /// Consulted together with [attachmentRef] — `null` (default) keeps the
+  /// plain-URL thumbnail unchanged.
+  final AttachmentMediaLoader? mediaLoader;
+
+  /// Identifies the referenced attachment for [mediaLoader]. Ignored when
+  /// [mediaLoader] is `null`.
+  final AttachmentRef? attachmentRef;
+
+  bool get _usesMediaLoader => mediaLoader != null && attachmentRef != null;
 
   // Compact mode (inside bubble): shrink-wrap. Full mode (input bar): expand.
   bool get _isCompact => onDismiss == null;
@@ -125,19 +143,31 @@ class ReplyPreview extends StatelessWidget {
               padding: const EdgeInsets.only(left: 8),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(4),
-                child: Image.network(
-                  thumbnailUrl,
+                child: SizedBox(
                   width: 40,
                   height: 40,
-                  // Decode at 3× pixel density (~120 px) instead of
-                  // the full image, which can be multi-MB for chat
-                  // attachments. Without these, every reply preview
-                  // pinned in the input would hold the source bitmap
-                  // (often 4K) in the image cache.
-                  cacheWidth: 120,
-                  cacheHeight: 120,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  child: _usesMediaLoader
+                      ? AuthenticatedMediaImage(
+                          loader: mediaLoader!,
+                          attachmentRef: attachmentRef!,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_) => const SizedBox.shrink(),
+                        )
+                      : Image.network(
+                          thumbnailUrl,
+                          width: 40,
+                          height: 40,
+                          // Decode at 3× pixel density (~120 px) instead of
+                          // the full image, which can be multi-MB for chat
+                          // attachments. Without these, every reply preview
+                          // pinned in the input would hold the source bitmap
+                          // (often 4K) in the image cache.
+                          cacheWidth: 120,
+                          cacheHeight: 120,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) =>
+                              const SizedBox.shrink(),
+                        ),
                 ),
               ),
             ),

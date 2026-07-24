@@ -106,6 +106,12 @@ class _ReceiptsMessagesApi implements ChatMessagesApi {
       _delegate.getClearedAt(roomId);
 
   @override
+  Future<ChatResult<void>> setLocalClearedAt(
+    String roomId,
+    DateTime clearedAt,
+  ) => _delegate.setLocalClearedAt(roomId, clearedAt);
+
+  @override
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> list(
     String roomId, {
     ChatCursorPaginationParams? pagination,

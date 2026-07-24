@@ -32,6 +32,7 @@ import '../l10n/chat_ui_localizations.dart';
 import '../models/attachment_policy.dart';
 import '../models/room_list_item.dart';
 import '../services/attachment_pickers.dart';
+import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../utils/last_message_preview.dart';
 import '../widgets/chat_room_options_menu.dart';
@@ -252,6 +253,17 @@ class ChatUiAdapter {
       _attachmentResolver.resolve;
   late final SignedAttachmentUrlResolver _attachmentResolver =
       SignedAttachmentUrlResolver(client: client, logger: logs);
+
+  /// Default [AttachmentMediaLoader] the adapter wires into
+  /// `NomaChatView`/`ChatView` when the host doesn't supply its own
+  /// `ChatViewBuilders.attachmentMediaLoader`. Media bubbles use this —
+  /// not [defaultAttachmentUrlResolver] — to actually render, because the
+  /// download endpoints require a Bearer token no plain URL-loading widget
+  /// sends; see `AuthenticatedAttachmentLoader`'s doc.
+  AttachmentMediaLoader get defaultAttachmentMediaLoader =>
+      _attachmentMediaLoader;
+  late final AttachmentMediaLoader _attachmentMediaLoader =
+      AuthenticatedAttachmentLoader(client: client, logger: logs);
 
   /// Structured, tagged logger for the adapter's own sub-managers (presence,
   /// attachment resolution, …) — bridges to [logger] via
@@ -990,7 +1002,12 @@ class ChatUiAdapter {
     final isDraftRoom =
         roomId != null && (_chatControllers[roomId]?.isDraft ?? false);
     if (roomId != null && autoMarkAsRead && !isDraftRoom) {
-      _roomListMutator.updateRoomUnread(roomId, 0);
+      final targetRoomId = roomId;
+      scheduleMicrotask(() {
+        if (!_disposed && _activeRoomId == targetRoomId) {
+          _roomListMutator.updateRoomUnread(targetRoomId, 0);
+        }
+      });
       unawaited(markAsRead(roomId));
     }
   }
@@ -1372,6 +1389,7 @@ class ChatUiAdapter {
     _userCacheListenable.dispose();
     _roomMembersListenable.dispose();
     _blockedUsersListenable.dispose();
+    _attachmentMediaLoader.clear();
     await _operations.dispose();
   }
 

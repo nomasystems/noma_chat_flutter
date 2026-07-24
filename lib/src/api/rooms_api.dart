@@ -537,4 +537,23 @@ class RoomsApi implements ChatRoomsApi {
       );
     }
   }
+
+  @override
+  Future<ChatResult<void>> markRoomDeleted(String roomId) =>
+      safeVoidCall(() async {
+        await _cache?.addDeletedRoom(roomId);
+      });
+
+  @override
+  Future<ChatResult<void>> clearRoomDeleted(String roomId) =>
+      safeVoidCall(() async {
+        await _cache?.clearDeletedRoom(roomId);
+      });
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() => safeApiCall(() async {
+    final cache = _cache;
+    if (cache == null) return const <String>{};
+    return (await cache.getDeletedRoomIds()).dataOrNull ?? const <String>{};
+  });
 }

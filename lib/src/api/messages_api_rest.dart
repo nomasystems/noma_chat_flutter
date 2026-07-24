@@ -657,4 +657,13 @@ class RestMessagesApi implements ChatMessagesApi {
   @override
   Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>
       Future.value(const ChatSuccess<DateTime?>(null));
+
+  /// No-op from the REST layer — there is nowhere to persist it without a
+  /// local datasource. The cache decorator overrides this to actually
+  /// store the cutoff.
+  @override
+  Future<ChatResult<void>> setLocalClearedAt(
+    String roomId,
+    DateTime clearedAt,
+  ) => Future.value(const ChatSuccess<void>(null));
 }

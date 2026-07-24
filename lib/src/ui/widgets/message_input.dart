@@ -7,6 +7,8 @@ import '../controller/chat_controller.dart';
 import '../models/link_preview_metadata.dart';
 import '../models/send_message_request.dart';
 import '../models/voice_message_data.dart';
+import '../services/attachment_bytes_loader.dart';
+import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
 import '../theme/chat_theme.dart';
 import '../utils/url_detector.dart';
@@ -47,6 +49,7 @@ class MessageInput extends StatefulWidget {
     this.linkPreviewFetcher,
     this.enableMentions = false,
     this.mentionUsers = const [],
+    this.attachmentMediaLoader,
   });
 
   final ChatController controller;
@@ -116,14 +119,23 @@ class MessageInput extends StatefulWidget {
   /// [enableMentions] is `false`.
   final List<ChatUser> mentionUsers;
 
+  /// Fetches the pinned reply's referenced-image bytes through the
+  /// authenticated client and renders the thumbnail from memory instead of
+  /// handing `Image.network` a signed URL that 401s without a Bearer
+  /// token. Typically wired to `ChatUiAdapter.defaultAttachmentMediaLoader`.
+  /// `null` (default) keeps the plain-URL thumbnail unchanged.
+  final AttachmentMediaLoader? attachmentMediaLoader;
+
   @override
   State<MessageInput> createState() => _MessageInputState();
 }
 
 class _MessageInputState extends State<MessageInput> {
   final _textController = TextEditingController();
+  final _focusNode = FocusNode();
   bool _hasText = false;
   bool _isEditing = false;
+  bool _wasReplyingOrEditing = false;
   late final MessageInputVoiceController _voice;
 
   LinkPreviewFetcher? _linkFetcher;
@@ -184,6 +196,23 @@ class _MessageInputState extends State<MessageInput> {
         );
       }
     }
+    _maybeAutofocus(editing != null || widget.controller.replyingTo != null);
+  }
+
+  /// Requests keyboard focus the moment either "replying to" or "editing"
+  /// transitions from off to on — swiping/selecting reply or long-pressing
+  /// edit should put the caret straight in the composer, matching every
+  /// other chat app, instead of leaving the user to tap the field manually.
+  /// Deferred to a post-frame callback: `_onControllerChanged` can fire
+  /// mid-build (the controller notifies synchronously), and requesting
+  /// focus then throws.
+  void _maybeAutofocus(bool replyingOrEditing) {
+    if (replyingOrEditing && !_wasReplyingOrEditing) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _focusNode.requestFocus();
+      });
+    }
+    _wasReplyingOrEditing = replyingOrEditing;
   }
 
   void _onTextChanged() {
@@ -525,6 +554,7 @@ class _MessageInputState extends State<MessageInput> {
     _linkDebounce?.cancel();
     widget.controller.removeListener(_onControllerChanged);
     _textController.dispose();
+    _focusNode.dispose();
     _voice.removeListener(_onVoiceChanged);
     _voice.dispose();
     super.dispose();
@@ -667,6 +697,21 @@ class _MessageInputState extends State<MessageInput> {
     );
   }
 
+  /// Built only when the controller is bound to a real room — `null` for
+  /// a draft DM that hasn't been materialized yet, which keeps the
+  /// pinned reply thumbnail on the plain-URL path with zero behaviour
+  /// change (same fallback [ReplyPreview] already had).
+  AttachmentRef? _replyingToAttachmentRef(ChatMessage replyingTo) {
+    final rid = widget.controller.roomId;
+    final url = replyingTo.attachmentUrl;
+    if (rid == null || url == null) return null;
+    return AttachmentRef(
+      roomId: rid,
+      attachmentId: replyingTo.attachmentId,
+      fallbackUrl: url,
+    );
+  }
+
   Widget _buildPreviewBanner() {
     return ListenableBuilder(
       listenable: widget.controller,
@@ -745,6 +790,8 @@ class _MessageInputState extends State<MessageInput> {
             message: replyingTo,
             theme: widget.theme,
             onDismiss: () => widget.controller.setReplyTo(null),
+            mediaLoader: widget.attachmentMediaLoader,
+            attachmentRef: _replyingToAttachmentRef(replyingTo),
           ),
         );
       },
@@ -799,6 +846,7 @@ class _MessageInputState extends State<MessageInput> {
           Expanded(
             child: TextField(
               controller: _textController,
+              focusNode: _focusNode,
               maxLines: widget.maxLines,
               minLines: 1,
               textCapitalization: TextCapitalization.sentences,

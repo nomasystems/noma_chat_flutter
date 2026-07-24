@@ -21,17 +21,27 @@ class ChatExport {
     required this.roomId,
     required this.text,
     required this.messageCount,
+    this.roomTitle,
   });
 
   /// The room whose history was exported.
   final String roomId;
 
   /// The full transcript, one message per line, oldest first. Empty when
-  /// the room has no exportable messages.
+  /// the room has no exportable messages. Starts with a `Chat: $roomTitle`
+  /// header line when [ChatMessagesController.exportChat] was called with
+  /// a non-null/non-empty `roomTitle` — otherwise unchanged from before
+  /// that parameter existed.
   final String text;
 
   /// Number of messages included in [text].
   final int messageCount;
+
+  /// The room title passed to `exportChat`, echoed back so a host that
+  /// wants to build its own header (app name + title, date range, …)
+  /// instead of relying on the one baked into [text] doesn't have to
+  /// re-resolve it. `null` when no title was passed.
+  final String? roomTitle;
 
   @override
   String toString() =>
