@@ -6,6 +6,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import '../../config/chat_config.dart';
 import '../../events/chat_event.dart';
 import '../../models/message.dart';
+import '../../observability/chat_logger.dart';
 import '../http/chat_exception.dart';
 import '../util/backoff.dart';
 import 'event_parser.dart';
@@ -29,6 +30,18 @@ class WsTransport implements RealtimeTransport {
   int _ackSeq = 0;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
+
+  /// Armed on every outbound ping when `wsPongWatchdogEnabled`; cancelled
+  /// as soon as the matching `pong` arrives. Firing means the peer stopped
+  /// answering — the socket is a "zombie" (TCP still open, server or NAT
+  /// long gone) that `onError`/`onDone` alone would never surface.
+  Timer? _pongTimer;
+
+  /// Wall-clock time of the last `pong` frame. `null` until the first one
+  /// arrives on the current connection — reset on every fresh [_doConnect]
+  /// so a stale timestamp from a previous, now-dead socket never reports as
+  /// if it were fresh.
+  DateTime? _lastPongAt;
   StreamSubscription<dynamic>? _channelSubscription;
 
   /// Metadata key carrying the SDK-generated correlation id on an
@@ -66,6 +79,10 @@ class WsTransport implements RealtimeTransport {
   bool get transportDisabled => _transportDisabled;
 
   @override
+  Duration? get lastPongAge =>
+      _lastPongAt == null ? null : DateTime.now().difference(_lastPongAt!);
+
+  @override
   bool get supportsOutboundFrames => true;
 
   @override
@@ -79,7 +96,8 @@ class WsTransport implements RealtimeTransport {
   @override
   Future<void> connect() async {
     if (_state == ChatConnectionState.connected ||
-        _state == ChatConnectionState.connecting) {
+        _state == ChatConnectionState.connecting ||
+        _state == ChatConnectionState.authenticating) {
       return;
     }
     _shouldReconnect = true;
@@ -90,6 +108,30 @@ class WsTransport implements RealtimeTransport {
     await _doConnect();
   }
 
+  @override
+  Future<void> verifyLiveness() async {
+    if (_disposed) return;
+    // Not connected (or no live channel): a plain connect() is the correct
+    // recovery — it (re)opens the socket and emits ConnectedEvent as usual.
+    if (_state != ChatConnectionState.connected || _channel == null) {
+      await connect();
+      return;
+    }
+    // Connected on paper. The OS may have torn down the TCP socket while the
+    // app was suspended without a FIN/RST, leaving a "zombie" that connect()
+    // would treat as healthy and skip. Force an immediate liveness probe:
+    // send a ping now (instead of waiting up to a full ping interval) and arm
+    // the pong watchdog. A pong cancels it — the socket is alive, nothing
+    // else happens. Silence fires _onPongTimeout, which tears the socket down
+    // and reconnects through the normal path, re-emitting ConnectedEvent so
+    // the presence bootstrap + resync run. Arms the watchdog regardless of
+    // wsPongWatchdogEnabled: this is an explicit one-shot resume probe, not
+    // the periodic keep-alive loop that flag governs.
+    _config.logs.ws(ChatLogLevel.debug, 'WS resume liveness probe');
+    sendRaw({'type': 'ping'});
+    _armPongWatchdog();
+  }
+
   Future<void> _doConnect() async {
     if (_disposed) return;
     // Cancel any pending scheduled reconnect first: a connect() entered while
@@ -98,6 +140,7 @@ class WsTransport implements RealtimeTransport {
     // parallel sockets that both authenticate and emit duplicate events.
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
+    _lastPongAt = null;
     _setState(ChatConnectionState.connecting);
     try {
       await _channelSubscription?.cancel();
@@ -123,7 +166,11 @@ class WsTransport implements RealtimeTransport {
             : wsScheme,
         path: '$basePath${_config.wsPath}',
       );
-      _config.log('debug', 'WS connecting to $uri');
+      _config.logs.ws(
+        ChatLogLevel.debug,
+        'WS connecting',
+        fields: {'uri': '$uri'},
+      );
       _channel = _channelFactory(uri);
       await _channel!.ready;
       _channelSubscription = _channel!.stream.listen(
@@ -131,9 +178,18 @@ class WsTransport implements RealtimeTransport {
         onError: _onError,
         onDone: _onDone,
       );
+      // The socket is open but not yet usable — distinct from `connecting`
+      // so a reentrant connect() during the handshake window (e.g. an app
+      // resume racing an in-flight auth) is guarded out just like it is
+      // for `connecting`, instead of opening a second parallel socket.
+      _setState(ChatConnectionState.authenticating);
       await _authenticate();
     } catch (e) {
-      _config.log('error', 'WS connection failed: $e');
+      _config.logs.ws(
+        ChatLogLevel.error,
+        'WS connection failed',
+        fields: {'error': '$e'},
+      );
       _setState(ChatConnectionState.error);
       _emitEvent(
         ChatEvent.error(exception: ChatNetworkException(e.toString())),
@@ -177,11 +233,13 @@ class WsTransport implements RealtimeTransport {
     timeout = Timer(_config.authTimeout, () {
       sub.cancel();
       if (!completer.isCompleted) {
-        _config.log(
-          'warn',
-          'WS auth handshake timed out after '
-              '${_config.authTimeout.inMilliseconds}ms '
-              '(attempt ${_reconnectAttempts + 1})',
+        _config.logs.ws(
+          ChatLogLevel.warn,
+          'WS auth handshake timed out',
+          fields: {
+            'timeoutMs': _config.authTimeout.inMilliseconds,
+            'attempt': _reconnectAttempts + 1,
+          },
         );
         _config.metricCallback?.call('ws_auth_timeout', {
           'timeoutMs': _config.authTimeout.inMilliseconds,
@@ -224,14 +282,18 @@ class WsTransport implements RealtimeTransport {
     try {
       _dispatch(json);
     } catch (e) {
-      _config.log('warn', 'WS: dropped malformed message: $e');
+      _config.logs.ws(
+        ChatLogLevel.warn,
+        'WS: dropped malformed message',
+        fields: {'error': '$e'},
+      );
     }
   }
 
   void _dispatch(Map<String, dynamic> json) {
     final type = json['type'] as String?;
     if (type == 'auth_ok') {
-      _config.log('debug', 'WS auth successful');
+      _config.logs.ws(ChatLogLevel.debug, 'WS auth successful');
       _setState(ChatConnectionState.connected);
       _reconnectAttempts = 0;
       _startPing();
@@ -240,7 +302,11 @@ class WsTransport implements RealtimeTransport {
     }
     if (type == 'auth_error') {
       final reason = json['reason'] as String?;
-      _config.log('error', 'WS auth failed: ${reason ?? 'unknown'}');
+      _config.logs.ws(
+        ChatLogLevel.error,
+        'WS auth failed',
+        fields: {'reason': reason ?? 'unknown'},
+      );
       if (_isDeactivationReason(reason)) {
         // The account was globally banned / deactivated mid-session. This is
         // terminal: the credential is no longer valid for any transport, so
@@ -267,25 +333,36 @@ class WsTransport implements RealtimeTransport {
       }
     }
     if (type == 'auth_refreshed') {
-      _config.log(
-        'debug',
-        'WS auth refreshed (expiresAt=${json['expiresAt']})',
+      _config.logs.ws(
+        ChatLogLevel.debug,
+        'WS auth refreshed',
+        fields: {'expiresAt': json['expiresAt']},
       );
       return;
     }
     if (type == 'auth_refresh_error') {
-      _config.log(
-        'warn',
-        'WS auth_refresh_error: ${json['code'] ?? 'unknown'}',
+      _config.logs.ws(
+        ChatLogLevel.warn,
+        'WS auth_refresh_error',
+        fields: {'code': json['code'] ?? 'unknown'},
       );
       _config.authInterceptor.invalidateCache();
       return;
     }
-    if (type == 'pong') return;
+    if (type == 'pong') {
+      _lastPongAt = DateTime.now();
+      _pongTimer?.cancel();
+      _pongTimer = null;
+      return;
+    }
     if (type == 'error') {
       final reason = json['reason'] as String? ?? 'unknown';
       final action = json['action'] as String?;
-      _config.log('warn', 'WS error: action=$action reason=$reason');
+      _config.logs.ws(
+        ChatLogLevel.warn,
+        'WS error',
+        fields: {'action': action, 'reason': reason},
+      );
       _emitEvent(
         ChatEvent.error(
           exception: ChatWsOperationException(action: action, reason: reason),
@@ -326,9 +403,10 @@ class WsTransport implements RealtimeTransport {
     final closeReason = _channel?.closeReason;
     final tokenInvalidated = closeCode == 4003 || closeCode == 4004;
     if (tokenInvalidated) {
-      _config.log(
-        'warn',
-        'WS closed with auth-related code $closeCode, invalidating cached token',
+      _config.logs.ws(
+        ChatLogLevel.warn,
+        'WS closed with auth-related code, invalidating cached token',
+        fields: {'closeCode': closeCode},
       );
       _config.authInterceptor.invalidateCache();
       // Release the half-closed socket before any reconnect is armed: the
@@ -372,15 +450,20 @@ class WsTransport implements RealtimeTransport {
       return;
     }
     if (_shouldReconnect) {
-      _config.log(
-        'warn',
-        'WS connection closed (code=$closeCode), will reconnect',
+      _config.logs.ws(
+        ChatLogLevel.warn,
+        'WS connection closed, will reconnect',
+        fields: {'closeCode': closeCode},
       );
       _setState(ChatConnectionState.reconnecting);
       _emitEvent(const ChatEvent.disconnected(reason: 'Connection closed'));
       _scheduleReconnect();
     } else {
-      _config.log('debug', 'WS disconnected (code=$closeCode)');
+      _config.logs.ws(
+        ChatLogLevel.debug,
+        'WS disconnected',
+        fields: {'closeCode': closeCode},
+      );
       _setState(ChatConnectionState.disconnected);
       _emitEvent(const ChatEvent.disconnected());
     }
@@ -436,10 +519,10 @@ class WsTransport implements RealtimeTransport {
   /// failover machinery promotes the SSE/polling fallback rather than
   /// routing the app to logout.
   void _terminateForTransportDisabled() {
-    _config.log(
-      'warn',
+    _config.logs.ws(
+      ChatLogLevel.warn,
       'WS closed with 4006 (transport_disabled), suspending WS for this '
-          'session',
+      'session',
     );
     _shouldReconnect = false;
     _failPendingAcks();
@@ -464,7 +547,11 @@ class WsTransport implements RealtimeTransport {
       final token = await _config.authInterceptor.getToken();
       _channel!.sink.add(jsonEncode({'type': 'auth_refresh', 'token': token}));
     } catch (e) {
-      _config.log('warn', 'auth_refresh failed: $e');
+      _config.logs.ws(
+        ChatLogLevel.warn,
+        'auth_refresh failed',
+        fields: {'error': '$e'},
+      );
     }
   }
 
@@ -472,7 +559,11 @@ class WsTransport implements RealtimeTransport {
     if (_disposed || !_shouldReconnect) return;
     final maxAttempts = _config.maxReconnectAttempts;
     if (maxAttempts != null && _reconnectAttempts >= maxAttempts) {
-      _config.log('error', 'WS max reconnect attempts ($maxAttempts) reached');
+      _config.logs.ws(
+        ChatLogLevel.error,
+        'WS max reconnect attempts reached',
+        fields: {'maxAttempts': maxAttempts},
+      );
       _setState(ChatConnectionState.error);
       _emitEvent(
         ChatEvent.error(
@@ -486,9 +577,13 @@ class WsTransport implements RealtimeTransport {
     }
     _reconnectTimer?.cancel();
     final delay = _calculateBackoff();
-    _config.log(
-      'debug',
-      'WS reconnecting in ${delay.inMilliseconds}ms (attempt ${_reconnectAttempts + 1})',
+    _config.logs.ws(
+      ChatLogLevel.debug,
+      'WS reconnecting',
+      fields: {
+        'delayMs': delay.inMilliseconds,
+        'attempt': _reconnectAttempts + 1,
+      },
     );
     _reconnectTimer = Timer(delay, () {
       _reconnectAttempts++;
@@ -500,21 +595,65 @@ class WsTransport implements RealtimeTransport {
     final ms = computeBackoffMs(
       attempt: _reconnectAttempts,
       baseMs: _config.wsReconnectDelay.inMilliseconds,
+      maxMs: _config.wsMaxReconnectDelay.inMilliseconds,
+      jitterMs: _config.wsReconnectJitterMs,
     );
     return Duration(milliseconds: ms);
   }
 
   void _startPing() {
     _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(
-      const Duration(seconds: 30),
-      (_) => sendRaw({'type': 'ping'}),
-    );
+    _pongTimer?.cancel();
+    _pongTimer = null;
+    _pingTimer = Timer.periodic(_config.wsPingInterval, (_) {
+      sendRaw({'type': 'ping'});
+      if (_config.wsPongWatchdogEnabled) _armPongWatchdog();
+    });
   }
 
   void _stopPing() {
     _pingTimer?.cancel();
     _pingTimer = null;
+    _pongTimer?.cancel();
+    _pongTimer = null;
+  }
+
+  /// Arms (or re-arms) the dead-peer timer for the ping just sent. Cancelled
+  /// by [_dispatch]'s `pong` case when the server answers in time.
+  void _armPongWatchdog() {
+    _pongTimer?.cancel();
+    _pongTimer = Timer(_config.wsPongTimeout, _onPongTimeout);
+  }
+
+  /// The peer never answered a ping within `wsPongTimeout` — the socket is
+  /// presumed dead (a NAT/proxy silently dropped it, or a mobile network
+  /// handoff left a half-open TCP connection with no FIN/RST). `onError`/
+  /// `onDone` would never fire on their own here, so force the same
+  /// teardown-and-reconnect path they take.
+  void _onPongTimeout() {
+    if (_disposed || _state != ChatConnectionState.connected) return;
+    _config.logs.ws(
+      ChatLogLevel.warn,
+      'WS pong watchdog fired, peer presumed dead — forcing reconnect',
+      fields: {'timeoutMs': _config.wsPongTimeout.inMilliseconds},
+    );
+    _config.metricCallback?.call('ws_pong_timeout', {
+      'timeoutMs': _config.wsPongTimeout.inMilliseconds,
+    });
+    _stopPing();
+    _failPendingAcks();
+    unawaited(_channelSubscription?.cancel());
+    _channelSubscription = null;
+    final staleChannel = _channel;
+    _channel = null;
+    _closeSinkQuietly(staleChannel);
+    if (_shouldReconnect) {
+      _setState(ChatConnectionState.reconnecting);
+      _emitEvent(const ChatEvent.disconnected(reason: 'pong_watchdog_timeout'));
+      _scheduleReconnect();
+    } else {
+      _setState(ChatConnectionState.disconnected);
+    }
   }
 
   @override
@@ -545,6 +684,7 @@ class WsTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) => sendRaw({
@@ -555,6 +695,7 @@ class WsTransport implements RealtimeTransport {
     if (referencedMessageId != null) 'referencedMessageId': referencedMessageId,
     if (reaction != null) 'emoji': reaction,
     if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+    if (attachmentId != null) 'attachmentId': attachmentId,
     if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
     if (metadata != null) 'metadata': metadata,
   });
@@ -567,6 +708,7 @@ class WsTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,
@@ -598,6 +740,7 @@ class WsTransport implements RealtimeTransport {
         'referencedMessageId': referencedMessageId,
       if (reaction != null) 'emoji': reaction,
       if (attachmentUrl != null) 'attachmentUrl': attachmentUrl,
+      if (attachmentId != null) 'attachmentId': attachmentId,
       if (sourceRoomId != null) 'sourceRoomId': sourceRoomId,
       if (clientMessageId != null) 'clientMessageId': clientMessageId,
       'metadata': taggedMetadata,

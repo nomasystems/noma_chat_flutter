@@ -261,10 +261,16 @@ class _StubTransport implements RealtimeTransport {
   bool get transportDisabled => false;
 
   @override
+  Duration? get lastPongAge => null;
+
+  @override
   bool get supportsOutboundFrames => false;
 
   @override
   Future<void> connect() async {}
+
+  @override
+  Future<void> verifyLiveness() => connect();
 
   @override
   Future<void> disconnect() async {}
@@ -296,6 +302,7 @@ class _StubTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) {}
@@ -308,6 +315,7 @@ class _StubTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,

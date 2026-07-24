@@ -66,6 +66,7 @@ class RoomEnricher {
     RoomTitleResolver? roomTitleResolver,
     Future<ChatResult<void>> Function(String roomId, String messageId)?
     confirmDelivered,
+    Duration revalidateDebounce = const Duration(seconds: 5),
   }) : _currentUser = currentUser,
        _l10n = l10n,
        _initializedNotifier = initializedNotifier,
@@ -81,7 +82,8 @@ class RoomEnricher {
        _onRoomsLoaded = onRoomsLoaded,
        _onDmContactResolved = onDmContactResolved,
        _roomTitleResolver = roomTitleResolver,
-       _confirmDelivered = confirmDelivered;
+       _confirmDelivered = confirmDelivered,
+       _revalidateDebounce = revalidateDebounce;
 
   final ChatClient client;
   final ChatControllerRegistry controllers;
@@ -136,9 +138,36 @@ class RoomEnricher {
     return name;
   }
 
+  /// Rooms currently being revalidated in the background, keyed by [type].
+  /// Guards [_backgroundRevalidate] against overlapping network passes when
+  /// [loadAll] is invoked repeatedly for the same type (e.g. every time a
+  /// screen that calls it on `initState` reopens) before the previous pass
+  /// has finished — without it, two concurrent authoritative `mergeRooms`
+  /// calls could interleave and leave the list in an inconsistent state.
+  final Set<String> _revalidating = {};
+
+  /// Wall-clock time [_backgroundRevalidate] last actually ran for a given
+  /// [type], keyed the same way as [_revalidating]. [_revalidating] alone
+  /// only stops *concurrent* passes — a screen that opens, closes and
+  /// reopens fires a brand-new `loadAll` -> `_backgroundRevalidate` each
+  /// time, and by the time the second call lands the first has usually
+  /// already finished, so the concurrency guard never engages. That turns
+  /// every reopen (and every trusted-cache reconnect) into a full
+  /// `members.list`-per-DM enrichment pass. [_revalidateDebounce] adds a
+  /// temporal gate on top so a burst of reopens only revalidates once per
+  /// window.
+  final Map<String, DateTime> _lastRevalidatedAt = {};
+
+  /// Minimum spacing between [_backgroundRevalidate] runs for the same
+  /// [type]. Mirrors `ChatUiAdapter._resyncDebounce`'s value by default;
+  /// overridable via the constructor so tests can shrink the window
+  /// instead of waiting out the real default.
+  final Duration _revalidateDebounce;
+
   Future<ChatResult<void>> loadAll({
     String type = 'all',
     bool forceNetwork = false,
+    bool revalidateInBackground = true,
   }) async {
     // Phase 1: Instant load from cache (fire-and-forget DM resolution to
     // keep the first paint snappy — the network pass will await it).
@@ -150,24 +179,32 @@ class RoomEnricher {
     if (hasCached) {
       await _enrichAndSet(
         cachedResult.dataOrThrow,
+        type: type,
         detailPolicy: CachePolicy.cacheOnly,
         awaitDmResolution: false,
       );
     }
 
-    // Skip the network pass when realtime is already keeping the room
-    // list fresh. After the first successful sync the SDK
-    // receives `NewMessageEvent` / `UnreadUpdatedEvent` / `RoomCreatedEvent`
-    // via WS and applies them incrementally — re-hitting `/v1/rooms`
-    // on every screen-open just to confirm what we already know is
-    // wasteful. Concrete heuristic: cache present + already initialized
-    // + WS connected → trust the cache, skip the network round-trip.
-    // Pull-to-refresh / forced reload pass `forceNetwork: true`.
+    // Trust the cache and skip blocking on the network pass when realtime
+    // is already keeping the room list fresh: after the first successful
+    // sync the SDK receives `NewMessageEvent` / `UnreadUpdatedEvent` /
+    // `RoomCreatedEvent` via WS and applies them incrementally, so
+    // re-hitting `/v1/rooms` synchronously on every screen-open just to
+    // confirm what we already know would be wasteful. Concrete heuristic:
+    // cache present + already initialized + WS connected → return the
+    // cached snapshot immediately, but still kick off a background
+    // revalidation (unless the caller opts out) so a partial/stale cache
+    // self-heals without the caller ever seeing an empty list in between.
+    // Pull-to-refresh / forced reload pass `forceNetwork: true` to force
+    // the blocking path below instead.
     final realtimeIsFresh =
         _initializedNotifier.value &&
         _connectionStateNotifier.value == ChatConnectionState.connected;
     if (hasCached && realtimeIsFresh && !forceNetwork) {
       _onRoomsLoaded?.call(roomList.allRooms);
+      if (revalidateInBackground) {
+        unawaited(_backgroundRevalidate(type));
+      }
       return const ChatSuccess(null);
     }
 
@@ -175,7 +212,15 @@ class RoomEnricher {
     // `findExistingDmRoom`, `getDmRoomId`, and the duplicate-DM cleanup
     // all see consistent state by the time `loadRooms` resolves. Without
     // this, a tap on the suggestion bar racing the resolution can create
-    // a phantom DM room next to the real one.
+    // a phantom DM room next to the real one. `snapshotAt` is stamped
+    // BEFORE the request goes out so the authoritative merge can tell a
+    // room created locally during the round-trip apart from one the server
+    // genuinely dropped (see [RoomListController.mergeRooms]). `seq` is
+    // reserved at the same instant so a pass that resolves out of order
+    // relative to a concurrent fetch (e.g. this call racing a
+    // [_backgroundRevalidate] already in flight) is recognized as stale.
+    final snapshotAt = DateTime.now();
+    final seq = roomList.nextSeq();
     final networkResult = await client.rooms.getUserRooms(
       type: type,
       cachePolicy: CachePolicy.networkOnly,
@@ -183,8 +228,11 @@ class RoomEnricher {
     if (networkResult.isSuccess) {
       await _enrichAndSet(
         networkResult.dataOrThrow,
+        type: type,
         awaitDmResolution: true,
         authoritative: true,
+        snapshotAt: snapshotAt,
+        seq: seq,
       );
       if (_isDisposed()) return const ChatSuccess(null);
       _initializedNotifier.value = true;
@@ -192,15 +240,83 @@ class RoomEnricher {
       return const ChatSuccess(null);
     }
 
-    if (hasCached) return const ChatSuccess(null);
+    // A cache hit normally masks a failed network pass — nothing changed
+    // for the caller to react to, and the UI already has something to
+    // show. `forceNetwork` callers (pull-to-refresh, `ChatUiAdapter.resync`
+    // after a reconnect) explicitly asked to bypass the cache because they
+    // need to know whether the authoritative fetch actually happened —
+    // masking the failure there would let a resync silently do nothing
+    // while still being treated as if it succeeded (e.g. consuming its
+    // debounce window for no gain).
+    if (hasCached && !forceNetwork) return const ChatSuccess(null);
     return networkResult.castFailure<void>();
+  }
+
+  /// Background counterpart of the network pass in [loadAll], fired when
+  /// the cache was trusted and the caller was already handed a result. Runs
+  /// the same full enrichment pipeline as the foreground network pass
+  /// (`awaitDmResolution: true, authoritative: true`) so DM dedupe,
+  /// kicked-room reconciliation AND the authoritative prune pass all stay
+  /// consistent with every other authoritative caller, but the write to
+  /// [roomList] happens via `mergeRooms` (inside [_enrichAndSet]) rather
+  /// than the caller ever seeing a gap.
+  ///
+  /// A failed network read (`result.isFailure`, e.g. a 5xx/timeout) leaves
+  /// the list untouched below — the one case this must never be destructive
+  /// for. A successful response, including a legitimately empty one, is the
+  /// backend's authoritative word on the caller's complete room set (the
+  /// listing endpoint fails the request outright rather than answering 200
+  /// with a partial/best-effort read), so this background pass converges
+  /// the list the same way [loadAll]'s foreground network pass and an
+  /// explicit pull-to-refresh do — this is precisely what closes a
+  /// cross-device removal (the last room deleted on another device) without
+  /// waiting for a realtime event that might never arrive if this device
+  /// was offline when the removal happened.
+  ///
+  /// Guarded by [_revalidating] so repeated `loadAll` calls for the same
+  /// [type] never run two of these concurrently, and by
+  /// [_revalidateDebounce] so a burst of `loadAll` calls for the same
+  /// [type] (e.g. open/close/reopen the same screen) only revalidates once
+  /// per window instead of re-fetching + re-enriching every time.
+  Future<void> _backgroundRevalidate(String type) async {
+    final now = DateTime.now();
+    final last = _lastRevalidatedAt[type];
+    if (last != null && now.difference(last) < _revalidateDebounce) return;
+    if (!_revalidating.add(type)) return;
+    _lastRevalidatedAt[type] = now;
+    try {
+      if (_isDisposed()) return;
+      final snapshotAt = DateTime.now();
+      final seq = roomList.nextSeq();
+      final result = await client.rooms.getUserRooms(
+        type: type,
+        cachePolicy: CachePolicy.networkOnly,
+      );
+      if (_isDisposed() || result.isFailure) return;
+      await _enrichAndSet(
+        result.dataOrThrow,
+        type: type,
+        awaitDmResolution: true,
+        authoritative: true,
+        snapshotAt: snapshotAt,
+        seq: seq,
+      );
+      if (_isDisposed()) return;
+      _initializedNotifier.value = true;
+      _onRoomsLoaded?.call(roomList.allRooms);
+    } finally {
+      _revalidating.remove(type);
+    }
   }
 
   Future<void> _enrichAndSet(
     UserRooms userRooms, {
+    String type = 'all',
     CachePolicy? detailPolicy,
     bool awaitDmResolution = false,
     bool authoritative = false,
+    DateTime? snapshotAt,
+    int? seq,
   }) async {
     final detailFutures = userRooms.rooms.map(
       (unread) => client.rooms.get(unread.roomId, cachePolicy: detailPolicy),
@@ -417,7 +533,30 @@ class RoomEnricher {
     }
 
     if (_isDisposed()) return;
-    roomList.setRooms(items);
+    // Only `type == 'all'` with no `hasMore` is the complete room set
+    // (mirrors `RoomsApi.getUserRooms`'s cache-write distinction) — a
+    // filtered or paginated view never prunes. Computed once and reused by
+    // both the write below and the DM dedupe pass further down so the two
+    // agree on whether this fetch may make a destructive call.
+    final representsCompleteSet =
+        (type == 'all' || type.isEmpty) && !userRooms.hasMore;
+    // The very first population of a fresh list (nothing shown yet, cache
+    // or otherwise) uses a plain replace — there's nothing to preserve and
+    // no risk of a flash. Every subsequent pass merges in place instead:
+    // a non-authoritative (cache) pass never drops a row it doesn't know
+    // about, and an authoritative (network) pass still reconciles fully,
+    // but without ever clearing the list en route to the new snapshot.
+    if (roomList.allRooms.isEmpty) {
+      roomList.setRooms(items, seq: seq);
+    } else {
+      roomList.mergeRooms(
+        items,
+        authoritative: authoritative,
+        representsCompleteSet: representsCompleteSet,
+        snapshotAt: snapshotAt,
+        seq: seq,
+      );
+    }
     // Seed the controller's in-memory deleted set so its synchronous
     // getters keep excluding any deleted room that some other path (a
     // late `addFromDetail`, a polling re-add) might re-insert before the
@@ -435,9 +574,21 @@ class RoomEnricher {
       final detail = details[i].dataOrNull;
       if (detail != null && _isDmDetail(detail)) {
         if (awaitDmResolution) {
-          dmFutures.add(_doResolveDmContact(unread.roomId));
+          dmFutures.add(
+            _doResolveDmContact(
+              unread.roomId,
+              authoritative: authoritative,
+              representsCompleteSet: representsCompleteSet,
+              seq: seq,
+            ),
+          );
         } else {
-          resolveDmContact(unread.roomId);
+          resolveDmContact(
+            unread.roomId,
+            authoritative: authoritative,
+            representsCompleteSet: representsCompleteSet,
+            seq: seq,
+          );
         }
       }
     }
@@ -498,11 +649,38 @@ class RoomEnricher {
   /// Background-resolves the "other" user in a DM room and caches the
   /// mapping. Fire-and-forget on purpose: the room list is already painted
   /// when this runs, so any failure logs a warning rather than blocks the UI.
-  void resolveDmContact(String roomId) {
-    unawaited(_doResolveDmContact(roomId));
+  ///
+  /// [authoritative] controls how a duplicate-DM dedupe (see
+  /// [_pickPreferredDmRoom]) is applied: `true` (the default — matches every
+  /// call site except the cache pass of [loadAll]) persists the loser's
+  /// removal to the local cache; `false` only suppresses it from the
+  /// visible list, so a cache-only guess can never destroy state the next
+  /// authoritative pass might still need to reconcile correctly. Even when
+  /// `true`, the persisted removal additionally requires
+  /// [RoomListController.allowsInferredPrune] to agree — see
+  /// [_doResolveDmContact].
+  void resolveDmContact(
+    String roomId, {
+    bool authoritative = true,
+    bool representsCompleteSet = true,
+    int? seq,
+  }) {
+    unawaited(
+      _doResolveDmContact(
+        roomId,
+        authoritative: authoritative,
+        representsCompleteSet: representsCompleteSet,
+        seq: seq,
+      ),
+    );
   }
 
-  Future<void> _doResolveDmContact(String roomId) async {
+  Future<void> _doResolveDmContact(
+    String roomId, {
+    bool authoritative = true,
+    bool representsCompleteSet = true,
+    int? seq,
+  }) async {
     try {
       final membersResult = await client.members.list(roomId);
       if (_isDisposed()) return;
@@ -550,20 +728,46 @@ class RoomEnricher {
         final drop = keep == existingMappedRoomId
             ? roomId
             : existingMappedRoomId;
+        // Persisting the loser's eviction is only safe when THIS pass
+        // could itself prune authoritatively — same rule `mergeRooms`
+        // applies to its own drop step. A filtered/paginated view
+        // (`representsCompleteSet: false`) or a fetch that resolved after
+        // a fresher one already landed (`seq` stale) picked its winner from
+        // incomplete/outdated information, so evicting the loser from the
+        // local cache here would be a PERMANENT data loss the next
+        // complete-set pass could not undo.
+        final canPersistDrop =
+            authoritative &&
+            roomList.allowsInferredPrune(
+              representsCompleteSet: representsCompleteSet,
+              seq: seq,
+            );
         _logger?.call(
           'info',
-          'DM dedupe: contact=${otherMember.userId} keep=$keep drop=$drop',
+          'DM dedupe: contact=${otherMember.userId} keep=$keep drop=$drop '
+              '(authoritative=$authoritative, persist=$canPersistDrop)',
         );
+        // Always suppress the loser from the visible list — showing both
+        // rows is never correct. Only when `canPersistDrop` holds does the
+        // removal persist: disposing the chat controller and evicting the
+        // row from the local cache. Otherwise both the cache and the
+        // dm-by-contact mapping stay untouched so a later, trustworthy
+        // authoritative pass can still reconcile correctly even if this
+        // pass picked the "wrong" winner from an incomplete/stale view.
         roomList.removeRoom(drop);
-        _removeChatController(drop);
-        unawaited(
-          (cache?.deleteRoom(drop) ?? Future<void>.value()).catchError((_) {}),
-        );
-        unawaited(
-          (cache?.deleteRoomDetail(drop) ?? Future<void>.value()).catchError(
-            (_) {},
-          ),
-        );
+        if (canPersistDrop) {
+          _removeChatController(drop);
+          unawaited(
+            (cache?.deleteRoom(drop) ?? Future<void>.value()).catchError(
+              (_) {},
+            ),
+          );
+          unawaited(
+            (cache?.deleteRoomDetail(drop) ?? Future<void>.value()).catchError(
+              (_) {},
+            ),
+          );
+        }
         dmContacts.bind(otherMember.userId, keep);
         if (keep != roomId) {
           // The newly-resolved room loses — stop enriching it.
@@ -621,68 +825,11 @@ class RoomEnricher {
         .get(roomId)
         .then((result) {
           if (_isDisposed()) return;
-          final existingRow = roomList.getRoomById(roomId);
-          if (existingRow != null) {
-            // Another path (e.g. loadRooms running in parallel) already added
-            // this room; just enrich any missing fields.
-            _applyDetailToExisting(roomId, result.dataOrNull, lastMessage);
-            final existingDetail = result.dataOrNull;
-            if (existingDetail != null &&
-                _isDmDetail(existingDetail) &&
-                existingRow.otherUserId == null) {
-              resolveDmContact(roomId);
-            }
-            return;
-          }
-          final detail = result.dataOrNull;
-          if (detail == null) {
-            _logger?.call(
-              'warn',
-              'Skipping addRoomFromDetail for $roomId: detail not available',
-            );
-            return;
-          }
-          final isOneToOne = detail.type == RoomType.oneToOne;
-          final base = RoomListItem(
-            id: roomId,
-            name: detail.name,
-            subject: detail.subject,
-            avatarUrl: detail.avatarUrl,
-            muted: detail.muted,
-            muteUntil: detail.muteUntil,
-            pinned: detail.pinned,
-            hidden: detail.hidden,
-            isGroup: !isOneToOne,
-            isAnnouncement: detail.type == RoomType.announcement,
-            selfMuted: detail.selfMuted,
-            userRole: detail.userRole,
-            memberCount: detail.memberCount,
-            custom: detail.custom,
-            lastMessage: lastMessage?.text,
-            lastMessageTime: lastMessage?.timestamp,
-            lastMessageUserId: lastMessage?.from,
-            lastMessageId: lastMessage?.id,
-            // A room added from an incoming message starts with 1 unread
-            // when that message is from someone else (e.g. you were just
-            // added to a group and the creator's first message arrives).
-            // Without this the tile showed the preview but no badge. Own
-            // messages (you created the room and sent) stay at 0.
-            unreadCount:
-                (lastMessage != null && lastMessage.from != _currentUser().id)
-                ? 1
-                : 0,
+          applyFetchedDetail(
+            roomId,
+            result.dataOrNull,
+            lastMessage: lastMessage,
           );
-          final effective = computeEffectiveTitle(
-            currentItem: base,
-            detail: detail,
-          );
-          final item = effective == null
-              ? base
-              : base.copyWith(effectiveDisplayName: effective);
-          roomList.addRoom(item);
-          if (_isDmDetail(detail)) {
-            resolveDmContact(roomId);
-          }
         })
         .catchError((Object e) {
           _logger?.call(
@@ -690,6 +837,81 @@ class RoomEnricher {
             'Failed to fetch detail for new room $roomId; not adding: $e',
           );
         });
+  }
+
+  /// Applies an already-fetched [detail] to [roomId]: enriches the row in
+  /// place if it's already in the list, or adds a fresh one built from
+  /// [detail] otherwise. `detail == null` (fetch failed/room unknown) is a
+  /// no-op when the room isn't listed yet, matching [addFromDetail]'s
+  /// long-standing "don't add a ghost row" behavior.
+  ///
+  /// Shared by [addFromDetail] (which fetches the detail itself) and
+  /// [ChatRoomsController.open] (which already has a freshly-fetched
+  /// detail in hand from its own network call) — factored out so a
+  /// deep-linked room open never issues two network calls for the same
+  /// detail.
+  void applyFetchedDetail(
+    String roomId,
+    RoomDetail? detail, {
+    ChatMessage? lastMessage,
+  }) {
+    final existingRow = roomList.getRoomById(roomId);
+    if (existingRow != null) {
+      // Another path (e.g. loadRooms running in parallel) already added
+      // this room; just enrich any missing fields.
+      _applyDetailToExisting(roomId, detail, lastMessage);
+      if (detail != null &&
+          _isDmDetail(detail) &&
+          existingRow.otherUserId == null) {
+        resolveDmContact(roomId);
+      }
+      return;
+    }
+    if (detail == null) {
+      _logger?.call(
+        'warn',
+        'Skipping addRoomFromDetail for $roomId: detail not available',
+      );
+      return;
+    }
+    final isOneToOne = detail.type == RoomType.oneToOne;
+    final base = RoomListItem(
+      id: roomId,
+      name: detail.name,
+      subject: detail.subject,
+      avatarUrl: detail.avatarUrl,
+      muted: detail.muted,
+      muteUntil: detail.muteUntil,
+      pinned: detail.pinned,
+      hidden: detail.hidden,
+      isGroup: !isOneToOne,
+      isAnnouncement: detail.type == RoomType.announcement,
+      selfMuted: detail.selfMuted,
+      userRole: detail.userRole,
+      memberCount: detail.memberCount,
+      custom: detail.custom,
+      lastMessage: lastMessage?.text,
+      lastMessageTime: lastMessage?.timestamp,
+      lastMessageUserId: lastMessage?.from,
+      lastMessageId: lastMessage?.id,
+      // A room added from an incoming message starts with 1 unread
+      // when that message is from someone else (e.g. you were just
+      // added to a group and the creator's first message arrives).
+      // Without this the tile showed the preview but no badge. Own
+      // messages (you created the room and sent) stay at 0.
+      unreadCount:
+          (lastMessage != null && lastMessage.from != _currentUser().id)
+          ? 1
+          : 0,
+    );
+    final effective = computeEffectiveTitle(currentItem: base, detail: detail);
+    final item = effective == null
+        ? base
+        : base.copyWith(effectiveDisplayName: effective);
+    roomList.addRoom(item);
+    if (_isDmDetail(detail)) {
+      resolveDmContact(roomId);
+    }
   }
 
   void _applyDetailToExisting(
@@ -828,8 +1050,16 @@ class RoomEnricher {
 
   /// Picks the "best" of two DM roomIds pointing at the same contact —
   /// the room with history beats the empty one; if both have history, the
-  /// most recent wins; if both are empty, the previously cached id wins
-  /// for stability. Used by the duplicate-DM dedupe path in
+  /// most recent wins. Any exact tie (both empty, or identical
+  /// `lastMessageTime`) is broken by comparing the room ids themselves
+  /// (`compareTo`), NOT by which argument happened to be "existing" vs
+  /// "new" — the previous stability heuristic (`existingId` always wins a
+  /// tie) made the winner depend on which of the two rooms' DM resolution
+  /// happened to complete first, which flips from refresh to refresh under
+  /// normal async scheduling and was the actual cause of the room list
+  /// flickering between two rows for the same contact. Comparing the ids
+  /// is symmetric regardless of call order, so the same pair always
+  /// resolves to the same winner. Used by the duplicate-DM dedupe path in
   /// [_doResolveDmContact].
   String _pickPreferredDmRoom(String existingId, String newId) {
     final existing = roomList.getRoomById(existingId);
@@ -841,9 +1071,11 @@ class RoomEnricher {
     if (existingHasHistory && candidateHasHistory) {
       final eTime = existing!.lastMessageTime!;
       final cTime = candidate!.lastMessageTime!;
-      return cTime.isAfter(eTime) ? newId : existingId;
+      if (cTime.isAfter(eTime)) return newId;
+      if (eTime.isAfter(cTime)) return existingId;
+      // Exact same timestamp — fall through to the deterministic tie-break.
     }
-    return existingId;
+    return existingId.compareTo(newId) <= 0 ? existingId : newId;
   }
 
   /// Runs the custom [RoomTitleResolver] first, then the SDK's DM-aware

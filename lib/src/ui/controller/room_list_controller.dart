@@ -18,9 +18,61 @@ class RoomListController extends ChangeNotifier {
   final Map<String, int> _indexById = {};
   final Set<String> _selectedIds = {};
   final Map<String, Map<String, Timer>> _typingTimers = {};
+
+  /// Wall-clock time each row was last created/edited by a *local* action
+  /// (draft materialization, a live `RoomCreatedEvent`, a rollback re-add),
+  /// as opposed to landing from a server snapshot. Lets an authoritative
+  /// [mergeRooms] spare a row the in-flight snapshot simply hadn't observed
+  /// yet: a conversation created after the snapshot was captured must not be
+  /// dropped just because that older snapshot omits it. The stamp is cleared
+  /// as soon as an authoritative snapshot confirms the row (the server now
+  /// vouches for it) or the row leaves the list.
+  final Map<String, DateTime> _localTouchedAt = {};
   String _filter = '';
   bool _filterDirty = true;
   List<RoomListItem>? _cachedFilteredRooms;
+
+  /// Monotonic counter behind [nextSeq]; [_lastAppliedSeq] is the highest
+  /// sequence number any pass has actually reached the list with so far.
+  int _seqCounter = 0;
+  int _lastAppliedSeq = 0;
+
+  /// Reserves the next monotonic sequence number for an in-flight network
+  /// pass. Call once, right when the request is dispatched (the same
+  /// moment a `snapshotAt` timestamp would be captured), and thread the
+  /// returned value through to [mergeRooms] / [setRooms] /
+  /// [allowsInferredPrune] so a pass that resolves out of order — an older
+  /// fetch completing after a newer one already landed — is recognized as
+  /// stale and denied its destructive (pruning) rights, while still being
+  /// free to add/update rows non-destructively.
+  int nextSeq() => ++_seqCounter;
+
+  /// Single rule behind every DESTRUCTIVE removal that isn't a direct
+  /// per-room confirmation (an explicit realtime event, a user action) but
+  /// an absence/duplicate judgment drawn from a fetch pass — [mergeRooms]'s
+  /// own authoritative-drop step and [allowsInferredPrune] (used by the DM
+  /// dedupe's loser eviction) both go through this. A pass may prune only
+  /// when [representsCompleteSet] is true (it covers the caller's complete
+  /// room set, not a filtered/paginated view) AND [seq] is not older than
+  /// the most recently applied pass — a reordered stale result must not
+  /// undo what a newer pass already established.
+  bool _acceptsPrune({required bool representsCompleteSet, int? seq}) {
+    if (!representsCompleteSet) return false;
+    if (seq != null && seq < _lastAppliedSeq) return false;
+    return true;
+  }
+
+  void _recordAppliedSeq(int? seq) {
+    if (seq != null && seq > _lastAppliedSeq) _lastAppliedSeq = seq;
+  }
+
+  /// Public counterpart of [_acceptsPrune] for callers outside this
+  /// controller that need to gate their OWN destructive removal (e.g. the
+  /// DM dedupe's loser eviction in `RoomEnricher._doResolveDmContact`)
+  /// against the same recency/completeness rule [mergeRooms] enforces on
+  /// itself.
+  bool allowsInferredPrune({required bool representsCompleteSet, int? seq}) =>
+      _acceptsPrune(representsCompleteSet: representsCompleteSet, seq: seq);
 
   /// Per-user "deleted" room ids — WhatsApp "Delete chat" parity. A
   /// deleted room is gone from BOTH the main list and the Archived
@@ -90,19 +142,131 @@ class RoomListController extends ChangeNotifier {
 
   int? _findIndex(String roomId) => _indexById[roomId];
 
-  void setRooms(List<RoomListItem> rooms) {
+  void setRooms(List<RoomListItem> rooms, {int? seq}) {
     _rooms
       ..clear()
       ..addAll(rooms);
+    final ids = rooms.map((r) => r.id).toSet();
+    _localTouchedAt.removeWhere((id, _) => !ids.contains(id));
+    _recordAppliedSeq(seq);
     _sortRooms();
     _rebuildIndex();
     _invalidateFilterCache();
     notifyListeners();
   }
 
+  /// Upserts [incoming] into the list without ever wiping rows the caller
+  /// can't vouch for — the anti-flash counterpart to [setRooms].
+  ///
+  /// A non-authoritative merge (a cache read, or a partial/best-effort
+  /// network response) only ever adds or updates rows; it never drops one,
+  /// so a background revalidation that comes back short (or empty, e.g. a
+  /// transient error surfaced as an empty page) can't blank out rows the
+  /// list already knows are real. An authoritative merge (a full server
+  /// snapshot the caller trusts completely) additionally drops any row NOT
+  /// present in [incoming] — same end state as [setRooms], but reached by
+  /// upserting in place rather than clear-then-refill, so listeners never
+  /// observe an empty list between the two.
+  ///
+  /// [snapshotAt] is the wall-clock time the network snapshot behind
+  /// [incoming] was *captured* (i.e. the moment the request went out).
+  /// It gates the authoritative drop pass against a stale-snapshot race: a
+  /// row created/edited locally *after* that instant (per [_localTouchedAt])
+  /// is spared even when [incoming] omits it, because an older in-flight
+  /// snapshot simply could not have seen it yet. A row locally touched at or
+  /// before [snapshotAt] — or never touched locally at all — is a genuine
+  /// server absence and is dropped. `null` disables the guard entirely.
+  ///
+  /// An authoritative [incoming] is the truth, full stop — including when
+  /// it's totally empty: the backend contract is that a successful response
+  /// represents the caller's complete room set (a failed/partial read fails
+  /// the request outright instead of answering 200), so an empty snapshot
+  /// means the user genuinely has zero rooms right now and the list is
+  /// cleared to match (still respecting the [snapshotAt] recency guard —
+  /// a room created locally during the round-trip is spared). Genuine
+  /// removals arrive the same way whether one room or all of them: via
+  /// realtime events (`RoomLeft` / `RoomDeleted`), or via any authoritative
+  /// snapshot — full or empty — gated by [snapshotAt] above. A
+  /// non-authoritative (cache) pass with empty [incoming] is unaffected:
+  /// it never drops rows regardless of emptiness (see below).
+  ///
+  /// [representsCompleteSet] and [seq] gate the destructive drop pass
+  /// through [_acceptsPrune] — the same rule [allowsInferredPrune] applies
+  /// for other absence-based removals. [representsCompleteSet] `false`
+  /// (a filtered or paginated view) never prunes, matching [snapshotAt]'s
+  /// existing per-row recency guard but at the whole-pass level. [seq],
+  /// reserved via [nextSeq] when the fetch behind [incoming] was
+  /// dispatched, additionally denies the drop when a fresher pass already
+  /// landed while this one was in flight — a reordered stale result must
+  /// only add/update, never undo what the newer pass already established.
+  void mergeRooms(
+    List<RoomListItem> incoming, {
+    required bool authoritative,
+    DateTime? snapshotAt,
+    int? seq,
+    bool representsCompleteSet = true,
+  }) {
+    final canPrune =
+        authoritative &&
+        _acceptsPrune(representsCompleteSet: representsCompleteSet, seq: seq);
+    var changed = false;
+    for (final room in incoming) {
+      final index = _indexById[room.id];
+      if (index == null) {
+        _rooms.add(room);
+        changed = true;
+      } else if (_rooms[index] != room) {
+        _rooms[index] = room;
+        changed = true;
+      }
+      // The server now vouches for this row — drop any local-recency
+      // protection so a later authoritative absence can reconcile it.
+      if (canPrune) _localTouchedAt.remove(room.id);
+    }
+    if (canPrune) {
+      final incomingIds = incoming.map((r) => r.id).toSet();
+      final removedIds = _rooms
+          .where(
+            (r) =>
+                !incomingIds.contains(r.id) &&
+                !_isNewerThanSnapshot(r.id, snapshotAt),
+          )
+          .map((r) => r.id)
+          .toList();
+      if (removedIds.isNotEmpty) {
+        final removed = removedIds.toSet();
+        _rooms.removeWhere((r) => removed.contains(r.id));
+        for (final id in removedIds) {
+          _localTouchedAt.remove(id);
+          _selectedIds.remove(id);
+          final timers = _typingTimers.remove(id);
+          if (timers != null) {
+            for (final t in timers.values) {
+              t.cancel();
+            }
+          }
+        }
+        changed = true;
+      }
+    }
+    _recordAppliedSeq(seq);
+    if (!changed) return;
+    _sortRooms();
+    _rebuildIndex();
+    _invalidateFilterCache();
+    notifyListeners();
+  }
+
+  bool _isNewerThanSnapshot(String roomId, DateTime? snapshotAt) {
+    if (snapshotAt == null) return false;
+    final touched = _localTouchedAt[roomId];
+    return touched != null && touched.isAfter(snapshotAt);
+  }
+
   void addRoom(RoomListItem room) {
     if (_indexById.containsKey(room.id)) return;
     _rooms.add(room);
+    _localTouchedAt[room.id] = DateTime.now();
     _sortRooms();
     _rebuildIndex();
     _invalidateFilterCache();
@@ -123,6 +287,7 @@ class RoomListController extends ChangeNotifier {
     final index = _findIndex(roomId);
     if (index == null) return;
     _rooms.removeAt(index);
+    _localTouchedAt.remove(roomId);
     _selectedIds.remove(roomId);
     final timers = _typingTimers.remove(roomId);
     if (timers != null) {
@@ -144,6 +309,7 @@ class RoomListController extends ChangeNotifier {
     final index = _findIndex(roomId);
     if (index != null) {
       _rooms.removeAt(index);
+      _localTouchedAt.remove(roomId);
       _selectedIds.remove(roomId);
       final timers = _typingTimers.remove(roomId);
       if (timers != null) {

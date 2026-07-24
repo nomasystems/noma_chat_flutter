@@ -49,6 +49,15 @@ abstract class RealtimeTransport {
   /// only transport the server can disable via a close code.
   bool get transportDisabled => false;
 
+  /// How long ago this transport last saw a liveness confirmation from the
+  /// server — for [WsTransport], the time since the last `pong` frame. Used
+  /// by the pong watchdog to detect a "zombie" socket (TCP connection stuck
+  /// half-open, e.g. after a mobile network handoff) that never surfaces as
+  /// an `onError`/`onDone` close. `null` when the transport doesn't track
+  /// liveness this way (SSE/polling rely on `sseIdleTimeout` / their own
+  /// tick instead) or hasn't sent a ping yet.
+  Duration? get lastPongAge => null;
+
   /// `true` when this transport carries an outbound real-time channel
   /// (today only WS). [MessagesApi]/[ContactsApi] gate WS frame attempts
   /// on this getter combined with `state == connected`; everything else
@@ -57,6 +66,19 @@ abstract class RealtimeTransport {
 
   /// Opens the transport.
   Future<void> connect();
+
+  /// Verifies the transport is genuinely live and recovers it if not.
+  ///
+  /// Called on app resume. A transport reporting [ChatConnectionState
+  /// .connected] may be sitting on a socket the OS silently killed while the
+  /// app was suspended (no FIN/RST): a plain [connect] is idempotent when
+  /// already connected, so it would be a no-op and never re-establish
+  /// delivery over the dead socket. Implementations that can probe liveness
+  /// (WS pong) send an immediate keep-alive and force a real reconnect when
+  /// the probe fails — re-emitting a [ConnectedEvent] so the reconnect hooks
+  /// (presence bootstrap + resync) run — while leaving a live socket
+  /// untouched. Transports without a liveness probe fall back to [connect].
+  Future<void> verifyLiveness() => connect();
 
   /// Closes the transport; safe to re-call [connect] afterwards.
   Future<void> disconnect();
@@ -95,6 +117,7 @@ abstract class RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   });
@@ -118,6 +141,7 @@ abstract class RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,

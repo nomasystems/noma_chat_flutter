@@ -35,6 +35,11 @@ export 'package:hive_ce/hive_ce.dart' show HiveAesCipher, HiveCipher;
 
 // === SDK: Config ===
 export 'src/config/chat_config.dart';
+export 'src/config/lifecycle_policy.dart';
+
+// === SDK: Observability ===
+export 'src/observability/chat_logger.dart';
+export 'src/observability/chat_log_exporter.dart';
 
 // === SDK: Sub-APIs ===
 export 'src/api/auth_api.dart';
@@ -100,6 +105,7 @@ export 'src/utils/chat_export.dart';
 export 'src/ui/models/reaction_user.dart';
 export 'src/ui/models/room_list_item.dart';
 export 'src/ui/models/attachment_policy.dart';
+export 'src/ui/models/attachment_rejection.dart';
 export 'src/ui/models/send_message_request.dart';
 export 'src/ui/models/suggested_contact.dart';
 export 'src/ui/models/voice_message_data.dart';
@@ -184,6 +190,7 @@ export 'src/ui/widgets/bubbles/location_bubble.dart';
 export 'src/ui/models/link_preview_metadata.dart';
 export 'src/ui/services/link_preview_fetcher.dart';
 export 'src/ui/services/attachment_pickers.dart';
+export 'src/ui/services/attachment_url_resolver.dart';
 export 'src/ui/widgets/bubbles/link_preview_bubble.dart';
 export 'src/ui/widgets/bubbles/forwarded_bubble.dart';
 export 'src/ui/widgets/message_status_icon.dart';

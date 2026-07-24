@@ -68,6 +68,11 @@ ExampleSettings applySseEnvOverride(ExampleSettings s) => s.copyWith(
   ssePath: _ssePathOverride().isNotEmpty ? _ssePathOverride() : s.ssePath,
 );
 
+/// Shared log buffer for the "Export logs" menu action (see [HomePage]).
+/// A single app-wide instance is enough for this example — a real host
+/// would typically scope one per session/user instead.
+final chatLogBuffer = BufferChatLogSink();
+
 /// ChatResult of a register-or-login attempt.
 sealed class LoginOutcome {
   const LoginOutcome();
@@ -198,6 +203,16 @@ Future<LoginOutcome> openChatSession(
     // bodies can carry message text and other user data. Production apps
     // should apply the same gate (or leave it `false` unconditionally).
     enableHttpLog: kDebugMode,
+    // Bumped from the SDK's `warn` default so the harness surfaces
+    // connection/cache/attachment activity. `logSink` fans out to the
+    // console (same `debugPrint` behavior the plain `logger` gave for
+    // free) and to `chatLogBuffer`, which HomePage's "Export logs" menu
+    // action writes to a file via `ChatLogExporter.exportToFile`.
+    // Message/caption text stays redacted (`logMessageContent` defaults
+    // to `false` — a temporary diagnostics build would flip it, never a
+    // production one).
+    logSink: MultiChatLogSink([const ConsoleChatLogSink(), chatLogBuffer]),
+    logLevel: ChatLogLevel.info,
     // Enable the local cache so client.messages resolves to CachedMessagesApi.
     // Without it the SDK falls back to RestMessagesApi, where clearChat only
     // marks the room read and never records a clearedAt watermark — so cleared
@@ -238,6 +253,20 @@ Future<LoginOutcome> openChatSession(
     // 2026-05-25 — 99% of apps want the cache and the noisy "off"
     // mode confused new contributors. Privacy-mode consumers can
     // still pass `localDatasource: null` at the SDK level.
+    //
+    // Three more 0.13.0 features are intentionally NOT configured below —
+    // they are sane defaults the example inherits for free, not things a
+    // host has to wire up:
+    // - `manageAppLifecycle`/`lifecyclePolicy` (default `true` /
+    //   `ChatLifecyclePolicy.standard()`): the SDK reconnects on resume and
+    //   resyncs automatically; this app has no `AppLifecycleService` of its
+    //   own for chat.
+    // - Cache-first room list (`RoomListController.mergeRooms`): the room
+    //   list never flashes empty across a background/reconnect cycle;
+    //   nothing to opt into.
+    // - `adapter.resync()` on every fresh reconnect (`enableReconnectResync`
+    //   default `true`): backfills the room list and the open conversation
+    //   automatically after a drop.
   );
 
   // Optional 1-step avatar upload. If the user picked a profile photo

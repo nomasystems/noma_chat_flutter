@@ -23,6 +23,7 @@ final class ChatMessagesController {
   }) async {
     if (_a._disposed) return const ChatSuccess(<ChatMessage>[]);
     final controller = _a.getChatController(roomId);
+    controller.setLoadingInitial(true);
     final pagination = ChatCursorPaginationParams(limit: limit);
 
     // Pre-compute the local hide/clear predicate ONCE so cached and
@@ -82,6 +83,8 @@ final class ChatMessagesController {
     } else {
       finalResult = networkResult.castFailure<List<ChatMessage>>();
     }
+
+    if (!_a._disposed) controller.setLoadingInitial(false);
 
     await _a._rehydratePendingMessages(roomId, controller);
 
@@ -216,6 +219,7 @@ final class ChatMessagesController {
     MessageType messageType = MessageType.regular,
     Map<String, dynamic>? metadata,
     String? attachmentUrl,
+    String? attachmentId,
     OperationKind? operationKind,
   }) => _a._optimistic.sendMessage(
     roomId,
@@ -224,6 +228,7 @@ final class ChatMessagesController {
     messageType: messageType,
     metadata: metadata,
     attachmentUrl: attachmentUrl,
+    attachmentId: attachmentId,
     operationKind: operationKind,
   );
 
@@ -263,8 +268,15 @@ final class ChatMessagesController {
     operationKind: OperationKind.sendThreadReply,
   );
 
-  /// Uploads [bytes] as an attachment and sends a message linking to
-  /// the resulting URL in [roomIdOrDraftKey].
+  /// Uploads [bytes] as an attachment and sends a message linking to the
+  /// resulting URL in [roomIdOrDraftKey].
+  ///
+  /// Paints an optimistic bubble immediately (before the upload even
+  /// starts, mirroring [sendVoice]) with a progress notifier reachable via
+  /// `ChatUiAdapter.attachmentUploadProgressFor(tempId)` — the bubble no
+  /// longer stays blank for the whole upload. On upload failure the
+  /// bubble is marked failed and visible ([ChatController.isFailed]);
+  /// there is no silent drop.
   Future<ChatResult<ChatMessage>> sendAttachment(
     String roomIdOrDraftKey, {
     required Uint8List bytes,
@@ -296,13 +308,127 @@ final class ChatMessagesController {
         roomId: roomIdOrDraftKey,
       );
     }
-    final uploadResult = await uploadAttachment(
+
+    final controller = _a._chatControllers[roomIdOrDraftKey];
+    final tempId = '_pending_${DateTime.now().microsecondsSinceEpoch}';
+    final progress = _a._voiceUploads.register(tempId);
+
+    final optimisticMetadata = <String, dynamic>{
+      'mimeType': mimeType,
+      if (fileName != null) 'fileName': fileName,
+      'fileSize': bytes.length.toString(),
+    };
+    final optimistic = ChatMessage(
+      id: tempId,
+      from: _a.currentUser.id,
+      timestamp: DateTime.now(),
+      messageType: MessageType.attachment,
+      attachmentUrl: '',
+      mimeType: mimeType,
+      fileName: fileName,
+      fileSize: bytes.length.toString(),
+      metadata: optimisticMetadata,
+    );
+    controller?.addMessage(optimistic);
+    controller?.markPending(tempId);
+
+    // Materialize the draft DM into a real room before the upload starts —
+    // mirrors `sendVoice` / `OptimisticHandler.sendMessage` so an
+    // attachment can be the first message in a brand-new DM.
+    String roomId;
+    if (controller != null && controller.isDraft) {
+      final otherUserId = controller.draftOtherUserId;
+      if (otherUserId == null) {
+        controller.markFailed(tempId);
+        _a._voiceUploads.drop(tempId);
+        return _a._emitFailure(
+          const ChatFailureResult<ChatMessage>(
+            ValidationFailure(
+              message: 'Draft controller missing draftOtherUserId',
+            ),
+          ),
+          OperationKind.uploadAttachment,
+          roomId: roomIdOrDraftKey,
+          messageId: tempId,
+        );
+      }
+      final materialization = await _a.ensureDmRoomMaterialized(otherUserId);
+      if (materialization.isFailure) {
+        controller.markFailed(tempId);
+        _a._voiceUploads.drop(tempId);
+        return _a._emitFailure(
+          materialization.castFailure<ChatMessage>(),
+          OperationKind.uploadAttachment,
+          roomId: roomIdOrDraftKey,
+          messageId: tempId,
+        );
+      }
+      roomId = materialization.dataOrThrow;
+    } else {
+      roomId = roomIdOrDraftKey;
+    }
+
+    unawaited(
+      _a._cache
+              ?.savePendingMessage(roomId, optimistic)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
+    _a._roomListMutator.updateRoomLastMessage(roomId, optimistic);
+
+    final uploadResult = await _a.client.attachments.upload(
       bytes,
       mimeType,
-      onProgress: onProgress,
+      onProgress: (sent, total) {
+        onProgress?.call(sent, total);
+        if (_a._disposed || total <= 0) return;
+        if (!_a._voiceUploads.isActive(tempId)) return;
+        progress.value = (sent / total).clamp(0.0, 1.0);
+      },
     );
+
+    if (_a._disposed) {
+      return ChatFailureResult(
+        uploadResult.failureOrNull ??
+            const NetworkFailure('adapter disposed mid-upload'),
+      );
+    }
+
     if (uploadResult.isFailure) {
-      return uploadResult.castFailure<ChatMessage>();
+      _a._voiceUploads.drop(tempId);
+      controller?.markFailed(tempId);
+      unawaited(
+        _a._cache
+                ?.savePendingMessage(roomId, optimistic, isFailed: true)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+      // Enters the offline retry queue on a connectivity-flavored failure
+      // (no-op otherwise, or when no queue is configured) — a reconnect
+      // later replays the whole upload+send with the SAME tempId, and
+      // `onOfflineMessageSent` flips this bubble from failed to sent.
+      _a.client.enqueueOfflineAttachment(
+        roomId: roomId,
+        bytes: bytes,
+        mimeType: mimeType,
+        causeFailure: uploadResult.failureOrNull,
+        fileName: fileName,
+        messageType: MessageType.attachment,
+        text: '',
+        metadata: optimisticMetadata,
+        tempId: tempId,
+        clientMessageId: tempId,
+      );
+      return _a._emitFailure(
+        uploadResult.castFailure<ChatMessage>(),
+        OperationKind.uploadAttachment,
+        roomId: roomId,
+        messageId: tempId,
+      );
+    }
+
+    if (identical(_a._voiceUploads.rawNotifier(tempId), progress)) {
+      progress.value = 1.0;
     }
     final attachment = uploadResult.dataOrThrow;
     final url = attachment.url ?? attachment.attachmentId;
@@ -312,12 +438,72 @@ final class ChatMessagesController {
       if (fileName != null) 'fileName': fileName,
       'fileSize': bytes.length.toString(),
     };
-    return send(
-      roomIdOrDraftKey,
+
+    final sendResult = await _a.client.messages.send(
+      roomId,
       text: '',
       messageType: MessageType.attachment,
       attachmentUrl: url,
+      attachmentId: attachment.attachmentId,
       metadata: metadata,
+      tempId: tempId,
+      clientMessageId: tempId,
+    );
+
+    final confirmed = sendResult.isSuccess
+        ? _a._ensureSentReceipt(sendResult.dataOrThrow)
+        : null;
+    if (controller != null) {
+      if (confirmed != null) {
+        // Same provisional-echo rule as `sendVoice`/`sendMessage`: keep the
+        // bubble pending until the authoritative `new_message` event
+        // reconciles it by clientMessageId.
+        if (!confirmed.isProvisional) {
+          controller.confirmSent(tempId, confirmed);
+        }
+      } else {
+        controller.markFailed(tempId);
+      }
+    }
+
+    if (sendResult.isSuccess) {
+      unawaited(
+        _a._cache
+                ?.deletePendingMessage(roomId, tempId)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+      _a._roomListMutator.updateRoomLastMessage(roomId, sendResult.dataOrThrow);
+      _a.logs?.message(
+        ChatLogLevel.debug,
+        'sendAttachment confirmed',
+        fields: {'roomId': roomId, 'attachmentId': attachment.attachmentId},
+      );
+    } else {
+      unawaited(
+        _a._cache
+                ?.savePendingMessage(roomId, optimistic, isFailed: true)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+      _a.logs?.message(
+        ChatLogLevel.warn,
+        'sendAttachment failed: ${sendResult.failureOrNull}',
+        fields: {'roomId': roomId},
+      );
+    }
+
+    // See `sendVoice` for why this is `complete()` and not `disposeAll` /
+    // an outright drop: the optimistic bubble may still hold a reference
+    // to the notifier until the controller rebuild swaps tempId for the
+    // real id.
+    _a._voiceUploads.complete(tempId);
+
+    return _a._emitFailure(
+      sendResult,
+      OperationKind.uploadAttachment,
+      roomId: roomId,
+      messageId: tempId,
     );
   }
 
@@ -419,6 +605,20 @@ final class ChatMessagesController {
                 .catchError(_swallowCacheThrow) ??
             Future.value(),
       );
+      // Enters the offline retry queue on a connectivity-flavored failure
+      // (no-op otherwise, or when no queue is configured) — a reconnect
+      // later replays the whole upload+send with the SAME tempId, and
+      // `onOfflineMessageSent` flips this bubble from failed to sent.
+      _a.client.enqueueOfflineAttachment(
+        roomId: roomId,
+        bytes: audioBytes,
+        mimeType: mimeType,
+        causeFailure: uploadResult.failureOrNull,
+        messageType: MessageType.audio,
+        metadata: optimistic.metadata,
+        tempId: tempId,
+        clientMessageId: tempId,
+      );
       return _a._emitFailure(
         uploadResult.castFailure<ChatMessage>(),
         OperationKind.sendVoiceMessage,
@@ -437,9 +637,11 @@ final class ChatMessagesController {
       roomId,
       messageType: MessageType.audio,
       attachmentUrl: url,
+      attachmentId: attachment.attachmentId,
       metadata: {
         'mimeType': mimeType,
         'attachmentUrl': url,
+        'attachmentId': attachment.attachmentId,
         'duration': duration.inMilliseconds,
         'waveform': waveform,
       },
@@ -471,12 +673,22 @@ final class ChatMessagesController {
             Future.value(),
       );
       _a._roomListMutator.updateRoomLastMessage(roomId, sendResult.dataOrThrow);
+      _a.logs?.message(
+        ChatLogLevel.debug,
+        'sendVoice confirmed',
+        fields: {'roomId': roomId, 'attachmentId': attachment.attachmentId},
+      );
     } else {
       unawaited(
         _a._cache
                 ?.savePendingMessage(roomId, optimistic, isFailed: true)
                 .catchError(_swallowCacheThrow) ??
             Future.value(),
+      );
+      _a.logs?.message(
+        ChatLogLevel.warn,
+        'sendVoice failed: ${sendResult.failureOrNull}',
+        fields: {'roomId': roomId},
       );
     }
 

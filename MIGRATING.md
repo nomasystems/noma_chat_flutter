@@ -1,6 +1,115 @@
 # Migration guide
 
-## 0.11.x → next release
+## 0.12.x → 0.13.0
+
+### Breaking: `ChatConnectionState` gained `authenticating`
+
+A new state is emitted between the socket opening and the server
+confirming `auth_ok` (previously indistinguishable from `connecting`).
+Any exhaustive `switch` over `ChatConnectionState` in your code needs a
+new case — the SDK's own `ConnectionBanner` and internal transport
+selection already handle it, mapping it the same way as `connecting`:
+
+```dart
+switch (state) {
+  case ChatConnectionState.connecting:
+  case ChatConnectionState.authenticating:
+    showConnectingSpinner();
+  case ChatConnectionState.connected:
+    hideSpinner();
+  // ...
+}
+```
+
+`isWorking` now includes `authenticating`; `isConnected` / `isOffline` do
+not.
+
+### Behavioural: `disconnect()` no longer clears the room list
+
+`ChatUiAdapter.disconnect()` is now cache-first by default
+(`clearRooms: false`): the room list, the currently foregrounded room's
+`ChatController`, and the DM contact↔room binding all survive a
+`disconnect()` — the list never flashes empty across a
+background/reconnect cycle, and a subsequent `resync()` can backfill the
+open conversation. If you relied on the old eager-wipe behavior (e.g. a
+screen that expects the list to be empty right after backgrounding),
+pass `disconnect(clearRooms: true)` explicitly. `signOut()` / `dispose()`
+are unaffected — they always do the full wipe internally.
+
+### Behavioural: the SDK now manages app lifecycle by default
+
+`ChatUiAdapter` (and `NomaChat.create` / `.fromConfig` / `.fromClient`)
+default `manageAppLifecycle` to `true`: the adapter registers its own
+`WidgetsBindingObserver` and reconnects on resume / optionally
+disconnects after a grace period on pause, per `lifecyclePolicy`
+(`ChatLifecyclePolicy.standard()` by default — keeps the socket alive in
+background; pass `.pushOptimized()` to disconnect after a grace period
+instead, e.g. when the backend suppresses push while a connection is
+active).
+
+**If your app has its own `AppLifecycleService`/reconnect logic for
+chat, remove it in the same change that bumps to `0.13.0`** — running
+both means two lifecycle managers racing to `connect()`/`disconnect()`
+the same adapter. To opt out entirely (keep your own lifecycle handling
+unchanged), pass `manageAppLifecycle: false`:
+
+```dart
+final chat = await NomaChat.create(
+  // ...
+  manageAppLifecycle: false, // opt out; you drive connect()/disconnect() yourself
+);
+```
+
+Registration is best-effort: it silently no-ops when no Flutter binding
+is available (e.g. an adapter built in a plain `test()`, not
+`testWidgets()`), so it never crashes a host or an existing test suite.
+
+### New: deep-link-safe room open — `adapter.rooms.open(roomId)`
+
+Opening a room the local list/cache hasn't synced yet (a push
+notification or a shared link to a brand-new room) used to mean either a
+blind `getChatController(roomId)` (renders an empty/ghost room) or
+hand-rolled fetch-then-add logic. `rooms.open` does both, with typed
+failures instead of collapsing everything to "this chat doesn't exist":
+
+```dart
+final result = await adapter.rooms.open(roomId);
+switch (result) {
+  case ChatSuccess(:final data):
+    openRoom(data); // ready ChatController
+  case ChatFailureResult(failure: NotFoundFailure()):
+    showChatGoneMessage();
+  case ChatFailureResult(failure: AuthFailure() || ForbiddenFailure()):
+    promptReauth();
+  case ChatFailureResult(failure: NetworkFailure() || TimeoutFailure()):
+    showRetry(); // transient — NOT "gone"
+  case ChatFailureResult(:final failure):
+    showError(failure);
+}
+```
+
+Pass `fetchIfMissing: false` to restrict the lookup to what's already in
+the room list (skips the network round-trip, returns `NotFoundFailure`
+instead).
+
+### New: non-destructive room list merge — `RoomListController.mergeRooms`
+
+Mostly internal (used by the adapter's own cache-first `loadRooms`), but
+public for hosts that maintain their own `RoomListController` outside the
+adapter: `mergeRooms(incoming, {required authoritative})` upserts rows in
+place. A non-authoritative merge never drops a row it can't vouch for; an
+authoritative merge reconciles fully (drops rows missing from `incoming`)
+without ever exposing an empty list in between, unlike `setRooms`
+(clear-then-refill).
+
+### Fixed: duplicate-DM room list flicker
+
+If you saw a DM's room-list row alternate between two different
+`roomId`s across refreshes (usually visible right after a fresh
+conversation, before the backend's own duplicate cleanup catches up),
+that was a client-side tie-break bug, now fixed — no action needed.
+
+## 0.11.x → 0.12.0
 
 ### Behavioural: the id returned by `send()` can be provisional
 

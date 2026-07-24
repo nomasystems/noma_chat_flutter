@@ -4,6 +4,7 @@ import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
+import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/url_detector.dart';
 import 'bubbles/audio_bubble.dart';
@@ -58,6 +59,7 @@ class MessageBubble extends StatelessWidget {
     this.isHighlighted = false,
     this.audioCoordinator,
     this.audioUploadProgress,
+    this.attachmentUploadProgress,
     this.avatarWidget,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
@@ -66,6 +68,8 @@ class MessageBubble extends StatelessWidget {
     this.senderAvatarUrl,
     this.senderDisplayName,
     this.statusIconBuilder,
+    this.roomId,
+    this.attachmentUrlResolver,
   });
 
   final ChatMessage message;
@@ -120,6 +124,14 @@ class MessageBubble extends StatelessWidget {
   /// progress overlay instead of the play button.
   final ValueListenable<double>? audioUploadProgress;
 
+  /// Optional upload progress notifier (0..1) for an outgoing photo/video/
+  /// file attachment that is still being uploaded. When non-null, the
+  /// image/video/file bubble shows a placeholder + progress ring instead of
+  /// resolving the (not-yet-usable) attachment URL. Same shape as
+  /// [audioUploadProgress] — kept separate so a host that only wires audio
+  /// progress does not accidentally affect the other attachment types.
+  final ValueListenable<double>? attachmentUploadProgress;
+
   final Widget? avatarWidget;
 
   /// Sender avatar URL and display name — used exclusively by
@@ -148,6 +160,20 @@ class MessageBubble extends StatelessWidget {
   /// into the theme for this one slot. Returning `null` for a given state
   /// falls back to `theme.bubble.statusIconBuilder`, then the SDK default.
   final MessageStatusIconBuilder? statusIconBuilder;
+
+  /// Room this message belongs to. Required (alongside
+  /// [attachmentUrlResolver]) for media bubbles to re-mint an expired
+  /// signed download URL — the signed-url endpoint is membership-checked
+  /// per room. `null` disables re-minting; bubbles fall back to
+  /// [ChatMessage.attachmentUrl] as-is (today's behaviour).
+  final String? roomId;
+
+  /// Resolves a fresh download URL for [message]'s attachment on demand.
+  /// When `null` (default), media bubbles use [ChatMessage.attachmentUrl]
+  /// directly — no behaviour change from before this parameter existed.
+  /// `NomaChatView`/`ChatView` wire the adapter's default
+  /// `SignedAttachmentUrlResolver` automatically.
+  final AttachmentUrlResolver? attachmentUrlResolver;
 
   bool get _isEdited => message.isEdited;
 
@@ -182,6 +208,21 @@ class MessageBubble extends StatelessWidget {
   bool get _isSystem => message.isSystem;
 
   String? get _mimeType => message.mimeType;
+
+  /// Built only when both [roomId] and [attachmentUrlResolver] are wired
+  /// and the message actually carries an attachment URL — `null`
+  /// otherwise, which keeps every media bubble on today's plain-URL path
+  /// with zero behaviour change (see [attachmentUrlResolver] doc).
+  AttachmentRef? get _attachmentRef {
+    final rid = roomId;
+    final url = message.attachmentUrl;
+    if (rid == null || url == null) return null;
+    return AttachmentRef(
+      roomId: rid,
+      attachmentId: message.attachmentId,
+      fallbackUrl: url,
+    );
+  }
 
   List<int>? _extractWaveform() {
     final raw = message.metadata?['waveform'];
@@ -308,6 +349,8 @@ class MessageBubble extends StatelessWidget {
         senderAvatarUrl: senderAvatarUrl,
         senderDisplayName: senderDisplayName,
         showSenderPortrait: true,
+        attachmentRef: _attachmentRef,
+        urlResolver: attachmentUrlResolver,
       );
     }
 
@@ -331,6 +374,8 @@ class MessageBubble extends StatelessWidget {
           senderAvatarUrl: senderAvatarUrl,
           senderDisplayName: senderDisplayName,
           showSenderPortrait: true,
+          attachmentRef: _attachmentRef,
+          urlResolver: attachmentUrlResolver,
         );
       }
       if (mimeType.startsWith('image/')) {
@@ -342,6 +387,9 @@ class MessageBubble extends StatelessWidget {
           isOutgoing: isOutgoing,
           theme: theme,
           statusWidget: outgoingStatusWidget,
+          attachmentRef: _attachmentRef,
+          urlResolver: attachmentUrlResolver,
+          uploadProgress: attachmentUploadProgress,
         );
       }
       if (mimeType.startsWith('video/')) {
@@ -353,6 +401,9 @@ class MessageBubble extends StatelessWidget {
           isOutgoing: isOutgoing,
           theme: theme,
           statusWidget: outgoingStatusWidget,
+          attachmentRef: _attachmentRef,
+          urlResolver: attachmentUrlResolver,
+          uploadProgress: attachmentUploadProgress,
         );
       }
       return FileBubble(
@@ -364,6 +415,7 @@ class MessageBubble extends StatelessWidget {
         isOutgoing: isOutgoing,
         theme: theme,
         statusWidget: outgoingStatusWidget,
+        uploadProgress: attachmentUploadProgress,
       );
     }
 

@@ -63,6 +63,13 @@ abstract class RoomListItem with _$RoomListItem {
     @Default(false) bool isAnnouncement,
     bool? isOnline,
     PresenceStatus? presenceStatus,
+
+    /// Wall-clock time the other 1:1 participant was last seen online,
+    /// mirroring [ChatPresence.lastSeen]. `null` when unknown (group rooms,
+    /// no presence event/bootstrap has landed yet, or the peer has never
+    /// gone offline since the app connected). Drives the "last seen …"
+    /// subtitle in [ChatRoomAppBar] when [isOnline] is `false`.
+    DateTime? lastSeen,
     String? otherUserId,
     RoomRole? userRole,
     int? memberCount,

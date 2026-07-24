@@ -138,12 +138,10 @@ void main() {
     });
 
     test('download() without roomId logs a deprecation warning', () async {
-      final warnings = <String>[];
+      final sink = BufferChatLogSink();
       final loggedApi = AttachmentsApi(
         rest: rest,
-        logger: (level, message) {
-          if (level == 'warn') warnings.add(message);
-        },
+        logs: ChatLogger(sink: sink),
       );
       when(
         () => rest.downloadBinary(any(), headers: any(named: 'headers')),
@@ -151,9 +149,12 @@ void main() {
 
       await loggedApi.download('att-1');
 
+      final warnings = sink.records.where(
+        (r) => r.tag == ChatLogTag.attachments && r.level == ChatLogLevel.warn,
+      );
       expect(warnings, hasLength(1));
-      expect(warnings.single, contains('deprecated'));
-      expect(warnings.single, contains('roomId'));
+      expect(warnings.single.message, contains('deprecated'));
+      expect(warnings.single.message, contains('roomId'));
     });
 
     test('download() gets binary with optional metadata header', () async {

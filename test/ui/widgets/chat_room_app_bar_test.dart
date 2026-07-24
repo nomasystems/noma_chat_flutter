@@ -54,6 +54,38 @@ void main() {
       expect(find.text('online'), findsOneWidget);
     });
 
+    testWidgets(
+      'shows "last seen …" subtitle for 1:1 rooms when peer is offline '
+      'with a known lastSeen',
+      (tester) async {
+        final c = _controller();
+        final room = RoomListItem(
+          id: 'r1',
+          name: 'Alice',
+          isOnline: false,
+          lastSeen: DateTime.now().subtract(const Duration(minutes: 5)),
+        );
+        await tester.pumpWidget(
+          _wrap(ChatRoomAppBar(controller: c, room: room)),
+        );
+        expect(find.textContaining('last seen'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'shows no subtitle for 1:1 rooms when peer is offline with no known '
+      'lastSeen',
+      (tester) async {
+        final c = _controller();
+        const room = RoomListItem(id: 'r1', name: 'Alice', isOnline: false);
+        await tester.pumpWidget(
+          _wrap(ChatRoomAppBar(controller: c, room: room)),
+        );
+        expect(find.text('online'), findsNothing);
+        expect(find.textContaining('last seen'), findsNothing);
+      },
+    );
+
     testWidgets('shows typing subtitle when peers are typing', (tester) async {
       final c = _controller(
         otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],

@@ -144,6 +144,19 @@ void main() {
       expect(result.isSuccess, isTrue);
       expect(offlineQueue.pending, isEmpty);
     });
+
+    test('does NOT enqueue when enqueueOnFailure is false — the caller (the '
+        'offline queue drain loop replaying this same op) already owns '
+        'retry/backoff for it (R2-15)', () async {
+      when(
+        () => rest.post(any(), data: any(named: 'data')),
+      ).thenThrow(const ChatNetworkException());
+
+      final result = await api.send('r1', text: 'hi', enqueueOnFailure: false);
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, isEmpty);
+    });
   });
 
   group('OfflineQueuedMessagesApi.delete', () {

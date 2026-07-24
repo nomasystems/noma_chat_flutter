@@ -10,6 +10,7 @@ import '../core/pagination.dart';
 import '../core/result.dart';
 import '../models/attachment.dart';
 import '../models/message.dart';
+import '../observability/chat_logger.dart';
 
 import '../client/chat_client.dart';
 
@@ -18,13 +19,11 @@ import '../client/chat_client.dart';
 @experimental
 class AttachmentsApi implements ChatAttachmentsApi {
   final RestClient _rest;
-  final void Function(String level, String message)? _logger;
+  final ChatLogger? _logs;
 
-  AttachmentsApi({
-    required RestClient rest,
-    void Function(String level, String message)? logger,
-  }) : _rest = rest,
-       _logger = logger;
+  AttachmentsApi({required RestClient rest, ChatLogger? logs})
+    : _rest = rest,
+      _logs = logs;
 
   static Map<String, dynamic>? _asMap(dynamic value) =>
       value is Map<String, dynamic> ? value : null;
@@ -111,11 +110,11 @@ class AttachmentsApi implements ChatAttachmentsApi {
     // Deprecated legacy path: no roomId. The backend can no longer authorize
     // a header-only download and will respond 403 (`not_a_room_member`).
     // Kept only for source compatibility — callers should pass `roomId`.
-    _logger?.call(
-      'warn',
+    _logs?.attach(
+      ChatLogLevel.warn,
       'attachments.download called without roomId — this legacy path is '
-          'deprecated and the backend will reject it (403 not_a_room_member). '
-          'Pass roomId to use the signed-URL flow.',
+      'deprecated and the backend will reject it (403 not_a_room_member). '
+      'Pass roomId to use the signed-URL flow.',
     );
     return _rest.downloadBinary(
       '/attachments/$attachmentId',

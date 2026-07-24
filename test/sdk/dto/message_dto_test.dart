@@ -61,7 +61,7 @@ void main() {
         expect(dto.from, '');
       });
 
-      test('converts non-string id to string via _strOf', () {
+      test('converts non-string id to string via coercion', () {
         final dto = MessageDto.fromJson({
           'id': 42,
           'from': 'user-1',
@@ -324,6 +324,80 @@ void main() {
           timestamp: '2026-01-01T00:00:00Z',
         );
         expect(dto.toJson()['messageType'], 'regular');
+      });
+
+      test('includes attachmentId in toSendJson when present', () {
+        const dto = MessageDto(
+          id: 'msg-1',
+          from: 'user-1',
+          timestamp: '2026-01-01T00:00:00Z',
+          attachmentUrl: 'https://example.com/photo.jpg',
+          attachmentId: 'att-123',
+        );
+        expect(dto.toSendJson()['attachmentId'], 'att-123');
+      });
+
+      test('includes attachmentId in toJson when present', () {
+        const dto = MessageDto(
+          id: 'msg-1',
+          from: 'user-1',
+          timestamp: '2026-01-01T00:00:00Z',
+          attachmentId: 'att-123',
+        );
+        expect(dto.toJson()['attachmentId'], 'att-123');
+      });
+
+      test('omits attachmentId when absent', () {
+        const dto = MessageDto(
+          id: 'msg-1',
+          from: 'user-1',
+          timestamp: '2026-01-01T00:00:00Z',
+        );
+        expect(dto.toSendJson().containsKey('attachmentId'), isFalse);
+        expect(dto.toJson().containsKey('attachmentId'), isFalse);
+      });
+    });
+
+    group('fromJson — attachmentId', () {
+      test('reads attachmentId from the top level', () {
+        final dto = MessageDto.fromJson({
+          'id': 'msg-1',
+          'from': 'user-1',
+          'timestamp': '2026-01-01T00:00:00Z',
+          'attachmentId': 'att-top',
+        });
+        expect(dto.attachmentId, 'att-top');
+      });
+
+      test('falls back to metadata.attachmentId when the top-level key is '
+          'absent (legacy backend)', () {
+        final dto = MessageDto.fromJson({
+          'id': 'msg-1',
+          'from': 'user-1',
+          'timestamp': '2026-01-01T00:00:00Z',
+          'metadata': {'attachmentId': 'att-legacy'},
+        });
+        expect(dto.attachmentId, 'att-legacy');
+      });
+
+      test('prefers the top-level value over metadata when both present', () {
+        final dto = MessageDto.fromJson({
+          'id': 'msg-1',
+          'from': 'user-1',
+          'timestamp': '2026-01-01T00:00:00Z',
+          'attachmentId': 'att-top',
+          'metadata': {'attachmentId': 'att-legacy'},
+        });
+        expect(dto.attachmentId, 'att-top');
+      });
+
+      test('is null when neither the top level nor metadata carry it', () {
+        final dto = MessageDto.fromJson({
+          'id': 'msg-1',
+          'from': 'user-1',
+          'timestamp': '2026-01-01T00:00:00Z',
+        });
+        expect(dto.attachmentId, isNull);
       });
     });
   });

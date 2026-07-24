@@ -1,3 +1,6 @@
+import '../ui_debug_log.dart';
+import '../util/json_safe.dart';
+
 class UserDto {
   final String id;
   final String? displayName;
@@ -22,15 +25,23 @@ class UserDto {
   });
 
   factory UserDto.fromJson(Map<String, dynamic> json) => UserDto(
-    id: (json['id'] ?? json['userId'] ?? '') as String,
-    displayName: json['displayName'] as String?,
-    avatarUrl: json['avatarUrl'] as String?,
-    bio: json['bio'] as String?,
-    email: json['email'] as String?,
-    role: json['role'] as String?,
-    active: json['active'] as bool?,
-    custom: json['custom'] as Map<String, dynamic>?,
-    configuration: json['configuration'] as Map<String, dynamic>?,
+    id: jsonIdOr(
+      json['id'] ?? json['userId'],
+      '',
+      onEmptyFromPresent: () => uiDebugLog(
+        'UserDto',
+        'fromJson: id/userId present but coerced to empty (raw: '
+            '${json['id'] ?? json['userId']})',
+      ),
+    ),
+    displayName: jsonStringOrNull(json['displayName']),
+    avatarUrl: jsonStringOrNull(json['avatarUrl']),
+    bio: jsonStringOrNull(json['bio']),
+    email: jsonStringOrNull(json['email']),
+    role: jsonStringOrNull(json['role']),
+    active: jsonBoolOrNull(json['active']),
+    custom: jsonMapOrNull(json['custom']),
+    configuration: jsonMapOrNull(json['configuration']),
   );
 
   Map<String, dynamic> toJson() => {

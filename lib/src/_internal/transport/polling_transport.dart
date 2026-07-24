@@ -81,7 +81,15 @@ class PollingTransport implements RealtimeTransport {
   bool get transportDisabled => false;
 
   @override
+  Duration? get lastPongAge => null;
+
+  @override
   bool get supportsOutboundFrames => false;
+
+  /// Polling has no live socket to probe — the next tick fetches fresh state
+  /// regardless. A resume just re-connects (a no-op while already connected).
+  @override
+  Future<void> verifyLiveness() => connect();
 
   @override
   Future<void> connect() async {
@@ -175,6 +183,7 @@ class PollingTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) {}
@@ -187,6 +196,7 @@ class PollingTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,

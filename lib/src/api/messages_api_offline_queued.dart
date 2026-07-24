@@ -59,10 +59,18 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+
+    /// Set to `false` when replaying this op from [OfflineQueue.drain] —
+    /// the drain loop already owns retry/backoff for the instance it is
+    /// replaying (see [OfflineQueue._drainWith]), so enqueueing here too
+    /// would leave two copies of the same send in the queue. Defaults to
+    /// `true` for every normal (non-replay) caller.
+    bool enqueueOnFailure = true,
   }) async {
     final result = await super.send(
       roomId,
@@ -71,12 +79,14 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
       referencedMessageId: referencedMessageId,
       reaction: reaction,
       attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
       sourceRoomId: sourceRoomId,
       metadata: metadata,
       tempId: tempId,
       clientMessageId: clientMessageId,
     );
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: false)) {
       _offlineQueue.enqueue(
         PendingSendMessage(
@@ -89,6 +99,7 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
           referencedMessageId: referencedMessageId,
           reaction: reaction,
           attachmentUrl: attachmentUrl,
+          attachmentId: attachmentId,
           sourceRoomId: sourceRoomId,
           metadata: metadata,
           tempId: tempId,
@@ -103,9 +114,14 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
   }
 
   @override
-  Future<ChatResult<void>> delete(String roomId, String messageId) async {
+  Future<ChatResult<void>> delete(
+    String roomId,
+    String messageId, {
+    bool enqueueOnFailure = true,
+  }) async {
     final result = await super.delete(roomId, messageId);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingDeleteMessage(
@@ -125,9 +141,11 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
     String roomId,
     String messageId, {
     required String emoji,
+    bool enqueueOnFailure = true,
   }) async {
     final result = await super.addReaction(roomId, messageId, emoji: emoji);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingAddReaction(
@@ -148,9 +166,11 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
     String roomId,
     String messageId, {
     String? emoji,
+    bool enqueueOnFailure = true,
   }) async {
     final result = await super.deleteReaction(roomId, messageId, emoji: emoji);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       // The drain executor replays this without an emoji (clears the user's
       // reaction wholesale), so the queued op does not carry one — matching
@@ -169,9 +189,14 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
   }
 
   @override
-  Future<ChatResult<void>> pinMessage(String roomId, String messageId) async {
+  Future<ChatResult<void>> pinMessage(
+    String roomId,
+    String messageId, {
+    bool enqueueOnFailure = true,
+  }) async {
     final result = await super.pinMessage(roomId, messageId);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingPinMessage(
@@ -187,9 +212,14 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
   }
 
   @override
-  Future<ChatResult<void>> unpinMessage(String roomId, String messageId) async {
+  Future<ChatResult<void>> unpinMessage(
+    String roomId,
+    String messageId, {
+    bool enqueueOnFailure = true,
+  }) async {
     final result = await super.unpinMessage(roomId, messageId);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingUnpinMessage(
@@ -205,9 +235,14 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
   }
 
   @override
-  Future<ChatResult<void>> starMessage(String roomId, String messageId) async {
+  Future<ChatResult<void>> starMessage(
+    String roomId,
+    String messageId, {
+    bool enqueueOnFailure = true,
+  }) async {
     final result = await super.starMessage(roomId, messageId);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingStarMessage(
@@ -225,10 +260,12 @@ class OfflineQueuedMessagesApi extends CachedMessagesApi {
   @override
   Future<ChatResult<void>> unstarMessage(
     String roomId,
-    String messageId,
-  ) async {
+    String messageId, {
+    bool enqueueOnFailure = true,
+  }) async {
     final result = await super.unstarMessage(roomId, messageId);
-    if (result.isFailure &&
+    if (enqueueOnFailure &&
+        result.isFailure &&
         _shouldEnqueueAfter(result.failureOrNull, idempotent: true)) {
       _offlineQueue.enqueue(
         PendingUnstarMessage(

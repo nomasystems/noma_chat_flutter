@@ -9,6 +9,7 @@ import '../../models/user.dart';
 import '../models/reaction_user.dart';
 import '../models/send_message_request.dart';
 import '../models/voice_message_data.dart';
+import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
 import 'attachment_picker_sheet.dart';
 import 'message_context_menu.dart';
@@ -36,9 +37,11 @@ class ChatViewBuilders {
     this.userFetcher,
     this.batchUserFetcher,
     this.audioUploadProgressFor,
+    this.attachmentUploadProgressFor,
     this.linkPreviewFetcher,
     this.avatarRebuildSignal,
     this.statusIconBuilder,
+    this.attachmentUrlResolver,
   });
 
   /// Overrides the bubble long-press / right-click context menu. When
@@ -61,6 +64,16 @@ class ChatViewBuilders {
   /// is no upload in flight for that message id.
   final ValueListenable<double>? Function(String messageId)?
   audioUploadProgressFor;
+
+  /// Per-message resolver that returns an upload progress notifier (0..1)
+  /// for an outgoing photo/video/file attachment still being uploaded —
+  /// the [audioUploadProgressFor] counterpart for every attachment type
+  /// that isn't a recorded voice clip. Defaults (when `null`, the default
+  /// [ChatView]/[NomaChatView] wiring) to `ChatUiAdapter.attachmentUploadProgressFor`
+  /// so the placeholder + progress ring shows up out of the box without the
+  /// host wiring anything.
+  final ValueListenable<double>? Function(String messageId)?
+  attachmentUploadProgressFor;
 
   /// Custom text for system messages. When `null`, the SDK uses
   /// [ChatMessage.text] as-is.
@@ -129,6 +142,14 @@ class ChatViewBuilders {
   /// set. Return `null` from the builder for a given state to fall back to
   /// the theme slot, then the SDK default.
   final MessageStatusIconBuilder? statusIconBuilder;
+
+  /// Resolves a fresh download URL per attachment message so media
+  /// bubbles re-mint on expiry instead of trusting a persisted URL
+  /// forever. `null` (default via [ChatView]) keeps every bubble on the
+  /// plain `ChatMessage.attachmentUrl` path. `NomaChatView` wires the
+  /// adapter's default `SignedAttachmentUrlResolver` automatically when
+  /// this is left unset.
+  final AttachmentUrlResolver? attachmentUrlResolver;
 }
 
 /// Imperative callbacks fired by [ChatView] in response to user

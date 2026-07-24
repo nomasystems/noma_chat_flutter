@@ -60,6 +60,23 @@ void main() {
       expect(updated.unreadCount, 0);
     });
 
+    test('lastSeen defaults to null and round-trips through copyWith', () {
+      const room = RoomListItem(id: 'r1');
+      expect(room.lastSeen, isNull);
+
+      final seenAt = DateTime.utc(2026, 1, 1, 12);
+      final updated = room.copyWith(lastSeen: seenAt);
+      expect(updated.lastSeen, seenAt);
+    });
+
+    test('equality detects lastSeen changes', () {
+      final a = RoomListItem(id: 'r1', lastSeen: DateTime.utc(2026, 1, 1));
+      final b = RoomListItem(id: 'r1', lastSeen: DateTime.utc(2026, 1, 2));
+      const c = RoomListItem(id: 'r1');
+      expect(a, isNot(equals(b)));
+      expect(a, isNot(equals(c)));
+    });
+
     test('equality detects custom changes by reference', () {
       final custom1 = {'key': 'value1'};
       final custom2 = {'key': 'value2'};

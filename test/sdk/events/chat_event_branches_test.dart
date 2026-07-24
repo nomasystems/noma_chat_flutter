@@ -32,6 +32,7 @@ void main() {
 
     test('isWorking', () {
       expect(ChatConnectionState.connecting.isWorking, isTrue);
+      expect(ChatConnectionState.authenticating.isWorking, isTrue);
       expect(ChatConnectionState.reconnecting.isWorking, isTrue);
       expect(ChatConnectionState.connected.isWorking, isFalse);
     });
@@ -40,6 +41,11 @@ void main() {
       expect(ChatConnectionState.disconnected.isOffline, isTrue);
       expect(ChatConnectionState.error.isOffline, isTrue);
       expect(ChatConnectionState.connected.isOffline, isFalse);
+    });
+
+    test('authenticating is neither connected nor offline', () {
+      expect(ChatConnectionState.authenticating.isConnected, isFalse);
+      expect(ChatConnectionState.authenticating.isOffline, isFalse);
     });
   });
 

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/_internal/cache/offline_queue.dart';
 import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
@@ -469,6 +470,46 @@ void main() {
       expect(result.isSuccess, isTrue);
       expect(result.dataOrNull!.status, PresenceStatus.available);
       expect(result.dataOrNull!.online, isTrue);
+    });
+  });
+
+  group('ContactsApi.sendDirectMessage offline queue (R2-15)', () {
+    late OfflineQueue offlineQueue;
+    late ContactsApi api;
+
+    setUp(() {
+      offlineQueue = OfflineQueue();
+      api = ContactsApi(rest: rest, offlineQueue: offlineQueue);
+    });
+
+    test('enqueues a PendingSendDirectMessage on a NetworkFailure by '
+        'default', () async {
+      when(
+        () => rest.post('/contacts/c1/messages', data: any(named: 'data')),
+      ).thenThrow(const ChatNetworkException());
+
+      final result = await api.sendDirectMessage('c1', text: 'hi');
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, hasLength(1));
+      expect(offlineQueue.pending.single, isA<PendingSendDirectMessage>());
+    });
+
+    test('does NOT enqueue when enqueueOnFailure is false — the caller (the '
+        'offline queue drain loop replaying this same op) already owns '
+        'retry/backoff for it', () async {
+      when(
+        () => rest.post('/contacts/c1/messages', data: any(named: 'data')),
+      ).thenThrow(const ChatNetworkException());
+
+      final result = await api.sendDirectMessage(
+        'c1',
+        text: 'hi',
+        enqueueOnFailure: false,
+      );
+
+      expect(result.isFailure, isTrue);
+      expect(offlineQueue.pending, isEmpty);
     });
   });
 }

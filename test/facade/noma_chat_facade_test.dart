@@ -38,6 +38,34 @@ void main() {
 
       expect(chat.adapter.l10n, ChatUiLocalizations.es);
     });
+
+    test('manageAppLifecycle/lifecyclePolicy/enableReconnectResync default '
+        'through to the adapter', () async {
+      chat = await buildChat();
+
+      expect(chat.adapter.manageAppLifecycle, isTrue);
+      expect(chat.adapter.lifecyclePolicy.onPause, ChatPauseAction.keepAlive);
+      expect(chat.adapter.enableReconnectResync, isTrue);
+    });
+
+    test('manageAppLifecycle/lifecyclePolicy/enableReconnectResync are '
+        'threaded through when overridden', () async {
+      chat = await NomaChat.create(
+        baseUrl: 'http://h/v1',
+        realtimeUrl: 'http://h',
+        tokenProvider: () async => 't',
+        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+        enableCache: false,
+        localDatasource: MemoryChatLocalDatasource(),
+        manageAppLifecycle: false,
+        lifecyclePolicy: const ChatLifecyclePolicy.pushOptimized(),
+        enableReconnectResync: false,
+      );
+
+      expect(chat.adapter.manageAppLifecycle, isFalse);
+      expect(chat.adapter.lifecyclePolicy.onPause, ChatPauseAction.disconnect);
+      expect(chat.adapter.enableReconnectResync, isFalse);
+    });
   });
 
   group('NomaChat.fromConfig', () {
@@ -126,6 +154,35 @@ void main() {
       );
 
       expect(chat.adapter.l10n, ChatUiLocalizations.es);
+    });
+
+    test('manageAppLifecycle/lifecyclePolicy/enableReconnectResync default '
+        'true/.standard()/true and are overridable', () {
+      final client = MockChatClient(currentUserId: 'u1');
+      final defaults = NomaChat.fromClient(
+        client: client,
+        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+      );
+      expect(defaults.adapter.manageAppLifecycle, isTrue);
+      expect(
+        defaults.adapter.lifecyclePolicy.onPause,
+        ChatPauseAction.keepAlive,
+      );
+      expect(defaults.adapter.enableReconnectResync, isTrue);
+
+      final overridden = NomaChat.fromClient(
+        client: MockChatClient(currentUserId: 'u1'),
+        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+        manageAppLifecycle: false,
+        lifecyclePolicy: const ChatLifecyclePolicy.pushOptimized(),
+        enableReconnectResync: false,
+      );
+      expect(overridden.adapter.manageAppLifecycle, isFalse);
+      expect(
+        overridden.adapter.lifecyclePolicy.onPause,
+        ChatPauseAction.disconnect,
+      );
+      expect(overridden.adapter.enableReconnectResync, isFalse);
     });
 
     test('connect delegates to adapter', () async {

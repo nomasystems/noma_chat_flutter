@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -99,7 +101,7 @@ void main() {
     });
 
     test('bootstrap is silent on API failure (logged, swallowed)', () async {
-      var warns = 0;
+      final sink = BufferChatLogSink();
       when(
         () => api.getAll(),
       ).thenAnswer((_) async => const ChatFailureResult(NetworkFailure()));
@@ -109,7 +111,7 @@ void main() {
         roomList: roomList,
         dmContacts: dmContacts,
         isDisposed: () => false,
-        logger: (level, _) => warns += (level == 'warn' ? 1 : 0),
+        logs: ChatLogger(sink: sink),
       );
       await pm.bootstrap();
       // ChatFailureResult path doesn't log warn because the ChatResult is checked
@@ -223,6 +225,53 @@ void main() {
       expect(updated.presenceStatus, PresenceStatus.away);
     });
 
+    test(
+      'bootstrap does not clobber a live presence event that landed during '
+      'its in-flight getAll() — last-writer by recency, not arrival (R2-13)',
+      () async {
+        const room = RoomListItem(id: 'r1', otherUserId: 'u1');
+        roomList.addRoom(room);
+        dmContacts.bind('u1', 'r1');
+        final pm = make();
+
+        // Hold the snapshot fetch open, and have it resolve to a STALE view
+        // (u1 offline) — the state as of when the connection came up.
+        final gate = Completer<void>();
+        when(() => api.getAll()).thenAnswer((_) async {
+          await gate.future;
+          return const ChatSuccess(
+            BulkPresenceResponse(
+              own: ChatPresence(
+                userId: 'me',
+                online: true,
+                status: PresenceStatus.available,
+              ),
+              contacts: [
+                ChatPresence(
+                  userId: 'u1',
+                  online: false,
+                  status: PresenceStatus.offline,
+                ),
+              ],
+            ),
+          );
+        });
+
+        final f = pm.bootstrap();
+        // Let a little wall-clock time pass so the live update below is
+        // unambiguously stamped after bootstrap captured its start instant.
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        // A fresh live event lands WHILE the fetch is still open: u1 online.
+        pm.update('u1', true, PresenceStatus.available);
+        gate.complete();
+        await f;
+
+        // The live (fresher) online state must win over the stale snapshot.
+        expect(pm.presenceFor('u1')?.online, isTrue);
+        expect(roomList.getRoomById('r1')!.isOnline, isTrue);
+      },
+    );
+
     test('bootstrap is reentrant — calling twice does not duplicate '
         'cache entries', () async {
       when(() => api.getAll()).thenAnswer(
@@ -255,5 +304,84 @@ void main() {
       // Each contact appears once in the cache regardless of bootstrap count.
       expect(pm.length, 2);
     });
+
+    test('bootstrap applies every changed DM room in a single batch instead of '
+        'one RoomListController rebuild per room', () async {
+      for (var i = 0; i < 5; i++) {
+        roomList.addRoom(RoomListItem(id: 'r$i', otherUserId: 'u$i'));
+      }
+
+      when(() => api.getAll()).thenAnswer(
+        (_) async => ChatSuccess(
+          BulkPresenceResponse(
+            own: const ChatPresence(
+              userId: 'me',
+              online: true,
+              status: PresenceStatus.available,
+            ),
+            contacts: [
+              for (var i = 0; i < 5; i++)
+                ChatPresence(
+                  userId: 'u$i',
+                  online: true,
+                  status: PresenceStatus.available,
+                ),
+            ],
+          ),
+        ),
+      );
+
+      var notifyCount = 0;
+      roomList.addListener(() => notifyCount++);
+
+      await make().bootstrap();
+
+      // All 5 DM rooms flipped isOnline in one go — a single
+      // mergeRooms(authoritative: false) call — not 5 separate
+      // updateRoom calls (which would each sort + reindex + notify).
+      expect(notifyCount, 1);
+      for (var i = 0; i < 5; i++) {
+        expect(roomList.getRoomById('r$i')!.isOnline, isTrue);
+      }
+    });
+
+    test(
+      'bootstrap does not notify listeners when no room actually changed',
+      () async {
+        const room = RoomListItem(
+          id: 'r1',
+          otherUserId: 'u1',
+          isOnline: true,
+          presenceStatus: PresenceStatus.available,
+        );
+        roomList.addRoom(room);
+
+        when(() => api.getAll()).thenAnswer(
+          (_) async => const ChatSuccess(
+            BulkPresenceResponse(
+              own: ChatPresence(
+                userId: 'me',
+                online: true,
+                status: PresenceStatus.available,
+              ),
+              contacts: [
+                ChatPresence(
+                  userId: 'u1',
+                  online: true,
+                  status: PresenceStatus.available,
+                ),
+              ],
+            ),
+          ),
+        );
+
+        var notifyCount = 0;
+        roomList.addListener(() => notifyCount++);
+
+        await make().bootstrap();
+
+        expect(notifyCount, 0);
+      },
+    );
   });
 }

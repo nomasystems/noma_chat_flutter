@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' as ip;
 
 import '../models/attachment_policy.dart';
+import '../models/attachment_rejection.dart';
 import '../utils/platform_support.dart';
 
 /// ChatResult of an attachment picker call.
@@ -47,6 +48,7 @@ class AttachmentPickers {
     int imageQuality = 85,
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
+    void Function(AttachmentRejection rejection)? onRejected,
   }) async {
     if (!PlatformSupport.supportsCameraCapture) {
       logger?.call(
@@ -60,9 +62,10 @@ class AttachmentPickers {
         source: ip.ImageSource.camera,
         imageQuality: imageQuality,
       );
-      return await _xfileToValidatedResult(file, policy, logger);
+      return await _xfileToValidatedResult(file, policy, logger, onRejected);
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromCamera failed: $e');
+      onRejected?.call(AttachmentRejection.unreadable());
       return null;
     }
   }
@@ -71,15 +74,17 @@ class AttachmentPickers {
     int imageQuality = 85,
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
+    void Function(AttachmentRejection rejection)? onRejected,
   }) async {
     try {
       final file = await _imagePicker.pickImage(
         source: ip.ImageSource.gallery,
         imageQuality: imageQuality,
       );
-      return await _xfileToValidatedResult(file, policy, logger);
+      return await _xfileToValidatedResult(file, policy, logger, onRejected);
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromGallery failed: $e');
+      onRejected?.call(AttachmentRejection.unreadable());
       return null;
     }
   }
@@ -88,6 +93,7 @@ class AttachmentPickers {
     Duration? maxDuration,
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
+    void Function(AttachmentRejection rejection)? onRejected,
   }) async {
     try {
       final file = await _imagePicker.pickVideo(
@@ -98,25 +104,28 @@ class AttachmentPickers {
         file,
         policy,
         logger,
+        onRejected,
         fallbackMime: 'video/mp4',
       );
     } on Object catch (e) {
       logger?.call('warn', 'pickVideoFromGallery failed: $e');
+      onRejected?.call(AttachmentRejection.unreadable());
       return null;
     }
   }
 
   /// Opens the system multi-pick photo/video chooser and returns every
-  /// selected file. Pickers that the policy rejects (wrong mime, too
-  /// large) are filtered out silently — they get a `warn` log line so
-  /// the consumer can spot them in development without needing to
-  /// inspect the return type.
+  /// selected file that satisfies [policy]. A rejected pick (wrong mime,
+  /// too large) is filtered out of the returned list and reported via
+  /// [onRejected] — always a `warn` log line, and no longer a silent drop
+  /// when [onRejected] is wired.
   ///
   /// Returns an empty list when the user cancels.
   static Future<List<AttachmentPickResult>> pickMultipleMedia({
     int imageQuality = 85,
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
+    void Function(AttachmentRejection rejection)? onRejected,
   }) async {
     try {
       final files = await _imagePicker.pickMultipleMedia(
@@ -124,12 +133,13 @@ class AttachmentPickers {
       );
       final results = <AttachmentPickResult>[];
       for (final f in files) {
-        final r = await _xfileToValidatedResult(f, policy, logger);
+        final r = await _xfileToValidatedResult(f, policy, logger, onRejected);
         if (r != null) results.add(r);
       }
       return results;
     } on Object catch (e) {
       logger?.call('warn', 'pickMultipleMedia failed: $e');
+      onRejected?.call(AttachmentRejection.unreadable());
       return const [];
     }
   }
@@ -143,6 +153,7 @@ class AttachmentPickers {
     List<String> allowedExtensions = const [],
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
+    void Function(AttachmentRejection rejection)? onRejected,
   }) async {
     if (!PlatformSupport.supportsFilePicker) {
       logger?.call('warn', 'pickFile unsupported on this platform; ignoring');
@@ -160,7 +171,10 @@ class AttachmentPickers {
       if (result == null || result.files.isEmpty) return null;
       final file = result.files.first;
       final bytes = file.bytes;
-      if (bytes == null) return null;
+      if (bytes == null) {
+        onRejected?.call(AttachmentRejection.unreadable(fileName: file.name));
+        return null;
+      }
       final pick = AttachmentPickResult(
         bytes: bytes,
         mimeType:
@@ -173,11 +187,19 @@ class AttachmentPickers {
       );
       if (violation != null) {
         logger?.call('warn', 'pickFile rejected: $violation');
+        onRejected?.call(
+          AttachmentRejection.fromPolicyViolation(
+            violation,
+            fileName: pick.fileName,
+            sizeBytes: pick.size,
+          ),
+        );
         return null;
       }
       return pick;
     } on Object catch (e) {
       logger?.call('warn', 'pickFile failed: $e');
+      onRejected?.call(AttachmentRejection.unreadable());
       return null;
     }
   }
@@ -185,7 +207,8 @@ class AttachmentPickers {
   static Future<AttachmentPickResult?> _xfileToValidatedResult(
     ip.XFile? file,
     AttachmentPolicy policy,
-    void Function(String level, String message)? logger, {
+    void Function(String level, String message)? logger,
+    void Function(AttachmentRejection rejection)? onRejected, {
     String fallbackMime = 'application/octet-stream',
   }) async {
     if (file == null) return null;
@@ -204,6 +227,13 @@ class AttachmentPickers {
     );
     if (violation != null) {
       logger?.call('warn', 'pick rejected: $violation');
+      onRejected?.call(
+        AttachmentRejection.fromPolicyViolation(
+          violation,
+          fileName: pick.fileName,
+          sizeBytes: pick.size,
+        ),
+      );
       return null;
     }
     return pick;

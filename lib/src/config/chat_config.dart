@@ -11,6 +11,7 @@ import '../_internal/http/basic_auth_interceptor.dart';
 import '../_internal/cache/cache_config.dart';
 import '../_internal/http/retry_config.dart';
 import '../cache/local_datasource.dart';
+import '../observability/chat_logger.dart';
 import 'polling_config.dart';
 import 'realtime_mode.dart';
 
@@ -53,6 +54,34 @@ class ChatConfig {
   final Duration authTimeout;
   final Duration requestTimeout;
 
+  /// How often [WsTransport] sends a `{"type":"ping"}` keep-alive frame.
+  /// Defaults to 30 seconds.
+  final Duration wsPingInterval;
+
+  /// How long [WsTransport] waits for the matching `pong` after a ping
+  /// before presuming the peer dead and forcing a reconnect. Defaults to
+  /// 10 seconds — generous enough to absorb latency spikes without the
+  /// watchdog itself becoming a source of flappy reconnects.
+  final Duration wsPongTimeout;
+
+  /// When `true` (default), [WsTransport] arms [wsPongTimeout] on every
+  /// ping and forces a reconnect if the pong never arrives — this is what
+  /// catches a "zombie" socket (TCP stuck half-open after a NAT timeout or
+  /// mobile network handoff) that never surfaces as an `onError`/`onDone`
+  /// close on its own. Verified safe to default on: the backend always
+  /// answers `ping` with `pong`, in both the `pending` and `authenticated`
+  /// states. Set to `false` only to fall back to the pre-watchdog behavior.
+  final bool wsPongWatchdogEnabled;
+
+  /// Upper bound for the exponential reconnect backoff computed from
+  /// [wsReconnectDelay]. Defaults to 60 seconds.
+  final Duration wsMaxReconnectDelay;
+
+  /// Random jitter (in milliseconds) added to each reconnect delay so a
+  /// mass-disconnect (e.g. a backend restart) doesn't reconnect every
+  /// client in lockstep. Defaults to 1000.
+  final int wsReconnectJitterMs;
+
   /// Maximum interval between SSE chunks before the client assumes the
   /// stream went silent (NAT/proxy timeout, dead backend) and forces a
   /// reconnect. WS has built-in 30 s pings; SSE relies on chunk traffic.
@@ -78,6 +107,29 @@ class ChatConfig {
   final int eventBufferSize;
   final bool enableReconnectCatchUp;
   final void Function(String level, String message)? logger;
+
+  /// Structured logging sink. When non-null, every subsystem (WS/SSE
+  /// transport, HTTP, cache, attachments, presence, receipts, lifecycle…)
+  /// routes its diagnostics through it via [logs] instead of (or in
+  /// addition to) the plain [logger] callback. See [MultiChatLogSink] to
+  /// combine this with [logger] explicitly, or leave both set — [logs]
+  /// derives a sensible default that bridges [logger] automatically when
+  /// [logSink] is `null` (see the class-level derivation rule documented
+  /// on [logs]).
+  final ChatLogSink? logSink;
+
+  /// Minimum level a record must reach to pass through [logs]. Defaults to
+  /// [ChatLogLevel.warn] — quiet by default, like [logger] always was.
+  final ChatLogLevel logLevel;
+
+  /// Restricts [logs] to these tags. `null` (default) means every tag.
+  final Set<ChatLogTag>? logTags;
+
+  /// When `true`, [ChatLogger.content] returns raw message/caption text
+  /// instead of a redacted placeholder. Defaults to `false` — message
+  /// bodies are PII and must be opted into explicitly (e.g. for a
+  /// temporary qa diagnostics build), never captured by default.
+  final bool logMessageContent;
 
   /// When `true` AND [logger] is non-null, [RestClient] attaches a dio
   /// interceptor that emits one `http.req`/`http.res`/`http.err` line
@@ -156,6 +208,11 @@ class ChatConfig {
     this.wsReconnectDelay = const Duration(seconds: 2),
     this.authTimeout = const Duration(seconds: 10),
     this.requestTimeout = const Duration(seconds: 30),
+    this.wsPingInterval = const Duration(seconds: 30),
+    this.wsPongTimeout = const Duration(seconds: 10),
+    this.wsPongWatchdogEnabled = true,
+    this.wsMaxReconnectDelay = const Duration(seconds: 60),
+    this.wsReconnectJitterMs = 1000,
     this.sseIdleTimeout = const Duration(seconds: 60),
     this.realtimeMode = RealtimeMode.auto,
     this.pollingConfig,
@@ -168,6 +225,10 @@ class ChatConfig {
     this.logger,
     this.enableHttpLog = false,
     this.metricCallback,
+    this.logSink,
+    this.logLevel = ChatLogLevel.warn,
+    this.logTags,
+    this.logMessageContent = false,
   }) {
     _validate(baseUrl, realtimeUrl, sseUrl);
   }
@@ -279,6 +340,11 @@ class ChatConfig {
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration wsPingInterval = const Duration(seconds: 30),
+    Duration wsPongTimeout = const Duration(seconds: 10),
+    bool wsPongWatchdogEnabled = true,
+    Duration wsMaxReconnectDelay = const Duration(seconds: 60),
+    int wsReconnectJitterMs = 1000,
     Duration? sseIdleTimeout = const Duration(seconds: 60),
     RealtimeMode realtimeMode = RealtimeMode.auto,
     PollingConfig? pollingConfig,
@@ -291,14 +357,31 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
+    ChatLogSink? logSink,
+    ChatLogLevel logLevel = ChatLogLevel.warn,
+    Set<ChatLogTag>? logTags,
+    bool logMessageContent = false,
   }) {
+    // Built ahead of the `ChatConfig` instance itself (which is what `logs`
+    // normally derives from) so `BearerAuthInterceptor` can log 401/circuit
+    // events through the tagged, level-filtered pipeline (`ChatLogTag.auth`)
+    // instead of the raw `logger` callback — same sink derivation `logs`
+    // uses, so it still bridges to `logger` unchanged when no `logSink` was
+    // supplied.
+    final authLogs = buildLogger(
+      logSink: logSink,
+      logger: logger,
+      logLevel: logLevel,
+      logTags: logTags,
+      logMessageContent: logMessageContent,
+    );
     return ChatConfig._(
       baseUrl: baseUrl,
       realtimeUrl: realtimeUrl,
       authInterceptor: BearerAuthInterceptor(
         tokenProvider: tokenProvider,
         onAuthFailure: onAuthFailure,
-        logger: logger,
+        logger: (level, message) => authLogs.auth(_parseLevel(level), message),
         metricCallback: metricCallback,
       ),
       sseUrl: sseUrl,
@@ -310,6 +393,11 @@ class ChatConfig {
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
+      wsPingInterval: wsPingInterval,
+      wsPongTimeout: wsPongTimeout,
+      wsPongWatchdogEnabled: wsPongWatchdogEnabled,
+      wsMaxReconnectDelay: wsMaxReconnectDelay,
+      wsReconnectJitterMs: wsReconnectJitterMs,
       sseIdleTimeout: sseIdleTimeout,
       realtimeMode: realtimeMode,
       pollingConfig: pollingConfig,
@@ -322,6 +410,10 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
+      logSink: logSink,
+      logLevel: logLevel,
+      logTags: logTags,
+      logMessageContent: logMessageContent,
     );
   }
 
@@ -339,6 +431,11 @@ class ChatConfig {
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration wsPingInterval = const Duration(seconds: 30),
+    Duration wsPongTimeout = const Duration(seconds: 10),
+    bool wsPongWatchdogEnabled = true,
+    Duration wsMaxReconnectDelay = const Duration(seconds: 60),
+    int wsReconnectJitterMs = 1000,
     Duration? sseIdleTimeout = const Duration(seconds: 60),
     RealtimeMode realtimeMode = RealtimeMode.auto,
     PollingConfig? pollingConfig,
@@ -351,6 +448,10 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
+    ChatLogSink? logSink,
+    ChatLogLevel logLevel = ChatLogLevel.warn,
+    Set<ChatLogTag>? logTags,
+    bool logMessageContent = false,
   }) {
     return ChatConfig._(
       baseUrl: baseUrl,
@@ -365,6 +466,11 @@ class ChatConfig {
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
+      wsPingInterval: wsPingInterval,
+      wsPongTimeout: wsPongTimeout,
+      wsPongWatchdogEnabled: wsPongWatchdogEnabled,
+      wsMaxReconnectDelay: wsMaxReconnectDelay,
+      wsReconnectJitterMs: wsReconnectJitterMs,
       sseIdleTimeout: sseIdleTimeout,
       realtimeMode: realtimeMode,
       pollingConfig: pollingConfig,
@@ -377,6 +483,10 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
+      logSink: logSink,
+      logLevel: logLevel,
+      logTags: logTags,
+      logMessageContent: logMessageContent,
     );
   }
 
@@ -395,6 +505,11 @@ class ChatConfig {
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration wsPingInterval = const Duration(seconds: 30),
+    Duration wsPongTimeout = const Duration(seconds: 10),
+    bool wsPongWatchdogEnabled = true,
+    Duration wsMaxReconnectDelay = const Duration(seconds: 60),
+    int wsReconnectJitterMs = 1000,
     Duration? sseIdleTimeout = const Duration(seconds: 60),
     RealtimeMode realtimeMode = RealtimeMode.auto,
     PollingConfig? pollingConfig,
@@ -407,6 +522,10 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
+    ChatLogSink? logSink,
+    ChatLogLevel logLevel = ChatLogLevel.warn,
+    Set<ChatLogTag>? logTags,
+    bool logMessageContent = false,
   }) {
     return ChatConfig._(
       baseUrl: baseUrl,
@@ -424,6 +543,11 @@ class ChatConfig {
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
+      wsPingInterval: wsPingInterval,
+      wsPongTimeout: wsPongTimeout,
+      wsPongWatchdogEnabled: wsPongWatchdogEnabled,
+      wsMaxReconnectDelay: wsMaxReconnectDelay,
+      wsReconnectJitterMs: wsReconnectJitterMs,
       sseIdleTimeout: sseIdleTimeout,
       realtimeMode: realtimeMode,
       pollingConfig: pollingConfig,
@@ -436,6 +560,10 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
+      logSink: logSink,
+      logLevel: logLevel,
+      logTags: logTags,
+      logMessageContent: logMessageContent,
     );
   }
 
@@ -525,5 +653,70 @@ class ChatConfig {
     return RegExp(r'^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$').hasMatch(host);
   }
 
-  void log(String level, String message) => logger?.call(level, message);
+  void log(String level, String message) =>
+      logs.log(_parseLevel(level), ChatLogTag.general, message);
+
+  static ChatLogLevel _parseLevel(String level) => switch (level) {
+    'debug' => ChatLogLevel.debug,
+    'info' => ChatLogLevel.info,
+    'warn' => ChatLogLevel.warn,
+    'error' => ChatLogLevel.error,
+    _ => ChatLogLevel.info,
+  };
+
+  /// The structured logger every subsystem should log through, built once
+  /// from whichever combination of [logSink] / [logger] was supplied:
+  ///
+  /// - [logSink] set → used as-is (wrap it in [MultiChatLogSink] to also
+  ///   reach [logger] explicitly).
+  /// - [logSink] `null` and [logger] set → [CallbackChatLogSink] bridges
+  ///   every record back to [logger] unchanged, so existing consumers keep
+  ///   receiving lines with zero migration.
+  /// - Both `null` → [ConsoleChatLogSink] in debug builds, a silent no-op
+  ///   sink in release (matches [logger]'s historical release behaviour of
+  ///   emitting nothing when unset).
+  ChatLogger get logs => _logs ??= buildLogger(
+    logSink: logSink,
+    logger: logger,
+    logLevel: logLevel,
+    logTags: logTags,
+    logMessageContent: logMessageContent,
+  );
+  ChatLogger? _logs;
+
+  /// Shared sink-derivation logic behind [logs] — also used by
+  /// [withBearerAuth] to give [BearerAuthInterceptor] a [ChatLogger] of its
+  /// own (tagged [ChatLogTag.auth], respecting [logLevel]/[logTags]) before
+  /// the [ChatConfig] instance it will belong to exists yet.
+  static ChatLogger buildLogger({
+    required ChatLogSink? logSink,
+    required void Function(String level, String message)? logger,
+    required ChatLogLevel logLevel,
+    required Set<ChatLogTag>? logTags,
+    required bool logMessageContent,
+  }) => ChatLogger(
+    sink:
+        logSink ??
+        (logger != null
+            ? CallbackChatLogSink(logger)
+            : (kDebugMode
+                  ? const ConsoleChatLogSink()
+                  : const _NoopChatLogSink())),
+    minLevel: logLevel,
+    tags: logTags,
+    logMessageContent: logMessageContent,
+  );
+}
+
+class _NoopChatLogSink implements ChatLogSink {
+  const _NoopChatLogSink();
+
+  @override
+  void add(ChatLogRecord record) {}
+
+  @override
+  Future<void> flush() async {}
+
+  @override
+  Future<void> close() async {}
 }

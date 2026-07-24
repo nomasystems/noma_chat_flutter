@@ -215,10 +215,22 @@ class HiveChatDatasource implements ChatLocalDatasource {
     await _box(_boxOfflineQueue);
   }
 
+  // Read defensively — this backs `_cleanOrphanedMessageBoxes()`, called
+  // unguarded from `create()` before any box exists yet. A corrupted
+  // meta entry (wrong top-level type, or an `ids` list holding
+  // non-String elements) must degrade to "no tracked rooms" instead of
+  // throwing and crashing app startup.
   Set<String> _getMessageRoomIds() {
-    final data = _metaBox.get(_messageRoomIdsKey);
+    Map<dynamic, dynamic>? data;
+    try {
+      data = _metaBox.get(_messageRoomIdsKey);
+    } catch (_) {
+      return {};
+    }
     if (data == null) return {};
-    return (data['ids'] as List?)?.cast<String>().toSet() ?? {};
+    final ids = data['ids'];
+    if (ids is! List) return {};
+    return ids.whereType<String>().toSet();
   }
 
   Future<void> _trackMessageRoom(String roomId) async {
@@ -950,41 +962,61 @@ class HiveChatDatasource implements ChatLocalDatasource {
   }
 
   // Offline queue
+  //
+  // Unlike per-room message boxes (guarded by `_withRoomLock`), the
+  // offline queue is a single global box mutated with a two-step
+  // "putAll then trim" sequence in `saveOfflineQueue`. `OfflineQueue`
+  // fire-and-forgets `_persist()` on every `enqueue()`, so two calls in
+  // quick succession (e.g. the user queuing several offline attachments
+  // back to back) dispatch two overlapping `saveOfflineQueue` futures.
+  // Hive applies each `putAll`/`deleteAll` to the box's in-memory
+  // keystore synchronously as soon as it starts (before awaiting the
+  // disk flush), so the second call's `putAll` becomes visible to the
+  // FIRST call's `box.keys` read the moment it runs — the first call
+  // then computes its trim range against a box that already contains
+  // the second call's freshly-added keys and deletes them, silently
+  // truncating the persisted queue below what's actually enqueued.
+  // `_offlineQueueLockKey` serializes every mutation through the same
+  // per-key chain used for rooms so overlapping saves/clears run one
+  // at a time instead of interleaving.
+  static const _offlineQueueLockKey = ' offline_queue';
 
   @override
   Future<ChatResult<void>> saveOfflineQueue(
     List<Map<String, dynamic>> operations,
   ) {
     _checkNotDisposed();
-    return _wrap(() async {
-      final box = await _box(_boxOfflineQueue);
-      final limited =
-          maxOfflineQueueSize != null &&
-              operations.length > maxOfflineQueueSize!
-          ? operations.sublist(operations.length - maxOfflineQueueSize!)
-          : operations;
-      final entries = <int, Map<dynamic, dynamic>>{};
-      for (var i = 0; i < limited.length; i++) {
-        entries[i] = limited[i];
-      }
-      await _safeWrite('saveOfflineQueue putAll', () => box.putAll(entries));
-      final keysToRemove = box.keys
-          .where((k) => k is int && k >= limited.length)
-          .toList();
-      if (keysToRemove.isNotEmpty) {
-        await _safeWrite(
-          'saveOfflineQueue trim',
-          () => box.deleteAll(keysToRemove),
-        );
-      }
-      if (maxOfflineQueueSize != null &&
-          operations.length > maxOfflineQueueSize!) {
-        onMetric?.call('cache_eviction', {
-          'entity': 'offlineQueue',
-          'count': operations.length - maxOfflineQueueSize!,
-        });
-      }
-    });
+    return _wrap(
+      () => _withRoomLock(_offlineQueueLockKey, () async {
+        final box = await _box(_boxOfflineQueue);
+        final limited =
+            maxOfflineQueueSize != null &&
+                operations.length > maxOfflineQueueSize!
+            ? operations.sublist(operations.length - maxOfflineQueueSize!)
+            : operations;
+        final entries = <int, Map<dynamic, dynamic>>{};
+        for (var i = 0; i < limited.length; i++) {
+          entries[i] = limited[i];
+        }
+        await _safeWrite('saveOfflineQueue putAll', () => box.putAll(entries));
+        final keysToRemove = box.keys
+            .where((k) => k is int && k >= limited.length)
+            .toList();
+        if (keysToRemove.isNotEmpty) {
+          await _safeWrite(
+            'saveOfflineQueue trim',
+            () => box.deleteAll(keysToRemove),
+          );
+        }
+        if (maxOfflineQueueSize != null &&
+            operations.length > maxOfflineQueueSize!) {
+          onMetric?.call('cache_eviction', {
+            'entity': 'offlineQueue',
+            'count': operations.length - maxOfflineQueueSize!,
+          });
+        }
+      }),
+    );
   }
 
   @override
@@ -999,10 +1031,12 @@ class HiveChatDatasource implements ChatLocalDatasource {
   @override
   Future<ChatResult<void>> clearOfflineQueue() {
     _checkNotDisposed();
-    return _wrap(() async {
-      final box = await _box(_boxOfflineQueue);
-      await _safeWrite('clearOfflineQueue', () => box.clear());
-    });
+    return _wrap(
+      () => _withRoomLock(_offlineQueueLockKey, () async {
+        final box = await _box(_boxOfflineQueue);
+        await _safeWrite('clearOfflineQueue', () => box.clear());
+      }),
+    );
   }
 
   // Kicked-rooms registry — see [ChatLocalDatasource.markKicked].

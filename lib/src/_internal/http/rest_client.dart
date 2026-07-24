@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../config/chat_config.dart';
 import '../../core/result.dart' show ChatErrorTokens, TimeoutKind;
+import '../../observability/chat_logger.dart' show ChatLogLevel;
 import '../cache/cache_manager.dart' show MetricCallback;
 import 'bearer_auth_interceptor.dart';
 import 'chat_exception.dart';
@@ -20,10 +21,20 @@ import 'retry_interceptor.dart';
 /// if the two drift, so bumping the package version forces an update here
 /// too. A future build_runner-generated constant can drop in without
 /// changing the call sites.
-const String nomaChatSdkVersion = '0.12.1';
+const String nomaChatSdkVersion = '0.13.0';
 
 const String _requestIdExtraKey = 'requestId';
 const Uuid _uuid = Uuid();
+
+/// Maps [HttpDebugLogger]'s plain `'debug'`/`'warn'` level strings to the
+/// structured pipeline's [ChatLogLevel] so its lines can be routed through
+/// `ChatConfig.logs.http` alongside every other tagged subsystem.
+ChatLogLevel _parseHttpLevel(String level) => switch (level) {
+  'debug' => ChatLogLevel.debug,
+  'warn' => ChatLogLevel.warn,
+  'error' => ChatLogLevel.error,
+  _ => ChatLogLevel.info,
+};
 
 class RestClient {
   final Dio _dio;
@@ -63,12 +74,19 @@ class RestClient {
         logger: _logger,
       ),
     );
-    // The HTTP debug interceptor is opt-in: even when a logger is
-    // wired, the consumer has to flip `enableHttpLog: true`
-    // explicitly. Avoids spraying request bodies into telemetry when
-    // apps wire a generic logger for adapter warnings.
-    if (_logger != null && config.enableHttpLog) {
-      _dio.interceptors.add(HttpDebugLogger(_logger));
+    // The HTTP debug interceptor is opt-in: the consumer has to flip
+    // `enableHttpLog: true` explicitly, regardless of whether logging is
+    // wired via the plain `logger` callback or a structured `logSink` —
+    // avoids spraying request bodies into telemetry when apps wire a
+    // generic sink for adapter warnings. Routed through `config.logs.http`
+    // (not `_logger` directly) so it reaches a `logSink`-only consumer too
+    // and respects `logLevel`/`logTags` filtering like every other subsystem.
+    if (config.enableHttpLog) {
+      _dio.interceptors.add(
+        HttpDebugLogger(
+          (level, message) => config.logs.http(_parseHttpLevel(level), message),
+        ),
+      );
     }
   }
 
@@ -601,9 +619,11 @@ class _ObservabilityInterceptor extends Interceptor {
 }
 
 /// Lightweight HTTP request/response logger attached only when the consumer
-/// provides a `ChatConfig.logger`. Emits one `debug` line per request with
-/// method, path and a truncated body, and one `debug` line per response
-/// with status code; failures land at `warn` with the error body.
+/// opts in via `ChatConfig.enableHttpLog` (routed through `ChatConfig.logs.http`
+/// regardless of whether logging was wired via `logger` or `logSink`). Emits
+/// one `debug` line per request with method, path and a truncated body, and
+/// one `debug` line per response with status code; failures land at `warn`
+/// with the error body.
 ///
 /// Sensitive values (passwords, tokens, auth headers) are redacted before
 /// the body is rendered, both inside JSON maps and inside form-encoded or

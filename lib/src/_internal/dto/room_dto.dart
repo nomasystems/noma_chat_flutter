@@ -1,3 +1,6 @@
+import '../ui_debug_log.dart';
+import '../util/json_safe.dart';
+
 class RoomDto {
   final String roomId;
   final String? owner;
@@ -24,16 +27,24 @@ class RoomDto {
   });
 
   factory RoomDto.fromJson(Map<String, dynamic> json) => RoomDto(
-    roomId: (json['roomId'] ?? json['id'] ?? '') as String,
-    owner: json['owner'] as String?,
-    name: json['name'] as String?,
-    subject: json['subject'] as String?,
-    audience: json['audience'] as String?,
-    allowInvitations: json['allowInvitations'] as bool?,
-    members: (json['members'] as List?)?.cast<String>(),
-    publicToken: json['publicToken'] as String?,
-    avatarUrl: json['avatarUrl'] as String?,
-    custom: json['custom'] as Map<String, dynamic>?,
+    roomId: jsonIdOr(
+      json['roomId'] ?? json['id'],
+      '',
+      onEmptyFromPresent: () => uiDebugLog(
+        'RoomDto',
+        'fromJson: roomId/id present but coerced to empty (raw: '
+            '${json['roomId'] ?? json['id']})',
+      ),
+    ),
+    owner: jsonStringOrNull(json['owner']),
+    name: jsonStringOrNull(json['name']),
+    subject: jsonStringOrNull(json['subject']),
+    audience: jsonStringOrNull(json['audience']),
+    allowInvitations: jsonBoolOrNull(json['allowInvitations']),
+    members: jsonStringListOrNull(json['members']),
+    publicToken: jsonStringOrNull(json['publicToken']),
+    avatarUrl: jsonStringOrNull(json['avatarUrl']),
+    custom: jsonMapOrNull(json['custom']),
   );
 }
 
@@ -79,21 +90,28 @@ class RoomDetailDto {
   });
 
   factory RoomDetailDto.fromJson(Map<String, dynamic> json) => RoomDetailDto(
-    id: (json['id'] ?? '') as String,
-    name: json['name'] as String?,
-    subject: json['subject'] as String?,
-    type: (json['type'] ?? 'group') as String,
-    memberCount: (json['memberCount'] ?? 0) as int,
-    userRole: (json['userRole'] ?? 'user') as String,
-    config: json['config'] as Map<String, dynamic>?,
-    muted: (json['muted'] ?? false) as bool,
-    muteUntil: json['muteUntil'] as String?,
-    pinned: (json['pinned'] ?? false) as bool,
-    hidden: (json['hidden'] ?? false) as bool,
-    selfMuted: (json['selfMuted'] ?? false) as bool,
-    createdAt: json['createdAt'] as String?,
-    avatarUrl: json['avatarUrl'] as String?,
-    custom: json['custom'] as Map<String, dynamic>?,
+    id: jsonIdOr(
+      json['id'],
+      '',
+      onEmptyFromPresent: () => uiDebugLog(
+        'RoomDetailDto',
+        'fromJson: id present but coerced to empty (raw: ${json['id']})',
+      ),
+    ),
+    name: jsonStringOrNull(json['name']),
+    subject: jsonStringOrNull(json['subject']),
+    type: jsonStringOr(json['type'], 'group'),
+    memberCount: jsonIntOr(json['memberCount'], 0),
+    userRole: jsonStringOr(json['userRole'], 'user'),
+    config: jsonMapOrNull(json['config']),
+    muted: jsonBoolOr(json['muted'], false),
+    muteUntil: jsonStringOrNull(json['muteUntil']),
+    pinned: jsonBoolOr(json['pinned'], false),
+    hidden: jsonBoolOr(json['hidden'], false),
+    selfMuted: jsonBoolOr(json['selfMuted'], false),
+    createdAt: jsonStringOrNull(json['createdAt']),
+    avatarUrl: jsonStringOrNull(json['avatarUrl']),
+    custom: jsonMapOrNull(json['custom']),
   );
 }
 
@@ -109,9 +127,16 @@ class UserRoomsDto {
   });
 
   factory UserRoomsDto.fromJson(Map<String, dynamic> json) => UserRoomsDto(
-    rooms: (json['rooms'] as List?)?.cast<Map<String, dynamic>>() ?? [],
-    invitedRooms:
-        (json['invitedRooms'] as List?)?.cast<Map<String, dynamic>>() ?? [],
-    hasMore: (json['hasMore'] ?? false) as bool,
+    rooms: _jsonMapList(json['rooms']),
+    invitedRooms: _jsonMapList(json['invitedRooms']),
+    hasMore: jsonBoolOr(json['hasMore'], false),
   );
+
+  static List<Map<String, dynamic>> _jsonMapList(Object? value) {
+    if (value is! List) return [];
+    return [
+      for (final e in value)
+        if (e is Map<String, dynamic>) e,
+    ];
+  }
 }

@@ -103,6 +103,9 @@ class ChatUiLocalizations {
     this.loading = 'Loading...',
     this.noMessages = 'No messages yet',
     this.attachmentPreview = '📎 Attachment',
+    this.attachmentTooLarge = 'File is too large to send.',
+    this.attachmentTypeNotAllowed = 'This file type is not allowed.',
+    this.attachmentUnreadable = 'Could not read the selected file.',
     this.imagePreview = 'Photo',
     this.videoPreview = 'Video',
     this.audioPreview = '🎤 Voice message',
@@ -145,9 +148,11 @@ class ChatUiLocalizations {
     this.audioPlayLabel = 'Play audio message',
     this.audioPauseLabel = 'Pause audio message',
     this.audioUploadingTemplate = 'Uploading voice message {percent}%',
+    this.attachmentUploadingTemplate = 'Uploading {percent}%',
     this.audioPlaybackSpeedTemplate = 'Playback speed {speed}',
     this.typing = 'Typing',
     this.online = 'online',
+    this.lastSeenTemplate = 'last seen {time}',
     this.members = 'members',
     this.unreadMessages = 'unread',
     this.userJoinedTemplate = '{user} joined',
@@ -445,6 +450,18 @@ class ChatUiLocalizations {
   final String loading;
   final String noMessages;
   final String attachmentPreview;
+
+  /// Shown when `AttachmentPickers.onRejected` fires with
+  /// `AttachmentRejectReason.tooLarge`.
+  final String attachmentTooLarge;
+
+  /// Shown when `AttachmentPickers.onRejected` fires with
+  /// `AttachmentRejectReason.mimeNotAllowed`.
+  final String attachmentTypeNotAllowed;
+
+  /// Shown when `AttachmentPickers.onRejected` fires with
+  /// `AttachmentRejectReason.unreadable`.
+  final String attachmentUnreadable;
   final String imagePreview;
   final String videoPreview;
   final String audioPreview;
@@ -495,6 +512,12 @@ class ChatUiLocalizations {
   /// `{percent}`. Default `'Uploading voice message {percent}%'`.
   final String audioUploadingTemplate;
 
+  /// Template used while a photo/video/file attachment is uploading —
+  /// the [ImageBubble]/[VideoBubble]/[FileBubble] progress-ring overlay's
+  /// accessibility label. Must contain `{percent}`. Default
+  /// `'Uploading {percent}%'`.
+  final String attachmentUploadingTemplate;
+
   /// Template used to announce the current playback speed (1x / 1.5x / 2x).
   /// Must contain `{speed}`. Default `'Playback speed {speed}'`.
   final String audioPlaybackSpeedTemplate;
@@ -502,11 +525,19 @@ class ChatUiLocalizations {
   String audioUploadingLabel(int percent) =>
       audioUploadingTemplate.replaceAll('{percent}', percent.toString());
 
+  String attachmentUploadingLabel(int percent) =>
+      attachmentUploadingTemplate.replaceAll('{percent}', percent.toString());
+
   String audioPlaybackSpeedLabel(String speedLabel) =>
       audioPlaybackSpeedTemplate.replaceAll('{speed}', speedLabel);
 
   final String typing;
   final String online;
+
+  /// Template for the 1:1 header subtitle when the peer is offline and a
+  /// last-seen timestamp is known. `{time}` is replaced with a relative
+  /// time string (e.g. "5 min", "2 h", "3 d").
+  final String lastSeenTemplate;
   final String members;
   final String unreadMessages;
   final String userJoinedTemplate;
@@ -781,6 +812,7 @@ class ChatUiLocalizations {
       userLeftTemplate.replaceAll('{user}', userId);
   String userRoleChanged(String userId) =>
       userRoleChangedTemplate.replaceAll('{user}', userId);
+  String lastSeen(String time) => lastSeenTemplate.replaceAll('{time}', time);
   String typingOne(String name) => typingOneTemplate.replaceAll('{name}', name);
   String typingTwo(String name1, String name2) => typingTwoTemplate
       .replaceAll('{name1}', name1)
@@ -942,6 +974,9 @@ class ChatUiLocalizations {
     String? loading,
     String? noMessages,
     String? attachmentPreview,
+    String? attachmentTooLarge,
+    String? attachmentTypeNotAllowed,
+    String? attachmentUnreadable,
     String? imagePreview,
     String? videoPreview,
     String? audioPreview,
@@ -983,6 +1018,7 @@ class ChatUiLocalizations {
     String? statusSending,
     String? typing,
     String? online,
+    String? lastSeenTemplate,
     String? members,
     String? unreadMessages,
     String? userJoinedTemplate,
@@ -1043,6 +1079,7 @@ class ChatUiLocalizations {
     String? audioPlayLabel,
     String? audioPlaybackSpeedTemplate,
     String? audioUploadingTemplate,
+    String? attachmentUploadingTemplate,
     String? changesSaved,
     String? chooseFromGallery,
     String? createGroup,
@@ -1186,6 +1223,10 @@ class ChatUiLocalizations {
       loading: loading ?? this.loading,
       noMessages: noMessages ?? this.noMessages,
       attachmentPreview: attachmentPreview ?? this.attachmentPreview,
+      attachmentTooLarge: attachmentTooLarge ?? this.attachmentTooLarge,
+      attachmentTypeNotAllowed:
+          attachmentTypeNotAllowed ?? this.attachmentTypeNotAllowed,
+      attachmentUnreadable: attachmentUnreadable ?? this.attachmentUnreadable,
       imagePreview: imagePreview ?? this.imagePreview,
       videoPreview: videoPreview ?? this.videoPreview,
       audioPreview: audioPreview ?? this.audioPreview,
@@ -1234,6 +1275,7 @@ class ChatUiLocalizations {
       statusSending: statusSending ?? this.statusSending,
       typing: typing ?? this.typing,
       online: online ?? this.online,
+      lastSeenTemplate: lastSeenTemplate ?? this.lastSeenTemplate,
       members: members ?? this.members,
       unreadMessages: unreadMessages ?? this.unreadMessages,
       userJoinedTemplate: userJoinedTemplate ?? this.userJoinedTemplate,
@@ -1307,6 +1349,8 @@ class ChatUiLocalizations {
           audioPlaybackSpeedTemplate ?? this.audioPlaybackSpeedTemplate,
       audioUploadingTemplate:
           audioUploadingTemplate ?? this.audioUploadingTemplate,
+      attachmentUploadingTemplate:
+          attachmentUploadingTemplate ?? this.attachmentUploadingTemplate,
       changesSaved: changesSaved ?? this.changesSaved,
       chooseFromGallery: chooseFromGallery ?? this.chooseFromGallery,
       createGroup: createGroup ?? this.createGroup,
@@ -1493,8 +1537,10 @@ class ChatUiLocalizations {
     audioPlayLabel: 'Reproducir mensaje de audio',
     audioPlaybackSpeedTemplate: 'Velocidad {speed}',
     audioUploadingTemplate: 'Subiendo mensaje de voz {percent}%',
+    attachmentUploadingTemplate: 'Subiendo {percent}%',
     members: 'miembros',
     online: 'en línea',
+    lastSeenTemplate: 'última vez hace {time}',
     localeCode: 'es',
     today: 'Hoy',
     yesterday: 'Ayer',
@@ -1572,6 +1618,9 @@ class ChatUiLocalizations {
     loading: 'Cargando...',
     noMessages: 'Aún no hay mensajes',
     attachmentPreview: '📎 Adjunto',
+    attachmentTooLarge: 'El archivo es demasiado grande para enviarlo.',
+    attachmentTypeNotAllowed: 'Este tipo de archivo no está permitido.',
+    attachmentUnreadable: 'No se pudo leer el archivo seleccionado.',
     imagePreview: 'Foto',
     videoPreview: 'Vídeo',
     audioPreview: '🎤 Mensaje de voz',
@@ -1771,6 +1820,7 @@ class ChatUiLocalizations {
     audioPlayLabel: 'Lire le message audio',
     audioPlaybackSpeedTemplate: 'Vitesse de lecture {speed}',
     audioUploadingTemplate: 'Envoi du message vocal {percent}%',
+    attachmentUploadingTemplate: 'Envoi {percent}%',
     blockUser: 'Bloquer',
     blockUserConfirmBody:
         'Vous ne recevrez plus de messages de cet utilisateur.',
@@ -1822,6 +1872,7 @@ class ChatUiLocalizations {
     notParticipatingBanner:
         'Vous ne pouvez pas envoyer de messages à ce groupe car vous n\'en faites plus partie.',
     online: 'en ligne',
+    lastSeenTemplate: 'vu(e) il y a {time}',
     pinned: 'Épinglé',
     pinnedByTemplate: 'Épinglé par {user}',
     pinnedMessages: 'Messages épinglés',
@@ -1896,6 +1947,9 @@ class ChatUiLocalizations {
     recordVoice: 'Enregistrer un message vocal',
     loading: 'Chargement...',
     noMessages: 'Aucun message pour le moment',
+    attachmentTooLarge: 'Le fichier est trop volumineux pour être envoyé.',
+    attachmentTypeNotAllowed: "Ce type de fichier n'est pas autorisé.",
+    attachmentUnreadable: 'Impossible de lire le fichier sélectionné.',
     attachmentPreview: '📎 Pièce jointe',
     imagePreview: 'Photo',
     videoPreview: 'Vidéo',
@@ -2047,6 +2101,7 @@ class ChatUiLocalizations {
     audioPlayLabel: 'Audionachricht abspielen',
     audioPlaybackSpeedTemplate: 'Wiedergabegeschwindigkeit {speed}',
     audioUploadingTemplate: 'Sprachnachricht wird hochgeladen {percent}%',
+    attachmentUploadingTemplate: 'Wird hochgeladen {percent}%',
     blockUser: 'Blockieren',
     blockUserConfirmBody:
         'Du erhältst keine Nachrichten mehr von diesem Benutzer.',
@@ -2099,6 +2154,7 @@ class ChatUiLocalizations {
     notParticipatingBanner:
         'Du kannst keine Nachrichten an diese Gruppe senden, da du kein Teilnehmer mehr bist.',
     online: 'online',
+    lastSeenTemplate: 'zuletzt online vor {time}',
     pinned: 'Angepinnt',
     pinnedByTemplate: 'Angepinnt von {user}',
     pinnedMessages: 'Angepinnte Nachrichten',
@@ -2175,6 +2231,9 @@ class ChatUiLocalizations {
     recordVoice: 'Sprachnachricht aufnehmen',
     loading: 'Laden...',
     noMessages: 'Noch keine Nachrichten',
+    attachmentTooLarge: 'Die Datei ist zu groß zum Senden.',
+    attachmentTypeNotAllowed: 'Dieser Dateityp ist nicht erlaubt.',
+    attachmentUnreadable: 'Die ausgewählte Datei konnte nicht gelesen werden.',
     attachmentPreview: '📎 Anhang',
     imagePreview: 'Foto',
     videoPreview: 'Video',
@@ -2326,6 +2385,7 @@ class ChatUiLocalizations {
     audioPlayLabel: 'Riproduci il messaggio audio',
     audioPlaybackSpeedTemplate: 'Velocità di riproduzione {speed}',
     audioUploadingTemplate: 'Caricamento messaggio vocale {percent}%',
+    attachmentUploadingTemplate: 'Caricamento {percent}%',
     blockUser: 'Blocca',
     blockUserConfirmBody: 'Non riceverai più messaggi da questo utente.',
     blockUserConfirmTitle: 'Bloccare?',
@@ -2376,6 +2436,7 @@ class ChatUiLocalizations {
     notParticipatingBanner:
         'Non puoi inviare messaggi a questo gruppo perché non ne fai più parte.',
     online: 'online',
+    lastSeenTemplate: 'ultimo accesso {time} fa',
     pinned: 'Fissato',
     pinnedByTemplate: 'Fissato da {user}',
     pinnedMessages: 'Messaggi fissati',
@@ -2450,6 +2511,9 @@ class ChatUiLocalizations {
     recordVoice: 'Registra messaggio vocale',
     loading: 'Caricamento...',
     noMessages: 'Nessun messaggio per ora',
+    attachmentTooLarge: 'Il file è troppo grande per essere inviato.',
+    attachmentTypeNotAllowed: 'Questo tipo di file non è consentito.',
+    attachmentUnreadable: 'Impossibile leggere il file selezionato.',
     attachmentPreview: '📎 Allegato',
     imagePreview: 'Foto',
     videoPreview: 'Video',
@@ -2601,6 +2665,7 @@ class ChatUiLocalizations {
     audioPlayLabel: 'Reproduzir mensagem de áudio',
     audioPlaybackSpeedTemplate: 'Velocidade de reprodução {speed}',
     audioUploadingTemplate: 'Enviando mensagem de voz {percent}%',
+    attachmentUploadingTemplate: 'Enviando {percent}%',
     blockUser: 'Bloquear',
     blockUserConfirmBody: 'Você não receberá mais mensagens deste usuário.',
     blockUserConfirmTitle: 'Bloquear?',
@@ -2651,6 +2716,7 @@ class ChatUiLocalizations {
     notParticipatingBanner:
         'Você não pode enviar mensagens para este grupo porque não é mais um participante.',
     online: 'online',
+    lastSeenTemplate: 'visto por último há {time}',
     pinned: 'Fixado',
     pinnedByTemplate: 'Fixado por {user}',
     pinnedMessages: 'Mensagens fixadas',
@@ -2725,6 +2791,9 @@ class ChatUiLocalizations {
     recordVoice: 'Gravar mensagem de voz',
     loading: 'A carregar...',
     noMessages: 'Ainda sem mensagens',
+    attachmentTooLarge: 'O arquivo é muito grande para ser enviado.',
+    attachmentTypeNotAllowed: 'Este tipo de arquivo não é permitido.',
+    attachmentUnreadable: 'Não foi possível ler o arquivo selecionado.',
     attachmentPreview: '📎 Anexo',
     imagePreview: 'Foto',
     videoPreview: 'Vídeo',
@@ -4180,6 +4249,9 @@ class ChatUiLocalizations {
     String? loading,
     String? noMessages,
     String? attachmentPreview,
+    String? attachmentTooLarge,
+    String? attachmentTypeNotAllowed,
+    String? attachmentUnreadable,
     String? imagePreview,
     String? videoPreview,
     String? audioPreview,
@@ -4222,9 +4294,11 @@ class ChatUiLocalizations {
     String? audioPlayLabel,
     String? audioPauseLabel,
     String? audioUploadingTemplate,
+    String? attachmentUploadingTemplate,
     String? audioPlaybackSpeedTemplate,
     String? typing,
     String? online,
+    String? lastSeenTemplate,
     String? members,
     String? unreadMessages,
     String? userJoinedTemplate,
@@ -4413,6 +4487,9 @@ class ChatUiLocalizations {
         loading: loading,
         noMessages: noMessages,
         attachmentPreview: attachmentPreview,
+        attachmentTooLarge: attachmentTooLarge,
+        attachmentTypeNotAllowed: attachmentTypeNotAllowed,
+        attachmentUnreadable: attachmentUnreadable,
         imagePreview: imagePreview,
         videoPreview: videoPreview,
         audioPreview: audioPreview,
@@ -4458,6 +4535,7 @@ class ChatUiLocalizations {
         audioPlaybackSpeedTemplate: audioPlaybackSpeedTemplate,
         typing: typing,
         online: online,
+        lastSeenTemplate: lastSeenTemplate,
         members: members,
         unreadMessages: unreadMessages,
         userJoinedTemplate: userJoinedTemplate,

@@ -43,4 +43,57 @@ void main() {
       expect(tapped, isTrue);
     });
   });
+
+  group('ImageBubble — upload progress (R3a-6)', () {
+    testWidgets(
+      'shows a progress placeholder instead of CachedNetworkImage while '
+      'uploadProgress is non-null, even with an empty imageUrl',
+      (tester) async {
+        final progress = ValueNotifier<double>(0.4);
+        addTearDown(progress.dispose);
+        await tester.pumpWidget(
+          wrap(ImageBubble(imageUrl: '', uploadProgress: progress)),
+        );
+
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
+
+    testWidgets('disables tap-to-open while uploading', (tester) async {
+      final progress = ValueNotifier<double>(0.4);
+      addTearDown(progress.dispose);
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          ImageBubble(
+            imageUrl: '',
+            uploadProgress: progress,
+            onTap: () => tapped = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(GestureDetector).first, warnIfMissed: false);
+      expect(tapped, isFalse);
+    });
+
+    testWidgets('renders the real image and re-enables tap once uploadProgress '
+        'clears', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          ImageBubble(
+            imageUrl: 'https://example.com/photo.jpg',
+            uploadProgress: null,
+            onTap: () => tapped = true,
+          ),
+        ),
+      );
+
+      expect(find.byType(CachedNetworkImage), findsOneWidget);
+      await tester.tap(find.byType(CachedNetworkImage));
+      expect(tapped, isTrue);
+    });
+  });
 }

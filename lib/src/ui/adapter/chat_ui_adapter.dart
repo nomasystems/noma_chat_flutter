@@ -9,6 +9,7 @@ import '../../cache/cache_policy.dart';
 import '../../cache/local_datasource.dart';
 import '../../client/chat_client.dart';
 import '../../client/noma_chat_facade.dart';
+import '../../config/lifecycle_policy.dart';
 import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../events/chat_event.dart';
@@ -22,6 +23,7 @@ import '../../models/room.dart';
 import '../../models/room_user.dart';
 import '../../models/starred_message.dart';
 import '../../models/user.dart';
+import '../../observability/chat_logger.dart';
 import '../../storage/avatar_storage.dart';
 import '../../utils/chat_export.dart';
 import '../controller/chat_controller.dart';
@@ -30,6 +32,7 @@ import '../l10n/chat_ui_localizations.dart';
 import '../models/attachment_policy.dart';
 import '../models/room_list_item.dart';
 import '../services/attachment_pickers.dart';
+import '../services/attachment_url_resolver.dart';
 import '../utils/last_message_preview.dart';
 import '../widgets/chat_room_options_menu.dart';
 import '../widgets/chat_view.dart';
@@ -44,6 +47,7 @@ import 'handlers/room_enricher.dart';
 import 'handlers/room_list_mutator.dart';
 import 'services/blocked_users_registry.dart';
 import 'services/chat_controller_registry.dart';
+import 'services/chat_lifecycle_observer.dart';
 import 'services/connection_lifecycle.dart';
 import 'services/delivered_confirmation_coordinator.dart';
 import 'services/dm_contact_registry.dart';
@@ -106,13 +110,29 @@ class ChatUiAdapter {
     this.roomTitleResolver,
     this.autoMarkAsRead = true,
     this.autoConfirmDelivery = true,
+    this.manageAppLifecycle = true,
+    this.lifecyclePolicy = const ChatLifecyclePolicy.standard(),
+    this.enableReconnectResync = true,
+    this.logLevel = ChatLogLevel.warn,
+    this.logMessageContent = false,
+    this.roomRevalidateDebounce = const Duration(seconds: 5),
+    Duration resyncDebounce = const Duration(seconds: 5),
     ChatLocalDatasource? cache,
     AvatarStorage? avatarStorage,
   }) : _cache = cache,
        _currentUser = currentUser,
        avatarStorage = avatarStorage ?? DefaultAvatarStorage(client),
        roomListController = RoomListController(),
-       _lifecycle = ConnectionLifecycle();
+       _lifecycle = ConnectionLifecycle(),
+       _resyncDebounce = resyncDebounce {
+    if (manageAppLifecycle) {
+      _lifecycleObserver = ChatLifecycleObserver(
+        policy: lifecyclePolicy,
+        onResume: () => unawaited(connect()),
+        onPause: () => unawaited(disconnect()),
+      )..attach();
+    }
+  }
 
   final ChatClient client;
 
@@ -223,6 +243,36 @@ class ChatUiAdapter {
   /// their own backend (Firebase, S3, custom CHT/wb pipeline, …).
   final AvatarStorage avatarStorage;
 
+  /// Default [AttachmentUrlResolver] the adapter wires into
+  /// `NomaChatView`/`ChatView` when the host doesn't supply its own
+  /// `ChatViewBuilders.attachmentUrlResolver`. Backed by a
+  /// [SignedAttachmentUrlResolver] over [client] so media bubbles re-mint
+  /// expired signed URLs out of the box (default sane: on).
+  AttachmentUrlResolver get defaultAttachmentUrlResolver =>
+      _attachmentResolver.resolve;
+  late final SignedAttachmentUrlResolver _attachmentResolver =
+      SignedAttachmentUrlResolver(client: client, logger: logs);
+
+  /// Structured, tagged logger for the adapter's own sub-managers (presence,
+  /// attachment resolution, …) — bridges to [logger] via
+  /// [CallbackChatLogSink] so a host that only ever wired the plain callback
+  /// keeps receiving lines unchanged, filtered by [logLevel] and redacting
+  /// message text unless [logMessageContent] is `true` — mirrors the
+  /// [ChatConfig.logs] pattern. `null` (like [logger] defaults to) when no
+  /// callback was ever set — matches the pre-existing behaviour of
+  /// [defaultAttachmentUrlResolver], which built this ad hoc before [logs]
+  /// existed. Cached from whatever [logger] holds at first access, same as
+  /// [_attachmentResolver] always has — reassigning [logger] afterwards
+  /// does not retarget an already-built [logs].
+  ChatLogger? get logs => logger == null
+      ? null
+      : (_logs ??= ChatLogger(
+          sink: CallbackChatLogSink(logger!),
+          minLevel: logLevel,
+          logMessageContent: logMessageContent,
+        ));
+  ChatLogger? _logs;
+
   /// When `true` (default), the adapter fires [markAsRead] automatically
   /// on the two boundaries where WhatsApp would: right after [loadMessages]
   /// finishes (we're now displaying the unread tail) and right before the
@@ -250,6 +300,70 @@ class ChatUiAdapter {
   /// local persistence rather than reception).
   final bool autoConfirmDelivery;
 
+  /// When `true` (default), the adapter registers its own
+  /// `WidgetsBindingObserver` and reacts to app foreground/background
+  /// transitions per [lifecyclePolicy] — the host no longer has to wire a
+  /// separate `AppLifecycleService` for chat. Registration is best-effort:
+  /// if no Flutter binding is available yet (e.g. inside a plain unit test
+  /// that never called `TestWidgetsFlutterBinding.ensureInitialized()`),
+  /// it silently no-ops instead of throwing.
+  final bool manageAppLifecycle;
+
+  /// Governs what [manageAppLifecycle] does on pause/resume. Ignored when
+  /// [manageAppLifecycle] is `false`. Defaults to
+  /// [ChatLifecyclePolicy.standard].
+  final ChatLifecyclePolicy lifecyclePolicy;
+
+  /// When `true` (default), every reconnect (whether app-lifecycle-driven
+  /// or a bare network drop while foregrounded) triggers [resync] — a full
+  /// room-list + active-room + presence refresh — debounced so a burst of
+  /// flappy reconnects only resyncs once per 5 seconds. Disable if the host
+  /// wants to drive resync itself (e.g. tied to its own connectivity
+  /// signal).
+  final bool enableReconnectResync;
+
+  /// Minimum spacing between background room-list revalidation passes for
+  /// the same `type` (see [RoomEnricher]'s `_backgroundRevalidate`) —
+  /// guards against a screen that opens/closes/reopens re-triggering the
+  /// full network-fetch-plus-enrichment pass (`members.list` per DM, DM
+  /// dedupe, …) on every reopen. Defaults to 5 seconds, matching the
+  /// reconnect-resync debounce. Test-overridable so a suite can shrink the
+  /// window instead of waiting out the real default.
+  final Duration roomRevalidateDebounce;
+
+  /// Registered in the constructor when [manageAppLifecycle] is `true`;
+  /// detached in [dispose]. `null` otherwise.
+  ChatLifecycleObserver? _lifecycleObserver;
+
+  /// Wall-clock time the current/last [resync] *attempt* started, used to
+  /// debounce a fresh (not-already-running) reconnect-triggered resync (see
+  /// [enableReconnectResync]). Owned per-attempt: a failing attempt only
+  /// clears it when no newer attempt has re-stamped it in the meantime, so a
+  /// late failure can never wipe a seal a subsequent attempt already set.
+  DateTime? _lastResyncAt;
+
+  /// `true` while a [resync] loop is running its network work. A trigger
+  /// that lands during this window is coalesced into [_resyncPending] rather
+  /// than dropped on the debounce floor — a reconnect that arrives mid-resync
+  /// carries its own disconnected-window backlog to recover.
+  bool _resyncInFlight = false;
+
+  /// Set when a [resync] trigger arrives while one is already
+  /// [_resyncInFlight]; makes the in-flight loop run one more pass once it
+  /// finishes so the later trigger's backlog is not lost.
+  bool _resyncPending = false;
+
+  /// Minimum spacing between automatic reconnect-triggered [resync] calls.
+  /// Test-overridable via the constructor's `resyncDebounce` parameter so a
+  /// suite can shrink the window instead of waiting out the real default.
+  final Duration _resyncDebounce;
+
+  /// Set while a trigger dropped by the time debounce (not the in-flight
+  /// coalescing above) is waiting to run once the window clears, so a burst
+  /// of triggers inside the same window schedules only one deferred pass
+  /// instead of stacking timers.
+  Timer? _resyncDeferredTimer;
+
   bool _isDmDetail(RoomDetail detail) {
     if (isDmRoom != null) return isDmRoom!(detail);
     if (detail.type != RoomType.oneToOne) return false;
@@ -263,6 +377,21 @@ class ChatUiAdapter {
   }
 
   void Function(String level, String message)? logger;
+
+  /// Minimum level a record must reach to pass through [logs]. Mirrors
+  /// [ChatConfig.logLevel] — set it to the same value passed to
+  /// [ChatConfig] (or to [NomaChat.create]'s convenience parameter) so the
+  /// adapter's sub-managers (presence, attachment resolution, optimistic
+  /// send, …) emit at the level the host actually asked for instead of
+  /// being silently clamped to `warn`. Defaults to [ChatLogLevel.warn].
+  final ChatLogLevel logLevel;
+
+  /// Mirrors [ChatConfig.logMessageContent]: when `true`, [logs] stops
+  /// redacting message text (e.g. [OptimisticHandler]'s `sendMessage
+  /// confirmed` line). Defaults to `false` — content is redacted unless the
+  /// host opts in.
+  final bool logMessageContent;
+
   final RoomListController roomListController;
 
   /// Lifecycle service: owns `connectionStateNotifier`,
@@ -315,7 +444,7 @@ class ChatUiAdapter {
     roomList: roomListController,
     dmContacts: _dmContacts,
     isDisposed: () => _disposed,
-    logger: logger,
+    logs: logs,
   );
 
   /// Standalone handler — `handlers/room_enricher.dart`. Receives
@@ -347,6 +476,7 @@ class ChatUiAdapter {
     onDmContactResolved: () => onDmContactResolved,
     roomTitleResolver: roomTitleResolver,
     confirmDelivered: autoConfirmDelivery ? _deliveredCoord.confirm : null,
+    revalidateDebounce: roomRevalidateDebounce,
   );
 
   /// Standalone handler — `handlers/room_list_mutator.dart`. Owns
@@ -418,6 +548,7 @@ class ChatUiAdapter {
           userId: userId,
         ),
     swallowCacheThrow: _swallowCacheThrow,
+    logs: logs,
   );
 
   /// Standalone handler — `handlers/member_event_handler.dart`. Reacts
@@ -496,7 +627,12 @@ class ChatUiAdapter {
         messages: client.messages,
         isDisposed: () => _disposed,
       );
+  // Both ARE cancelled, in `_cancelSubscriptions` below, via locals
+  // snapshotted from these fields — see that method's doc comment for why
+  // the lint's simple direct-field-reference pattern can't see it.
+  // ignore: cancel_subscriptions
   StreamSubscription<ChatEvent>? _eventSub;
+  // ignore: cancel_subscriptions
   StreamSubscription<ChatConnectionState>? _stateSub;
 
   /// Convenience accessor for the lifecycle's disposed flag — used in
@@ -838,8 +974,13 @@ class ChatUiAdapter {
   String? get activeRoomId => _activeRoomId;
 
   /// Marks [roomId] as the currently-foregrounded chat. Pass `null` when
-  /// the user leaves it. Triggers a one-shot `markAsRead` for [roomId] if
-  /// [autoMarkAsRead] is true (cheap; idempotent when nothing changed).
+  /// the user leaves it. Zeroes the room-list unread badge immediately —
+  /// optimistically, on the client, synchronously with this call — instead
+  /// of waiting for `markAsRead`'s network round-trip, so the badge clears
+  /// the instant the user opens the room even on a slow/unstable
+  /// connection, matching WhatsApp. Also triggers the real `markAsRead`
+  /// request for [roomId] if [autoMarkAsRead] is true (cheap; idempotent
+  /// when nothing changed) so the server's read cursor still advances.
   void setActiveRoom(String? roomId) {
     if (_activeRoomId == roomId) return;
     _activeRoomId = roomId;
@@ -849,6 +990,7 @@ class ChatUiAdapter {
     final isDraftRoom =
         roomId != null && (_chatControllers[roomId]?.isDraft ?? false);
     if (roomId != null && autoMarkAsRead && !isDraftRoom) {
+      _roomListMutator.updateRoomUnread(roomId, 0);
       unawaited(markAsRead(roomId));
     }
   }
@@ -907,31 +1049,183 @@ class ChatUiAdapter {
     await client.connect();
   }
 
-  /// Disconnects from the server and clears all controllers.
+  /// Full realtime resync after a reconnect: refreshes the room list from
+  /// the network (`forceNetwork: true`) and, if a room is currently
+  /// foregrounded ([activeRoomId]), reloads its messages — which also
+  /// re-confirms delivery/read receipts as a side effect of the normal
+  /// [loadMessages] flow, backfilling anything that arrived during the
+  /// disconnected window. Presence is deliberately NOT re-bootstrapped
+  /// here: the adapter's existing reconnect hook already does that (see
+  /// `ChatEventRouter._onConnected`) right before this runs, so doing it
+  /// again here would just be a redundant network call.
   ///
-  /// Resumable: only the per-connection state is wiped (controllers, DM
-  /// mapping, typing timers, room list, active-room markers). The
-  /// cross-session caches — user cache, blocked-users set, presence —
-  /// survive so a subsequent [connect] resumes from a warm state. Use
-  /// [signOut] to wipe everything.
-  Future<void> disconnect() async {
+  /// A no-op until [initializedNotifier] has gone `true` once (i.e. a first
+  /// [loadRooms] has actually completed): there is nothing to "resync" for
+  /// a session that never loaded its rooms yet, and firing a network fetch
+  /// ahead of the host's own initial [loadRooms] call could race it.
+  ///
+  /// Debounced to at most once every 5 seconds so a burst of flappy
+  /// reconnects (or an app resume racing an in-flight reconnect) doesn't
+  /// fan out into repeated network round-trips. Called automatically on
+  /// every reconnect when [enableReconnectResync] is `true`; hosts can also
+  /// call it directly (e.g. from a pull-to-refresh gesture), subject to
+  /// the same debounce.
+  ///
+  /// A trigger is never simply dropped: one that lands *while a resync is
+  /// already running* is coalesced into a single follow-up pass
+  /// ([_resyncPending]); one that lands inside the *time* debounce window
+  /// arms a single deferred call for whatever remainder of the window is
+  /// left ([_scheduleDeferredResync]). Either way, a reconnect's own
+  /// disconnected-window backlog always gets a resync pass once the
+  /// current one (in-flight or debounced) clears.
+  ///
+  /// The debounce timestamp is committed per attempt and only survives once
+  /// the attempt succeeds: `loadRooms`/`loadMessages` normally surface
+  /// network/auth errors as a failed [ChatResult] rather than an exception,
+  /// but a raw throw is treated identically — either way the seal is reverted
+  /// (only if this attempt still owns it) so the very next reconnect or caller
+  /// retries immediately instead of waiting out the window on a resync that
+  /// silently did nothing.
+  Future<void> resync() async {
+    if (_disposed) return;
+    if (!initializedNotifier.value) return;
+
+    // Already running: don't let the time debounce drop this trigger —
+    // remember it and let the running loop take one more pass.
+    if (_resyncInFlight) {
+      _resyncPending = true;
+      return;
+    }
+
+    final now = DateTime.now();
+    if (_lastResyncAt != null &&
+        now.difference(_lastResyncAt!) < _resyncDebounce) {
+      _scheduleDeferredResync(now);
+      return;
+    }
+
+    _resyncDeferredTimer?.cancel();
+    _resyncDeferredTimer = null;
+
+    _resyncInFlight = true;
+    try {
+      do {
+        _resyncPending = false;
+        final attemptAt = DateTime.now();
+        _lastResyncAt = attemptAt;
+        bool ok;
+        try {
+          ok = await _runResyncOnce();
+        } catch (_) {
+          ok = false;
+        }
+        if (_disposed) return;
+        // Revert the seal only if this attempt still owns it (no newer
+        // attempt re-stamped it) — a per-attempt seal, never a shared one.
+        if (!ok && identical(_lastResyncAt, attemptAt)) {
+          _lastResyncAt = null;
+        }
+      } while (_resyncPending && !_disposed);
+    } finally {
+      _resyncInFlight = false;
+    }
+  }
+
+  /// Arms a single deferred [resync] call for the remainder of the current
+  /// debounce window, so a trigger the time debounce just dropped still
+  /// runs once the window clears instead of being lost outright. A burst of
+  /// triggers inside the same window coalesces into the one already-armed
+  /// timer rather than stacking up several.
+  void _scheduleDeferredResync(DateTime triggeredAt) {
+    if (_resyncDeferredTimer != null) return;
+    final lastResyncAt = _lastResyncAt;
+    if (lastResyncAt == null) return;
+    final elapsed = triggeredAt.difference(lastResyncAt);
+    final remaining = _resyncDebounce - elapsed;
+    final wait = remaining.isNegative ? Duration.zero : remaining;
+    _resyncDeferredTimer = Timer(wait, () {
+      _resyncDeferredTimer = null;
+      if (_disposed) return;
+      unawaited(resync());
+    });
+  }
+
+  /// One resync pass: refresh the room list from the network and, if a room
+  /// is foregrounded, reload its messages. Returns `true` only when every
+  /// leg succeeded. Throws propagate to [resync], which treats them as a
+  /// failed attempt.
+  ///
+  /// This pass runs after `ChatEventRouter._onConnected` fires (reconnect),
+  /// and — same as an explicit pull-to-refresh — trusts a successful
+  /// `loadRooms` response as the caller's authoritative complete room set:
+  /// the listing endpoint fails the request outright on a bad read rather
+  /// than answering 200 with a partial page, so there's nothing here left
+  /// to distrust about a 200. This is what reconciles a room removed on
+  /// another device while this one was offline/reconnecting.
+  Future<bool> _runResyncOnce() async {
+    final roomsResult = await loadRooms(forceNetwork: true);
+    if (_disposed) return false;
+    if (roomsResult.isFailure) return false;
+    final activeRoomId = _activeRoomId;
+    if (activeRoomId != null) {
+      final messagesResult = await loadMessages(activeRoomId);
+      if (_disposed) return false;
+      if (messagesResult.isFailure) return false;
+    }
+    return true;
+  }
+
+  /// Disconnects from the server.
+  ///
+  /// Cache-first by default (`clearRooms: false`): only the realtime
+  /// connection itself is torn down. The room list, the currently
+  /// foregrounded room's controller ([activeRoomId]) and the DM
+  /// contact↔room binding all survive — the list never flashes empty
+  /// across a background/reconnect cycle, and a subsequent [resync] can
+  /// backfill the open conversation. Pass `clearRooms: true` for the old
+  /// eager-wipe behavior (also used internally by [signOut] / [dispose]).
+  /// The cross-session caches — user cache, blocked-users set, presence —
+  /// always survive; use [signOut] to wipe those too.
+  Future<void> disconnect({bool clearRooms = false}) async {
     await _cancelSubscriptions();
     client.cancelPendingRequests('disconnect');
     await client.disconnect();
-    _resetConnectionState();
+    // Subscriptions are cancelled BEFORE `client.disconnect()` (above) so
+    // the transport's own disconnected event/state never reaches the event
+    // router mid-teardown — which means neither `connectionStateNotifier`
+    // nor the router's own reconnect-detection latch would otherwise ever
+    // flip off `connected`. A later `connect()` computes `wasConnected` from
+    // that latch in `ChatEventRouter._onConnected`, so leaving it stale
+    // would silently skip the presence bootstrap + resync on the very next
+    // reconnect — exactly the resume-after-background path
+    // `ChatPauseAction.disconnect` relies on. Reset both explicitly here,
+    // mirroring `signOut()`'s existing notifier reset below.
+    connectionStateNotifier.value = ChatConnectionState.disconnected;
+    _eventRouter.markDisconnected();
+    _resetConnectionState(clearRooms: clearRooms);
   }
 
   /// Wipes the state tied to a single realtime connection. Shared by
-  /// [disconnect] and (transitively) [signOut] / [dispose]. Keeps the
-  /// cross-session caches intact — see [_resetSessionState] for the
-  /// wider wipe.
-  void _resetConnectionState() {
-    _chatControllers.disposeAll();
-    _dmContacts.clear();
+  /// [disconnect] and (transitively) [signOut] / [dispose] — the latter two
+  /// always pass [clearRooms] `true` via the default, so neither can
+  /// accidentally leave stale rooms/controllers behind. Keeps the
+  /// cross-session caches intact — see [_resetSessionState] for the wider
+  /// wipe.
+  ///
+  /// With [clearRooms] `false` (the resumable [disconnect] path):
+  /// [_activeRoomId], the active room's [ChatController] and [_dmContacts]
+  /// (the DM dedupe binding) are preserved, and the room list is left as-is
+  /// — so a `ChatRoomPage` open at the moment of backgrounding keeps its
+  /// controller mounted, and [resync] has something to backfill on resume.
+  void _resetConnectionState({bool clearRooms = true}) {
+    if (clearRooms) {
+      _chatControllers.disposeAll();
+      _dmContacts.clear();
+      _activeRoomId = null;
+      roomListController.setRooms([]);
+    }
     _typingTimers.clearAll();
-    _activeRoomId = null;
     _lastMembersChangedRoomId = null;
-    roomListController.setRooms([]);
   }
 
   /// Wipes every in-memory registry the adapter owns — both the
@@ -1066,6 +1360,9 @@ class ChatUiAdapter {
     // sees `_disposed == true` immediately and bails on its early
     // return guards.
     await _lifecycle.dispose();
+    _lifecycleObserver?.detach();
+    _resyncDeferredTimer?.cancel();
+    _resyncDeferredTimer = null;
     await _cancelSubscriptions();
     client.cancelPendingRequests('dispose');
     await client.disconnect();
@@ -1074,6 +1371,7 @@ class ChatUiAdapter {
     _currentUserListenable.dispose();
     _userCacheListenable.dispose();
     _roomMembersListenable.dispose();
+    _blockedUsersListenable.dispose();
     await _operations.dispose();
   }
 
@@ -1089,6 +1387,16 @@ class ChatUiAdapter {
   /// Pass [forceNetwork] to bypass the realtime optimization — useful
   /// for pull-to-refresh interactions where the user explicitly asks
   /// for a fresh server snapshot.
+  ///
+  /// A successful response — from this call, [resync]'s automatic pass
+  /// after a reconnect, or the background revalidation fired by the
+  /// cache-trusted branch above — is always treated as the caller's
+  /// authoritative complete room set, including when it's legitimately
+  /// empty: the listing endpoint fails outright on a bad read instead of
+  /// answering 200 with a partial/best-effort page, so there's no
+  /// ambiguity left for the client to guard against. A failed response
+  /// (network error, timeout, 5xx) never touches the list, here or in any
+  /// caller.
   @internal
   Future<ChatResult<void>> loadRooms({
     String type = 'all',
@@ -1404,6 +1712,14 @@ class ChatUiAdapter {
   /// Returns a listenable for the upload progress of a pending voice message.
   /// Returns `null` if there is no upload in flight for that id.
   ValueListenable<double>? voiceUploadProgressFor(String messageId) =>
+      _voiceUploads.listenableFor(messageId);
+
+  /// Returns a listenable for the upload progress of a pending
+  /// `messages.sendAttachment` call (photo/video/file — anything that
+  /// isn't a recorded voice clip). Same backing registry as
+  /// [voiceUploadProgressFor]; a separate name keeps call sites readable.
+  /// Returns `null` if there is no upload in flight for that id.
+  ValueListenable<double>? attachmentUploadProgressFor(String messageId) =>
       _voiceUploads.listenableFor(messageId);
 
   /// Records and confirms a voice message: optimistic bubble first, then upload
@@ -1778,6 +2094,9 @@ class ChatUiAdapter {
       onError: () => onError,
       onReconnected: () => onReconnected,
       onRoomRemoved: () => onRoomRemoved,
+      triggerResync: () {
+        if (enableReconnectResync) unawaited(resync());
+      },
     ),
   );
 
@@ -1900,11 +2219,27 @@ class ChatUiAdapter {
   @internal
   Future<void> deleteKickedChat(String roomId) => rooms.deleteKicked(roomId);
 
+  /// Snapshots the current subscriptions into locals and nulls the fields
+  /// SYNCHRONOUSLY, before awaiting either cancellation. [connect] calls
+  /// this (unawaited) and then immediately calls [start] — which reassigns
+  /// `_eventSub`/`_stateSub` to a fresh pair before this function's first
+  /// `await` has a chance to resume. Re-reading the instance fields after
+  /// that first await (the previous shape of this method) meant the second
+  /// `await _stateSub?.cancel()` picked up [start]'s brand-new subscription
+  /// instead of the stale one, killing it right after creation — silently
+  /// disabling `client.stateChanges` delivery (`connecting`/`authenticating`/
+  /// `reconnecting` never reached `connectionStateNotifier`) while orphaning
+  /// the stale `_eventSub` (nulled but never actually cancelled, leaking a
+  /// listener that piles up on every reconnect cycle). Operating on local
+  /// snapshots makes this safe regardless of what the fields get reassigned
+  /// to in between.
   Future<void> _cancelSubscriptions() async {
-    await _eventSub?.cancel();
+    final eventSub = _eventSub;
+    final stateSub = _stateSub;
     _eventSub = null;
-    await _stateSub?.cancel();
     _stateSub = null;
+    await eventSub?.cancel();
+    await stateSub?.cancel();
   }
 
   bool _isBlockedError(ChatFailure? failure) {

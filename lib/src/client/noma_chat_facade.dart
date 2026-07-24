@@ -8,6 +8,8 @@ import '../cache/local_datasource.dart';
 import '../_internal/http/retry_config.dart';
 import '../cache/hive_chat_datasource.dart';
 import '../config/chat_config.dart';
+import '../config/lifecycle_policy.dart';
+import '../observability/chat_logger.dart' show ChatLogLevel;
 import '../storage/avatar_storage.dart';
 import '../events/chat_event.dart';
 import '../models/user.dart';
@@ -120,6 +122,10 @@ class NomaChat {
     IsDmRoomPredicate? isDmRoom,
     RoomTitleResolver? roomTitleResolver,
     bool autoMarkAsRead = true,
+    // Lifecycle
+    bool manageAppLifecycle = true,
+    ChatLifecyclePolicy lifecyclePolicy = const ChatLifecyclePolicy.standard(),
+    bool enableReconnectResync = true,
     // Storage
     AvatarStorage? avatarStorage,
     // Advanced
@@ -183,6 +189,11 @@ class NomaChat {
       isDmRoom: isDmRoom,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,
+      manageAppLifecycle: manageAppLifecycle,
+      lifecyclePolicy: lifecyclePolicy,
+      enableReconnectResync: enableReconnectResync,
+      logLevel: effectiveConfig.logLevel,
+      logMessageContent: effectiveConfig.logMessageContent,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
     );
 
@@ -234,6 +245,10 @@ class NomaChat {
     IsDmRoomPredicate? isDmRoom,
     RoomTitleResolver? roomTitleResolver,
     bool autoMarkAsRead = true,
+    // Lifecycle
+    bool manageAppLifecycle = true,
+    ChatLifecyclePolicy lifecyclePolicy = const ChatLifecyclePolicy.standard(),
+    bool enableReconnectResync = true,
     // Storage
     AvatarStorage? avatarStorage,
   }) async {
@@ -252,6 +267,11 @@ class NomaChat {
       isDmRoom: isDmRoom,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,
+      manageAppLifecycle: manageAppLifecycle,
+      lifecyclePolicy: lifecyclePolicy,
+      enableReconnectResync: enableReconnectResync,
+      logLevel: config.logLevel,
+      logMessageContent: config.logMessageContent,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
     );
 
@@ -302,6 +322,11 @@ class NomaChat {
     IsDmRoomPredicate? isDmRoom,
     RoomTitleResolver? roomTitleResolver,
     bool autoMarkAsRead = true,
+    bool manageAppLifecycle = true,
+    ChatLifecyclePolicy lifecyclePolicy = const ChatLifecyclePolicy.standard(),
+    bool enableReconnectResync = true,
+    ChatLogLevel logLevel = ChatLogLevel.warn,
+    bool logMessageContent = false,
     AvatarStorage? avatarStorage,
   }) {
     final adapter = ChatUiAdapter(
@@ -312,6 +337,11 @@ class NomaChat {
       isDmRoom: isDmRoom,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,
+      manageAppLifecycle: manageAppLifecycle,
+      lifecyclePolicy: lifecyclePolicy,
+      enableReconnectResync: enableReconnectResync,
+      logLevel: logLevel,
+      logMessageContent: logMessageContent,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
     );
     return NomaChat._(client: client, adapter: adapter);

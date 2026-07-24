@@ -29,6 +29,29 @@ void main() {
       expect(find.text('No messages yet'), findsOneWidget);
     });
 
+    testWidgets(
+      'shows a spinner instead of the empty state while the initial load '
+      'is in flight',
+      (tester) async {
+        controller.setLoadingInitial(true);
+        await tester.pumpWidget(
+          wrap(
+            ChatView(
+              controller: controller,
+              callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            ),
+          ),
+        );
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+        expect(find.text('No messages yet'), findsNothing);
+
+        controller.setLoadingInitial(false);
+        await tester.pump();
+        expect(find.byType(CircularProgressIndicator), findsNothing);
+        expect(find.text('No messages yet'), findsOneWidget);
+      },
+    );
+
     testWidgets('shows messages when present', (tester) async {
       controller = ChatController(
         initialMessages: [

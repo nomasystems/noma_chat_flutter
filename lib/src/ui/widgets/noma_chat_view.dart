@@ -11,6 +11,7 @@ import '../controller/chat_controller.dart';
 import '../models/reaction_user.dart';
 import '../models/room_list_item.dart';
 import '../services/attachment_pickers.dart';
+import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
 import '../utils/platform_support.dart';
@@ -464,6 +465,9 @@ class _NomaChatViewState extends State<NomaChatView> {
       blockedBannerBuilder: user.blockedBannerBuilder,
       notParticipatingBannerBuilder: user.notParticipatingBannerBuilder,
       audioUploadProgressFor: user.audioUploadProgressFor,
+      attachmentUploadProgressFor:
+          user.attachmentUploadProgressFor ??
+          adapter.attachmentUploadProgressFor,
       linkPreviewFetcher: user.linkPreviewFetcher,
       displayNameResolver:
           user.displayNameResolver ??
@@ -477,6 +481,8 @@ class _NomaChatViewState extends State<NomaChatView> {
       avatarRebuildSignal:
           user.avatarRebuildSignal ?? adapter.userCacheListenable,
       userFetcher: user.userFetcher ?? _defaultUserFetcher,
+      attachmentUrlResolver:
+          user.attachmentUrlResolver ?? adapter.defaultAttachmentUrlResolver,
     );
   }
 
@@ -492,12 +498,26 @@ class _NomaChatViewState extends State<NomaChatView> {
       onTapVideo: user.onTapVideo,
       onTapFile:
           user.onTapFile ??
-          (msg) {
+          (msg) async {
             final url = msg.attachmentUrl;
             if (url == null || url.isEmpty) return;
-            openAttachmentFile(
+            // Re-mint through the same resolver Audio/Image/Video bubbles
+            // use before downloading — `url` may be a signed link that has
+            // since expired (the SDK persists the mint-time URL verbatim
+            // on `ChatMessage.attachmentUrl`).
+            final resolver =
+                widget.builders?.attachmentUrlResolver ??
+                adapter.defaultAttachmentUrlResolver;
+            final resolvedUrl = await resolver(
+              AttachmentRef(
+                roomId: sendKey,
+                attachmentId: msg.attachmentId,
+                fallbackUrl: url,
+              ),
+            );
+            await openAttachmentFile(
               client: adapter.client,
-              url: url,
+              url: resolvedUrl,
               fileName: msg.fileName,
               mimeType: msg.mimeType,
               logger: adapter.logger,

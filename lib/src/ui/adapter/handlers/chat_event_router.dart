@@ -60,6 +60,7 @@ class ChatEventRouterDeps {
     required this.onError,
     required this.onReconnected,
     required this.onRoomRemoved,
+    required this.triggerResync,
   });
 
   final ChatClient client;
@@ -129,6 +130,14 @@ class ChatEventRouterDeps {
   final void Function(String roomId, String? reason, String? adminReason)?
   Function()
   onRoomRemoved;
+
+  /// Fired on every fresh reconnect (state transitions into `connected`
+  /// from a non-connected state) — wired by the adapter to its
+  /// `resync()`, gated by `enableReconnectResync` and debounced there.
+  /// Sits alongside the existing presence bootstrap in [ChatEventRouter
+  /// ._onConnected] rather than as a second reconnect-detection point, so
+  /// there's exactly one place that decides "we just reconnected".
+  final void Function() triggerResync;
 }
 
 /// Routes a `ChatEvent` to the right handlers / services / callbacks.
@@ -140,6 +149,21 @@ class ChatEventRouter {
   ChatEventRouter(this._deps);
 
   final ChatEventRouterDeps _deps;
+
+  /// Tracks "was the last-known state `connected`?" from the `ChatEvent`
+  /// stream ALONE — deliberately independent of `_connectionStateNotifier`,
+  /// which is ALSO fed by `client.stateChanges` (see `ChatUiAdapter
+  /// ._handleStateChange`). A transport's `connected` state transition is
+  /// always emitted on `stateChanges` before the matching `ConnectedEvent`
+  /// on `events` (mirrored by every transport: `WsTransport._dispatch`'s
+  /// `auth_ok` case, `SseTransport._doConnect`, `MockChatClient.connect`),
+  /// so reading `_connectionStateNotifier.value` from inside `_onConnected`
+  /// would see `connected` already latched in by the state-stream listener
+  /// and treat EVERY reconnect as "already connected" — permanently
+  /// disabling the presence bootstrap + resync below. Flipped in
+  /// [_onConnected] and by the `DisconnectedEvent`/`ErrorEvent` cases in
+  /// [handle], never by anything state-stream-derived.
+  bool _lastKnownConnectedFromEvents = false;
 
   // -- Delegated accessors so the migrated body still compiles --
   ChatClient get _client => _deps.client;
@@ -220,6 +244,21 @@ class ChatEventRouter {
   void Function()? get _onReconnected => _deps.onReconnected();
   void Function(String, String?, String?)? get _onRoomRemoved =>
       _deps.onRoomRemoved();
+
+  /// Resets the reconnect-detection latch for an explicit, adapter-driven
+  /// disconnect (`ChatUiAdapter.disconnect`/`signOut`). Those calls cancel
+  /// the router's event subscription BEFORE telling the transport to
+  /// disconnect (so a burst of teardown noise from the transport never
+  /// reaches [handle]) — which means the `DisconnectedEvent` case in
+  /// [handle] that would normally clear [_lastKnownConnectedFromEvents]
+  /// never fires. Left stale at `true`, the next [_onConnected] would read
+  /// `wasConnected: true` and silently skip the presence bootstrap + resync,
+  /// exactly the resume-after-background path `ChatPauseAction.disconnect`
+  /// depends on. Call this once subscriptions are torn down, alongside
+  /// resetting `connectionStateNotifier` itself.
+  void markDisconnected() {
+    _lastKnownConnectedFromEvents = false;
+  }
 
   void handle(ChatEvent event) {
     if (_isDisposed()) return;
@@ -307,8 +346,13 @@ class ChatEventRouter {
       case RoomUpdatedEvent(:final roomId):
         _cache?.deleteRoomDetail(roomId);
         _enrichRoomFromDetailFn(roomId);
-      case PresenceChangedEvent(:final userId, :final online, :final status):
-        _presence.update(userId, online, status);
+      case PresenceChangedEvent(
+        :final userId,
+        :final online,
+        :final status,
+        :final lastSeen,
+      ):
+        _presence.update(userId, online, status, lastSeen: lastSeen);
       case ReceiptUpdatedEvent(
         :final roomId,
         :final messageId,
@@ -360,8 +404,10 @@ class ChatEventRouter {
       case ConnectedEvent():
         _onConnected();
       case DisconnectedEvent():
+        _lastKnownConnectedFromEvents = false;
         _connectionStateNotifier.value = ChatConnectionState.disconnected;
       case ErrorEvent():
+        _lastKnownConnectedFromEvents = false;
         _connectionStateNotifier.value = ChatConnectionState.error;
         _onError?.call(event);
       case BroadcastEvent(:final message):
@@ -635,8 +681,8 @@ class ChatEventRouter {
   }
 
   void _onConnected() {
-    final wasConnected =
-        _connectionStateNotifier.value == ChatConnectionState.connected;
+    final wasConnected = _lastKnownConnectedFromEvents;
+    _lastKnownConnectedFromEvents = true;
     _connectionStateNotifier.value = ChatConnectionState.connected;
     // Refresh the presence cache after a (re)connection so that contact
     // online states reflect the current server snapshot. CHT does not
@@ -644,6 +690,12 @@ class ChatEventRouter {
     // disconnect, so without this refresh the cache could go stale.
     if (!wasConnected) {
       unawaited(_presence.bootstrap());
+      // Centralized reconnect-resync trigger (room list + active room) —
+      // deliberately the ONLY place that reacts to "we just reconnected"
+      // for this purpose, so an app-resume racing this event can't fire a
+      // second resync. See `ChatUiAdapter.resync` for what it does and its
+      // own debounce.
+      _deps.triggerResync();
     }
     _onReconnected?.call();
   }

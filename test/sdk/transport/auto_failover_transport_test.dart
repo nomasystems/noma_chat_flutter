@@ -143,6 +143,39 @@ void main() {
       verify(() => fallback.connect()).called(1);
     });
 
+    test('a resume connect() while the primary is already connected probes '
+        'liveness instead of resetting the failover state machine', () async {
+      when(() => primary.verifyLiveness()).thenAnswer((_) async {});
+
+      await transport.connect();
+
+      // Primary connects for real.
+      when(() => primary.state).thenReturn(ChatConnectionState.connected);
+      primaryStates.add(ChatConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+
+      // App resume: TransportManager re-issues connect() over the still-
+      // connected primary. The composite must NOT re-run the full setup
+      // (which resets _primaryHasConnected to false); it probes the live
+      // socket via verifyLiveness instead.
+      await transport.connect();
+      await Future<void>.delayed(Duration.zero);
+
+      verify(() => primary.verifyLiveness()).called(1);
+      // primary.connect() ran exactly once (the initial connect) — the
+      // resume did not tear it down and reconnect.
+      verify(() => primary.connect()).called(1);
+      verifyNever(() => primary.disconnect());
+
+      // Because _primaryHasConnected was preserved, a subsequent primary
+      // drop promotes the SSE fallback immediately — not only after the
+      // initial-failure threshold, which is what a reset would have caused.
+      when(() => primary.state).thenReturn(ChatConnectionState.disconnected);
+      primaryStates.add(ChatConnectionState.error);
+      await Future<void>.delayed(Duration.zero);
+      verify(() => fallback.connect()).called(1);
+    });
+
     test(
       'fallback is not started before the primary has ever connected',
       () async {
@@ -256,6 +289,56 @@ void main() {
       primaryStates.add(ChatConnectionState.disconnected);
       await Future<void>.delayed(Duration.zero);
       verify(() => fallback.connect()).called(1);
+    });
+
+    test('authenticating does not count towards the initial-failure '
+        'threshold (only real errors do)', () async {
+      await transport.connect();
+
+      // Interleave several `authenticating` no-ops with only 2 real
+      // `error`s — below the threshold (3), so the fallback must stay off.
+      for (var i = 0; i < 4; i++) {
+        primaryStates.add(ChatConnectionState.authenticating);
+        await Future<void>.delayed(Duration.zero);
+      }
+      primaryStates.add(ChatConnectionState.error);
+      await Future<void>.delayed(Duration.zero);
+      primaryStates.add(ChatConnectionState.authenticating);
+      await Future<void>.delayed(Duration.zero);
+      primaryStates.add(ChatConnectionState.error);
+      await Future<void>.delayed(Duration.zero);
+      verifyNever(() => fallback.connect());
+
+      // A 3rd real error crosses the threshold — proving the counter only
+      // ever advanced on the 2 real errors above, never on `authenticating`.
+      primaryStates.add(ChatConnectionState.error);
+      await Future<void>.delayed(Duration.zero);
+      verify(() => fallback.connect()).called(1);
+    });
+
+    test(
+      'authenticating does not clear the reconnecting/error UI state',
+      () async {
+        await transport.connect();
+        primaryStates.add(ChatConnectionState.connected);
+        await Future<void>.delayed(Duration.zero);
+        expect(transport.state, ChatConnectionState.connected);
+
+        primaryStates.add(ChatConnectionState.reconnecting);
+        await Future<void>.delayed(Duration.zero);
+        primaryStates.add(ChatConnectionState.authenticating);
+        await Future<void>.delayed(Duration.zero);
+
+        // A handshake in progress does not promote back to `connected` on its
+        // own — only an actual `connected` state change (or the fallback)
+        // does that.
+        expect(transport.state, isNot(ChatConnectionState.connected));
+      },
+    );
+
+    test('lastPongAge forwards to the primary transport', () {
+      when(() => primary.lastPongAge).thenReturn(const Duration(seconds: 3));
+      expect(transport.lastPongAge, const Duration(seconds: 3));
     });
   });
 }

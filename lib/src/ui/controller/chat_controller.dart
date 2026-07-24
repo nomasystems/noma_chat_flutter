@@ -95,6 +95,17 @@ class ChatController extends ChangeNotifier {
   bool _hasMoreMessages = true;
   String? _oldestMessageCursor;
 
+  /// `true` while [ChatMessagesController.load]'s initial cache+network
+  /// fetch is in flight for this room. Starts `false` — a controller that
+  /// [load] never touches (a draft DM, or one built directly by a
+  /// consumer/test without going through the adapter) has nothing pending
+  /// and should render its real empty state immediately rather than spin
+  /// forever. [load] flips this to `true` synchronously (before its first
+  /// `await`), so a host that calls `getChatController` then `messages.load`
+  /// back-to-back in `initState` (the SDK's own wiring) never renders a
+  /// frame with the flag still `false` while a fetch is genuinely in flight.
+  bool _isLoadingInitial = false;
+
   // Highlight (scroll-to-message)
   String? _highlightedMessageId;
   Timer? _highlightTimer;
@@ -139,6 +150,13 @@ class ChatController extends ChangeNotifier {
       Map.unmodifiable(_receiptStatuses);
   List<MessagePin> get pinnedMessages => List.unmodifiable(_pinnedMessages);
   bool get isLoadingMore => _isLoadingMore;
+
+  /// `true` until the initial [ChatMessagesController.load] for this room
+  /// resolves (cache and network phases both settled). Drives `ChatView`'s
+  /// loading-vs-empty distinction: the empty state only renders once this
+  /// is `false` and [messages] is still empty, so a room with no cached
+  /// history doesn't flash "No messages" for the round-trip to the server.
+  bool get isLoadingInitial => _isLoadingInitial;
   bool get hasMoreMessages => _hasMoreMessages;
 
   /// Opaque older-history cursor: the [ChatPaginatedResponse.prevCursor] of the
@@ -572,6 +590,11 @@ class ChatController extends ChangeNotifier {
     String? fromUserId,
   }) {
     if (fromUserId == null) {
+      // Rank-guard: a wholesale receipt (no per-user bookkeeping) must not
+      // regress a message that already reached a higher state via an
+      // out-of-order frame (a late `delivered` after a `read`).
+      final current = _receiptFor(messageId);
+      if (_rankReceipt(status) <= _rankReceipt(current)) return;
       _receiptStatuses[messageId] = status;
       _propagateAggregated(messageId, status);
       notifyListeners();
@@ -679,6 +702,20 @@ class ChatController extends ChangeNotifier {
     }
   }
 
+  /// The receipt currently known for [messageId] — the aggregated value if
+  /// one was recorded, else the message's own server-provided [receipt].
+  /// `null` when the message isn't in the controller and no receipt landed.
+  ReceiptStatus? _receiptFor(String messageId) {
+    final recorded = _receiptStatuses[messageId];
+    if (recorded != null) return recorded;
+    final match = _messages.firstWhere(
+      (m) => m.id == messageId,
+      orElse: () => _absentReceiptReference,
+    );
+    if (identical(match, _absentReceiptReference)) return null;
+    return match.receipt;
+  }
+
   ReceiptStatus _aggregateStatus(String messageId) {
     final otherUserIds = _otherUsers.map((u) => u.id).toSet();
     final totalOthers = otherUserIds.length;
@@ -748,12 +785,7 @@ class ChatController extends ChangeNotifier {
     timestamp: DateTime.fromMillisecondsSinceEpoch(0),
   );
 
-  static int _rankReceipt(ReceiptStatus? status) => switch (status) {
-    null => 0,
-    ReceiptStatus.sent => 1,
-    ReceiptStatus.delivered => 2,
-    ReceiptStatus.read => 3,
-  };
+  static int _rankReceipt(ReceiptStatus? status) => status?.rank ?? 0;
 
   // --- Pinned messages ---
 
@@ -796,6 +828,17 @@ class ChatController extends ChangeNotifier {
   void setLoadingMore(bool loading) {
     if (_isLoadingMore == loading) return;
     _isLoadingMore = loading;
+    notifyListeners();
+  }
+
+  /// Marks the initial-load phase as settled. Called once by
+  /// [ChatMessagesController.load] after both the cache and network phases
+  /// have resolved, regardless of outcome — a failed load still stops
+  /// "loading" so the view can fall back to the empty state / error banner
+  /// instead of spinning forever.
+  void setLoadingInitial(bool loading) {
+    if (_isLoadingInitial == loading) return;
+    _isLoadingInitial = loading;
     notifyListeners();
   }
 

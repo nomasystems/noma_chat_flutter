@@ -238,6 +238,67 @@ non-instantiable class, so it cannot be subclassed. Fork
 `nomaChatOtelCallback` if you need different span naming. See
 `packages/noma_chat_otel/README.md`.
 
+### Structured logging — `logSink` / `ChatLogger`
+
+`ChatConfig.logSink` is an opt-in structured pipeline that sits alongside the
+plain `logger` callback — wiring one does not disturb the other, and if you
+never touch either, nothing is collected. Every subsystem (transports, cache,
+attachments, presence, receipts, lifecycle, auth) logs through the shared
+`ChatLogger` at `config.logs`, tagged with a `ChatLogTag` and leveled with
+`ChatLogLevel` (`debug < info < warn < error`; default minimum is `warn`).
+
+```dart
+final buffer = BufferChatLogSink();
+final config = ChatConfig(
+  // ...baseUrl/realtimeUrl/tokenProvider...
+  logSink: MultiChatLogSink([const ConsoleChatLogSink(), buffer]),
+  logLevel: ChatLogLevel.info,
+  logTags: {ChatLogTag.ws, ChatLogTag.connection, ChatLogTag.attachments},
+);
+```
+
+Built-in sinks: `ConsoleChatLogSink` (routes to `debugPrint`, no-op in
+release), `CallbackChatLogSink` (bridges to the legacy `logger` callback —
+used automatically when `logSink` is left `null` and `logger` is set),
+`BufferChatLogSink` (in-memory ring buffer, `capacity` records, oldest
+dropped first) and `MultiChatLogSink` (fans out to several sinks; a
+throwing sink never blocks its siblings).
+
+**Exporting a shareable log file** — the classic "send me your logs" support
+flow:
+
+```dart
+final path = await ChatLogExporter.exportToFile(buffer);
+// hand `path` to a share sheet (share_plus, Share.shareXFiles, ...) —
+// the SDK writes the file, the host presents the share UI.
+```
+
+**Message content is redacted by default.** `ChatConfig.logMessageContent`
+defaults to `false`; call sites that would otherwise log raw message/caption
+text go through `logs.content(text)`, which returns `<redacted:N chars>`
+unless you explicitly opt in:
+
+```dart
+config: ChatConfig(
+  logSink: buffer,
+  logMessageContent: true, // only for a temporary diagnostics build (e.g. QA) — never production
+),
+```
+
+Bring your own sink by implementing `ChatLogSink` (`add`/`flush`/`close`) —
+e.g. to forward records to Crashlytics/Sentry/Datadog breadcrumbs.
+
+**The UI adapter's own logger.** `ChatUiAdapter` (presence, signed
+attachment re-minting, optimistic send, …) logs through its own `logs`
+getter rather than `config.logs` — it bridges the plain `logger` callback
+the same way, but respects its own `logLevel`/`logMessageContent`
+constructor params. `NomaChat.create`/`fromConfig` forward `config.logLevel`
+/ `config.logMessageContent` automatically, so a single `ChatConfig` still
+governs both the SDK core and the UI adapter. `NomaChat.fromClient` (no
+`ChatConfig` in scope) and a directly-constructed `ChatUiAdapter` take
+`logLevel`/`logMessageContent` as their own parameters, defaulting to
+`ChatLogLevel.warn` / `false` like `ChatConfig` does.
+
 ### Teardown
 
 ```dart
@@ -270,6 +331,60 @@ final chat = NomaChat.fromClient(
   currentUser: ChatUser(id: userId, displayName: name),
   isDmRoom: (detail) => ...,
 );
+```
+
+### App lifecycle — the SDK manages it by default
+
+`ChatUiAdapter` (and therefore `NomaChat.create` / `.fromConfig` /
+`.fromClient`, which all forward the params) registers its own
+`WidgetsBindingObserver` and drives reconnect/disconnect on foreground/
+background transitions — `manageAppLifecycle` defaults to `true`. Nothing to
+configure for the WhatsApp-like default (stay connected in background,
+reconnect + resync on resume):
+
+```dart
+final chat = await NomaChat.create(
+  // ...
+  // manageAppLifecycle: true is the default — omit it entirely for the
+  // WhatsApp-like behavior below.
+);
+```
+
+Pass `lifecyclePolicy: const ChatLifecyclePolicy.pushOptimized()` if your
+push pipeline suppresses notifications while a realtime connection is open
+and you want that suppression to lift promptly after backgrounding — it
+disconnects `pauseGracePeriod` (default 3s) after pause instead of the
+default `ChatPauseAction.keepAlive`:
+
+```dart
+final chat = await NomaChat.create(
+  // ...
+  lifecyclePolicy: const ChatLifecyclePolicy.pushOptimized(),
+);
+```
+
+**If your app already has its own lifecycle/reconnect logic for chat,
+remove it** — running both means two managers racing to `connect()` /
+`disconnect()` the same adapter. To opt out entirely and keep driving
+connect/disconnect yourself, pass `manageAppLifecycle: false`. Registration
+is best-effort: it silently no-ops with no Flutter binding available (e.g.
+an adapter built in a plain `test()`), so it never breaks a host or an
+existing test suite.
+
+#### `resync()` — backfilling after a reconnect
+
+`adapter.resync()` does a full post-reconnect catch-up: room list
+`forceNetwork: true` plus the foregrounded room's messages. It is a no-op
+until the adapter's first `loadRooms` has completed (nothing to resync for
+a session that hasn't bootstrapped yet), and it fires automatically on
+every fresh reconnect when `enableReconnectResync` is `true` (the
+`ChatUiAdapter`/`NomaChat.create` default), debounced to at most once every
+5 seconds so a flappy connection can't double-resync. Call it yourself only
+if you disabled `enableReconnectResync` and want to drive resync from your
+own connectivity signal:
+
+```dart
+await chat.adapter.resync();
 ```
 
 ---
@@ -343,6 +458,40 @@ final results = await chat.client.rooms.discover(query: 'flutter');
 // Delete (owner only)
 await chat.client.rooms.delete(roomId);
 ```
+
+#### Deep-linking a room — `adapter.rooms.open`
+
+Use `adapter.rooms.open(roomId)` instead of `adapter.getChatController(roomId)`
+when the room might not be in the local list yet — a push notification or a
+shared link pointing at a room that hasn't synced locally. Unlike
+`getChatController` (which never fails but also never fetches), `open` hits
+the network when the room is unknown and returns a typed failure your host
+can branch on:
+
+```dart
+final result = await adapter.rooms.open(roomId);
+switch (result) {
+  case ChatSuccess(:final data):
+    openChatScreen(data); // ready ChatController
+  case ChatFailureResult(failure: NotFoundFailure()):
+    showChatGoneMessage(); // really gone, or not a member
+  case ChatFailureResult(failure: AuthFailure() || ForbiddenFailure()):
+    promptReauth(); // session/permission — NOT "gone"
+  case ChatFailureResult(failure: NetworkFailure() || TimeoutFailure()):
+    showRetry(); // transient — don't tell the user the chat doesn't exist
+  case ChatFailureResult(:final failure):
+    showError(failure);
+}
+```
+
+Pass `fetchIfMissing: false` to restrict the lookup to the local list only
+(no network round-trip; returns `NotFoundFailure` if absent).
+
+When the client already knows the realtime channel is `disconnected`,
+`open` fast-fails with a `NetworkFailure` instead of waiting out the full
+`requestTimeout` (default 30s) on a REST call very unlikely to succeed —
+`connecting`/`reconnecting`/`authenticating` still attempt the network
+call, since a REST request can succeed independently of the WS state.
 
 ### Messages
 
@@ -485,6 +634,23 @@ the next reconnect. `send` is the one non-idempotent op in that list: it
 additionally requires the pre-response condition (a `receive`-phase or
 unknown-phase timeout is NOT retried automatically, since the message may
 already have reached the server) to avoid duplicating a message.
+
+Each queued operation retries exactly once per drain, with exponential
+backoff (capped, plus jitter) between attempts — the queue itself owns
+re-enqueuing a failed retry; nothing else in the SDK enqueues a second copy
+of the same logical send.
+
+A photo/video/audio/file attachment enters the same queue when the
+**upload** step fails with a connectivity-flavored failure (a
+`NetworkFailure`/`TimeoutFailure`, checked by `ChatUiAdapter` before
+calling `ChatClient.enqueueOfflineAttachment`) — `sendAttachment`/
+`sendVoice` still mark the optimistic bubble failed immediately (nothing
+changes visually), but the bytes + metadata are queued and the whole
+upload+send is replayed automatically on reconnect. The bubble flips from
+failed to sent via the same `onOfflineMessageSent` reconciliation as a
+queued text send, keyed by the original `tempId`. A permanent failure
+(validation, auth, forbidden, …) is never queued — there is nothing a
+retry would fix.
 
 If the offline queue exhausts its retries (or the operation sits too long /
 the queue is full), `NomaChatClient.onOperationDropped` fires. The default
@@ -799,8 +965,9 @@ await chat.client.presence.update(status: PresenceStatus.dnd);
 ### Attachments
 
 ```dart
-// Upload a file and send in one step (UI adapter helper)
-await chat.ui.sendAttachment(
+// Upload a file and send in one step (adapter helper — paints an
+// optimistic bubble with live upload progress before the upload starts).
+await chat.adapter.messages.sendAttachment(
   roomId,
   bytes: bytes,
   mimeType: 'image/jpeg',
@@ -815,6 +982,50 @@ final attachmentId = up.dataOrNull?.attachmentId;
 final files = await chat.client.attachments.listInRoom(roomId);
 await chat.client.attachments.deleteInRoom(roomId, messageId);
 ```
+
+#### `attachmentId` and re-minting an expired signed URL
+
+`ChatMessage.attachmentId` is the stable id an attachment was uploaded
+under. It travels through the full send path (REST, cache, offline queue,
+WS-ack synthetic echo), so both the sender and the recipient can re-mint a
+fresh signed download URL later instead of trusting a persisted one that
+may have expired (`AttachmentPolicy`'s signed URLs are short-lived — see
+"Downloading / displaying" above).
+
+`SignedAttachmentUrlResolver` does this re-minting for you: it caches a
+signed URL per `(roomId, attachmentId)` and re-mints when the cached entry
+is close to expiring, falling back to `ChatMessage.attachmentUrl` (via
+`attachmentIdFromUrl` for legacy messages predating this field) when no id
+is available. `NomaChatView` wires it in **by default** — nothing to
+configure for the common case:
+
+```dart
+NomaChatView(
+  adapter: chat.adapter,
+  roomId: roomId,
+  // builders.attachmentUrlResolver defaults to
+  // adapter.defaultAttachmentUrlResolver (a SignedAttachmentUrlResolver) —
+  // override only for a custom CDN/proxy.
+)
+```
+
+`AudioBubble` / `ImageBubble` / `VideoBubble` retry once through the
+resolver on a load error (e.g. the persisted URL expired between render and
+tap), so a received attachment self-heals without the host doing anything.
+
+#### Upload progress — `ImageBubble` / `VideoBubble` / `FileBubble`
+
+`ImageBubble`, `VideoBubble` and `FileBubble` each take an `uploadProgress`
+(`ValueListenable<double>?`); while non-null they show a placeholder +
+progress ring instead of resolving the (not-yet-usable) attachment URL, and
+disable tap-to-open — the same contract `AudioBubble.uploadProgress`
+already had. `NomaChatView` wires this **by default**: `ChatViewBuilders
+.attachmentUploadProgressFor` defaults to
+`ChatUiAdapter.attachmentUploadProgressFor` (the same registry
+`sendAttachment`/`sendVoice` register into), so a photo/video/file upload
+shows the ring out of the box — nothing to configure for the common case.
+Supply your own `attachmentUploadProgressFor` on `ChatViewBuilders` only if
+you need a different resolver (it wins over the default).
 
 #### Downloading / displaying — signed URLs (primary path)
 
@@ -871,9 +1082,12 @@ const imagesAndDocsOnly = AttachmentPolicy(
 );
 
 // Enforced at pick time — a rejected file never reaches the composer.
+// `onRejected` turns what used to be a silent drop (just a `warn` log
+// line) into something the UI can react to.
 final pick = await AttachmentPickers.pickImageFromGallery(
   policy: imagesAndDocsOnly,
   logger: (level, msg) => myLogger.log(level, msg), // logs the violation
+  onRejected: (rejection) => showSnackBar(rejection.message),
 );
 
 // Belt-and-suspenders re-check at send time (e.g. bytes built by a web
@@ -894,11 +1108,57 @@ Two presets ship out of the box: `AttachmentPolicy.unrestricted` (default —
 only the 25 MB fallback cap applies, no MIME whitelist) and
 `AttachmentPolicy.whatsappLike` (per-type caps approximating WhatsApp's 2024
 limits). Clone either with `copyWith(...)` rather than hand-rolling a new
-policy for small tweaks. There is no separate "attachment builder" hook —
+policy for small tweaks.
+
+#### Surfacing a rejected pick — `onRejected`
+
+Every `AttachmentPickers` method (`pickImageFromCamera`,
+`pickImageFromGallery`, `pickVideoFromGallery`, `pickMultipleMedia`,
+`pickFile`) takes an optional `onRejected: void Function(AttachmentRejection
+rejection)`. It fires for a policy violation (`reason:
+AttachmentRejectReason.tooLarge` / `.mimeNotAllowed`) as well as an
+unreadable file (`.unreadable` — the plugin/platform failed to read it, a
+distinct case from the user simply cancelling the picker, which still
+returns `null`/an empty list with no callback at all). `rejection.message`
+is a ready-to-show English string; a localized UI should instead build its
+own from `rejection.reason` plus `ChatUiLocalizations.attachmentTooLarge` /
+`.attachmentTypeNotAllowed` / `.attachmentUnreadable`.
+
+`NomaChatView`'s built-in Camera/Gallery/File rows call `AttachmentPickers`
+with the default `AttachmentPolicy.unrestricted` and no `onRejected` — if
+your app wants a stricter policy and a visible rejection, override the
+picker callbacks (they replace the built-in row's action entirely, not just
+its icon):
+
+```dart
+NomaChatView(
+  adapter: chat.adapter,
+  roomId: roomId,
+  callbacks: ChatViewCallbacks(
+    onPickGallery: () async {
+      final pick = await AttachmentPickers.pickImageFromGallery(
+        policy: imagesAndDocsOnly,
+        onRejected: (r) => showSnackBar(r.message),
+      );
+      if (pick != null) {
+        await chat.adapter.messages.sendAttachment(
+          roomId,
+          bytes: pick.bytes,
+          mimeType: pick.mimeType,
+          fileName: pick.fileName,
+        );
+      }
+    },
+    // onPickCamera / onPickFile follow the same pattern.
+  ),
+)
+```
+
+There is no separate "attachment builder" hook for the sheet's layout —
 extra picker entries (e.g. a location share button) are added via
-`ChatView.attachmentPickerExtraOptions`, documented under "Customization
+`ChatViewBehaviors.attachmentExtraOptions`, documented under "Customization
 hooks → AttachmentPickerSheet — extra slots" below; `AttachmentPolicy` only
-governs validation, not the picker sheet's layout.
+governs validation.
 
 ---
 
@@ -923,6 +1183,31 @@ await chat.client.refresh();
 // Refresh a specific room only
 await chat.client.refreshRoom(roomId);
 ```
+
+### Dead-peer detection — the WS pong watchdog
+
+A WebSocket left half-open by a NAT timeout or a mobile network handoff
+("zombie" socket) never surfaces as an `onError`/`onDone` close, so nothing
+tells the transport to reconnect — realtime events just silently stop
+arriving. `WsTransport` guards against this: every `ping` (interval
+`ChatConfig.wsPingInterval`, default 30s) arms a `ChatConfig.wsPongTimeout`
+(default 10s); if the matching `pong` never arrives, the transport forces a
+reconnect. It's on by default and verified safe against this backend (it
+always answers `ping` with `pong`) — turn it off only against a backend you
+know doesn't:
+
+```dart
+config: ChatConfig(
+  wsPongWatchdogEnabled: false, // only if your backend never answers ping
+),
+```
+
+Reconnect backoff after any WS drop (watchdog-triggered or not) is tunable
+too — `wsMaxReconnectDelay` (default 60s, the backoff ceiling) and
+`wsReconnectJitterMs` (default 1000, random jitter added to each attempt so
+a fleet of clients reconnecting after an outage doesn't hit the backend in
+lockstep). `RealtimeTransport.lastPongAge` exposes how long it's been since
+the last pong, if you want to surface connection health in a debug overlay.
 
 ---
 
@@ -1204,6 +1489,53 @@ RoomListView(
   onRejectInvitation: (item) => chat.adapter.rooms.rejectInvitation(item.id),
 )
 ```
+
+#### Cache-first loading — `mergeRooms`, and why the list never flashes empty
+
+The adapter's own `loadRooms()` renders the local cache first, then
+revalidates against the network in the background — you don't opt into
+this, it is simply how `NomaChat.create()` behaves. The mechanism behind it
+is `RoomListController.mergeRooms(incoming, {required authoritative})`, an
+upsert-in-place alternative to `setRooms` (clear-then-refill):
+
+- **Non-authoritative** (a cache read, or a best-effort background
+  revalidation) only adds/updates rows — it never drops one it can't vouch
+  for, so a partial or empty response can't blank a list that already has
+  content.
+- **Authoritative** (a full server snapshot) reconciles fully — drops rows
+  missing from `incoming`, same end state as `setRooms` — but without ever
+  exposing listeners to an empty list in between.
+- **A totally empty `incoming` is always a no-op**, even when
+  `authoritative` is `true` and `snapshotAt` is set — `mergeRooms` never
+  clears a non-empty list from an empty response. A full wipe is,
+  over the wire, indistinguishable from a transient backend blip that
+  fails closed to an empty page rather than an outright error, and that's
+  far likelier mid-session than the user genuinely losing every room at
+  once. Genuine removals always arrive one at a time: a realtime event
+  (`RoomLeft` / `RoomDeleted`), or a *partial* authoritative snapshot
+  (non-empty `incoming` that omits some previously known rows).
+
+`RoomEnricher.loadAll` (and, through it, `ChatUiAdapter.loadRooms` /
+`ChatRoomsController.load`) additionally accepts `allowRoomRemoval`
+(default `true`) to opt a caller *out* of the drop pass entirely, even on
+its own foreground network response — used by the automatic
+`_backgroundRevalidate` pass and by `resync()` (see below), both of which
+run without the user having asked for a refresh and must never be the
+thing that deletes a room on a flaky read. Only an explicit,
+user-initiated pull-to-refresh keeps the default `true` and stays fully
+authoritative.
+
+Most hosts never call `mergeRooms` directly (the adapter uses it
+internally); it's public for a host that maintains its own
+`RoomListController` outside the adapter.
+
+This is also why `adapter.disconnect()` defaults to `clearRooms: false` —
+the room list, the foregrounded room's `ChatController`, and the DM
+contact↔room binding all survive a disconnect, so backgrounding or a
+connection blip never flashes the list empty; a subsequent `resync()` (see
+above) backfills anything missed. Pass `disconnect(clearRooms: true)` for
+the old eager-wipe behavior — `signOut()` / `dispose()` still always do the
+full wipe internally.
 
 ---
 
@@ -1511,16 +1843,18 @@ RoomListView(
 Add custom options to the attachment picker:
 
 ```dart
-ChatView(
-  controller: controller,
-  attachmentPickerExtraOptions: [
-    AttachmentPickerOption(
-      icon: Icons.location_on,
-      label: 'Location',
-      onTap: () => myLocationPicker(),
-    ),
-  ],
-  onShareLocation: (context) => myLocationPicker(),
+NomaChatView(
+  adapter: chat.adapter,
+  roomId: roomId,
+  behaviors: ChatViewBehaviors(
+    attachmentExtraOptions: [
+      AttachmentSheetOption(
+        icon: Icons.location_on,
+        label: 'Location',
+        onTap: () => myLocationPicker(),
+      ),
+    ],
+  ),
 )
 ```
 
@@ -1897,3 +2231,10 @@ Mock classes moved to a dedicated barrel. Import `package:noma_chat/noma_chat_te
 ### Room list shows duplicate DMs after reconnect
 
 The adapter deduplicates `oneToOne` rooms on reconnect using its contact-to-room index. If you see duplicates, verify that `isDmRoom` is consistent (same predicate on every `NomaChat.create()` call in the same session) and that your backend returns the same `roomId` for the same DM pair.
+
+As of `0.13.0` the dedupe tie-break is deterministic (a stable `roomId`
+comparison, independent of which room's resolution completes first), so
+the row no longer flickers between the two ids across refreshes. It also
+no longer evicts the losing room from the persistent cache during a
+cache-only pass — only an authoritative network pass does, so a stale
+guess can never destroy state a later reconciliation still needs.

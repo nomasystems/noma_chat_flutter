@@ -20,6 +20,14 @@ abstract class ChatMessage with _$ChatMessage {
     String? text,
     @Default(MessageType.regular) MessageType messageType,
     String? attachmentUrl,
+
+    /// Stable attachment id for media messages. Lets the UI re-mint a
+    /// fresh signed download URL via `ChatAttachmentsApi.signedUrl` when
+    /// the persisted [attachmentUrl] expires (see `SignedAttachmentUrlResolver`).
+    /// `null` for text messages or legacy messages the backend stored
+    /// before it echoed this field back — `attachmentIdFromUrl` can
+    /// recover it from [attachmentUrl] in that case.
+    String? attachmentId,
     String? referencedMessageId,
 
     /// Echo of the client-supplied idempotency key sent with the message
@@ -118,6 +126,12 @@ enum ReceiptStatus {
   sent,
   delivered,
   read;
+
+  /// Monotonic position along the `sent → delivered → read` progression
+  /// (1/2/3). Higher is further along. Lets receipt writers reject an
+  /// out-of-order downgrade (a late `delivered` overtaking a `read`)
+  /// without duplicating the ordering at every call site.
+  int get rank => index + 1;
 
   /// `true` when the recipient has confirmed reading the message.
   /// Drives the double-blue check rendering in the bubble status.

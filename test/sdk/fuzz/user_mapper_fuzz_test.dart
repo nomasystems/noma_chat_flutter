@@ -87,6 +87,11 @@ void main() {
         expect(() => UserMapper.contactFromJson(inputs[i]), returnsNormally);
       });
     }
+
+    test('userId as int is coerced to string, not dropped to empty', () {
+      final contact = UserMapper.contactFromJson({'userId': 42});
+      expect(contact.userId, '42');
+    });
   });
 
   group('UserMapper.roomUserFromJson fuzz', () {
@@ -107,6 +112,11 @@ void main() {
         expect(() => UserMapper.roomUserFromJson(inputs[i]), returnsNormally);
       });
     }
+
+    test('userId as int is coerced to string, not dropped to empty', () {
+      final user = UserMapper.roomUserFromJson({'userId': 42, 'role': 7});
+      expect(user.userId, '42');
+    });
   });
 
   group('UserMapper.managedConfigFromJson fuzz', () {

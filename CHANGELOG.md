@@ -6,6 +6,294 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.13.0
+
+### Added
+
+- **Structured logging pipeline.** `ChatLogTag`/`ChatLogLevel`/`ChatLogRecord`,
+  pluggable `ChatLogSink` (`ConsoleChatLogSink`, `CallbackChatLogSink`,
+  `BufferChatLogSink`, `MultiChatLogSink`) and `ChatLogExporter.exportToFile`
+  for a one-tap shareable log file. `ChatConfig` gains `logSink`/`logLevel`/
+  `logTags`/`logMessageContent` and a `logs` getter every subsystem logs
+  through; the existing `logger` callback keeps working unchanged
+  (`CallbackChatLogSink` bridges it when `logSink` is left `null`).
+- `ChatMessage.attachmentId` — the stable id an attachment was uploaded
+  under, propagated through the full send path (REST, cache, offline
+  queue, WS-ack synthetic echo) so the recipient (and the sender, on
+  re-open) can re-mint a fresh signed download URL instead of trusting a
+  persisted one that may have expired.
+- `SignedAttachmentUrlResolver` / `AttachmentUrlResolver` / `AttachmentRef`
+  (`ui/services/attachment_url_resolver.dart`): re-mints signed URLs on
+  expiry, wired as the default `ChatViewBuilders.attachmentUrlResolver` by
+  `NomaChatView`. `AudioBubble`/`ImageBubble`/`VideoBubble` gain
+  `attachmentRef`/`urlResolver` params and retry once via the resolver on
+  a load error; `MessageBubble` gains `roomId`/`attachmentUrlResolver`.
+- `AttachmentPickers` methods gain `onRejected` (`AttachmentRejection`,
+  `AttachmentRejectReason`) — a policy violation or unreadable file is no
+  longer a silent drop with just a `warn` log line.
+- `ChatMessagesController.sendAttachment` now paints an optimistic bubble
+  with live upload progress (`ChatUiAdapter.attachmentUploadProgressFor`)
+  before the upload even starts, and leaves it visibly failed on error —
+  parity with `sendVoice` instead of a blank bubble for the whole upload.
+- `ChatUiLocalizations` gains `attachmentTooLarge` / `attachmentTypeNotAllowed`
+  / `attachmentUnreadable`, translated for en/es/fr/de/it/pt (other locales
+  fall back to English).
+- `ChatMessagesController.sendAttachment`/`sendVoice` enter the offline retry
+  queue on a connectivity-flavored upload failure instead of requiring a
+  manual retry — `ChatClient.enqueueOfflineAttachment` (**Breaking**: new
+  required interface method; `NomaChatClient` and `MockChatClient` both
+  implement it, defaulting to a no-op when no offline queue is configured)
+  queues the bytes + metadata as a `PendingSendAttachment` and replays the
+  whole upload+send on reconnect, reconciling the optimistic bubble via the
+  existing `onOfflineMessageSent` hook (same tempId).
+- `ImageBubble`/`VideoBubble`/`FileBubble` gain `uploadProgress` and show a
+  placeholder + upload-progress ring while non-null — parity with
+  `AudioBubble.uploadProgress` for the attachment types that previously
+  showed a broken-image icon (or nothing) for the whole upload.
+  `ChatViewBuilders`/`MessageList` gain `attachmentUploadProgressFor`,
+  defaulted by `NomaChatView` to `ChatUiAdapter.attachmentUploadProgressFor`
+  so the ring shows up without the host wiring anything.
+- `ChatRoomsController.open()` fast-fails with a typed `NetworkFailure`
+  instead of waiting out the full `requestTimeout` when the client already
+  knows the realtime channel is `disconnected`.
+- `RoomListItem.lastSeen` — mirrors `ChatPresence.lastSeen`, kept in sync by
+  `PresenceRegistry.update`/`bootstrap`. `ChatRoomAppBar` now renders a
+  "last seen …" subtitle for an offline 1:1 peer instead of leaving the
+  subtitle blank (`ChatUiLocalizations.lastSeenTemplate`, translated for
+  en/es/fr/de/it/pt).
+- **WS pong watchdog (dead-peer detection).** `WsTransport` now arms a
+  timeout (`ChatConfig.wsPongTimeout`, default 10s) on every ping
+  (`wsPingInterval`, default 30s) and forces a reconnect if the matching
+  `pong` never arrives — previously a "zombie" socket (stuck half-open
+  after a NAT timeout or mobile network handoff) never surfaced as an
+  `onError`/`onDone` close and silently stopped delivering realtime
+  events. Toggle with `wsPongWatchdogEnabled` (default `true`; verified
+  safe — the backend always answers `ping` with `pong`). Reconnect backoff
+  gains explicit tunables: `wsMaxReconnectDelay` (default 60s) and
+  `wsReconnectJitterMs` (default 1000). `RealtimeTransport` gains
+  `lastPongAge`.
+- **`ChatConnectionState.authenticating`** — emitted between the socket
+  opening and the server confirming `auth_ok` (previously indistinguishable
+  from `connecting`). `isWorking` now includes it. **Breaking** for any
+  exhaustive `switch` over the enum (see Changed below).
+- **SDK-owned app lifecycle.** `ChatUiAdapter` (and `NomaChat.create` /
+  `.fromConfig` / `.fromClient`) gain `manageAppLifecycle` (default `true`)
+  and `lifecyclePolicy` (`ChatLifecyclePolicy.standard()` by default,
+  `.pushOptimized()` also provided). When enabled, the adapter registers
+  its own `WidgetsBindingObserver` and reconnects on resume / optionally
+  disconnects after a grace period on pause — the host no longer needs a
+  separate `AppLifecycleService` for chat. Registration is best-effort: it
+  silently no-ops if no Flutter binding is available yet (e.g. a
+  `ChatUiAdapter` built in a plain unit test), so it never crashes a host
+  or a test that doesn't expect it.
+- `ChatUiAdapter.resync()` — a full reconnect resync (room list
+  `forceNetwork: true` + the foregrounded room's messages, backfilling
+  anything missed while disconnected). A no-op until the adapter's first
+  `loadRooms` has ever completed (`initializedNotifier`) — there is
+  nothing to resync for a session that hasn't bootstrapped its room list
+  yet, and firing early could race the host's own initial load. Triggered
+  automatically on every fresh reconnect via `enableReconnectResync`
+  (default `true`, adapter constructor param), debounced to at most once
+  every 5 seconds so a flappy connection or a resume racing an in-flight
+  reconnect can't double-resync. Centralized in the adapter's existing
+  reconnect hook — no second "did we just reconnect" detection point.
+- **Cache-first room list, with a self-healing background revalidation.**
+  `RoomListController.mergeRooms(incoming, {required authoritative})` —
+  upserts rows in place instead of clear-then-refill. A non-authoritative
+  merge (a cache read, or a best-effort background pass) never drops a
+  row it can't vouch for, so a partial/empty response can't blank the
+  list; an authoritative merge (a full server snapshot) reconciles fully,
+  same end state as `setRooms`, but without ever exposing listeners to an
+  empty list in between. `RoomEnricher.loadAll` no longer hard-skips the
+  network pass when realtime is already trusted — it now fires a
+  background revalidation (`mergeRooms(authoritative: true)`) instead, so
+  a stale or partial cache snapshot self-heals without the caller ever
+  seeing an empty screen. Guarded per `type` so repeated `loadRooms()`
+  calls (e.g. a screen re-opening) never fan out into overlapping network
+  passes for the same request.
+- `ChatRoomsController.open(roomId, {fetchIfMissing = true})` — opens a
+  room by id, fetching its detail from the server when it isn't already
+  known to `roomListController` (the deep-link case: a push notification
+  or shared link pointing at a room the local list/cache hasn't synced
+  yet). Returns a ready `ChatController` on success, or a typed
+  `ChatFailure` the host can branch on instead of collapsing every case
+  to "this chat doesn't exist": `NotFoundFailure` (really gone / not a
+  member), `AuthFailure` / `ForbiddenFailure` (session/permission — NOT
+  the same as not-found), or `NetworkFailure` / `TimeoutFailure`
+  (transient — retry, don't tell the user the chat is gone).
+
+### Fixed
+
+- **Room list flicker between refreshes for duplicate DM rooms (root
+  cause of part of S1).** The duplicate-DM tie-break used to fall back to
+  "whichever room was already bound wins" when neither candidate had
+  history (or both shared the exact same `lastMessageTime`) — but which
+  one that was depended on which of the two async DM resolutions
+  happened to complete first, which flips from refresh to refresh under
+  normal scheduling. The tie-break is now a deterministic `roomId`
+  comparison, independent of resolution order: the same pair of
+  duplicate rooms always resolves to the same winner.
+- A **non-authoritative (cache) pass of the duplicate-DM dedupe no
+  longer evicts the losing room from the persistent cache** — it now
+  only suppresses it from the visible list. Only an authoritative
+  (network) pass persists the eviction (drops the cached room/detail and
+  disposes its `ChatController`). Previously a cache-only guess could
+  permanently destroy state a later authoritative pass might still have
+  needed to reconcile correctly.
+- `ChatUiAdapter.logs` now propagates `logLevel` and `logMessageContent` —
+  both were silently clamped to `warn` + redacted regardless of what the
+  host passed, so sub-manager `debug` lines (presence bootstrap, signed
+  attachment re-mint, optimistic send) never reached a `logLevel: debug`
+  host, and message text stayed redacted even with `logMessageContent:
+  true`. `ChatUiAdapter` (and `NomaChat.create`/`fromConfig`/`fromClient`)
+  now accept `logLevel`/`logMessageContent` and forward them, mirroring
+  `ChatConfig.logs`.
+- `PresenceRegistry.bootstrap` now applies every changed DM room via a
+  single `RoomListController.mergeRooms` call instead of one `updateRoom`
+  per room — a reconnect with N one-to-one rooms used to re-sort +
+  re-index + notify the whole list N times (O(n² log n)); it's now one
+  pass.
+- `ChatView` no longer flashes the empty state for a room with no cached
+  history: `ChatController.isLoadingInitial` (set while
+  `ChatMessagesController.load`'s cache+network phases are in flight)
+  now gates the empty state, matching the loading/empty split
+  `RoomListView` already had. A brand-new draft DM (which never runs
+  `load`) still renders its empty composer immediately.
+- Opening a room now clears its room-list unread badge immediately,
+  client-side (`ChatUiAdapter.setActiveRoom`), instead of waiting for
+  `markAsRead`'s network round-trip — matches the bubble-level receipt
+  behavior and avoids the badge visibly lagging on a slow connection.
+- `ChatUiAdapter.dispose()` now disposes `blockedUsersListenable` — it was
+  the only one of the adapter's four broadcast notifiers left out,
+  leaking a `ChangeNotifier` and its listeners on every teardown.
+- `RoomEnricher`'s background room-list revalidation (fired on every
+  cache-fresh `loadRooms`, e.g. every screen reopen) is now debounced
+  per `type` (default 5s, same window as reconnect-resync) — the
+  in-flight guard alone only stopped *concurrent* passes, so a rapid
+  open/close/reopen still re-ran the full network fetch + per-DM
+  enrichment pass each time.
+- **Offline queue self-duplication on a failed drain.** Replaying a queued
+  `send`/`delete`/`addReaction`/`deleteReaction`/`pinMessage`/
+  `unpinMessage`/`starMessage`/`unstarMessage` (and DM `sendDirectMessage`)
+  from the drain loop went back through the same enqueue-on-failure
+  decorator that queued it in the first place — a failed retry left BOTH
+  a fresh copy (from the decorator) and the backoff-requeued original (from
+  `OfflineQueue._drainWith`) in the queue. `OfflineQueuedMessagesApi`/
+  `ContactsApi` gain `enqueueOnFailure` (default `true`; the drain replay
+  path passes `false`), so `_drainWith`'s backoff is the single place that
+  re-enqueues a retried op.
+- `ChatRoomsController.open()` (deep-link fetch of a room not yet known
+  locally) now fast-fails with a typed `NetworkFailure` when
+  `ChatClient.connectionState` is already `disconnected`, instead of
+  waiting out the full `requestTimeout` (default 30s) on a REST call very
+  unlikely to succeed.
+- `RoomListController.mergeRooms` no longer drops a locally created room
+  it hasn't heard back about yet: an authoritative snapshot older than a
+  room's own creation/edit timestamp can't vouch for its absence, so that
+  row is now spared instead of evicted. An authoritative *empty* snapshot
+  that does carry a capture time still clears every row that predates it,
+  so a genuinely empty room list (no rooms left) no longer leaves a
+  phantom row behind.
+- `ChatUiAdapter.resync()` no longer silently drops a reconnect that
+  lands while a previous resync is still in flight — it's coalesced into
+  a follow-up pass instead of being swallowed by the debounce window. Its
+  debounce seal is now per-attempt (a late failure can't clobber a newer
+  attempt's seal) and is also reverted when the resync throws, not only
+  when it returns a typed failure.
+- The room list's per-row receipt tick and `ChatController`'s aggregated
+  per-message receipt now both apply a monotonic rank guard
+  (`sent < delivered < read`) — a `receipt_updated` event that arrives
+  out of order (e.g. a queued `delivered` landing after a live `read` for
+  the same message) can no longer regress the tick backwards.
+- `PresenceRegistry.bootstrap` no longer lets a stale REST snapshot
+  overwrite a live `PresenceChangedEvent` that arrived while the snapshot
+  request was still in flight — the fresher live update wins regardless
+  of which one resolves first.
+- **Background room-list revalidation could wipe a healthy list on a
+  transient blip (regression reopening S1).** `RoomEnricher.loadAll`'s
+  self-healing background pass (see "Cache-first room list" above) reused
+  the same fully-authoritative, row-dropping merge as an explicit
+  pull-to-refresh — a single short/empty network response on an
+  automatic, invisible background refresh was enough to drop real rooms
+  from the list. `RoomListController.mergeRooms` gains an
+  `allowRoomRemoval` path so the background pass can still reconcile
+  DM-dedupe/kicked-room state authoritatively without ever being allowed
+  to delete a row.
+- **The reconnect-triggered `ChatUiAdapter.resync()` was still fully
+  authoritative and reopened the same S1 regression the fix above closed
+  for the background pass.** `resync()` goes through `loadRooms(forceNetwork:
+  true)` — the very same foreground path an explicit pull-to-refresh uses —
+  so the `allowRoomRemoval` guard above never reached it, and a reconnect is
+  exactly the moment network is flakiest (the best-effort backend read
+  behind `getUserRooms` can fail closed to a short/empty page). `loadAll` /
+  `loadRooms` / `ChatRoomsController.load` now thread an explicit
+  `allowRoomRemoval` parameter (independent of `forceNetwork`, which both
+  callers set) down to the foreground network merge; `resync()` passes
+  `false`, matching `_backgroundRevalidate`. Only an explicit, user-initiated
+  pull-to-refresh (the default `allowRoomRemoval: true`) still prunes rooms
+  the server no longer returns. Defense in depth: `RoomListController
+  .mergeRooms` also hardened so a totally empty incoming snapshot is now
+  *always* a no-op, even when `authoritative` and `snapshotAt` are set — a
+  full wipe is indistinguishable, over the wire, from the same fail-closed
+  blip, and is never how a genuine room removal actually arrives (those
+  come one at a time, via realtime events or a partial authoritative
+  snapshot).
+- **Offline attachment queue had no size cap and re-encoded the whole
+  queue to base64 on every mutation.** `enqueueOfflineAttachment` now
+  rejects an attachment over `CacheConfig.offlineQueueMaxAttachmentBytes`
+  (default 10 MB) via the existing `onOperationDropped` callback
+  (`'attachment_too_large'`) instead of queueing it and running out of
+  memory later, and `PendingSendAttachment`'s base64 payload is memoized
+  per byte buffer so persisting the queue no longer re-encodes every
+  pending attachment's bytes on each `enqueue()`/drain pass.
+- **A resumed app could reconnect onto a zombie WebSocket and never
+  recover realtime (regression reopening S3/S5).** `WsTransport.connect()`
+  is a no-op while the transport already believes it's `connected` — but
+  after an OS-suspended socket dies without a proper close, that belief is
+  wrong, so app resume silently did nothing. Transports gain
+  `verifyLiveness()`: on resume, a connected `WsTransport` sends an
+  immediate ping and arms the existing pong watchdog instead of trusting
+  its own state; a timeout forces the real reconnect (`Disconnected` +
+  `Connected` events), which in turn re-triggers presence bootstrap and
+  `resync()`. `AutoFailoverTransport.connect()` now probes the primary's
+  liveness instead of unconditionally resetting `_primaryHasConnected`
+  when the primary is already connected, fixing a related failover
+  regression where a resume could delay promoting the SSE/polling
+  fallback after a subsequent blip.
+
+### Changed
+
+- `ChatUiAdapter.disconnect()` gains `{bool clearRooms = false}`. The new
+  default is cache-first and resumable: the room list, the currently
+  foregrounded room's `ChatController` and the DM contact↔room binding all
+  survive a `disconnect()` — the list never flashes empty across a
+  background/reconnect cycle, and a subsequent `resync()` can backfill the
+  open conversation. Pass `clearRooms: true` for the previous eager-wipe
+  behavior (also what `signOut()` / `dispose()` use internally — logout is
+  unaffected).
+- `ChatConnectionState` adds `authenticating` (see Added above) — any
+  exhaustive `switch` over the enum in host code must add a case for it
+  (the SDK's own `ConnectionBanner` and `AutoFailoverTransport` already do,
+  mapping it to the same treatment as `connecting`).
+
+### Notes
+
+- `enableReconnectCatchUp` (`NomaChatClient`, unread catch-up on reconnect,
+  default `false`, not activated by WB) is a pre-existing, distinct
+  reconnect mechanism one layer below the new `ChatUiAdapter.resync()` /
+  `enableReconnectResync`. Left untouched this release; the two can overlap
+  if a consumer enables both — not merged here.
+- `logMessageContent` defaults to `false`. Message/caption text passed to
+  `ChatLogger.content()` is redacted unless explicitly enabled — intended
+  for a temporary diagnostics build, not for production.
+- `ChatMessage.attachmentId` closing S6 (audio/photo URL re-mint) for a
+  **received** message additionally requires the backend to echo
+  `attachmentId` on reads (`getRoomMessages`, `new_message`,
+  `sendRoomMessage`) and to persist the stable slot URL rather than a
+  TTL-bound signed one — see the `chat_engine` 0.13.0-train changes. The
+  SDK falls back to parsing an id out of the URL (`attachmentIdFromUrl`)
+  when the backend hasn't rolled the field out yet.
+
 ## 0.12.1 - 2026-07-17
 
 ### Removed

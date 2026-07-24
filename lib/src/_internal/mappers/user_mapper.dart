@@ -5,6 +5,7 @@ import '../../models/contact.dart';
 import '../../models/room_user.dart';
 import '../../models/managed_user_config.dart';
 import '../dto/user_dto.dart';
+import '../util/json_safe.dart';
 
 class UserMapper {
   static void Function(String level, String message)? logger;
@@ -26,8 +27,10 @@ class UserMapper {
   static ChatUser fromJson(Map<String, dynamic> json) =>
       fromDto(UserDto.fromJson(json));
 
-  static List<ChatUser> fromJsonList(List<dynamic> list) =>
-      list.map((e) => fromJson(e as Map<String, dynamic>)).toList();
+  static List<ChatUser> fromJsonList(List<dynamic> list) => [
+    for (final e in list)
+      if (e is Map<String, dynamic>) fromJson(e),
+  ];
 
   /// Parses a single contact from `/v1/contacts`.
   ///
@@ -36,7 +39,15 @@ class UserMapper {
   /// `ChatContact(userId: '')` that consumers can filter/log rather than
   /// silently swallowing a malformed row.
   static ChatContact contactFromJson(Map<String, dynamic> json) {
-    final id = (json['userId'] ?? '') as String;
+    final id = jsonIdOr(
+      json['userId'],
+      '',
+      onEmptyFromPresent: () => logger?.call(
+        'warn',
+        'UserMapper.contactFromJson: userId present but coerced to empty '
+            '(raw: ${json['userId']})',
+      ),
+    );
     if (id.isEmpty) {
       logger?.call(
         'warn',
@@ -47,18 +58,26 @@ class UserMapper {
   }
 
   static RoomUser roomUserFromJson(Map<String, dynamic> json) => RoomUser(
-    userId: (json['userId'] ?? '') as String,
+    userId: jsonIdOr(
+      json['userId'],
+      '',
+      onEmptyFromPresent: () => logger?.call(
+        'warn',
+        'UserMapper.roomUserFromJson: userId present but coerced to empty '
+            '(raw: ${json['userId']})',
+      ),
+    ),
     // Backend `GET /v1/rooms/:roomId/users` emits `userRole`. Older
     // call sites and the WS payload sometimes use `role`. Accept both
     // so the role badge + promote/demote actions render consistently.
-    role: _parseRoomRole((json['userRole'] ?? json['role']) as String?),
+    role: _parseRoomRole(jsonStringOrNull(json['userRole'] ?? json['role'])),
     // `displayName` / `avatarUrl` are present only when the list was
     // requested with `?expand=users`. Without expansion the backend emits
     // just `{userId, userRole}`, so the keys are absent and both stay null
     // (backward-compatible parse). Coerce empty strings to null as well so a
     // blank field never shadows a richer user-cache lookup downstream.
-    displayName: _nonEmpty(json['displayName'] as String?),
-    avatarUrl: _nonEmpty(json['avatarUrl'] as String?),
+    displayName: _nonEmpty(jsonStringOrNull(json['displayName'])),
+    avatarUrl: _nonEmpty(jsonStringOrNull(json['avatarUrl'])),
   );
 
   static String? _nonEmpty(String? value) =>
@@ -67,9 +86,9 @@ class UserMapper {
   static ManagedUserConfiguration managedConfigFromJson(
     Map<String, dynamic> json,
   ) => ManagedUserConfiguration(
-    metadata: json['metadata'] as Map<String, dynamic>?,
-    webhook: json['webhook'] != null
-        ? _parseWebhookConfig(json['webhook'] as Map<String, dynamic>)
+    metadata: jsonMapOrNull(json['metadata']),
+    webhook: jsonMapOrNull(json['webhook']) != null
+        ? _parseWebhookConfig(jsonMapOrNull(json['webhook'])!)
         : null,
   );
 
@@ -134,9 +153,9 @@ class UserMapper {
 
   static UserConfiguration _parseConfiguration(Map<String, dynamic> json) =>
       UserConfiguration(
-        metadata: json['metadata'] as Map<String, dynamic>?,
-        webhook: json['webhook'] != null
-            ? _parseWebhookConfig(json['webhook'] as Map<String, dynamic>)
+        metadata: jsonMapOrNull(json['metadata']),
+        webhook: jsonMapOrNull(json['webhook']) != null
+            ? _parseWebhookConfig(jsonMapOrNull(json['webhook'])!)
             : null,
       );
 
@@ -144,16 +163,16 @@ class UserMapper {
     // Backend 1.0.0 emits a flat `{ authMethod, authToken }`. Older payloads
     // (and pre-1.0 cached blobs) used a nested `auth` object; accept both so a
     // stale server or cache never crashes the mapper.
-    final auth = json['auth'] as Map<String, dynamic>?;
-    final method = (json['authMethod'] ?? auth?['type']) as String?;
+    final auth = jsonMapOrNull(json['auth']);
+    final method = jsonStringOrNull(json['authMethod'] ?? auth?['type']);
     return WebhookConfig(
-      url: (json['url'] ?? '') as String,
+      url: jsonStringOr(json['url'], ''),
       authType: method == 'basic'
           ? WebhookAuthType.basic
           : WebhookAuthType.bearer,
-      token: (json['authToken'] ?? auth?['token']) as String?,
-      username: auth?['username'] as String?,
-      password: auth?['password'] as String?,
+      token: jsonStringOrNull(json['authToken'] ?? auth?['token']),
+      username: jsonStringOrNull(auth?['username']),
+      password: jsonStringOrNull(auth?['password']),
     );
   }
 }

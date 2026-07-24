@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
@@ -215,6 +217,30 @@ class _PredicateTestClient implements ChatClient {
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _delegate.onOfflineMessageSent = value;
+  @override
+  void enqueueOfflineAttachment({
+    required String roomId,
+    required Uint8List bytes,
+    required String mimeType,
+    ChatFailure? causeFailure,
+    String? fileName,
+    MessageType messageType = MessageType.attachment,
+    String? text,
+    Map<String, dynamic>? metadata,
+    String? tempId,
+    String? clientMessageId,
+  }) => _delegate.enqueueOfflineAttachment(
+    roomId: roomId,
+    bytes: bytes,
+    mimeType: mimeType,
+    causeFailure: causeFailure,
+    fileName: fileName,
+    messageType: messageType,
+    text: text,
+    metadata: metadata,
+    tempId: tempId,
+    clientMessageId: clientMessageId,
+  );
 }
 
 void main() {

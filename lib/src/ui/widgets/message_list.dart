@@ -5,6 +5,7 @@ import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
 import '../controller/chat_controller.dart';
+import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
 import '../utils/read_receipts_helper.dart';
@@ -45,6 +46,7 @@ class MessageList extends StatefulWidget {
     this.onRetryMessage,
     this.audioCoordinator,
     this.audioUploadProgressFor,
+    this.attachmentUploadProgressFor,
     this.avatarBuilder,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
@@ -59,6 +61,7 @@ class MessageList extends StatefulWidget {
     this.isGroup,
     this.avatarRebuildSignal,
     this.statusIconBuilder,
+    this.attachmentUrlResolver,
   });
 
   final ChatController controller;
@@ -90,6 +93,13 @@ class MessageList extends StatefulWidget {
   /// non-null listenable, the bubble shows an upload progress overlay.
   final ValueListenable<double>? Function(String messageId)?
   audioUploadProgressFor;
+
+  /// Per-message upload progress notifier resolver for photo/video/file
+  /// attachments (everything [audioUploadProgressFor] does NOT cover). The
+  /// list calls it with the message id of every image/video/file bubble it
+  /// builds; a non-null listenable shows the placeholder + progress ring.
+  final ValueListenable<double>? Function(String messageId)?
+  attachmentUploadProgressFor;
 
   final Widget Function(BuildContext, String userId)? avatarBuilder;
   final String Function(ChatMessage message)? systemMessageTextResolver;
@@ -165,6 +175,12 @@ class MessageList extends StatefulWidget {
   /// Forwarded verbatim to [MessageBubble.statusIconBuilder] — see
   /// `ChatViewBuilders.statusIconBuilder`.
   final MessageStatusIconBuilder? statusIconBuilder;
+
+  /// Resolves a fresh download URL per attachment message, forwarded to
+  /// every media bubble alongside `controller.roomId`. `null` (default)
+  /// keeps every bubble on the plain `ChatMessage.attachmentUrl` path —
+  /// see `ChatViewBuilders.attachmentUrlResolver`.
+  final AttachmentUrlResolver? attachmentUrlResolver;
 
   @override
   State<MessageList> createState() => _MessageListState();
@@ -781,6 +797,8 @@ class _MessageListState extends State<MessageList> {
       senderAvatarUrl: audioSenderAvatarUrl,
       senderDisplayName: audioSenderName,
       statusIconBuilder: widget.statusIconBuilder,
+      roomId: widget.controller.roomId,
+      attachmentUrlResolver: widget.attachmentUrlResolver,
       isFirstInGroup: isFirstInGroup,
       isLastInGroup: isLastInGroup,
       referencedMessage: referenced,
@@ -833,6 +851,9 @@ class _MessageListState extends State<MessageList> {
       isHighlighted: isHighlighted,
       audioCoordinator: widget.audioCoordinator,
       audioUploadProgress: widget.audioUploadProgressFor?.call(msg.id),
+      attachmentUploadProgress: widget.attachmentUploadProgressFor?.call(
+        msg.id,
+      ),
       forwardedSourceLabel: _resolveForwardedSourceLabel(msg),
       systemMessageTextResolver: widget.systemMessageTextResolver,
       systemMessageBuilder: widget.systemMessageBuilder,

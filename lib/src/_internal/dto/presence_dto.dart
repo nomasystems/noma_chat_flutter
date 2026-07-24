@@ -1,3 +1,6 @@
+import '../ui_debug_log.dart';
+import '../util/json_safe.dart';
+
 class PresenceDto {
   final String userId;
   final String status;
@@ -14,10 +17,18 @@ class PresenceDto {
   });
 
   factory PresenceDto.fromJson(Map<String, dynamic> json) => PresenceDto(
-    userId: (json['userId'] ?? '') as String,
-    status: (json['status'] ?? 'offline') as String,
-    online: (json['online'] ?? false) as bool,
-    statusText: json['statusText'] as String?,
-    lastSeen: json['lastSeen'] as String?,
+    userId: jsonIdOr(
+      json['userId'],
+      '',
+      onEmptyFromPresent: () => uiDebugLog(
+        'PresenceDto',
+        'fromJson: userId present but coerced to empty (raw: '
+            '${json['userId']})',
+      ),
+    ),
+    status: jsonStringOr(json['status'], 'offline'),
+    online: jsonBoolOr(json['online'], false),
+    statusText: jsonStringOrNull(json['statusText']),
+    lastSeen: jsonStringOrNull(json['lastSeen']),
   );
 }

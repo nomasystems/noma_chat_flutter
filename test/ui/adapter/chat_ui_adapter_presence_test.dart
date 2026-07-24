@@ -65,6 +65,34 @@ void main() {
       expect(p.status, PresenceStatus.offline);
     });
 
+    test(
+      'PresenceChangedEvent carries lastSeen through to the bound DM room',
+      () async {
+        adapter.roomListController.addRoom(
+          const RoomListItem(id: 'r1', otherUserId: 'u2'),
+        );
+        adapter.dm.registerRoom('u2', 'r1');
+
+        await adapter.connect();
+        final lastSeen = DateTime.utc(2026, 1, 1, 12);
+        mockClient.emitEvent(
+          ChatEvent.presenceChanged(
+            userId: 'u2',
+            status: PresenceStatus.offline,
+            online: false,
+            lastSeen: lastSeen,
+          ),
+        );
+        await Future.delayed(Duration.zero);
+
+        expect(adapter.presenceFor('u2')!.lastSeen, lastSeen);
+        expect(
+          adapter.roomListController.getRoomById('r1')!.lastSeen,
+          lastSeen,
+        );
+      },
+    );
+
     test('different users are tracked independently', () async {
       await adapter.connect();
       mockClient.emitEvent(

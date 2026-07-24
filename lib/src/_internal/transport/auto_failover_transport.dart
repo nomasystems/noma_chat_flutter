@@ -67,6 +67,11 @@ class AutoFailoverTransport implements RealtimeTransport {
   @override
   bool get transportDisabled => false;
 
+  /// Forwards to whichever transport currently carries the liveness ping
+  /// (the primary — the fallback, SSE, never tracks pong liveness).
+  @override
+  Duration? get lastPongAge => _primary.lastPongAge;
+
   /// Outbound frames work whenever the primary supports them and is
   /// connected; while the fallback (SSE) is active outbound frames go
   /// to REST.
@@ -77,6 +82,18 @@ class AutoFailoverTransport implements RealtimeTransport {
 
   @override
   Future<void> connect() async {
+    // Already connected on the primary (typically an app-resume connect()):
+    // re-running the full setup would reset _primaryHasConnected to false
+    // over a live socket, corrupting the failover state machine — a later
+    // primary blip would then be miscounted as an *initial* failure and delay
+    // SSE promotion behind the initial-failure threshold. Skip the reset and
+    // probe the primary for genuine liveness instead: a no-op if the socket
+    // answers, a real reconnect (re-emitting ConnectedEvent) if the OS
+    // silently killed it while the app was suspended.
+    if (_primary.state == ChatConnectionState.connected) {
+      await _primary.verifyLiveness();
+      return;
+    }
     await _primaryEventSub?.cancel();
     await _primaryStateSub?.cancel();
     await _fallbackEventSub?.cancel();
@@ -90,6 +107,14 @@ class AutoFailoverTransport implements RealtimeTransport {
     _fallbackStateSub = _fallback.stateChanges.listen(_onFallbackStateChange);
     await _primary.connect();
   }
+
+  /// Forwards the resume-time liveness probe to whichever transport carries
+  /// the liveness ping — the primary. When the primary is down and the
+  /// fallback is active, probing the primary re-attempts it (the desired
+  /// resume behavior: try to promote WS back), and the failover machinery
+  /// tears the fallback down once the primary recovers.
+  @override
+  Future<void> verifyLiveness() => _primary.verifyLiveness();
 
   void _onPrimaryEvent(ChatEvent event) {
     // A terminal auth failure (WS 4005) must suspend BOTH transports: the
@@ -152,6 +177,12 @@ class AutoFailoverTransport implements RealtimeTransport {
           _setState(ChatConnectionState.reconnecting);
         }
       case ChatConnectionState.connecting:
+      case ChatConnectionState.authenticating:
+        // Mid-handshake, not yet usable — not a failure, so don't count it
+        // towards the initial-failure threshold or promote the fallback.
+        // Grouping this with `error`/`reconnecting` above would promote SSE
+        // during a normal handshake, replaying the token on a second
+        // transport for no reason.
         break;
     }
   }
@@ -235,6 +266,7 @@ class AutoFailoverTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
   }) => _primary.sendMessage(
@@ -244,6 +276,7 @@ class AutoFailoverTransport implements RealtimeTransport {
     referencedMessageId: referencedMessageId,
     reaction: reaction,
     attachmentUrl: attachmentUrl,
+    attachmentId: attachmentId,
     sourceRoomId: sourceRoomId,
     metadata: metadata,
   );
@@ -260,6 +293,7 @@ class AutoFailoverTransport implements RealtimeTransport {
     String? referencedMessageId,
     String? reaction,
     String? attachmentUrl,
+    String? attachmentId,
     String? sourceRoomId,
     Map<String, dynamic>? metadata,
     String? clientMessageId,
@@ -273,6 +307,7 @@ class AutoFailoverTransport implements RealtimeTransport {
       referencedMessageId: referencedMessageId,
       reaction: reaction,
       attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
       sourceRoomId: sourceRoomId,
       metadata: metadata,
       clientMessageId: clientMessageId,

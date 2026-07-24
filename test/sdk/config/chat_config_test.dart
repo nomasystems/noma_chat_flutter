@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:noma_chat/src/_internal/http/bearer_auth_interceptor.dart';
 import 'package:noma_chat/src/config/chat_config.dart';
 
 void main() {
@@ -162,6 +163,77 @@ void main() {
           ),
         );
       });
+    });
+  });
+
+  group('WS reliability tunables defaults', () {
+    ChatConfig build() => ChatConfig(
+      baseUrl: 'https://api.example.com/v1',
+      realtimeUrl: 'https://api.example.com',
+      tokenProvider: () async => 'token',
+    );
+
+    test('wsPingInterval defaults to 30s', () {
+      expect(build().wsPingInterval, const Duration(seconds: 30));
+    });
+
+    test('wsPongTimeout defaults to 10s', () {
+      expect(build().wsPongTimeout, const Duration(seconds: 10));
+    });
+
+    test('wsPongWatchdogEnabled defaults to true', () {
+      expect(build().wsPongWatchdogEnabled, isTrue);
+    });
+
+    test('wsMaxReconnectDelay defaults to 60s', () {
+      expect(build().wsMaxReconnectDelay, const Duration(seconds: 60));
+    });
+
+    test('wsReconnectJitterMs defaults to 1000', () {
+      expect(build().wsReconnectJitterMs, 1000);
+    });
+
+    test('every tunable is overridable', () {
+      final config = ChatConfig(
+        baseUrl: 'https://api.example.com/v1',
+        realtimeUrl: 'https://api.example.com',
+        tokenProvider: () async => 'token',
+        wsPingInterval: const Duration(seconds: 15),
+        wsPongTimeout: const Duration(seconds: 5),
+        wsPongWatchdogEnabled: false,
+        wsMaxReconnectDelay: const Duration(seconds: 30),
+        wsReconnectJitterMs: 250,
+      );
+
+      expect(config.wsPingInterval, const Duration(seconds: 15));
+      expect(config.wsPongTimeout, const Duration(seconds: 5));
+      expect(config.wsPongWatchdogEnabled, isFalse);
+      expect(config.wsMaxReconnectDelay, const Duration(seconds: 30));
+      expect(config.wsReconnectJitterMs, 250);
+    });
+
+    test('withAuthInterceptor and withBasicAuth carry the same defaults', () {
+      final withInterceptor = ChatConfig.withAuthInterceptor(
+        baseUrl: 'https://api.example.com/v1',
+        realtimeUrl: 'https://api.example.com',
+        authInterceptor: BearerAuthInterceptor(
+          tokenProvider: () async => 'token',
+        ),
+      );
+      final withBasic = ChatConfig.withBasicAuth(
+        baseUrl: 'https://api.example.com/v1',
+        realtimeUrl: 'https://api.example.com',
+        username: 'u',
+        password: 'p',
+      );
+
+      for (final config in [withInterceptor, withBasic]) {
+        expect(config.wsPingInterval, const Duration(seconds: 30));
+        expect(config.wsPongTimeout, const Duration(seconds: 10));
+        expect(config.wsPongWatchdogEnabled, isTrue);
+        expect(config.wsMaxReconnectDelay, const Duration(seconds: 60));
+        expect(config.wsReconnectJitterMs, 1000);
+      }
     });
   });
 }

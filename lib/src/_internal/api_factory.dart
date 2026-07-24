@@ -7,6 +7,7 @@ import '../client/chat_client.dart' show ChatMessagesApi;
 import '../api/presence_api.dart';
 import '../api/rooms_api.dart';
 import '../api/users_api.dart';
+import '../observability/chat_logger.dart';
 import 'cache/cache_manager.dart';
 import '../cache/local_datasource.dart';
 import 'cache/offline_queue.dart';
@@ -33,6 +34,7 @@ class ApiFactory {
     this.cacheManager,
     this.offlineQueue,
     this.logger,
+    this.logs,
   });
 
   final RestClient rest;
@@ -42,6 +44,11 @@ class ApiFactory {
   final CacheManager? cacheManager;
   final OfflineQueue? offlineQueue;
   final void Function(String level, String message)? logger;
+
+  /// Structured, tagged logger — additive alongside [logger]. Only the
+  /// sub-APIs that need a tagged shortcut (e.g. [ChatLogTag.attachments])
+  /// take it today; the rest still log through the plain [logger] callback.
+  final ChatLogger? logs;
 
   AuthApi auth() => AuthApi(rest: rest);
 
@@ -79,5 +86,5 @@ class ApiFactory {
 
   PresenceApi presence() => PresenceApi(rest: rest);
 
-  AttachmentsApi attachments() => AttachmentsApi(rest: rest);
+  AttachmentsApi attachments() => AttachmentsApi(rest: rest, logs: logs);
 }
