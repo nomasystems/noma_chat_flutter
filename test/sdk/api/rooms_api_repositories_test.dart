@@ -21,7 +21,13 @@ void main() {
     });
 
     test('create() posts to /rooms and returns ChatRoom', () async {
-      when(() => rest.post('/rooms', data: any(named: 'data'))).thenAnswer(
+      when(
+        () => rest.post(
+          '/rooms',
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
+      ).thenAnswer(
         (_) async => {
           'roomId': 'room-1',
           'owner': 'user-1',
@@ -49,7 +55,11 @@ void main() {
 
       final captured =
           verify(
-                () => rest.post('/rooms', data: captureAny(named: 'data')),
+                () => rest.post(
+                  '/rooms',
+                  data: captureAny(named: 'data'),
+                  headers: any(named: 'headers'),
+                ),
               ).captured.single
               as Map<String, dynamic>;
       expect(captured['audience'], 'public');
@@ -60,14 +70,22 @@ void main() {
 
     test('create() sends optional fields only when provided', () async {
       when(
-        () => rest.post(any(), data: any(named: 'data')),
+        () => rest.post(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async => {'roomId': 'room-2', 'audience': 'contacts'});
 
       await api.create(audience: RoomAudience.contacts);
 
       final captured =
           verify(
-                () => rest.post('/rooms', data: captureAny(named: 'data')),
+                () => rest.post(
+                  '/rooms',
+                  data: captureAny(named: 'data'),
+                  headers: any(named: 'headers'),
+                ),
               ).captured.single
               as Map<String, dynamic>;
       expect(captured.containsKey('name'), isFalse);
@@ -192,7 +210,11 @@ void main() {
 
     test('create() returns ChatFailureResult on API exception', () async {
       when(
-        () => rest.post(any(), data: any(named: 'data')),
+        () => rest.post(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenThrow(const ChatValidationException(message: 'Bad name'));
 
       final result = await api.create(audience: RoomAudience.contacts);

@@ -82,7 +82,11 @@ void main() {
       'updateConfig() puts to /rooms/{id}/config with provided fields',
       () async {
         when(
-          () => rest.putVoid(any(), data: any(named: 'data')),
+          () => rest.putVoid(
+            any(),
+            data: any(named: 'data'),
+            headers: any(named: 'headers'),
+          ),
         ).thenAnswer((_) async {});
 
         final r = await api.updateConfig(
@@ -98,6 +102,7 @@ void main() {
                   () => rest.putVoid(
                     '/rooms/r1/config',
                     data: captureAny(named: 'data'),
+                    headers: any(named: 'headers'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;

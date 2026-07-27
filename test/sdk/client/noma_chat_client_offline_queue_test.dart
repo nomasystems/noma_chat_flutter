@@ -461,7 +461,11 @@ void main() {
       'createRoom drains a POST to /rooms with audience + members',
       () async {
         when(
-          () => rest.post('/rooms', data: any(named: 'data')),
+          () => rest.post(
+            '/rooms',
+            data: any(named: 'data'),
+            headers: any(named: 'headers'),
+          ),
         ).thenAnswer((_) async => {'roomId': 'room-new', 'audience': 'public'});
 
         await seedAndDrain({
@@ -473,7 +477,11 @@ void main() {
 
         final captured =
             verify(
-                  () => rest.post('/rooms', data: captureAny(named: 'data')),
+                  () => rest.post(
+                    '/rooms',
+                    data: captureAny(named: 'data'),
+                    headers: any(named: 'headers'),
+                  ),
                 ).captured.single
                 as Map<String, dynamic>;
         expect(captured['audience'], 'public');
@@ -487,7 +495,11 @@ void main() {
       'updateRoomConfig drains a PUT to /config with the new name',
       () async {
         when(
-          () => rest.putVoid(any(), data: any(named: 'data')),
+          () => rest.putVoid(
+            any(),
+            data: any(named: 'data'),
+            headers: any(named: 'headers'),
+          ),
         ).thenAnswer((_) async {});
 
         await seedAndDrain({
@@ -501,6 +513,7 @@ void main() {
                   () => rest.putVoid(
                     '/rooms/r1/config',
                     data: captureAny(named: 'data'),
+                    headers: any(named: 'headers'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -511,7 +524,11 @@ void main() {
 
     test('addMember drains a POST to /users with the userId', () async {
       when(
-        () => rest.postRaw('/rooms/r1/users', data: any(named: 'data')),
+        () => rest.postRaw(
+          '/rooms/r1/users',
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async => null);
 
       await seedAndDrain({
@@ -526,6 +543,7 @@ void main() {
                 () => rest.postRaw(
                   '/rooms/r1/users',
                   data: captureAny(named: 'data'),
+                  headers: any(named: 'headers'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
@@ -534,7 +552,9 @@ void main() {
     });
 
     test('removeMember drains a DELETE on the user path', () async {
-      when(() => rest.delete('/rooms/r1/users/u2')).thenAnswer((_) async {});
+      when(
+        () => rest.delete('/rooms/r1/users/u2', headers: any(named: 'headers')),
+      ).thenAnswer((_) async {});
 
       await seedAndDrain({
         'type': 'removeMember',
@@ -542,7 +562,9 @@ void main() {
         'userId': 'u2',
       });
 
-      verify(() => rest.delete('/rooms/r1/users/u2')).called(1);
+      verify(
+        () => rest.delete('/rooms/r1/users/u2', headers: any(named: 'headers')),
+      ).called(1);
       expect(await queueIsDrained(), isTrue);
     });
   });

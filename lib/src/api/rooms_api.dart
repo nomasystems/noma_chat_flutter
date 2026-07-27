@@ -2,6 +2,7 @@ import '../_internal/cache/cache_manager.dart';
 import '../cache/cache_policy.dart';
 import '../cache/local_datasource.dart';
 import '../_internal/http/exception_mapper.dart';
+import '../_internal/http/in_flight_registry.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/room_mapper.dart';
 import '../core/pagination.dart';
@@ -20,16 +21,19 @@ class RoomsApi implements ChatRoomsApi {
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
   final void Function(String level, String message)? _logger;
+  final InFlightRegistry _inFlight;
 
   RoomsApi({
     required RestClient rest,
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     void Function(String level, String message)? logger,
+    InFlightRegistry? inFlightRegistry,
   }) : _rest = rest,
        _cache = cache,
        _cacheManager = cacheManager,
-       _logger = logger;
+       _logger = logger,
+       _inFlight = inFlightRegistry ?? InFlightRegistry();
 
   /// Creates a new chat room.
   ///
@@ -54,6 +58,14 @@ class RoomsApi implements ChatRoomsApi {
   ///
   /// On success the created room is written to the local cache and the
   /// `rooms:all` / `rooms:unread` TTL keys are invalidated.
+  ///
+  /// A second call with identical parameters while the first is still in
+  /// flight (e.g. a double-tap) shares the first call's result instead of
+  /// creating a second room — see `InFlightRegistry`. An `Idempotency-Key`
+  /// header is also sent, but `chat_engine` does not read it yet: this
+  /// guards against client-side duplication only, not a retry whose
+  /// original request already reached the server before the client saw the
+  /// failure.
   ///
   /// Returns [ChatSuccess] holding the new [ChatRoom], or a [ChatFailureResult]
   /// on network or server errors.
@@ -82,33 +94,43 @@ class RoomsApi implements ChatRoomsApi {
     String? avatarUrl,
     Map<String, dynamic>? custom,
     bool forceGroup = false,
-  }) async {
-    final result = await safeApiCall(() async {
-      final json = await _rest.post(
-        '/rooms',
-        data: {
-          'audience': audience.name,
-          'allowInvitations': allowInvitations,
-          if (name != null) 'name': name,
-          if (subject != null) 'subject': subject,
-          if (members != null) 'members': members,
-          if (avatarUrl != null) 'avatarUrl': avatarUrl,
-          if (custom != null) 'custom': custom,
-          if (forceGroup) 'forceGroup': true,
-        },
-      );
-      return RoomMapper.fromJson(json);
-    });
-    if (result.isSuccess && _cache != null) {
-      try {
-        await _cache.saveRooms([result.dataOrThrow]);
-        _cacheManager?.invalidate('rooms:all');
-        _cacheManager?.invalidate('rooms:unread');
-      } catch (e) {
-        _logger?.call('warn', 'rooms.create: cache update failed: $e');
+  }) {
+    final data = {
+      'audience': audience.name,
+      'allowInvitations': allowInvitations,
+      if (name != null) 'name': name,
+      if (subject != null) 'subject': subject,
+      if (members != null) 'members': members,
+      if (avatarUrl != null) 'avatarUrl': avatarUrl,
+      if (custom != null) 'custom': custom,
+      if (forceGroup) 'forceGroup': true,
+    };
+    // Single-flight + `Idempotency-Key`: a double-tap on "create room" (or a
+    // caller invoking create() twice before the first resolves) must not
+    // mint two rooms. See in_flight_registry.dart's HONESTIDAD note — the
+    // header is not understood server-side yet, this only guards the
+    // client-side duplicate.
+    final canonicalKey = canonicalRequestKey('POST', '/rooms', data);
+    return _inFlight.run(canonicalKey, () async {
+      final result = await safeApiCall(() async {
+        final json = await _rest.post(
+          '/rooms',
+          data: data,
+          headers: {'Idempotency-Key': deriveIdempotencyKey(canonicalKey)},
+        );
+        return RoomMapper.fromJson(json);
+      });
+      if (result.isSuccess && _cache != null) {
+        try {
+          await _cache.saveRooms([result.dataOrThrow]);
+          _cacheManager?.invalidate('rooms:all');
+          _cacheManager?.invalidate('rooms:unread');
+        } catch (e) {
+          _logger?.call('warn', 'rooms.create: cache update failed: $e');
+        }
       }
-    }
-    return result;
+      return result;
+    });
   }
 
   /// Returns the rooms the current user belongs to.
@@ -301,6 +323,12 @@ class RoomsApi implements ChatRoomsApi {
   /// the invalidated keys are refetched) does not show the stale avatar or
   /// name.
   ///
+  /// A second call with identical parameters while the first is still in
+  /// flight shares the first call's result instead of applying the update
+  /// twice — see `InFlightRegistry`. An `Idempotency-Key` header is also
+  /// sent, but `chat_engine` does not read it yet: client-side duplication
+  /// only, see [create]'s doc for the same caveat.
+  ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
@@ -323,45 +351,54 @@ class RoomsApi implements ChatRoomsApi {
     String? avatarUrl,
     bool clearAvatar = false,
     Map<String, dynamic>? custom,
-  }) async {
-    final result = await safeVoidCall(
-      () => _rest.putVoid(
-        '/rooms/$roomId/config',
-        data: {
-          if (name != null) 'name': name,
-          if (subject != null) 'subject': subject,
-          // `clearAvatar: true` sends '' (empty string) to delete the
-          // group avatar. The backend's merge-with-preserved config only
-          // restores the previous avatar when the key is ABSENT from the
-          // body, so an explicit empty string wins and the photo is
-          // cleared. Mutually exclusive with a non-null `avatarUrl`.
-          if (clearAvatar)
-            'avatarUrl': ''
-          else if (avatarUrl != null)
-            'avatarUrl': avatarUrl,
-          if (custom != null) 'custom': custom,
-        },
-      ),
-    );
-    if (result.isSuccess) {
-      _cacheManager?.invalidate('roomDetail:$roomId');
-      _cacheManager?.invalidate('rooms:all');
-      _cacheManager?.invalidate('rooms:unread');
-      final cache = _cache;
-      if (cache != null && (name != null || avatarUrl != null || clearAvatar)) {
-        try {
-          await _patchCachedUnreadRoom(
-            cache,
-            roomId,
-            name: name,
-            avatarUrl: clearAvatar ? '' : avatarUrl,
-          );
-        } catch (e) {
-          _logger?.call('warn', 'rooms.updateConfig: cache patch failed: $e');
+  }) {
+    final data = {
+      if (name != null) 'name': name,
+      if (subject != null) 'subject': subject,
+      // `clearAvatar: true` sends '' (empty string) to delete the
+      // group avatar. The backend's merge-with-preserved config only
+      // restores the previous avatar when the key is ABSENT from the
+      // body, so an explicit empty string wins and the photo is
+      // cleared. Mutually exclusive with a non-null `avatarUrl`.
+      if (clearAvatar)
+        'avatarUrl': ''
+      else if (avatarUrl != null)
+        'avatarUrl': avatarUrl,
+      if (custom != null) 'custom': custom,
+    };
+    final path = '/rooms/$roomId/config';
+    // Single-flight + `Idempotency-Key` — see create()'s comment and
+    // in_flight_registry.dart's HONESTIDAD note.
+    final canonicalKey = canonicalRequestKey('PUT', path, data);
+    return _inFlight.run(canonicalKey, () async {
+      final result = await safeVoidCall(
+        () => _rest.putVoid(
+          path,
+          data: data,
+          headers: {'Idempotency-Key': deriveIdempotencyKey(canonicalKey)},
+        ),
+      );
+      if (result.isSuccess) {
+        _cacheManager?.invalidate('roomDetail:$roomId');
+        _cacheManager?.invalidate('rooms:all');
+        _cacheManager?.invalidate('rooms:unread');
+        final cache = _cache;
+        if (cache != null &&
+            (name != null || avatarUrl != null || clearAvatar)) {
+          try {
+            await _patchCachedUnreadRoom(
+              cache,
+              roomId,
+              name: name,
+              avatarUrl: clearAvatar ? '' : avatarUrl,
+            );
+          } catch (e) {
+            _logger?.call('warn', 'rooms.updateConfig: cache patch failed: $e');
+          }
         }
       }
-    }
-    return result;
+      return result;
+    });
   }
 
   /// Patches the cached [UnreadRoom] for [roomId] in place, if one exists,

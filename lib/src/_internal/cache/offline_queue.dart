@@ -574,6 +574,17 @@ final class PendingCreateRoom extends PendingOperation {
   final String? type;
   final String? subject;
 
+  /// Idempotency key reused across every retry of this queued create so a
+  /// reconnect that replays it does not mint a second room. Note: today
+  /// `RoomsApi.create` derives its own client-side dedup/idempotency key
+  /// from the request's canonical content (see `canonicalRequestKey` in
+  /// `in_flight_registry.dart`), which already lands on the same value on
+  /// every retry of an unchanged payload — this field exists so the queued
+  /// operation carries an explicit key of its own, matching the
+  /// `clientMessageId` convention on [PendingSendMessage], for whichever
+  /// caller wires it through explicitly.
+  final String? idempotencyKey;
+
   PendingCreateRoom({
     required super.id,
     required this.name,
@@ -581,6 +592,7 @@ final class PendingCreateRoom extends PendingOperation {
     required this.members,
     this.type,
     this.subject,
+    this.idempotencyKey,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -595,6 +607,7 @@ final class PendingCreateRoom extends PendingOperation {
     'members': members,
     if (type != null) 'roomType': type,
     if (subject != null) 'subject': subject,
+    if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
   };
 
   @override
@@ -606,6 +619,7 @@ final class PendingCreateRoom extends PendingOperation {
         members: members,
         type: type,
         subject: subject,
+        idempotencyKey: idempotencyKey,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -619,6 +633,10 @@ final class PendingUpdateRoomConfig extends PendingOperation {
   final String? avatar;
   final bool? allowInvitations;
 
+  /// Idempotency key reused across every retry — same rationale as
+  /// [PendingCreateRoom.idempotencyKey].
+  final String? idempotencyKey;
+
   PendingUpdateRoomConfig({
     required super.id,
     required this.roomId,
@@ -626,6 +644,7 @@ final class PendingUpdateRoomConfig extends PendingOperation {
     this.subject,
     this.avatar,
     this.allowInvitations,
+    this.idempotencyKey,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -640,6 +659,7 @@ final class PendingUpdateRoomConfig extends PendingOperation {
     if (subject != null) 'subject': subject,
     if (avatar != null) 'avatar': avatar,
     if (allowInvitations != null) 'allowInvitations': allowInvitations,
+    if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
   };
 
   @override
@@ -651,6 +671,7 @@ final class PendingUpdateRoomConfig extends PendingOperation {
         subject: subject,
         avatar: avatar,
         allowInvitations: allowInvitations,
+        idempotencyKey: idempotencyKey,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -662,11 +683,16 @@ final class PendingAddMember extends PendingOperation {
   final String userId;
   final String? role;
 
+  /// Idempotency key reused across every retry — same rationale as
+  /// [PendingCreateRoom.idempotencyKey].
+  final String? idempotencyKey;
+
   PendingAddMember({
     required super.id,
     required this.roomId,
     required this.userId,
     this.role,
+    this.idempotencyKey,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -679,6 +705,7 @@ final class PendingAddMember extends PendingOperation {
     'roomId': roomId,
     'userId': userId,
     if (role != null) 'role': role,
+    if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
   };
 
   @override
@@ -688,6 +715,7 @@ final class PendingAddMember extends PendingOperation {
         roomId: roomId,
         userId: userId,
         role: role,
+        idempotencyKey: idempotencyKey,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -698,10 +726,15 @@ final class PendingRemoveMember extends PendingOperation {
   final String roomId;
   final String userId;
 
+  /// Idempotency key reused across every retry — same rationale as
+  /// [PendingCreateRoom.idempotencyKey].
+  final String? idempotencyKey;
+
   PendingRemoveMember({
     required super.id,
     required this.roomId,
     required this.userId,
+    this.idempotencyKey,
     super.createdAt,
     super.attempts,
     super.nextRetryAt,
@@ -713,6 +746,7 @@ final class PendingRemoveMember extends PendingOperation {
     'type': 'removeMember',
     'roomId': roomId,
     'userId': userId,
+    if (idempotencyKey != null) 'idempotencyKey': idempotencyKey,
   };
 
   @override
@@ -721,6 +755,7 @@ final class PendingRemoveMember extends PendingOperation {
         id: id,
         roomId: roomId,
         userId: userId,
+        idempotencyKey: idempotencyKey,
         createdAt: createdAt,
         attempts: attempts ?? this.attempts,
         nextRetryAt: nextRetryAt ?? this.nextRetryAt,
@@ -1075,6 +1110,7 @@ class OfflineQueue {
             members: (map['members'] as List).cast<String>(),
             type: map['roomType'] as String?,
             subject: map['subject'] as String?,
+            idempotencyKey: map['idempotencyKey'] as String?,
           );
         case 'updateRoomConfig' || 'update_room_config':
           return PendingUpdateRoomConfig(
@@ -1086,6 +1122,7 @@ class OfflineQueue {
             subject: map['subject'] as String?,
             avatar: map['avatar'] as String?,
             allowInvitations: map['allowInvitations'] as bool?,
+            idempotencyKey: map['idempotencyKey'] as String?,
           );
         case 'addMember' || 'add_member':
           return PendingAddMember(
@@ -1095,6 +1132,7 @@ class OfflineQueue {
             roomId: map['roomId'] as String,
             userId: map['userId'] as String,
             role: map['role'] as String?,
+            idempotencyKey: map['idempotencyKey'] as String?,
           );
         case 'removeMember' || 'remove_member':
           return PendingRemoveMember(
@@ -1103,6 +1141,7 @@ class OfflineQueue {
             attempts: attempts,
             roomId: map['roomId'] as String,
             userId: map['userId'] as String,
+            idempotencyKey: map['idempotencyKey'] as String?,
           );
         default:
           return null;
