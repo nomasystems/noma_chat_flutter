@@ -77,6 +77,33 @@ void main() {
     });
   });
 
+  group('resolveUrl', () {
+    test(
+      'joins an absolute-path signed URL onto the base origin without '
+      'duplicating the version-prefixed path segment (regression: '
+      'attachment download 404 from a doubled /v1/v1)',
+      () {
+        final resolved = rest.resolveUrl(
+          '/v1/attachments/att-1?roomId=r1&userId=u1&expiry=123&sig=abc',
+        );
+
+        expect(
+          resolved,
+          'http://h/v1/attachments/att-1?roomId=r1&userId=u1&expiry=123&sig=abc',
+        );
+        expect(resolved, isNot(contains('/v1/v1')));
+      },
+    );
+
+    test('leaves an already-absolute URL on a different host unchanged', () {
+      final resolved = rest.resolveUrl(
+        'https://cdn.example.com/att-1?sig=abc',
+      );
+
+      expect(resolved, 'https://cdn.example.com/att-1?sig=abc');
+    });
+  });
+
   group('happy paths', () {
     test('get() returns the body as a map', () async {
       when(

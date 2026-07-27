@@ -95,7 +95,10 @@ class AttachmentsApi implements ChatAttachmentsApi {
       );
       final signed = (json['url'] ?? json['downloadUrl']) as String?;
       if (signed != null && signed.isNotEmpty) {
-        return _rest.downloadBinary(signed, onProgress: onProgress);
+        return _rest.downloadBinary(
+          _rest.resolveUrl(signed),
+          onProgress: onProgress,
+        );
       }
       // Fallback: the backend didn't hand back a signed URL. The legacy
       // header flow is still membership-checked, but now also requires the
