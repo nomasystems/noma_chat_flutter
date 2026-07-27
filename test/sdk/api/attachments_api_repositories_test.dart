@@ -432,36 +432,33 @@ void main() {
       data: data,
     );
 
-    test(
-      'a backend signed url with a duplicated version prefix resolves to a '
-      'single /v1 request instead of the previous /v1/v1 404',
-      () async {
-        final capturedPaths = <String>[];
-        stubDioRequest((inv) async {
-          final path = inv.positionalArguments.first as String;
-          capturedPaths.add(path);
-          if (path.contains('signed-url')) {
-            return jsonResp({
-              'url':
-                  '/v1/attachments/att-1?roomId=r1&userId=u1&expiry=999&sig=abc',
-            });
-          }
-          return bytesResp([1, 2, 3]);
-        });
+    test('a backend signed url with a duplicated version prefix resolves to a '
+        'single /v1 request instead of the previous /v1/v1 404', () async {
+      final capturedPaths = <String>[];
+      stubDioRequest((inv) async {
+        final path = inv.positionalArguments.first as String;
+        capturedPaths.add(path);
+        if (path.contains('signed-url')) {
+          return jsonResp({
+            'url':
+                '/v1/attachments/att-1?roomId=r1&userId=u1&expiry=999&sig=abc',
+          });
+        }
+        return bytesResp([1, 2, 3]);
+      });
 
-        final result = await realApi.download('att-1', roomId: 'r1');
+      final result = await realApi.download('att-1', roomId: 'r1');
 
-        expect(result.isSuccess, isTrue);
-        expect(result.dataOrThrow, [1, 2, 3]);
-        expect(capturedPaths, hasLength(2));
-        expect(capturedPaths[0], '/attachments/att-1/signed-url');
-        expect(
-          capturedPaths[1],
-          'https://host/v1/attachments/att-1?roomId=r1&userId=u1&expiry=999&sig=abc',
-        );
-        expect(capturedPaths[1], isNot(contains('/v1/v1')));
-      },
-    );
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrThrow, [1, 2, 3]);
+      expect(capturedPaths, hasLength(2));
+      expect(capturedPaths[0], '/attachments/att-1/signed-url');
+      expect(
+        capturedPaths[1],
+        'https://host/v1/attachments/att-1?roomId=r1&userId=u1&expiry=999&sig=abc',
+      );
+      expect(capturedPaths[1], isNot(contains('/v1/v1')));
+    });
 
     test(
       'a fully-absolute signed url on a different host is used unchanged',
@@ -483,44 +480,41 @@ void main() {
       },
     );
 
-    test(
-      'the no-signed-url fallback still composes to a single /v1 through '
-      "Dio's real baseUrl+path joining",
-      () async {
-        String? capturedPath;
-        Map<String, dynamic>? capturedQuery;
-        stubDioRequest((inv) async {
-          final path = inv.positionalArguments.first as String;
-          if (path.contains('signed-url')) {
-            return jsonResp(<String, dynamic>{});
-          }
-          capturedPath = path;
-          capturedQuery =
-              inv.namedArguments[#queryParameters] as Map<String, dynamic>?;
-          return bytesResp([7, 8, 9]);
-        });
+    test('the no-signed-url fallback still composes to a single /v1 through '
+        "Dio's real baseUrl+path joining", () async {
+      String? capturedPath;
+      Map<String, dynamic>? capturedQuery;
+      stubDioRequest((inv) async {
+        final path = inv.positionalArguments.first as String;
+        if (path.contains('signed-url')) {
+          return jsonResp(<String, dynamic>{});
+        }
+        capturedPath = path;
+        capturedQuery =
+            inv.namedArguments[#queryParameters] as Map<String, dynamic>?;
+        return bytesResp([7, 8, 9]);
+      });
 
-        final result = await realApi.download('att-1', roomId: 'r1');
+      final result = await realApi.download('att-1', roomId: 'r1');
 
-        expect(result.isSuccess, isTrue);
-        expect(capturedPath, '/attachments/att-1');
+      expect(result.isSuccess, isTrue);
+      expect(capturedPath, '/attachments/att-1');
 
-        // Reproduce Dio's own baseUrl+path composition (RequestOptions.uri)
-        // with the values actually sent to `dio.request` — this is the
-        // exact algorithm the real (un-mocked) Dio instance applies.
-        final composed = RequestOptions(
-          path: capturedPath!,
-          baseUrl: realRest.baseUrl,
-          queryParameters: capturedQuery,
-        ).uri;
+      // Reproduce Dio's own baseUrl+path composition (RequestOptions.uri)
+      // with the values actually sent to `dio.request` — this is the
+      // exact algorithm the real (un-mocked) Dio instance applies.
+      final composed = RequestOptions(
+        path: capturedPath!,
+        baseUrl: realRest.baseUrl,
+        queryParameters: capturedQuery,
+      ).uri;
 
-        expect(
-          composed.toString(),
-          'https://host/v1/attachments/att-1?roomId=r1',
-        );
-        expect(composed.toString(), isNot(contains('/v1/v1')));
-      },
-    );
+      expect(
+        composed.toString(),
+        'https://host/v1/attachments/att-1?roomId=r1',
+      );
+      expect(composed.toString(), isNot(contains('/v1/v1')));
+    });
   });
 
   group('Attachments extended', () {

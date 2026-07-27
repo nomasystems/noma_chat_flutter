@@ -873,83 +873,83 @@ void main() {
       },
     );
 
-    test(
-      '3 consecutive token-rejecting closes (4002/4003/4004) terminate the '
-      'session instead of looping forever',
-      () async {
-        final channels = <_FakeWebSocketChannel>[];
-        final auth = _TrackingAuthInterceptor();
+    test('3 consecutive token-rejecting closes (4002/4003/4004) terminate the '
+        'session instead of looping forever', () async {
+      final channels = <_FakeWebSocketChannel>[];
+      final auth = _TrackingAuthInterceptor();
 
-        final config = ChatConfig.withAuthInterceptor(
-          baseUrl: 'http://localhost:8077/v1',
-          realtimeUrl: 'http://localhost:8077',
-          authInterceptor: auth,
-          wsReconnectDelay: const Duration(milliseconds: 5),
-        );
+      final config = ChatConfig.withAuthInterceptor(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        authInterceptor: auth,
+        wsReconnectDelay: const Duration(milliseconds: 5),
+      );
 
-        final transport = WsTransport(
-          config: config,
-          channelFactory: (uri) {
-            final channel = _FakeWebSocketChannel();
-            channel.closeCode = 4002;
-            channels.add(channel);
-            // The server rejects the credential before ever sending
-            // `auth_ok` — every reconnect attempt hits the same wall.
-            Future.delayed(const Duration(milliseconds: 15), () {
-              channel.simulateDrop();
-            });
-            return channel;
-          },
-        );
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) {
+          final channel = _FakeWebSocketChannel();
+          channel.closeCode = 4002;
+          channels.add(channel);
+          // The server rejects the credential before ever sending
+          // `auth_ok` — every reconnect attempt hits the same wall.
+          Future.delayed(const Duration(milliseconds: 15), () {
+            channel.simulateDrop();
+          });
+          return channel;
+        },
+      );
 
-        final states = <ChatConnectionState>[];
-        final events = <ChatEvent>[];
-        final stateSub = transport.stateChanges.listen(states.add);
-        final eventSub = transport.events.listen(events.add);
+      final states = <ChatConnectionState>[];
+      final events = <ChatEvent>[];
+      final stateSub = transport.stateChanges.listen(states.add);
+      final eventSub = transport.events.listen(events.add);
 
-        await transport.connect();
+      await transport.connect();
 
-        for (var i = 0; i < 400 && !transport.authTerminated; i++) {
-          await Future<void>.delayed(const Duration(milliseconds: 10));
-        }
+      for (var i = 0; i < 400 && !transport.authTerminated; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
 
-        expect(
-          transport.authTerminated,
-          isTrue,
-          reason: '3 consecutive auth-invalidating closes must latch the '
-              'terminal flag',
-        );
-        expect(transport.state, ChatConnectionState.error);
-        expect(
-          channels,
-          hasLength(3),
-          reason: 'must stop opening new sockets once the 3rd consecutive '
-              'rejection lands, instead of reconnecting forever',
-        );
-        expect(
-          events.whereType<ErrorEvent>().any(
-            (e) =>
-                e.exception is ChatAuthException &&
-                (e.exception as ChatAuthException).terminal,
-          ),
-          isTrue,
-          reason: 'must surface a terminal auth error for the app to log '
-              'out',
-        );
+      expect(
+        transport.authTerminated,
+        isTrue,
+        reason:
+            '3 consecutive auth-invalidating closes must latch the '
+            'terminal flag',
+      );
+      expect(transport.state, ChatConnectionState.error);
+      expect(
+        channels,
+        hasLength(3),
+        reason:
+            'must stop opening new sockets once the 3rd consecutive '
+            'rejection lands, instead of reconnecting forever',
+      );
+      expect(
+        events.whereType<ErrorEvent>().any(
+          (e) =>
+              e.exception is ChatAuthException &&
+              (e.exception as ChatAuthException).terminal,
+        ),
+        isTrue,
+        reason:
+            'must surface a terminal auth error for the app to log '
+            'out',
+      );
 
-        final channelCountAfterTermination = channels.length;
-        await Future<void>.delayed(const Duration(milliseconds: 60));
-        expect(
-          channels,
-          hasLength(channelCountAfterTermination),
-          reason: 'no further reconnect attempts after termination',
-        );
+      final channelCountAfterTermination = channels.length;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(
+        channels,
+        hasLength(channelCountAfterTermination),
+        reason: 'no further reconnect attempts after termination',
+      );
 
-        await stateSub.cancel();
-        await eventSub.cancel();
-        await transport.dispose();
-      },
-    );
+      await stateSub.cancel();
+      await eventSub.cancel();
+      await transport.dispose();
+    });
 
     test('emits ws_auth_timeout metric and structured warn log when the '
         'auth handshake expires', () async {

@@ -20,15 +20,15 @@ class MockChatMessagesController extends Mock
 class MockChatContactsController extends Mock
     implements ChatContactsController {}
 
-class MockChatProfileController extends Mock
-    implements ChatProfileController {}
+class MockChatProfileController extends Mock implements ChatProfileController {}
 
 void main() {
   group('sub-controller cross-library mockability', () {
     test('ChatRoomsController can be mocked and stubbed', () async {
       final mock = MockChatRoomsController();
-      when(() => mock.leave('room-1'))
-          .thenAnswer((_) async => const ChatSuccess<void>(null));
+      when(
+        () => mock.leave('room-1'),
+      ).thenAnswer((_) async => const ChatSuccess<void>(null));
 
       final result = await mock.leave('room-1');
 
@@ -45,8 +45,9 @@ void main() {
 
     test('ChatMessagesController can be mocked and stubbed', () async {
       final mock = MockChatMessagesController();
-      when(() => mock.markAsRead('room-1'))
-          .thenAnswer((_) async => const ChatSuccess<void>(null));
+      when(
+        () => mock.markAsRead('room-1'),
+      ).thenAnswer((_) async => const ChatSuccess<void>(null));
 
       final result = await mock.markAsRead('room-1');
 
@@ -62,8 +63,7 @@ void main() {
 
     test('ChatProfileController can be mocked and stubbed', () {
       final mock = MockChatProfileController();
-      when(() => mock.currentUser)
-          .thenReturn(const ChatUser(id: 'user-1'));
+      when(() => mock.currentUser).thenReturn(const ChatUser(id: 'user-1'));
 
       expect(mock.currentUser.id, 'user-1');
     });
