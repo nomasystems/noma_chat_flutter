@@ -1,6 +1,6 @@
 # Testing
 
-`noma_chat` ships with **2700+ passing tests** (+ 2 skipped) across the SDK,
+`noma_chat` ships with **3200+ passing tests** (+ 2 skipped) across the SDK,
 cache, UI components, integration, accessibility and golden suites. Line coverage
 is enforced at **≥80%** in CI.
 

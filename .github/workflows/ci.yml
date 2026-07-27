@@ -50,6 +50,7 @@ jobs:
         with:
           channel: ${{ matrix.channel }}
           flutter-version: ${{ matrix.flutter }}
+          cache: true
 
       - name: Flutter version
         run: flutter --version
@@ -105,6 +106,7 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
       - name: Pub get (package)
         run: flutter pub get
@@ -132,6 +134,7 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
       - name: Install dependencies
         run: flutter pub get
@@ -155,6 +158,7 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
       - name: Install pana
         run: dart pub global activate pana
