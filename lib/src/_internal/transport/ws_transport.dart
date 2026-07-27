@@ -28,6 +28,7 @@ class WsTransport implements RealtimeTransport {
   bool _disposed = false;
   int _reconnectAttempts = 0;
   int _ackSeq = 0;
+  int _consecutiveAuthRejections = 0;
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
@@ -49,6 +50,12 @@ class WsTransport implements RealtimeTransport {
   /// on its `message_acked` frame, so a match on this key resolves the
   /// pending send. Reserved — callers must not set it in their own metadata.
   static const String ackIdKey = '_ackId';
+
+  /// Consecutive WS closes with a token-invalidating code (4002/4003/4004)
+  /// tolerated before [_onDone] gives up and terminates the session. Guards
+  /// against an infinite reconnect loop when the credential the app keeps
+  /// handing back is one the server keeps rejecting.
+  static const int _maxConsecutiveAuthRejections = 3;
 
   /// In-flight ack-tracked sends keyed by [ackIdKey]. A completer resolves
   /// `true` when the matching `message_acked` arrives and `false` when the
@@ -105,6 +112,7 @@ class WsTransport implements RealtimeTransport {
     // terminal latches so failover and reconnect resume normally.
     _authTerminated = false;
     _transportDisabled = false;
+    _consecutiveAuthRejections = 0;
     await _doConnect();
   }
 
@@ -296,6 +304,7 @@ class WsTransport implements RealtimeTransport {
       _config.logs.ws(ChatLogLevel.debug, 'WS auth successful');
       _setState(ChatConnectionState.connected);
       _reconnectAttempts = 0;
+      _consecutiveAuthRejections = 0;
       _startPing();
       _emitEvent(const ChatEvent.connected());
       return;
@@ -401,12 +410,17 @@ class WsTransport implements RealtimeTransport {
     _failPendingAcks();
     final closeCode = _channel?.closeCode;
     final closeReason = _channel?.closeReason;
-    final tokenInvalidated = closeCode == 4003 || closeCode == 4004;
+    final tokenInvalidated =
+        closeCode == 4002 || closeCode == 4003 || closeCode == 4004;
     if (tokenInvalidated) {
+      _consecutiveAuthRejections++;
       _config.logs.ws(
         ChatLogLevel.warn,
         'WS closed with auth-related code, invalidating cached token',
-        fields: {'closeCode': closeCode},
+        fields: {
+          'closeCode': closeCode,
+          'consecutiveRejections': _consecutiveAuthRejections,
+        },
       );
       _config.authInterceptor.invalidateCache();
       // Release the half-closed socket before any reconnect is armed: the
@@ -421,6 +435,15 @@ class WsTransport implements RealtimeTransport {
       'reason': closeReason ?? '',
       'attempts': _reconnectAttempts,
     });
+    if (tokenInvalidated &&
+        _consecutiveAuthRejections >= _maxConsecutiveAuthRejections) {
+      // The server has rejected the credential this many times in a row
+      // with no successful auth in between — the app keeps handing back a
+      // token it keeps refusing. Retrying would only loop forever, so stop
+      // here instead of scheduling yet another reconnect.
+      _terminateForDeactivation('Repeated authentication rejection');
+      return;
+    }
     if (closeCode == 4005) {
       // too_many_auth_attempts: the server refused after too many failed
       // auth attempts. Reconnecting would hammer it with the same bad
