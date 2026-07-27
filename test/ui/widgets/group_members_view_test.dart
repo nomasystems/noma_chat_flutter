@@ -52,6 +52,10 @@ class _PaginatingChatClient implements ChatClient {
   void cancelPendingRequests([String reason = '']) =>
       _base.cancelPendingRequests(reason);
   @override
+  int get pendingOperationCount => _base.pendingOperationCount;
+  @override
+  Future<void> flushPendingOperations() => _base.flushPendingOperations();
+  @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _base.onOfflineMessageSent = value;

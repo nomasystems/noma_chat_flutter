@@ -26,7 +26,11 @@ void main() {
       'invite() posts to /rooms/{roomId}/users with userIds and mode',
       () async {
         when(
-          () => rest.postRaw(any(), data: any(named: 'data')),
+          () => rest.postRaw(
+            any(),
+            data: any(named: 'data'),
+            headers: any(named: 'headers'),
+          ),
         ).thenAnswer((_) async => null);
 
         final result = await api.invite(
@@ -41,6 +45,7 @@ void main() {
                   () => rest.postRaw(
                     '/rooms/r1/users',
                     data: captureAny(named: 'data'),
+                    headers: any(named: 'headers'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -51,7 +56,11 @@ void main() {
 
     test('invite() sends correct mode strings for all modes', () async {
       when(
-        () => rest.postRaw(any(), data: any(named: 'data')),
+        () => rest.postRaw(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async => null);
 
       for (final entry in {
@@ -66,6 +75,7 @@ void main() {
                   () => rest.postRaw(
                     '/rooms/r1/users',
                     data: captureAny(named: 'data'),
+                    headers: any(named: 'headers'),
                   ),
                 ).captured.last
                 as Map<String, dynamic>;
@@ -80,7 +90,11 @@ void main() {
     test('invite() sends userIds + token (no role) and maps 204 to '
         'all-success', () async {
       when(
-        () => rest.postRaw(any(), data: any(named: 'data')),
+        () => rest.postRaw(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async => null); // 204 No Content
 
       final r = await api.invite(
@@ -97,6 +111,7 @@ void main() {
                 () => rest.postRaw(
                   '/rooms/r1/users',
                   data: captureAny(named: 'data'),
+                  headers: any(named: 'headers'),
                 ),
               ).captured.single
               as Map<String, dynamic>;
@@ -106,7 +121,13 @@ void main() {
     });
 
     test('invite() parses 207 Multi-Status per-user results', () async {
-      when(() => rest.postRaw(any(), data: any(named: 'data'))).thenAnswer(
+      when(
+        () => rest.postRaw(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
+      ).thenAnswer(
         (_) async => [
           {'user': 'u1', 'result': 'invited'},
           {'user': 'u2', 'result': 'error', 'code': 403, 'detail': 'banned'},
@@ -126,7 +147,13 @@ void main() {
 
     test('invite() tolerates off-contract field types in the 207 array '
         'without throwing (BAJA-001)', () async {
-      when(() => rest.postRaw(any(), data: any(named: 'data'))).thenAnswer(
+      when(
+        () => rest.postRaw(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
+      ).thenAnswer(
         (_) async => [
           // `user` as a number, `code` as a String, `detail` as a bool — all
           // off-contract. The parse must degrade gracefully, not throw.
@@ -207,7 +234,11 @@ void main() {
       'joinWithToken() self-joins via inviteAndJoin with the token',
       () async {
         when(
-          () => rest.postRaw(any(), data: any(named: 'data')),
+          () => rest.postRaw(
+            any(),
+            data: any(named: 'data'),
+            headers: any(named: 'headers'),
+          ),
         ).thenAnswer((_) async => null);
 
         final result = await api.joinWithToken('r1', token: 'pub-tok');
@@ -219,6 +250,7 @@ void main() {
                   () => rest.postRaw(
                     '/rooms/r1/users',
                     data: captureAny(named: 'data'),
+                    headers: any(named: 'headers'),
                   ),
                 ).captured.single
                 as Map<String, dynamic>;
@@ -238,7 +270,11 @@ void main() {
 
     test('invite() returns ChatFailureResult on API exception', () async {
       when(
-        () => rest.postRaw(any(), data: any(named: 'data')),
+        () => rest.postRaw(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenThrow(const ChatForbiddenException(message: 'Not allowed'));
 
       final result = await api.invite(

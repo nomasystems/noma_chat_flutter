@@ -2,9 +2,24 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/_internal/http/auth_interceptor.dart';
+import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/transport/ws_transport.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web_socket_channel/web_socket_channel.dart';
+
+class _TrackingAuthInterceptor extends AuthInterceptor {
+  _TrackingAuthInterceptor({String token = 'test-token'}) : _token = token;
+
+  final String _token;
+  int invalidateCalls = 0;
+
+  @override
+  Future<String> getAuthHeader() async => 'Bearer $_token';
+
+  @override
+  void invalidateCache() => invalidateCalls++;
+}
 
 class _FakeWebSocketChannel implements WebSocketChannel {
   _FakeWebSocketChannel({bool autoAuthOk = false, bool autoPong = false}) {
@@ -814,6 +829,125 @@ void main() {
       expect(channels, hasLength(2));
       expect(first.sink.closeCalls, 1);
 
+      await transport.dispose();
+    });
+
+    test(
+      'close 4002 invalidates the cached token, same as 4003/4004',
+      () async {
+        final channels = <_FakeWebSocketChannel>[];
+        final auth = _TrackingAuthInterceptor();
+
+        final config = ChatConfig.withAuthInterceptor(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          authInterceptor: auth,
+          wsReconnectDelay: const Duration(milliseconds: 5),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) {
+            final channel = _FakeWebSocketChannel(autoAuthOk: true);
+            channels.add(channel);
+            return channel;
+          },
+        );
+
+        await transport.connect();
+        final invalidatesBefore = auth.invalidateCalls;
+
+        channels.first.closeCode = 4002;
+        await channels.first.simulateDrop();
+
+        for (
+          var i = 0;
+          i < 200 && auth.invalidateCalls == invalidatesBefore;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+        expect(auth.invalidateCalls, greaterThan(invalidatesBefore));
+
+        await transport.dispose();
+      },
+    );
+
+    test('3 consecutive token-rejecting closes (4002/4003/4004) terminate the '
+        'session instead of looping forever', () async {
+      final channels = <_FakeWebSocketChannel>[];
+      final auth = _TrackingAuthInterceptor();
+
+      final config = ChatConfig.withAuthInterceptor(
+        baseUrl: 'http://localhost:8077/v1',
+        realtimeUrl: 'http://localhost:8077',
+        authInterceptor: auth,
+        wsReconnectDelay: const Duration(milliseconds: 5),
+      );
+
+      final transport = WsTransport(
+        config: config,
+        channelFactory: (uri) {
+          final channel = _FakeWebSocketChannel();
+          channel.closeCode = 4002;
+          channels.add(channel);
+          // The server rejects the credential before ever sending
+          // `auth_ok` — every reconnect attempt hits the same wall.
+          Future.delayed(const Duration(milliseconds: 15), () {
+            channel.simulateDrop();
+          });
+          return channel;
+        },
+      );
+
+      final states = <ChatConnectionState>[];
+      final events = <ChatEvent>[];
+      final stateSub = transport.stateChanges.listen(states.add);
+      final eventSub = transport.events.listen(events.add);
+
+      await transport.connect();
+
+      for (var i = 0; i < 400 && !transport.authTerminated; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      expect(
+        transport.authTerminated,
+        isTrue,
+        reason:
+            '3 consecutive auth-invalidating closes must latch the '
+            'terminal flag',
+      );
+      expect(transport.state, ChatConnectionState.error);
+      expect(
+        channels,
+        hasLength(3),
+        reason:
+            'must stop opening new sockets once the 3rd consecutive '
+            'rejection lands, instead of reconnecting forever',
+      );
+      expect(
+        events.whereType<ErrorEvent>().any(
+          (e) =>
+              e.exception is ChatAuthException &&
+              (e.exception as ChatAuthException).terminal,
+        ),
+        isTrue,
+        reason:
+            'must surface a terminal auth error for the app to log '
+            'out',
+      );
+
+      final channelCountAfterTermination = channels.length;
+      await Future<void>.delayed(const Duration(milliseconds: 60));
+      expect(
+        channels,
+        hasLength(channelCountAfterTermination),
+        reason: 'no further reconnect attempts after termination',
+      );
+
+      await stateSub.cancel();
+      await eventSub.cancel();
       await transport.dispose();
     });
 

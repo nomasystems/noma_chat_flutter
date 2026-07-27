@@ -48,7 +48,7 @@ This sends `{"type":"auth_refresh","token":"<new>"}` to the open WebSocket. The 
 - `4003 token_expired` — the server-side timer fired at the JWT's `exp`.
 - `4004 token_revoked` — the user's tokens were revoked by the backend (e.g. logout, deactivation) via its revocation list.
 
-Both `4003` and `4004` should trigger the consumer to refresh the cached token and reconnect.
+`4002`, `4003` and `4004` all mean the credential the client offered is no good, so the SDK invalidates the cached token on each of them and lets the next attempt fetch a fresh one. After **3** consecutive closes with one of those codes and no successful authentication in between, the transport stops reconnecting and emits a terminal `ChatAuthException` — a token the server keeps refusing must go through the app's real re-authentication flow, not another reconnect. A successful auth or an explicit `connect()` resets the counter.
 
 ## Real-time event types
 
@@ -94,8 +94,14 @@ This eliminates blank screens after navigation and keeps bandwidth low.
 ## Offline behavior
 
 - Outbound operations that fail with network errors enqueue in `OfflineQueue` (Hive-persistent, 9 types).
-- On reconnect, the queue retries with backoff. 401 errors do not trigger immediate retry (the consumer's refresh flow handles them).
+- The queue drains with backoff on **every** connection, the first one of a session included — an operation queued before the socket was ever up does not have to wait for a reconnect. 401 errors do not trigger immediate retry (the consumer's refresh flow handles them).
+- `client.pendingOperationCount` reports the queue depth (`0` when no cache is configured) and `client.flushPendingOperations()` forces a drain attempt on demand, for a manual "retry sending" affordance.
 - `OfflineQueue.restore()` runs on boot; persisted operations resume after app restart.
+
+### Idempotency
+
+- Message sends are deduplicated server-side by the `clientMessageId` body field. This is the only end-to-end dedup the backend implements today.
+- `rooms.create`, `rooms.updateConfig`, `members.invite` and `members.remove` send an `Idempotency-Key` header derived deterministically from the canonical request content, and are additionally guarded by a client-side single-flight registry so two concurrent identical calls issue one request. **The backend does not read `Idempotency-Key` yet**: this prevents duplication that originates in the client (double-tap, a local retry of a request that never left the device), not a retry whose original request already reached and was applied by the server.
 
 ## Internal S2S endpoints
 

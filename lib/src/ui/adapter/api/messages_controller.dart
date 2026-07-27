@@ -10,7 +10,7 @@ part of '../chat_ui_adapter.dart';
 /// `sendVoice`, `uploadAttachment`), thread replies, reactions
 /// (`sendReaction`, `deleteReaction`) and the realtime side-channel
 /// (`sendTyping`, `sendReceipt`, `markAsRead`).
-final class ChatMessagesController {
+interface class ChatMessagesController {
   ChatMessagesController(this._a);
 
   final ChatUiAdapter _a;

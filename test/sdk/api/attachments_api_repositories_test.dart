@@ -1,12 +1,21 @@
 import 'dart:typed_data';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_advanced.dart';
 import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
 class MockRestClient extends Mock implements RestClient {}
+
+class _MockDio extends Mock implements Dio {}
+
+class _NoopAuth extends AuthInterceptor {
+  @override
+  Future<String> getAuthHeader() async => 'Bearer test';
+}
 
 void main() {
   late MockRestClient rest;
@@ -365,6 +374,146 @@ void main() {
               ).captured.single
               as Map<String, dynamic>;
       expect(captured['roomId'], 'r1');
+    });
+  });
+
+  group('download() URL resolution against a real RestClient (regression: '
+      'attachments 404 from a doubled /v1)', () {
+    late _MockDio dio;
+    late RestClient realRest;
+    late AttachmentsApi realApi;
+
+    setUpAll(() {
+      registerFallbackValue(RequestOptions(path: ''));
+      registerFallbackValue(Options());
+    });
+
+    setUp(() {
+      dio = _MockDio();
+      when(() => dio.options).thenReturn(BaseOptions());
+      when(() => dio.interceptors).thenReturn(Interceptors());
+      realRest = RestClient(
+        config: ChatConfig.withAuthInterceptor(
+          baseUrl: 'https://host/v1',
+          realtimeUrl: 'https://host',
+          authInterceptor: _NoopAuth(),
+          userId: 'u1',
+        ),
+        dio: dio,
+      );
+      realApi = AttachmentsApi(rest: realRest);
+    });
+
+    void stubDioRequest(
+      Future<Response<dynamic>> Function(Invocation invocation) answer,
+    ) {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer(answer);
+    }
+
+    Response<dynamic> jsonResp(Map<String, dynamic> data) => Response(
+      requestOptions: RequestOptions(path: ''),
+      statusCode: 200,
+      data: data,
+    );
+
+    Response<dynamic> bytesResp(List<int> data) => Response(
+      requestOptions: RequestOptions(path: ''),
+      statusCode: 200,
+      data: data,
+    );
+
+    test('a backend signed url with a duplicated version prefix resolves to a '
+        'single /v1 request instead of the previous /v1/v1 404', () async {
+      final capturedPaths = <String>[];
+      stubDioRequest((inv) async {
+        final path = inv.positionalArguments.first as String;
+        capturedPaths.add(path);
+        if (path.contains('signed-url')) {
+          return jsonResp({
+            'url':
+                '/v1/attachments/att-1?roomId=r1&userId=u1&expiry=999&sig=abc',
+          });
+        }
+        return bytesResp([1, 2, 3]);
+      });
+
+      final result = await realApi.download('att-1', roomId: 'r1');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrThrow, [1, 2, 3]);
+      expect(capturedPaths, hasLength(2));
+      expect(capturedPaths[0], '/attachments/att-1/signed-url');
+      expect(
+        capturedPaths[1],
+        'https://host/v1/attachments/att-1?roomId=r1&userId=u1&expiry=999&sig=abc',
+      );
+      expect(capturedPaths[1], isNot(contains('/v1/v1')));
+    });
+
+    test(
+      'a fully-absolute signed url on a different host is used unchanged',
+      () async {
+        final capturedPaths = <String>[];
+        stubDioRequest((inv) async {
+          final path = inv.positionalArguments.first as String;
+          capturedPaths.add(path);
+          if (path.contains('signed-url')) {
+            return jsonResp({'url': 'https://cdn.example.com/att-1?sig=xyz'});
+          }
+          return bytesResp([4, 5, 6]);
+        });
+
+        final result = await realApi.download('att-1', roomId: 'r1');
+
+        expect(result.isSuccess, isTrue);
+        expect(capturedPaths[1], 'https://cdn.example.com/att-1?sig=xyz');
+      },
+    );
+
+    test('the no-signed-url fallback still composes to a single /v1 through '
+        "Dio's real baseUrl+path joining", () async {
+      String? capturedPath;
+      Map<String, dynamic>? capturedQuery;
+      stubDioRequest((inv) async {
+        final path = inv.positionalArguments.first as String;
+        if (path.contains('signed-url')) {
+          return jsonResp(<String, dynamic>{});
+        }
+        capturedPath = path;
+        capturedQuery =
+            inv.namedArguments[#queryParameters] as Map<String, dynamic>?;
+        return bytesResp([7, 8, 9]);
+      });
+
+      final result = await realApi.download('att-1', roomId: 'r1');
+
+      expect(result.isSuccess, isTrue);
+      expect(capturedPath, '/attachments/att-1');
+
+      // Reproduce Dio's own baseUrl+path composition (RequestOptions.uri)
+      // with the values actually sent to `dio.request` — this is the
+      // exact algorithm the real (un-mocked) Dio instance applies.
+      final composed = RequestOptions(
+        path: capturedPath!,
+        baseUrl: realRest.baseUrl,
+        queryParameters: capturedQuery,
+      ).uri;
+
+      expect(
+        composed.toString(),
+        'https://host/v1/attachments/att-1?roomId=r1',
+      );
+      expect(composed.toString(), isNot(contains('/v1/v1')));
     });
   });
 

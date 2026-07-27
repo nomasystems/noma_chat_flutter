@@ -16,6 +16,12 @@
 ///   apps that need to override TTLs, eviction policy, or replace the
 ///   default Hive store with an in-memory one (tests, demos).
 /// - **Retry tuning** ([RetryConfig]) for custom backoff strategies.
+/// - **Resilience primitives** (`computeBackoffMs`, [CircuitBreaker],
+///   [CircuitBreakerRegistry]) for apps that talk to the same backend
+///   outside the bundled HTTP client (e.g. a REST call the SDK doesn't
+///   wrap yet) and want the same jittered backoff and per-path circuit
+///   breaking the SDK already applies internally, instead of
+///   reimplementing a weaker version of it.
 ///
 /// **Use this barrel only when you need it.** Importing it pulls in
 /// types that are intentionally low-level and may evolve faster than
@@ -54,3 +60,10 @@ export 'src/_internal/cache/cache_manager.dart' show MetricCallback;
 
 // === Retry: tuning ===
 export 'src/_internal/http/retry_config.dart';
+
+// === Resilience: backoff + circuit breaking ===
+export 'src/_internal/util/backoff.dart' show computeBackoffMs;
+export 'src/_internal/http/circuit_breaker.dart'
+    show CircuitBreaker, CircuitState;
+export 'src/_internal/http/circuit_breaker_registry.dart'
+    show CircuitBreakerRegistry;

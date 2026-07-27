@@ -7,7 +7,7 @@ part of '../chat_ui_adapter.dart';
 /// update their own display name, avatar or bio. The
 /// [ChatUiAdapter.currentUser] getter remains the read-side source
 /// of truth; this controller owns the mutations.
-final class ChatProfileController {
+interface class ChatProfileController {
   ChatProfileController(this._a);
 
   final ChatUiAdapter _a;

@@ -213,6 +213,10 @@ class _ScriptedRoomsClient implements ChatClient {
   void cancelPendingRequests([String reason = 'cancelled']) =>
       _delegate.cancelPendingRequests(reason);
   @override
+  int get pendingOperationCount => _delegate.pendingOperationCount;
+  @override
+  Future<void> flushPendingOperations() => _delegate.flushPendingOperations();
+  @override
   set onOfflineMessageSent(
     void Function(String roomId, String tempId, ChatMessage message)? value,
   ) => _delegate.onOfflineMessageSent = value;

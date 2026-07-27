@@ -8,7 +8,7 @@ part of '../chat_ui_adapter.dart';
 /// ([loadBlocked]) plus mutations (`block` / `unblock`). The
 /// idempotent [pruneBlockedRooms] helper re-runs the DM-prune pass
 /// without changing the set itself — useful right after [load].
-final class ChatContactsController {
+interface class ChatContactsController {
   ChatContactsController(this._a);
 
   final ChatUiAdapter _a;

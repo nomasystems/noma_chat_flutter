@@ -9,7 +9,7 @@ part of '../chat_ui_adapter.dart';
 /// [getRoomId] (lookup by contact id), [draftRoutingKey] (synthetic
 /// key for draft DM tiles) and [registerRoom] (notifies the adapter
 /// that a contact-to-room binding now exists).
-final class ChatDmController {
+interface class ChatDmController {
   ChatDmController(this._a);
 
   final ChatUiAdapter _a;

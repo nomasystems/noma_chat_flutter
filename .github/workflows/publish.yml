@@ -42,6 +42,7 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
       - name: Verify pubspec version matches the git tag
         run: |

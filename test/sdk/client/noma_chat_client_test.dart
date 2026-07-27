@@ -240,8 +240,8 @@ void main() {
       () async {
         final client = createClient(cfg: configWithCache);
         await client.connect();
-        // First ConnectedEvent just primes _hasConnectedOnce; second triggers
-        // the queue path. Both should leave the client functional.
+        // The offline queue drains on every ConnectedEvent, including the
+        // first one — both should leave the client functional.
         eventsController.add(const ConnectedEvent());
         eventsController.add(const DisconnectedEvent());
         eventsController.add(const ConnectedEvent());

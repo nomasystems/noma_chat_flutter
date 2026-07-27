@@ -9,7 +9,7 @@ part of '../chat_ui_adapter.dart';
 /// `deleteKicked`), room metadata (`updateConfig`), member management
 /// (`addMembers`, `removeMember`, `updateMemberRole`), group creation
 /// (`createGroup`) and the exit path (`leave`).
-final class ChatRoomsController {
+interface class ChatRoomsController {
   ChatRoomsController(this._a);
 
   final ChatUiAdapter _a;

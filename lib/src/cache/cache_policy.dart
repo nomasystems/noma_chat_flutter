@@ -1,7 +1,4 @@
-import 'package:meta/meta.dart' show experimental;
-
 /// Determines how reads are resolved between network and local cache.
-@experimental
 enum CachePolicy {
   /// Fetch from network; fall back to cache on failure.
   networkFirst,

@@ -6,6 +6,116 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.14.0
+
+### Breaking changes
+
+- **`ChatClient` gained two members: `pendingOperationCount` and
+  `flushPendingOperations()`.** Anything that `implements ChatClient` and
+  spells out every member explicitly — in practice, hand-written test fakes
+  with no `noSuchMethod` fallback — stops compiling until both are added.
+  `NomaChatClient` and `MockChatClient` already implement them, so only your
+  own fakes are affected; in this repository the change broke 13 test files,
+  and a consumer with a similar fake will see the same. The patch is two
+  lines per fake — see [MIGRATING.md](./MIGRATING.md).
+- **The five `ChatUiAdapter` sub-controllers are `interface class` instead
+  of `final class`**: `ChatRoomsController`, `ChatMessagesController`,
+  `ChatDmController`, `ChatContactsController` and `ChatProfileController`.
+  This only *widens* what callers may do — nothing that compiled against
+  `0.13.x` stops compiling — but it is the change that makes them mockable
+  from outside the package, so it belongs here: a mock declared as
+  `extends Mock implements ChatRoomsController` now compiles in your own
+  test suite. While they were `final`, mocking the adapter meant reaching
+  for the `@internal` pass-throughs on `ChatUiAdapter` (`adapter.loadRooms()`,
+  `adapter.openDirectMessageDraft()`, `adapter.draftRoutingKey()`, …) and
+  silencing `invalid_use_of_internal_member`. That workaround can go: move
+  those call sites to `adapter.rooms.*` / `adapter.dm.*` and delete the
+  ignore.
+
+### Behaviour changes
+
+Neither of these breaks compilation, but both change *when* something
+happens. Read them before upgrading.
+
+- **The offline queue drains on the first connection of a session, not only
+  after a reconnect.** The drain used to be gated on having connected at
+  least once already, so anything queued during a cold start — the classic
+  "the user sends a message while the socket is still coming up" — sat in
+  the queue until the connection dropped and came back. It now goes out as
+  soon as the first `connected` event lands. If any part of your app quietly
+  depended on that delay (a screen that assumed it could still cancel a
+  queued send, say), those sends now leave earlier. Missed-unread catch-up is
+  deliberately *not* affected: it still runs only after a real
+  disconnect→reconnect cycle, because a session that never dropped has
+  nothing to catch up on.
+- **WebSocket close code `4002` (`auth_failed`) now invalidates the cached
+  token, like `4003`/`4004`, and repeated rejections stop the reconnect
+  loop.** On `4002` the transport used to reconnect with the very token the
+  server had just refused, so a stale credential turned into an endless
+  connect → `4002` → reconnect cycle. The cached token is now dropped, which
+  forces the next attempt to fetch a fresh one; and after **3** consecutive
+  token-rejecting closes (`4002`/`4003`/`4004`) with no successful
+  authentication in between, the transport terminates the session — it stops
+  reconnecting and emits a terminal `ChatAuthException` — instead of looping
+  forever. A successful auth, or an explicit `connect()`, resets the counter.
+  A host that hand-rolled a "watch for the error state, refresh the token,
+  reconnect" patch to work around this can delete it.
+
+### Added
+
+- `ChatClient.pendingOperationCount` — how many operations are sitting in the
+  offline queue right now (`0` on a client configured without one), so a
+  "N pending" badge no longer needs the host to shadow-count sends itself.
+- `ChatClient.flushPendingOperations()` — forces an immediate drain attempt
+  instead of waiting for the next connection. The queue already drains on
+  every connect, so this is for an explicit "retry sending" affordance, not
+  for normal operation.
+- **Duplicate-submission guard on room and member operations.**
+  `rooms.create`, `rooms.updateConfig`, `members.invite` (and therefore
+  `members.joinWithToken`, which delegates to it) and `members.remove` now go
+  through a single-flight registry: a second call with an identical payload
+  while the first is still in flight — a double-tap on "Create group", or a
+  caller invoking the method twice before the first future resolves — shares
+  the first call's result instead of issuing a second request. Each of the
+  four also sends a deterministic `Idempotency-Key` header, derived from the
+  canonical request content so the same logical request always derives the
+  same key, whatever order the payload was built in.
+
+  **What this does not buy you:** the backend does not read
+  `Idempotency-Key` yet — verified against `chat_engine`, whose only real
+  server-side dedup is the `clientMessageId` body field on message sends. So
+  this protects against duplication that originates in the client (a double
+  tap, a local retry of a request that never left) and nothing more. A retry
+  whose original request *did* reach the server and was applied before the
+  client saw the failure — a timeout after the server committed, a connection
+  dropped post-commit — will still duplicate server-side. This is not
+  end-to-end idempotency; the header is forward-looking and starts paying off
+  the day the backend honours it.
+- **The resilience primitives are now public surface**, exported from the
+  advanced barrel (`package:noma_chat/noma_chat_advanced.dart`):
+  `computeBackoffMs`, `CircuitBreaker` / `CircuitState` and
+  `CircuitBreakerRegistry` — the same pieces the SDK's own `RetryInterceptor`
+  uses internally. If your app calls the backend outside the bundled HTTP
+  client, reuse these instead of reimplementing a weaker backoff (the jitter
+  is applied *before* the cap, so a retry never overshoots the maximum delay
+  agreed with the server — an easy detail to get wrong by hand).
+
+### Fixed
+
+- Attachments that failed to download when the backend handed back a signed
+  URL relative to the API base (`/v1/…` rather than an absolute `https://…`).
+  The URL reached the HTTP layer verbatim and never resolved, so the download
+  errored out. It is now resolved against the configured base URL first. The
+  legacy header-only fallback, used when the backend returns no signed URL at
+  all, is unchanged.
+
+### Changed
+
+- `CachePolicy` is no longer marked `@experimental`. It is a core, stable
+  concept of the cache API, and the annotation forced an
+  `// ignore: experimental_member_use` on every consumer that named a policy
+  explicitly. Those ignores can go.
+
 ## 0.13.1
 
 ### Added

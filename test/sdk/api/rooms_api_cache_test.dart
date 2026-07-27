@@ -145,7 +145,11 @@ void main() {
         'place, so a room list rendered from cache before the invalidated '
         'TTL keys are refetched does not show the stale avatar', () async {
       when(
-        () => rest.putVoid(any(), data: any(named: 'data')),
+        () => rest.putVoid(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async {});
       when(() => cache.getUnreads()).thenAnswer(
         (_) async => const ChatSuccess(<UnreadRoom>[
@@ -179,7 +183,11 @@ void main() {
     test('updateConfig() with clearAvatar patches the cached avatarUrl to '
         'empty', () async {
       when(
-        () => rest.putVoid(any(), data: any(named: 'data')),
+        () => rest.putVoid(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async {});
       when(() => cache.getUnreads()).thenAnswer(
         (_) async => const ChatSuccess(<UnreadRoom>[
@@ -203,7 +211,11 @@ void main() {
     test('updateConfig() is a no-op on the unread cache when the room has no '
         'cached unread entry yet', () async {
       when(
-        () => rest.putVoid(any(), data: any(named: 'data')),
+        () => rest.putVoid(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async {});
       when(
         () => cache.getUnreads(),
@@ -218,7 +230,11 @@ void main() {
     test('updateConfig() with no name/avatarUrl/clearAvatar does not touch '
         'the unread cache', () async {
       when(
-        () => rest.putVoid(any(), data: any(named: 'data')),
+        () => rest.putVoid(
+          any(),
+          data: any(named: 'data'),
+          headers: any(named: 'headers'),
+        ),
       ).thenAnswer((_) async {});
 
       final r = await api.updateConfig('r1', subject: 'New subject');

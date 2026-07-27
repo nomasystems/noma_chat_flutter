@@ -105,7 +105,16 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 
 **SDK**
 - Real-time: WebSocket → SSE → polling, automatic failover between transports
-- Circuit breaker + exponential backoff + offline message queue
+- Circuit breaker + exponential backoff + offline message queue — the queue
+  drains on every connection, including the first one after a cold start;
+  inspect it with `pendingOperationCount` and force a drain with
+  `flushPendingOperations()`
+- The same resilience primitives are exported for your own calls to the
+  backend (`computeBackoffMs`, `CircuitBreaker`, `CircuitBreakerRegistry` from
+  `package:noma_chat/noma_chat_advanced.dart`)
+- Duplicate-submission guard on `rooms.create` / `rooms.updateConfig` /
+  `members.invite` / `members.remove` — a double-tap fires one request, not
+  two (client-side only; the backend does not honour `Idempotency-Key` yet)
 - Dead-peer detection — a pong watchdog forces a reconnect on a "zombie" WS
   a NAT timeout or network handoff left half-open
 - SDK-owned app lifecycle — reconnects and resyncs on resume by default

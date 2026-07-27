@@ -1,4 +1,5 @@
 import '../_internal/http/exception_mapper.dart';
+import '../_internal/http/in_flight_registry.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/user_mapper.dart';
 import '../core/pagination.dart';
@@ -13,10 +14,15 @@ import '../client/chat_client.dart';
 class MembersApi implements ChatMembersApi {
   final RestClient _rest;
   final String? _userId;
+  final InFlightRegistry _inFlight;
 
-  MembersApi({required RestClient rest, String? userId})
-    : _rest = rest,
-      _userId = userId;
+  MembersApi({
+    required RestClient rest,
+    String? userId,
+    InFlightRegistry? inFlightRegistry,
+  }) : _rest = rest,
+       _userId = userId,
+       _inFlight = inFlightRegistry ?? InFlightRegistry();
 
   /// Lists the members of the room identified by [roomId].
   ///
@@ -97,6 +103,14 @@ class MembersApi implements ChatMembersApi {
   /// Note: the backend does not accept a per-invite role; assign roles after
   /// the invitation with [updateRole].
   ///
+  /// A second call with identical [roomId]/[userIds]/[mode]/[token] while the
+  /// first is still in flight shares the first call's result instead of
+  /// sending the invite twice — see `InFlightRegistry`. An `Idempotency-Key`
+  /// header is also sent, but `chat_engine` does not read it yet: this
+  /// guards against client-side duplication only, not a retry whose
+  /// original request already reached the server before the client saw the
+  /// failure.
+  ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
   /// Throws [ChatNetworkException] on network errors.
   ///
@@ -120,36 +134,50 @@ class MembersApi implements ChatMembersApi {
     required List<String> userIds,
     RoomUserMode mode = RoomUserMode.invite,
     String? token,
-  }) => safeApiCall(() async {
-    final raw = await _rest.postRaw(
-      '/rooms/$roomId/users',
-      data: {
-        'userIds': userIds,
-        'mode': _modeToString(mode),
-        if (token != null) 'token': token,
-      },
+  }) {
+    final data = {
+      'userIds': userIds,
+      'mode': _modeToString(mode),
+      if (token != null) 'token': token,
+    };
+    final path = '/rooms/$roomId/users';
+    // Single-flight + `Idempotency-Key` — a double-tap on "add member" (or
+    // `joinWithToken`, which delegates here) must not fire the invite twice.
+    // See in_flight_registry.dart's HONESTIDAD note: the header is not
+    // understood server-side yet, this only guards the client-side
+    // duplicate.
+    final canonicalKey = canonicalRequestKey('POST', path, data);
+    return _inFlight.run(
+      canonicalKey,
+      () => safeApiCall(() async {
+        final raw = await _rest.postRaw(
+          path,
+          data: data,
+          headers: {'Idempotency-Key': deriveIdempotencyKey(canonicalKey)},
+        );
+        if (raw is List) {
+          // 207 Multi-Status: one entry per user. Every field is read
+          // type-tolerantly — a backend that ships a field off-contract (a
+          // number where a String is expected, say) must not throw out of
+          // the parse and sink the whole batch result.
+          return InviteResult([
+            for (final e in raw)
+              if (e is Map)
+                InviteUserResult(
+                  userId: e['user'] is String ? e['user'] as String : '',
+                  success: e['result'] == 'invited',
+                  code: e['code'] is int ? e['code'] as int : null,
+                  detail: e['detail'] is String ? e['detail'] as String : null,
+                ),
+          ]);
+        }
+        // 204 No Content (every user invited) or any non-array 2xx body.
+        return InviteResult([
+          for (final id in userIds) InviteUserResult(userId: id, success: true),
+        ]);
+      }),
     );
-    if (raw is List) {
-      // 207 Multi-Status: one entry per user. Every field is read
-      // type-tolerantly — a backend that ships a field off-contract (a number
-      // where a String is expected, say) must not throw out of the parse and
-      // sink the whole batch result.
-      return InviteResult([
-        for (final e in raw)
-          if (e is Map)
-            InviteUserResult(
-              userId: e['user'] is String ? e['user'] as String : '',
-              success: e['result'] == 'invited',
-              code: e['code'] is int ? e['code'] as int : null,
-              detail: e['detail'] is String ? e['detail'] as String : null,
-            ),
-      ]);
-    }
-    // 204 No Content (every user invited) or any non-array 2xx body.
-    return InviteResult([
-      for (final id in userIds) InviteUserResult(userId: id, success: true),
-    ]);
-  });
+  }
 
   /// Self-joins the current user to public [roomId] presenting [token].
   ///
@@ -185,6 +213,12 @@ class MembersApi implements ChatMembersApi {
   ///
   /// To let the current user leave a room themselves, use [leave] instead.
   ///
+  /// A second call with the same [roomId]/[userId] while the first is still
+  /// in flight shares the first call's result instead of attempting the
+  /// removal twice — see `InFlightRegistry`. An `Idempotency-Key` header is
+  /// also sent, but `chat_engine` does not read it yet: client-side
+  /// duplication only, see [invite]'s doc for the same caveat.
+  ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
@@ -196,8 +230,21 @@ class MembersApi implements ChatMembersApi {
   /// if (result.isSuccess) refreshMemberList();
   /// ```
   @override
-  Future<ChatResult<void>> remove(String roomId, String userId) =>
-      safeVoidCall(() => _rest.delete('/rooms/$roomId/users/$userId'));
+  Future<ChatResult<void>> remove(String roomId, String userId) {
+    final path = '/rooms/$roomId/users/$userId';
+    // Single-flight + `Idempotency-Key` — see invite()'s comment and
+    // in_flight_registry.dart's HONESTIDAD note.
+    final canonicalKey = canonicalRequestKey('DELETE', path);
+    return _inFlight.run(
+      canonicalKey,
+      () => safeVoidCall(
+        () => _rest.delete(
+          path,
+          headers: {'Idempotency-Key': deriveIdempotencyKey(canonicalKey)},
+        ),
+      ),
+    );
+  }
 
   @override
   Future<ChatResult<void>> leave(String roomId) {

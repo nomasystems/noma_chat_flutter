@@ -105,10 +105,14 @@ void main() {
     });
 
     test('remove() calls DELETE /rooms/{r}/users/{u}', () async {
-      when(() => rest.delete(any())).thenAnswer((_) async {});
+      when(
+        () => rest.delete(any(), headers: any(named: 'headers')),
+      ).thenAnswer((_) async {});
       final r = await MembersApi(rest: rest).remove('r1', 'u2');
       expect(r.isSuccess, true);
-      verify(() => rest.delete('/rooms/r1/users/u2')).called(1);
+      verify(
+        () => rest.delete('/rooms/r1/users/u2', headers: any(named: 'headers')),
+      ).called(1);
     });
 
     test('ban()/unban() hit /rooms/{r}/users/{u}/ban', () async {
