@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -9,6 +10,16 @@ import '../../services/attachment_url_resolver.dart';
 import '../../theme/chat_theme.dart';
 import '_attachment_upload_overlay.dart';
 import '_bubble_metadata.dart';
+
+/// Tallest an image bubble grows before it is scaled down. Overridable
+/// through `ChatTheme.imageMaxHeight`.
+const double _defaultImageMaxHeight = 250;
+
+/// Floor for the width the metadata row (time + ticks) is aligned within.
+/// Extremely narrow images — a sliver scaled down to fit
+/// [_defaultImageMaxHeight] — would otherwise squeeze the row until it
+/// overflowed.
+const double _minMetadataRowWidth = 72;
 
 /// Bubble that renders an image attachment with cached network loading and
 /// tap-to-open behavior.
@@ -76,6 +87,10 @@ class _ImageBubbleState extends State<ImageBubble> {
   Object? _bytesError;
   bool _bytesRetried = false;
 
+  Size? _intrinsicSize;
+  ImageStream? _dimensionsStream;
+  ImageStreamListener? _dimensionsListener;
+
   bool get _usesMediaLoader =>
       widget.mediaLoader != null && widget.attachmentRef != null;
 
@@ -102,6 +117,8 @@ class _ImageBubbleState extends State<ImageBubble> {
       _bytesRetried = false;
       _bytes = null;
       _bytesError = null;
+      _intrinsicSize = null;
+      _stopListeningForDimensions();
       if (_usesMediaLoader) {
         _loadBytes();
       } else {
@@ -123,6 +140,7 @@ class _ImageBubbleState extends State<ImageBubble> {
               _bytes = bytes;
               _bytesError = null;
             });
+            _listenForDimensions(bytes);
           })
           .catchError((Object error) {
             uiDebugLog('ImageBubble', 'authenticated download failed: $error');
@@ -137,6 +155,66 @@ class _ImageBubbleState extends State<ImageBubble> {
     if (_bytesRetried) return;
     _bytesRetried = true;
     _loadBytes();
+  }
+
+  /// Reads the decoded image's pixel dimensions so the bubble can size
+  /// itself to the picture's real shape. Resolves the very same
+  /// `MemoryImage` the rendering `Image.memory` builds (equal bytes ⇒
+  /// equal cache key), so this costs a cache hit, not a second decode.
+  void _listenForDimensions(Uint8List bytes) {
+    _stopListeningForDimensions();
+    final stream = MemoryImage(bytes).resolve(ImageConfiguration.empty);
+    final listener = ImageStreamListener((info, _) {
+      final size = Size(
+        info.image.width.toDouble(),
+        info.image.height.toDouble(),
+      );
+      info.dispose();
+      if (!mounted || _intrinsicSize == size) return;
+      setState(() => _intrinsicSize = size);
+    }, onError: (_, __) {});
+    _dimensionsStream = stream;
+    _dimensionsListener = listener;
+    stream.addListener(listener);
+  }
+
+  void _stopListeningForDimensions() {
+    final stream = _dimensionsStream;
+    final listener = _dimensionsListener;
+    if (stream != null && listener != null) {
+      stream.removeListener(listener);
+    }
+    _dimensionsStream = null;
+    _dimensionsListener = null;
+  }
+
+  /// Size the picture is actually painted at: its own aspect ratio scaled
+  /// down (never up) to fit inside the bubble's width and the max height.
+  /// `null` until the dimensions are known — callers then fall back to
+  /// letting the image self-size inside a `ConstrainedBox`, which is what
+  /// the plain-URL path does for its whole life.
+  Size? _mediaSize(ChatTheme theme, BoxConstraints constraints) {
+    final intrinsic = _intrinsicSize;
+    if (intrinsic == null || intrinsic.width <= 0 || intrinsic.height <= 0) {
+      return null;
+    }
+    final maxWidth = math.min(
+      constraints.maxWidth,
+      theme.imageMaxWidth ?? double.infinity,
+    );
+    if (!maxWidth.isFinite || maxWidth <= 0) return null;
+    final maxHeight = theme.imageMaxHeight ?? _defaultImageMaxHeight;
+    final scale = math.min(
+      1.0,
+      math.min(maxWidth / intrinsic.width, maxHeight / intrinsic.height),
+    );
+    return Size(intrinsic.width * scale, intrinsic.height * scale);
+  }
+
+  @override
+  void dispose() {
+    _stopListeningForDimensions();
+    super.dispose();
   }
 
   void _resolve() {
@@ -183,78 +261,111 @@ class _ImageBubbleState extends State<ImageBubble> {
         // No tap-to-open while the upload is still in flight — there is
         // no usable URL yet.
         onTap: uploadProgress == null ? widget.onTap : null,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: theme.imageBorderRadius ?? BorderRadius.circular(8),
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxHeight: theme.imageMaxHeight ?? 250,
-                  maxWidth: theme.imageMaxWidth ?? double.infinity,
-                ),
-                child: uploadProgress != null
-                    ? AttachmentUploadPlaceholder(
-                        progress: uploadProgress,
-                        theme: theme,
-                        height: theme.imageMaxHeight ?? 250,
-                        icon: Icons.image,
-                      )
-                    : _usesMediaLoader
-                    ? _buildAuthenticatedImage(theme)
-                    : CachedNetworkImage(
-                        key: ValueKey(_effectiveUrl),
-                        imageUrl: _effectiveUrl,
-                        // Stable across a re-mint (new signed URL, same
-                        // attachment) so the cache doesn't re-download bytes it
-                        // already has under the previous signed URL.
-                        cacheKey: widget.attachmentRef?.attachmentId,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => const SizedBox(
-                          height: 150,
-                          child: Center(child: CircularProgressIndicator()),
-                        ),
-                        // Log the real cause of fallback icons. The
-                        // user reported "ícono en vez de foto" — the error
-                        // payload tells us whether the URL is unreachable
-                        // (network/scheme), the server replied 500 (broken
-                        // file_upload backend), or the bytes are corrupt.
-                        errorWidget: (_, url, error) {
-                          uiDebugLog(
-                            'ImageBubble',
-                            'CachedNetworkImage error for $url: $error',
-                          );
-                          _retryAfterError();
-                          return const SizedBox(
-                            height: 100,
-                            child: Center(child: Icon(Icons.broken_image)),
-                          );
-                        },
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final mediaSize = _mediaSize(theme, constraints);
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ClipRRect(
+                  borderRadius:
+                      theme.imageBorderRadius ?? BorderRadius.circular(8),
+                  // Tight box at the picture's real aspect ratio once the
+                  // decoded dimensions are known, so a portrait photo no
+                  // longer leaves the bubble stretched to the full 75% of
+                  // the screen with dead space beside it.
+                  child: SizedBox(
+                    width: mediaSize?.width,
+                    height: mediaSize?.height,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxHeight:
+                            theme.imageMaxHeight ?? _defaultImageMaxHeight,
+                        maxWidth: theme.imageMaxWidth ?? double.infinity,
                       ),
-              ),
-            ),
-            if (caption != null && caption.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                caption,
-                style: theme.imageCaptionStyle ?? const TextStyle(fontSize: 14),
-              ),
-            ],
-            if (timestamp != null || statusWidget != null) ...[
-              const SizedBox(height: 2),
-              Align(
-                alignment: Alignment.centerRight,
-                child: BubbleMetadataRow(
-                  theme: theme,
-                  isOutgoing: widget.isOutgoing,
-                  timestamp: timestamp,
-                  statusWidget: statusWidget,
-                  gap: 4,
+                      child: uploadProgress != null
+                          ? AttachmentUploadPlaceholder(
+                              progress: uploadProgress,
+                              theme: theme,
+                              height:
+                                  theme.imageMaxHeight ??
+                                  _defaultImageMaxHeight,
+                              icon: Icons.image,
+                            )
+                          : _usesMediaLoader
+                          ? _buildAuthenticatedImage(theme)
+                          : CachedNetworkImage(
+                              key: ValueKey(_effectiveUrl),
+                              imageUrl: _effectiveUrl,
+                              // Stable across a re-mint (new signed URL,
+                              // same attachment) so the cache doesn't
+                              // re-download bytes it already has under the
+                              // previous signed URL.
+                              cacheKey: widget.attachmentRef?.attachmentId,
+                              fit: BoxFit.cover,
+                              placeholder: (_, __) => const SizedBox(
+                                height: 150,
+                                child: Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              ),
+                              // Log the real cause of fallback icons. The
+                              // user reported "ícono en vez de foto" — the
+                              // error payload tells us whether the URL is
+                              // unreachable (network/scheme), the server
+                              // replied 500 (broken file_upload backend), or
+                              // the bytes are corrupt.
+                              errorWidget: (_, url, error) {
+                                uiDebugLog(
+                                  'ImageBubble',
+                                  'CachedNetworkImage error for $url: $error',
+                                );
+                                _retryAfterError();
+                                return const SizedBox(
+                                  height: 100,
+                                  child: Center(
+                                    child: Icon(Icons.broken_image),
+                                  ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
                 ),
-              ),
-            ],
-          ],
+                if (caption != null && caption.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    caption,
+                    style:
+                        theme.imageCaptionStyle ??
+                        const TextStyle(fontSize: 14),
+                  ),
+                ],
+                if (timestamp != null || statusWidget != null) ...[
+                  const SizedBox(height: 2),
+                  // Bound to the picture's width instead of the bubble's:
+                  // a bare `Align` expands to the incoming max width and
+                  // would drag the whole column back out to full width.
+                  SizedBox(
+                    width: mediaSize == null
+                        ? null
+                        : math.max(mediaSize.width, _minMetadataRowWidth),
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: BubbleMetadataRow(
+                        theme: theme,
+                        isOutgoing: widget.isOutgoing,
+                        timestamp: timestamp,
+                        statusWidget: statusWidget,
+                        gap: 4,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       ),
     );

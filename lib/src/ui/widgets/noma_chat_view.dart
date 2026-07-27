@@ -17,6 +17,7 @@ import '../utils/attachment_opener.dart';
 import '../utils/platform_support.dart';
 import 'chat_room_app_bar.dart';
 import 'chat_view.dart';
+import 'image_viewer.dart';
 import 'message_context_menu.dart';
 import 'message_info_sheet.dart';
 import 'report_message_dialog.dart';
@@ -530,7 +531,8 @@ class _NomaChatViewState extends State<NomaChatView> {
       onShareLocation: user.onShareLocation,
       onAttachTap: user.onAttachTap,
       onPermissionDenied: user.onPermissionDenied,
-      onTapImage: user.onTapImage,
+      onTapImage:
+          user.onTapImage ?? (msg) => _openImageViewer(context, sendKey, msg),
       onUnblock:
           user.onUnblock ??
           (isBlocked && blockOtherUserId != null
@@ -624,6 +626,37 @@ class _NomaChatViewState extends State<NomaChatView> {
         }
         user.onContextMenuAction?.call(message, action);
       },
+    );
+  }
+
+  /// Default `onTapImage`: opens the built-in full-screen viewer wired to
+  /// the same authenticated media loader the bubbles render through.
+  /// Handing [ImageViewer] only the URL is not enough — attachment
+  /// downloads are Bearer-protected and a plain `CachedNetworkImage`
+  /// gets a 401, so the viewer would show the broken-image fallback while
+  /// the bubble behind it displayed the photo fine.
+  void _openImageViewer(
+    BuildContext context,
+    String roomId,
+    ChatMessage message,
+  ) {
+    final url = message.attachmentUrl;
+    if (url == null || url.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ImageViewer(
+          imageUrl: url,
+          theme: _theme,
+          mediaLoader:
+              widget.builders?.attachmentMediaLoader ??
+              widget.adapter.defaultAttachmentMediaLoader,
+          attachmentRef: AttachmentRef(
+            roomId: roomId,
+            attachmentId: message.attachmentId,
+            fallbackUrl: url,
+          ),
+        ),
+      ),
     );
   }
 

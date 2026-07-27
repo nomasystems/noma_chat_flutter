@@ -899,4 +899,80 @@ void main() {
       expect(find.byType(ChatView), findsOneWidget);
     });
   });
+
+  group('NomaChatView — default onTapImage', () {
+    ChatMessage imageMessage() => ChatMessage(
+      id: 'm1',
+      from: 'u2',
+      timestamp: DateTime(2024, 1, 1),
+      messageType: MessageType.attachment,
+      attachmentUrl: 'https://cdn.example/v1/attachments/att-1',
+      attachmentId: 'att-1',
+      mimeType: 'image/jpeg',
+    );
+
+    Future<void> pumpView(WidgetTester tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Alice'),
+      );
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('opens the viewer wired to the authenticated media loader — '
+        'a bare URL 401s because attachment downloads need a Bearer token', (
+      tester,
+    ) async {
+      await pumpView(tester);
+
+      final onTapImage = chatViewOf(tester).callbacks.onTapImage;
+      expect(onTapImage, isNotNull);
+
+      onTapImage!(imageMessage());
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      final viewer = tester.widget<ImageViewer>(find.byType(ImageViewer));
+      expect(viewer.mediaLoader, isNotNull);
+      expect(viewer.attachmentRef, isNotNull);
+      expect(viewer.attachmentRef!.roomId, 'room1');
+      expect(viewer.attachmentRef!.attachmentId, 'att-1');
+      expect(
+        viewer.attachmentRef!.fallbackUrl,
+        'https://cdn.example/v1/attachments/att-1',
+      );
+    });
+
+    testWidgets('a host-supplied onTapImage still wins', (tester) async {
+      ChatMessage? tapped;
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Alice'),
+      );
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            callbacks: ChatViewCallbacks(onTapImage: (m) => tapped = m),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      chatViewOf(tester).callbacks.onTapImage!(imageMessage());
+      await tester.pump();
+
+      expect(tapped?.id, 'm1');
+      expect(find.byType(ImageViewer), findsNothing);
+    });
+  });
 }

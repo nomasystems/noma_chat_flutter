@@ -108,6 +108,23 @@ happens. Read them before upgrading.
   errored out. It is now resolved against the configured base URL first. The
   legacy header-only fallback, used when the backend returns no signed URL at
   all, is unchanged.
+- Tapping an image bubble now opens the full-screen `ImageViewer` out of the
+  box, wired to the same authenticated media loader the bubbles render
+  through. `NomaChatView` previously forwarded `onTapImage` with no default
+  at all, so opening the viewer was left to the host — and a host that
+  handed `ImageViewer` only a URL got the broken-image fallback, because
+  attachment downloads are Bearer-protected and `CachedNetworkImage` never
+  sends that header. A host-supplied `onTapImage` still wins. **Hosts that
+  build an `ImageViewer` themselves must pass `mediaLoader` and
+  `attachmentRef`** (`adapter.defaultAttachmentMediaLoader`) or drop their
+  override and take the default.
+- Image bubbles no longer stretch to the full bubble width when the picture
+  is taller than it is wide. The bubble now sizes itself to the shape the
+  photo is actually painted at — its aspect ratio scaled down to fit the
+  available width and `ChatTheme.imageMaxHeight` (250 by default) — instead
+  of leaving a wide empty margin beside a portrait photo. The metadata row
+  is aligned within the picture's width rather than the bubble's, with a
+  floor so a very narrow image cannot squeeze the timestamp.
 
 ### Changed
 
