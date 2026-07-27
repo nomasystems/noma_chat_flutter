@@ -254,101 +254,189 @@ class ChatViewCallbacks {
   final VoidCallback? onUnblock;
 }
 
+const Duration _unsetWindow = Duration(microseconds: -1);
+
+const List<String> _defaultAvailableReactions = [
+  '👍',
+  '❤️',
+  '😂',
+  '😮',
+  '😢',
+  '🙏',
+];
+
+const Set<MessageAction> _defaultContextMenuActions = {
+  MessageAction.reply,
+  MessageAction.copy,
+  MessageAction.edit,
+  MessageAction.delete,
+  MessageAction.react,
+};
+
 /// Pure data / boolean configuration for [ChatView] — anything that
 /// changes appearance or behaviour but is not a callback or builder.
+///
+/// Every constructor argument is optional and stored as "unset" when
+/// omitted, so hosts can override a single knob without silently
+/// resetting the rest: [NomaChatView] layers the values a host actually
+/// passed over its own defaults via [mergedOnto]. A value passed
+/// explicitly is always honoured, including `false` and empty
+/// collections.
 class ChatViewBehaviors {
   const ChatViewBehaviors({
-    this.maxRecordingDuration = const Duration(minutes: 15),
-    this.inputMaxLines = 5,
-    this.showAttachButton = true,
-    this.showVoiceButton = true,
-    this.availableReactions = const ['👍', '❤️', '😂', '😮', '😢', '🙏'],
-    this.userReactions = const {},
-    this.messageReactions = const {},
-    this.messageStatuses = const {},
-    this.referencedMessages = const {},
+    Duration? maxRecordingDuration,
+    int? inputMaxLines,
+    bool? showAttachButton,
+    bool? showVoiceButton,
+    List<String>? availableReactions,
+    Map<String, Set<String>>? userReactions,
+    Map<String, Map<String, int>>? messageReactions,
+    Map<String, ReceiptStatus>? messageStatuses,
+    Map<String, ChatMessage>? referencedMessages,
     this.connectionState,
-    this.connectionLabels = const {},
-    this.contextMenuActions = const {
-      MessageAction.reply,
-      MessageAction.copy,
-      MessageAction.edit,
-      MessageAction.delete,
-      MessageAction.react,
-    },
-    this.editWindow = const Duration(minutes: 15),
-    this.deleteWindow = const Duration(days: 2),
-    this.attachmentExtraOptions = const [],
-    this.forwardedSourceLabels = const {},
+    Map<ChatConnectionState, String>? connectionLabels,
+    Set<MessageAction>? contextMenuActions,
+    Duration? editWindow = _unsetWindow,
+    Duration? deleteWindow = _unsetWindow,
+    List<AttachmentSheetOption>? attachmentExtraOptions,
+    Map<String, String>? forwardedSourceLabels,
     this.emptyIcon,
     this.emptyTitle,
     this.emptySubtitle,
-    this.readOnly = false,
+    bool? readOnly,
     this.readOnlyLabel,
-    this.enableLinkPreview = true,
-    this.enableMentions = false,
+    bool? enableLinkPreview,
+    bool? enableMentions,
     this.initialMessageId,
     this.unreadBoundaryMessageId,
-    this.unreadCount = 0,
-    this.isBlocked = false,
-    this.isParticipating = true,
-    this.roomReceipts = const [],
-    this.roomMembers = const [],
-    this.showReadReceiptsInGroups = true,
+    int? unreadCount,
+    bool? isBlocked,
+    bool? isParticipating,
+    List<ReadReceipt>? roomReceipts,
+    List<ChatUser>? roomMembers,
+    bool? showReadReceiptsInGroups,
     this.isGroup,
-  });
+  }) : _maxRecordingDuration = maxRecordingDuration,
+       _inputMaxLines = inputMaxLines,
+       _showAttachButton = showAttachButton,
+       _showVoiceButton = showVoiceButton,
+       _availableReactions = availableReactions,
+       _userReactions = userReactions,
+       _messageReactions = messageReactions,
+       _messageStatuses = messageStatuses,
+       _referencedMessages = referencedMessages,
+       _connectionLabels = connectionLabels,
+       _contextMenuActions = contextMenuActions,
+       _editWindow = editWindow,
+       _deleteWindow = deleteWindow,
+       _attachmentExtraOptions = attachmentExtraOptions,
+       _forwardedSourceLabels = forwardedSourceLabels,
+       _readOnly = readOnly,
+       _enableLinkPreview = enableLinkPreview,
+       _enableMentions = enableMentions,
+       _unreadCount = unreadCount,
+       _isBlocked = isBlocked,
+       _isParticipating = isParticipating,
+       _roomReceipts = roomReceipts,
+       _roomMembers = roomMembers,
+       _showReadReceiptsInGroups = showReadReceiptsInGroups;
 
-  final Duration maxRecordingDuration;
-  final int inputMaxLines;
-  final bool showAttachButton;
-  final bool showVoiceButton;
-  final List<String> availableReactions;
+  final Duration? _maxRecordingDuration;
+  final int? _inputMaxLines;
+  final bool? _showAttachButton;
+  final bool? _showVoiceButton;
+  final List<String>? _availableReactions;
+  final Map<String, Set<String>>? _userReactions;
+  final Map<String, Map<String, int>>? _messageReactions;
+  final Map<String, ReceiptStatus>? _messageStatuses;
+  final Map<String, ChatMessage>? _referencedMessages;
+  final Map<ChatConnectionState, String>? _connectionLabels;
+  final Set<MessageAction>? _contextMenuActions;
+  final Duration? _editWindow;
+  final Duration? _deleteWindow;
+  final List<AttachmentSheetOption>? _attachmentExtraOptions;
+  final Map<String, String>? _forwardedSourceLabels;
+  final bool? _readOnly;
+  final bool? _enableLinkPreview;
+  final bool? _enableMentions;
+  final int? _unreadCount;
+  final bool? _isBlocked;
+  final bool? _isParticipating;
+  final List<ReadReceipt>? _roomReceipts;
+  final List<ChatUser>? _roomMembers;
+  final bool? _showReadReceiptsInGroups;
 
-  final Map<String, Set<String>> userReactions;
-  final Map<String, Map<String, int>> messageReactions;
-  final Map<String, ReceiptStatus> messageStatuses;
-  final Map<String, ChatMessage> referencedMessages;
+  Duration get maxRecordingDuration =>
+      _maxRecordingDuration ?? const Duration(minutes: 15);
+
+  int get inputMaxLines => _inputMaxLines ?? 5;
+
+  bool get showAttachButton => _showAttachButton ?? true;
+
+  bool get showVoiceButton => _showVoiceButton ?? true;
+
+  List<String> get availableReactions =>
+      _availableReactions ?? _defaultAvailableReactions;
+
+  Map<String, Set<String>> get userReactions => _userReactions ?? const {};
+
+  Map<String, Map<String, int>> get messageReactions =>
+      _messageReactions ?? const {};
+
+  Map<String, ReceiptStatus> get messageStatuses =>
+      _messageStatuses ?? const {};
+
+  Map<String, ChatMessage> get referencedMessages =>
+      _referencedMessages ?? const {};
 
   final ChatConnectionState? connectionState;
-  final Map<ChatConnectionState, String> connectionLabels;
 
-  final Set<MessageAction> contextMenuActions;
+  Map<ChatConnectionState, String> get connectionLabels =>
+      _connectionLabels ?? const {};
+
+  Set<MessageAction> get contextMenuActions =>
+      _contextMenuActions ?? _defaultContextMenuActions;
 
   /// Time after a message is sent during which [MessageAction.edit] stays
   /// available on the user's own messages (WhatsApp uses ~15 min). Past it
   /// the edit row is hidden — the backend also rejects late edits with a
   /// 403 `edit_window_expired`. `null` disables the gate (edit always
   /// shown). Defaults to 15 minutes.
-  final Duration? editWindow;
+  Duration? get editWindow =>
+      _editWindow == _unsetWindow ? const Duration(minutes: 15) : _editWindow;
 
   /// Time after a message is sent during which [MessageAction.delete]
   /// ("delete for everyone") stays available. Past it the delete row is
   /// hidden — the backend also rejects late deletes with a 403
   /// `delete_window_expired`. `null` disables the gate. Defaults to 2 days.
-  final Duration? deleteWindow;
+  Duration? get deleteWindow =>
+      _deleteWindow == _unsetWindow ? const Duration(days: 2) : _deleteWindow;
 
   /// Extra rows appended to the built-in attachment sheet, after the
   /// SDK options. Convenient for app-specific actions without
   /// rewriting the entire sheet.
-  final List<AttachmentSheetOption> attachmentExtraOptions;
+  List<AttachmentSheetOption> get attachmentExtraOptions =>
+      _attachmentExtraOptions ?? const [];
 
-  final Map<String, String> forwardedSourceLabels;
+  Map<String, String> get forwardedSourceLabels =>
+      _forwardedSourceLabels ?? const {};
 
   final IconData? emptyIcon;
   final String? emptyTitle;
   final String? emptySubtitle;
 
-  final bool readOnly;
+  bool get readOnly => _readOnly ?? false;
+
   final String? readOnlyLabel;
 
   /// Forwarded to the composer. When true (default), URLs typed in the input
   /// trigger an Open Graph fetch and a preview banner above the text field.
-  final bool enableLinkPreview;
+  bool get enableLinkPreview => _enableLinkPreview ?? true;
 
   /// When `true`, the composer renders a mention overlay above the
   /// input when the user types `@<query>`. Candidate list is read from
   /// `controller.otherUsers` automatically — no extra wiring.
-  final bool enableMentions;
+  bool get enableMentions => _enableMentions ?? false;
 
   /// Message id to scroll to and highlight once messages are rendered.
   /// The intent is fired once; pass a new value to re-trigger.
@@ -362,32 +450,32 @@ class ChatViewBehaviors {
   final String? unreadBoundaryMessageId;
 
   /// Snapshot of how many messages were unread when the chat opened.
-  final int unreadCount;
+  int get unreadCount => _unreadCount ?? 0;
 
   /// When `true`, the composer is replaced by a "blocked contact"
   /// banner — the WhatsApp behaviour after `adapter.blockContact`.
   /// The history above stays fully visible; only the input swaps.
   /// Typically wired to
   /// `adapter.blockedUserIds.contains(otherUserId)` for DMs.
-  final bool isBlocked;
+  bool get isBlocked => _isBlocked ?? false;
 
   /// `false` when the local user has been kicked from this group
   /// (`RoomListItem.isParticipating == false`). The composer is
   /// replaced by a non-interactive "no longer a participant" banner;
   /// the chat history above stays fully visible — WhatsApp-parity.
-  final bool isParticipating;
+  bool get isParticipating => _isParticipating ?? true;
 
   /// Latest read receipts for the room. Forwarded to [MessageList] so each
   /// outgoing bubble in a group can render avatars of the readers next to
   /// the status icon. Combine with [roomMembers] for avatar resolution.
-  final List<ReadReceipt> roomReceipts;
+  List<ReadReceipt> get roomReceipts => _roomReceipts ?? const [];
 
   /// Members of the room (used to resolve avatars/initials for read-receipt
   /// avatars). Typically `controller.otherUsers + [currentUser]`.
-  final List<ChatUser> roomMembers;
+  List<ChatUser> get roomMembers => _roomMembers ?? const [];
 
   /// Forwarded to [MessageList.showReadReceiptsInGroups].
-  final bool showReadReceiptsInGroups;
+  bool get showReadReceiptsInGroups => _showReadReceiptsInGroups ?? true;
 
   /// Explicit "this room is a group" flag forwarded to
   /// [MessageList.isGroup]. Hosts should wire this from
@@ -396,4 +484,98 @@ class ChatViewBehaviors {
   /// join events / DM resolution, so a group opened cold renders without
   /// per-sender labels + avatars otherwise).
   final bool? isGroup;
+
+  /// Layers the values explicitly set on this instance over [base].
+  ///
+  /// Fields left untouched keep whatever [base] provides, so overriding
+  /// one knob never resets the others. Room state owned by the SDK
+  /// ([isBlocked], [readOnly], [initialMessageId], …) is merged the same
+  /// way; hosts embedding [NomaChatView] get it stamped afterwards via
+  /// [withRoomState].
+  ChatViewBehaviors mergedOnto(ChatViewBehaviors base) => ChatViewBehaviors(
+    maxRecordingDuration: _maxRecordingDuration ?? base._maxRecordingDuration,
+    inputMaxLines: _inputMaxLines ?? base._inputMaxLines,
+    showAttachButton: _showAttachButton ?? base._showAttachButton,
+    showVoiceButton: _showVoiceButton ?? base._showVoiceButton,
+    availableReactions: _availableReactions ?? base._availableReactions,
+    userReactions: _userReactions ?? base._userReactions,
+    messageReactions: _messageReactions ?? base._messageReactions,
+    messageStatuses: _messageStatuses ?? base._messageStatuses,
+    referencedMessages: _referencedMessages ?? base._referencedMessages,
+    connectionState: connectionState ?? base.connectionState,
+    connectionLabels: _connectionLabels ?? base._connectionLabels,
+    contextMenuActions: _contextMenuActions ?? base._contextMenuActions,
+    editWindow: _editWindow == _unsetWindow ? base._editWindow : _editWindow,
+    deleteWindow: _deleteWindow == _unsetWindow
+        ? base._deleteWindow
+        : _deleteWindow,
+    attachmentExtraOptions:
+        _attachmentExtraOptions ?? base._attachmentExtraOptions,
+    forwardedSourceLabels:
+        _forwardedSourceLabels ?? base._forwardedSourceLabels,
+    emptyIcon: emptyIcon ?? base.emptyIcon,
+    emptyTitle: emptyTitle ?? base.emptyTitle,
+    emptySubtitle: emptySubtitle ?? base.emptySubtitle,
+    readOnly: _readOnly ?? base._readOnly,
+    readOnlyLabel: readOnlyLabel ?? base.readOnlyLabel,
+    enableLinkPreview: _enableLinkPreview ?? base._enableLinkPreview,
+    enableMentions: _enableMentions ?? base._enableMentions,
+    initialMessageId: initialMessageId ?? base.initialMessageId,
+    unreadBoundaryMessageId:
+        unreadBoundaryMessageId ?? base.unreadBoundaryMessageId,
+    unreadCount: _unreadCount ?? base._unreadCount,
+    isBlocked: _isBlocked ?? base._isBlocked,
+    isParticipating: _isParticipating ?? base._isParticipating,
+    roomReceipts: _roomReceipts ?? base._roomReceipts,
+    roomMembers: _roomMembers ?? base._roomMembers,
+    showReadReceiptsInGroups:
+        _showReadReceiptsInGroups ?? base._showReadReceiptsInGroups,
+    isGroup: isGroup ?? base.isGroup,
+  );
+
+  /// Stamps the room state [NomaChatView] owns, overriding whatever the
+  /// host passed. Everything else is carried over untouched.
+  ChatViewBehaviors withRoomState({
+    required String? initialMessageId,
+    required String? unreadBoundaryMessageId,
+    required int unreadCount,
+    required bool isBlocked,
+    required bool isParticipating,
+    required bool readOnly,
+    required String? readOnlyLabel,
+    required bool? isGroup,
+  }) => ChatViewBehaviors(
+    maxRecordingDuration: _maxRecordingDuration,
+    inputMaxLines: _inputMaxLines,
+    showAttachButton: _showAttachButton,
+    showVoiceButton: _showVoiceButton,
+    availableReactions: _availableReactions,
+    userReactions: _userReactions,
+    messageReactions: _messageReactions,
+    messageStatuses: _messageStatuses,
+    referencedMessages: _referencedMessages,
+    connectionState: connectionState,
+    connectionLabels: _connectionLabels,
+    contextMenuActions: _contextMenuActions,
+    editWindow: _editWindow,
+    deleteWindow: _deleteWindow,
+    attachmentExtraOptions: _attachmentExtraOptions,
+    forwardedSourceLabels: _forwardedSourceLabels,
+    emptyIcon: emptyIcon,
+    emptyTitle: emptyTitle,
+    emptySubtitle: emptySubtitle,
+    enableLinkPreview: _enableLinkPreview,
+    enableMentions: _enableMentions,
+    roomReceipts: _roomReceipts,
+    roomMembers: _roomMembers,
+    showReadReceiptsInGroups: _showReadReceiptsInGroups,
+    initialMessageId: initialMessageId,
+    unreadBoundaryMessageId: unreadBoundaryMessageId,
+    unreadCount: unreadCount,
+    isBlocked: isBlocked,
+    isParticipating: isParticipating,
+    readOnly: readOnly,
+    readOnlyLabel: readOnlyLabel,
+    isGroup: isGroup,
+  );
 }

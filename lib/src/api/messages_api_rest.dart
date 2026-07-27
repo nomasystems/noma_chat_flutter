@@ -136,13 +136,17 @@ class RestMessagesApi implements ChatMessagesApi {
   /// [text] — message body text. Supports Markdown if enabled server-side.
   ///
   /// [messageType] — semantic type of the message. Defaults to
-  /// [MessageType.regular]. Use [MessageType.reaction] when [reaction] is set
-  /// and [MessageType.forwarded] when [sourceRoomId] is set.
+  /// [MessageType.regular]. Use [MessageType.forwarded] when [sourceRoomId]
+  /// is set. Never pass [MessageType.reaction] here — the server rejects it
+  /// with `400 unsupported_type`; that type is only ever produced locally
+  /// from an incoming realtime reaction event. To react to a message use
+  /// [addReaction] / [deleteReaction] instead.
   ///
-  /// [referencedMessageId] — ID of the message being replied to or reacted to.
+  /// [referencedMessageId] — ID of the message being replied to.
   ///
-  /// [reaction] — emoji string (e.g. `'👍'`). Set [messageType] to
-  /// [MessageType.reaction] when using this field.
+  /// [reaction] — dead on this endpoint: the send route never reads an
+  /// `emoji` field, so it is silently ignored regardless of [messageType].
+  /// Call [addReaction] to actually attach a reaction.
   ///
   /// [attachmentUrl] — publicly reachable URL of the attached file. Use
   /// [AttachmentsApi.upload] to obtain the URL before calling [send].

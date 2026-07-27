@@ -113,9 +113,10 @@ class NomaChatView extends StatefulWidget {
   /// report, …) — any non-null field here wins.
   final ChatViewCallbacks? callbacks;
 
-  /// Consumer overrides for [ChatView] behaviours. Any non-default field here
-  /// wins over the auto-computed values (unread snapshot, `isGroup`,
-  /// `isBlocked`, `readOnly`, `contextMenuActions`, …).
+  /// Consumer overrides for [ChatView] behaviours. Only the fields actually
+  /// passed win — the rest keep the SDK defaults, so overriding one knob
+  /// never resets the others. Room state the view owns (unread snapshot,
+  /// `isGroup`, `isBlocked`, `readOnly`) is always recomputed.
   final ChatViewBehaviors? behaviors;
 
   /// Forwarded to [ChatView.backgroundWidget].
@@ -691,45 +692,29 @@ class _NomaChatViewState extends State<NomaChatView> {
     required RoomListItem? room,
     required bool isBlocked,
   }) {
-    final user = widget.behaviors;
     var actions = _defaultContextMenuActions(room);
     if (widget.contextMenuActionsResolver != null) {
       actions = widget.contextMenuActionsResolver!(room, actions);
     }
-    return ChatViewBehaviors(
-      initialMessageId: widget.initialMessageId ?? _seededInitialMessageId,
-      unreadBoundaryMessageId: _unreadBoundaryMessageId,
-      unreadCount: _initialUnreadCount,
-      isBlocked: isBlocked,
-      isParticipating: room?.isParticipating ?? true,
-      readOnly: room?.isReadOnly ?? false,
-      readOnlyLabel: (room?.selfMuted ?? false)
-          ? _theme.l10n.mutedByAdmin
-          : null,
-      isGroup: room?.isGroup ?? false,
-      enableMentions: user?.enableMentions ?? true,
-      contextMenuActions: user?.contextMenuActions.isNotEmpty == true
-          ? user!.contextMenuActions
-          : actions,
-      editWindow: user?.editWindow ?? const Duration(minutes: 15),
-      deleteWindow: user?.deleteWindow ?? const Duration(days: 2),
-      maxRecordingDuration:
-          user?.maxRecordingDuration ?? const Duration(minutes: 15),
-      inputMaxLines: user?.inputMaxLines ?? 5,
-      showAttachButton: user?.showAttachButton ?? true,
-      showVoiceButton: user?.showVoiceButton ?? true,
-      availableReactions:
-          user?.availableReactions ??
-          const ['👍', '❤️', '😂', '😮', '😢', '🙏'],
-      attachmentExtraOptions: user?.attachmentExtraOptions ?? const [],
-      enableLinkPreview: user?.enableLinkPreview ?? true,
-      connectionState: user?.connectionState,
-      connectionLabels: user?.connectionLabels ?? const {},
-      emptyIcon: user?.emptyIcon,
-      emptyTitle: user?.emptyTitle,
-      emptySubtitle: user?.emptySubtitle,
-      showReadReceiptsInGroups: user?.showReadReceiptsInGroups ?? true,
+    final defaults = ChatViewBehaviors(
+      enableMentions: true,
+      contextMenuActions: actions,
     );
+    final user = widget.behaviors ?? const ChatViewBehaviors();
+    return user
+        .mergedOnto(defaults)
+        .withRoomState(
+          initialMessageId: widget.initialMessageId ?? _seededInitialMessageId,
+          unreadBoundaryMessageId: _unreadBoundaryMessageId,
+          unreadCount: _initialUnreadCount,
+          isBlocked: isBlocked,
+          isParticipating: room?.isParticipating ?? true,
+          readOnly: room?.isReadOnly ?? false,
+          readOnlyLabel: (room?.selfMuted ?? false)
+              ? _theme.l10n.mutedByAdmin
+              : null,
+          isGroup: room?.isGroup ?? false,
+        );
   }
 
   @override

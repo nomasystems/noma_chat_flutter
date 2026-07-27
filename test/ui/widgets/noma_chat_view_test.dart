@@ -272,6 +272,92 @@ void main() {
       },
     );
 
+    testWidgets(
+      'overriding one behaviour keeps the SDK defaults for the rest',
+      (tester) async {
+        adapter.roomListController.addRoom(
+          const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            NomaChatView(
+              roomId: 'room1',
+              adapter: adapter,
+              hydrateGroupMembers: false,
+              behaviors: const ChatViewBehaviors(
+                connectionState: ChatConnectionState.connecting,
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        final behaviors = chatViewOf(tester).behaviors;
+        expect(behaviors.connectionState, ChatConnectionState.connecting);
+        expect(behaviors.enableMentions, isTrue);
+        expect(behaviors.contextMenuActions, contains(MessageAction.forward));
+        expect(behaviors.contextMenuActions, contains(MessageAction.star));
+        expect(behaviors.showAttachButton, isTrue);
+        expect(behaviors.showVoiceButton, isTrue);
+        expect(behaviors.enableLinkPreview, isTrue);
+      },
+    );
+
+    testWidgets('behaviours explicitly set to false are respected', (
+      tester,
+    ) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            behaviors: const ChatViewBehaviors(
+              enableMentions: false,
+              showAttachButton: false,
+              enableLinkPreview: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final behaviors = chatViewOf(tester).behaviors;
+      expect(behaviors.enableMentions, isFalse);
+      expect(behaviors.showAttachButton, isFalse);
+      expect(behaviors.enableLinkPreview, isFalse);
+      expect(behaviors.showVoiceButton, isTrue);
+    });
+
+    testWidgets('an explicit null edit window disables the edit gate', (
+      tester,
+    ) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            behaviors: const ChatViewBehaviors(editWindow: null),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final behaviors = chatViewOf(tester).behaviors;
+      expect(behaviors.editWindow, isNull);
+      expect(behaviors.deleteWindow, const Duration(days: 2));
+    });
+
     testWidgets('hydrateGroupMembers fetches members and missing profiles', (
       tester,
     ) async {
