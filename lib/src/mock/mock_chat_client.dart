@@ -218,6 +218,14 @@ class MockChatClient implements ChatClient {
   @override
   void cancelPendingRequests([String reason = 'cancelled']) {}
 
+  // The mock does not have an offline queue, so there is never anything
+  // pending and nothing to flush.
+  @override
+  int get pendingOperationCount => 0;
+
+  @override
+  Future<void> flushPendingOperations() async {}
+
   // The mock does not have an offline queue, so the setter is a no-op.
   @override
   set onOfflineMessageSent(

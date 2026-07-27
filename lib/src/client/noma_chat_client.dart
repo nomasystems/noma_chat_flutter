@@ -45,7 +45,6 @@ class NomaChatClient implements ChatClient {
   final void Function()? _onAuthFailure;
   StreamSubscription<ChatEvent>? _eventSub;
   DateTime? _disconnectedAt;
-  bool _hasConnectedOnce = false;
   Future<void>? _connecting;
   final Set<String> _permanentlyFailedOperationIds = {};
   int _attachmentOpSeq = 0;
@@ -86,6 +85,26 @@ class NomaChatClient implements ChatClient {
   }
 
   DateTime? get lastDisconnectedAt => _disconnectedAt;
+
+  /// Number of operations currently sitting in the offline queue, waiting
+  /// to be sent once the connection allows it. `0` on clients configured
+  /// without an offline queue ([ChatConfig.cacheConfig] `null`).
+  ///
+  /// Drive a "pending" badge from this, or check it before calling
+  /// [flushPendingOperations] to skip a redundant drain attempt.
+  @override
+  int get pendingOperationCount => _offlineQueue?.length ?? 0;
+
+  /// Forces an immediate drain attempt of the offline queue instead of
+  /// waiting for the next [ConnectedEvent].
+  ///
+  /// The queue already drains automatically on every reconnect (and, since
+  /// draining no longer depends on a prior disconnect, on the very first
+  /// connection of a cold start too) — call this only when the host wants
+  /// an on-demand retry, e.g. a manual "retry sending" affordance. No-op
+  /// on clients without an offline queue configured.
+  @override
+  Future<void> flushPendingOperations() => _processOfflineQueue();
 
   @override
   late final AuthApi auth;
@@ -352,11 +371,15 @@ class NomaChatClient implements ChatClient {
   void _onTransportEvent(ChatEvent event) {
     switch (event) {
       case ConnectedEvent():
-        if (_hasConnectedOnce) {
-          _processOfflineQueue();
-          if (_enableCatchUp) _catchUpUnreads();
-        }
-        _hasConnectedOnce = true;
+        // The offline queue drains on EVERY connection, including the
+        // very first one after a cold start — a message queued while the
+        // app was never yet connected must not wait for a reconnect to go
+        // out. Catch-up, on the other hand, only makes sense after an
+        // actual disconnection: on a fresh session there is nothing the
+        // client could have missed yet.
+        final hadDisconnected = _disconnectedAt != null;
+        _processOfflineQueue();
+        if (_enableCatchUp && hadDisconnected) _catchUpUnreads();
         _disconnectedAt = null;
       case DisconnectedEvent():
         _disconnectedAt ??= DateTime.now();

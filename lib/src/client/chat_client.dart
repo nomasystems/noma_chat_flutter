@@ -149,6 +149,23 @@ abstract class ChatClient {
   /// not need to call it directly.
   void cancelPendingRequests([String reason]);
 
+  /// Number of operations currently sitting in the offline queue, waiting
+  /// to be sent once the connection allows it.
+  ///
+  /// Drive a "pending" badge from this, or check it before calling
+  /// [flushPendingOperations] to skip a redundant drain attempt. Clients
+  /// without an offline queue configured always report `0`.
+  int get pendingOperationCount;
+
+  /// Forces an immediate drain attempt of the offline queue instead of
+  /// waiting for the next reconnect.
+  ///
+  /// The queue already drains automatically on every connection (including
+  /// the very first one after a cold start) — call this only for an
+  /// on-demand retry, e.g. a manual "retry sending" affordance. A no-op on
+  /// clients without an offline queue configured.
+  Future<void> flushPendingOperations();
+
   /// Optional callback invoked by clients with an offline queue when a
   /// queued send completes after the connection is restored.
   ///
