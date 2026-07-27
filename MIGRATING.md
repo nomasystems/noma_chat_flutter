@@ -1,5 +1,204 @@
 # Migration guide
 
+## 0.13.x → 0.14.0
+
+Only one item can break your build, and it only affects test code. The rest
+of this section is behaviour you should know about before shipping the bump.
+
+### Breaking: `ChatClient` gained `pendingOperationCount` / `flushPendingOperations()`
+
+**What fails.** Any class that `implements ChatClient` and declares every
+member explicitly stops compiling:
+
+```
+Missing concrete implementations of 'ChatClient.pendingOperationCount'
+and 'ChatClient.flushPendingOperations'.
+```
+
+In practice this is a hand-written test fake — a wrapper that delegates to a
+real client so a test can intercept one or two calls. Production code that
+*uses* `ChatClient` is unaffected, and so are fakes that fall back to
+`noSuchMethod`. `NomaChatClient` and `MockChatClient` already implement both.
+
+**The fix.** Two members per fake, delegating exactly like the members
+around them:
+
+```dart
+class _FakeChatClient implements ChatClient {
+  _FakeChatClient(this._delegate);
+  final ChatClient _delegate;
+
+  // ... your existing overrides ...
+
+  @override
+  void cancelPendingRequests([String reason = 'cancelled']) =>
+      _delegate.cancelPendingRequests(reason);
+
+  // Add these two:
+  @override
+  int get pendingOperationCount => _delegate.pendingOperationCount;
+
+  @override
+  Future<void> flushPendingOperations() => _delegate.flushPendingOperations();
+}
+```
+
+If your fake has no delegate to forward to, the no-op pair is fine — it is
+what `MockChatClient` does:
+
+```dart
+@override
+int get pendingOperationCount => 0;
+
+@override
+Future<void> flushPendingOperations() async {}
+```
+
+**What you gain.** The same two members on the real client: read
+`pendingOperationCount` to drive a "N pending" badge without shadow-counting
+sends yourself, and call `flushPendingOperations()` behind a manual "retry
+sending" button. Normal operation needs neither — the queue drains on every
+connection on its own.
+
+### Non-breaking, but delete your workaround: sub-controllers are mockable
+
+`ChatRoomsController`, `ChatMessagesController`, `ChatDmController`,
+`ChatContactsController` and `ChatProfileController` moved from `final class`
+to `interface class`. Nothing that compiled before stops compiling; the point
+is what is now allowed.
+
+Until `0.13.x`, `final` meant you could not implement these from another
+package, so mocking `ChatUiAdapter` in a host test suite pushed you onto the
+`@internal` pass-throughs on the adapter itself — plus an analyzer ignore to
+keep the build quiet:
+
+```dart
+// ignore_for_file: invalid_use_of_internal_member
+
+await adapter.loadRooms();
+await adapter.openDirectMessageDraft(otherUserId);
+final key = adapter.draftRoutingKey(otherUserId);
+await adapter.leaveRoom(roomId);
+```
+
+Now the public sub-controller path works, and the mocks compile:
+
+```dart
+// No ignore needed.
+await adapter.rooms.load();
+await adapter.dm.openDraft(otherUserId);
+final key = adapter.dm.draftRoutingKey(otherUserId);
+await adapter.rooms.leave(roomId);
+```
+
+```dart
+class MockChatRoomsController extends Mock implements ChatRoomsController {}
+class MockChatDmController extends Mock implements ChatDmController {}
+
+class MockChatUiAdapter extends Mock implements ChatUiAdapter {
+  @override
+  final ChatRoomsController rooms = MockChatRoomsController();
+  @override
+  final ChatDmController dm = MockChatDmController();
+}
+```
+
+Migrate the call sites and drop `invalid_use_of_internal_member` from the
+files that only needed it for chat.
+
+### Behavioural: the offline queue drains on the *first* connection
+
+Queued operations used to wait for a re*connect*: the drain was gated on
+having connected at least once already, so anything enqueued during a cold
+start stayed in the queue until the connection dropped and came back. It now
+drains on every `connected` event, the first one included.
+
+Nothing to change — but if your app assumed a queued send would linger (for
+instance, a screen that let the user cancel it before it went out), that
+window is now much shorter. Missed-unread catch-up is unchanged: it still
+runs only after a genuine disconnect→reconnect cycle.
+
+To drain on demand at any other moment, call `flushPendingOperations()`.
+
+### Behavioural: WS close `4002` invalidates the token and stops looping
+
+`4002` (`auth_failed`) is now treated like `4003`/`4004`: the cached token is
+invalidated, so the next attempt fetches a fresh one instead of re-offering
+the credential the server just refused. And after **3** consecutive
+token-rejecting closes (`4002`/`4003`/`4004`) with no successful
+authentication in between, the transport gives up: it stops reconnecting and
+emits a terminal `ChatAuthException` on the event stream. A successful auth,
+or an explicit `connect()`, resets the counter.
+
+If you wrote something like this to work around the old loop, delete it — it
+now fights the SDK for control of the socket:
+
+```dart
+// Remove: the SDK handles 4002 itself as of 0.14.0.
+chat.connectionStateNotifier.addListener(() async {
+  if (chat.connectionState == ChatConnectionState.error) {
+    await auth.refreshIfNeeded();
+    await chat.disconnect();
+    await chat.connect();
+  }
+});
+```
+
+What you should keep is a terminal-failure path: when the SDK reports the
+session terminated, send the user through your real re-authentication flow
+rather than retrying the socket.
+
+### New: client-side duplicate guard on room and member operations
+
+`rooms.create`, `rooms.updateConfig`, `members.invite` (hence
+`members.joinWithToken`) and `members.remove` now deduplicate concurrent
+identical calls and send a deterministic `Idempotency-Key` header. No API
+change, nothing to migrate.
+
+**Do not over-trust it.** The backend does not read `Idempotency-Key` yet.
+This stops a double-tap or a local retry of a request that never left the
+device; it does **not** deduplicate a retry whose original request already
+reached and was applied by the server. If you were planning to drop your own
+"disable the button while the request is in flight" guard because the SDK is
+now idempotent, don't — it isn't, not end to end.
+
+### New: reuse the SDK's backoff and circuit breaker
+
+If your app calls the same backend outside the bundled HTTP client, the
+resilience primitives are now exported instead of being internal:
+
+```dart
+import 'package:noma_chat/noma_chat_advanced.dart';
+
+final delayMs = computeBackoffMs(attempt: 0); // 0-based: 0 = first retry
+
+final breakers = CircuitBreakerRegistry();
+final breaker = breakers.forPath('/v1/messages/$messageId');
+if (!breaker.allowRequest()) return;
+try {
+  await doRequest();
+  breaker.recordSuccess();
+} catch (_) {
+  breaker.recordFailure();
+  rethrow;
+}
+```
+
+`CircuitBreakerRegistry` groups by the first meaningful path segment, so a
+`503` storm on `/messages` does not open the circuit for `/rooms`. Use a bare
+`CircuitBreaker` when one shared circuit is what you want.
+
+### Fixed: relative signed attachment URLs
+
+Attachments whose signed download URL came back relative to the API base
+failed to download. The URL is now resolved against the configured base URL
+first. No action required.
+
+### Cleanup: `CachePolicy` is no longer `@experimental`
+
+Remove any `// ignore: experimental_member_use` you added around a
+`CachePolicy` value.
+
 ## 0.12.x → 0.13.0
 
 ### Breaking: `ChatConnectionState` gained `authenticating`
