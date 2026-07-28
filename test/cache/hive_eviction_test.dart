@@ -225,10 +225,68 @@ void main() {
       ]);
       final rooms = (await ds.getRooms()).dataOrNull!;
       expect(rooms.length, 2);
-      final ids = rooms.map((r) => r.id).toSet();
-      expect(ids.contains('r3'), isTrue);
-      expect(ids.contains('r2'), isTrue);
     });
+
+    test(
+      'rooms are evicted by last-activity recency, not by the '
+      'alphabetical order of their id',
+      () async {
+        await ds.dispose();
+        await Hive.close();
+
+        // Ids deliberately chosen so alphabetical order ('alpha' < 'mike'
+        // < 'zulu') is the OPPOSITE of insertion order and the opposite
+        // of activity recency below. A key-order (or insertion-order)
+        // based eviction would evict 'alpha-room' — the most recently
+        // active one — instead of the genuinely abandoned 'zulu-room'.
+        ds = await HiveChatDatasource.create(
+          basePath: tempDir.path,
+          maxRooms: 2,
+        );
+        await ds.saveUnreads([
+          UnreadRoom(
+            roomId: 'zulu-room',
+            unreadMessages: 0,
+            lastMessageTime: DateTime.utc(2026, 1, 1),
+          ),
+          UnreadRoom(
+            roomId: 'mike-room',
+            unreadMessages: 0,
+            lastMessageTime: DateTime.utc(2026, 6, 1),
+          ),
+          UnreadRoom(
+            roomId: 'alpha-room',
+            unreadMessages: 0,
+            lastMessageTime: DateTime.utc(2026, 12, 1),
+          ),
+        ]);
+
+        await ds.saveRooms([
+          const ChatRoom(
+            id: 'zulu-room',
+            audience: RoomAudience.contacts,
+            members: [],
+          ),
+          const ChatRoom(
+            id: 'mike-room',
+            audience: RoomAudience.contacts,
+            members: [],
+          ),
+          const ChatRoom(
+            id: 'alpha-room',
+            audience: RoomAudience.contacts,
+            members: [],
+          ),
+        ]);
+
+        final rooms = (await ds.getRooms()).dataOrNull!;
+        final ids = rooms.map((r) => r.id).toSet();
+        expect(rooms.length, 2);
+        expect(ids.contains('zulu-room'), isFalse);
+        expect(ids.contains('mike-room'), isTrue);
+        expect(ids.contains('alpha-room'), isTrue);
+      },
+    );
 
     test('users are evicted when exceeding maxUsers', () async {
       await ds.dispose();
