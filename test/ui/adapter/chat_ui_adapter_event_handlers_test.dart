@@ -141,54 +141,44 @@ void main() {
     },
   );
 
-  test(
-    'ReceiptUpdatedEvent for own read receipt zeroes the unread badge '
-    '(cross-device convergence)',
-    () async {
-      adapter.roomListController.updateRoom(
-        adapter.roomListController
-            .getRoomById('r1')!
-            .copyWith(unreadCount: 3),
-      );
-      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 3);
+  test('ReceiptUpdatedEvent for own read receipt zeroes the unread badge '
+      '(cross-device convergence)', () async {
+    adapter.roomListController.updateRoom(
+      adapter.roomListController.getRoomById('r1')!.copyWith(unreadCount: 3),
+    );
+    expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 3);
 
-      client.emitEvent(
-        const ReceiptUpdatedEvent(
-          roomId: 'r1',
-          messageId: 'm-receipt',
-          status: ReceiptStatus.read,
-          fromUserId: 'u1',
-        ),
-      );
-      await drain();
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-receipt',
+        status: ReceiptStatus.read,
+        fromUserId: 'u1',
+      ),
+    );
+    await drain();
 
-      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
-    },
-  );
+    expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
+  });
 
-  test(
-    "ReceiptUpdatedEvent for another user's read receipt leaves the "
-    'unread badge untouched',
-    () async {
-      adapter.roomListController.updateRoom(
-        adapter.roomListController
-            .getRoomById('r1')!
-            .copyWith(unreadCount: 3),
-      );
+  test("ReceiptUpdatedEvent for another user's read receipt leaves the "
+      'unread badge untouched', () async {
+    adapter.roomListController.updateRoom(
+      adapter.roomListController.getRoomById('r1')!.copyWith(unreadCount: 3),
+    );
 
-      client.emitEvent(
-        const ReceiptUpdatedEvent(
-          roomId: 'r1',
-          messageId: 'm-receipt',
-          status: ReceiptStatus.read,
-          fromUserId: 'u2',
-        ),
-      );
-      await drain();
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-receipt',
+        status: ReceiptStatus.read,
+        fromUserId: 'u2',
+      ),
+    );
+    await drain();
 
-      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 3);
-    },
-  );
+    expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 3);
+  });
 
   test('ConnectedEvent flips connectionStateNotifier to connected', () async {
     client.emitEvent(const ConnectedEvent());

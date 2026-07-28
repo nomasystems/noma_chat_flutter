@@ -316,7 +316,9 @@ class RestClient {
     final proportional = Duration(
       seconds: (byteLength / _minUploadBytesPerSecond).ceil(),
     );
-    return proportional > _attachmentTimeout ? proportional : _attachmentTimeout;
+    return proportional > _attachmentTimeout
+        ? proportional
+        : _attachmentTimeout;
   }
 
   Future<Response<dynamic>> _request(

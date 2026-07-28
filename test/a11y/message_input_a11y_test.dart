@@ -112,45 +112,39 @@ void main() {
       expect(size.height, greaterThanOrEqualTo(48.0));
     });
 
-    testWidgets(
-      'link preview dismiss button exposes a Close semantic label '
-      '(regression: was an unlabeled bare GestureDetector)',
-      (tester) async {
-        await tester.pumpWidget(
-          wrap(
-            MessageInput(
-              controller: controller,
-              onSendMessageRequest: (_) {},
-              linkPreviewFetcher: _StubFetcher(),
-            ),
+    testWidgets('link preview dismiss button exposes a Close semantic label '
+        '(regression: was an unlabeled bare GestureDetector)', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) {},
+            linkPreviewFetcher: _StubFetcher(),
           ),
-        );
+        ),
+      );
 
-        await tester.enterText(
-          find.byType(TextField),
-          'check https://example.com',
-        );
-        await tester.pump(const Duration(milliseconds: 600));
-        await tester.pump();
+      await tester.enterText(
+        find.byType(TextField),
+        'check https://example.com',
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await tester.pump();
 
-        expect(find.bySemanticsLabel('Close'), findsOneWidget);
-      },
-    );
+      expect(find.bySemanticsLabel('Close'), findsOneWidget);
+    });
 
-    testWidgets(
-      'cancel-editing button exposes a Close semantic label '
-      '(regression: was an unlabeled bare GestureDetector)',
-      (tester) async {
-        controller.setEditingMessage(fixtureMessage());
+    testWidgets('cancel-editing button exposes a Close semantic label '
+        '(regression: was an unlabeled bare GestureDetector)', (tester) async {
+      controller.setEditingMessage(fixtureMessage());
 
-        await tester.pumpWidget(
-          wrap(
-            MessageInput(controller: controller, onSendMessageRequest: (_) {}),
-          ),
-        );
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+        ),
+      );
 
-        expect(find.bySemanticsLabel('Close'), findsOneWidget);
-      },
-    );
+      expect(find.bySemanticsLabel('Close'), findsOneWidget);
+    });
   });
 }

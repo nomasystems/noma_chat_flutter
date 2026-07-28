@@ -108,89 +108,83 @@ void main() {
     await states.close();
   });
 
-  test(
-    'the first message of a brand-new DM sent while offline is queued as a '
-    'contact-addressed send and lands once the connection returns',
-    () async {
-      await client.connect();
+  test('the first message of a brand-new DM sent while offline is queued as a '
+      'contact-addressed send and lands once the connection returns', () async {
+    await client.connect();
 
-      final draft = await adapter.dm.openDraft('u1');
-      final key = adapter.dm.draftRoutingKey('u1');
+    final draft = await adapter.dm.openDraft('u1');
+    final key = adapter.dm.draftRoutingKey('u1');
 
-      final result = await adapter.messages.send(key, text: 'hola');
-      expect(result.isFailure, isTrue);
+    final result = await adapter.messages.send(key, text: 'hola');
+    expect(result.isFailure, isTrue);
 
-      final tempId = draft.messages.single.id;
-      expect(draft.isFailed(tempId), isTrue);
+    final tempId = draft.messages.single.id;
+    expect(draft.isFailed(tempId), isTrue);
 
-      // The regression: the draft has no room id, so nothing could enter the
-      // room-keyed offline queue and the message was lost for good. It must
-      // now be durable as a contact-addressed operation instead.
-      final queued = (await store.getOfflineQueue()).dataOrNull ?? const [];
-      expect(queued, hasLength(1));
-      expect(queued.single['type'], 'sendDirectMessage');
-      expect(queued.single['contactUserId'], 'u1');
-      expect(queued.single['text'], 'hola');
-      // Same idempotency key as the optimistic bubble, so the drain cannot
-      // duplicate a send that had actually landed.
-      expect(queued.single['clientMessageId'], tempId);
+    // The regression: the draft has no room id, so nothing could enter the
+    // room-keyed offline queue and the message was lost for good. It must
+    // now be durable as a contact-addressed operation instead.
+    final queued = (await store.getOfflineQueue()).dataOrNull ?? const [];
+    expect(queued, hasLength(1));
+    expect(queued.single['type'], 'sendDirectMessage');
+    expect(queued.single['contactUserId'], 'u1');
+    expect(queued.single['text'], 'hola');
+    // Same idempotency key as the optimistic bubble, so the drain cannot
+    // duplicate a send that had actually landed.
+    expect(queued.single['clientMessageId'], tempId);
 
-      // Reconnect: the queued operation resolves the 1:1 room server-side.
-      offline = false;
-      await client.flushPendingOperations();
+    // Reconnect: the queued operation resolves the 1:1 room server-side.
+    offline = false;
+    await client.flushPendingOperations();
 
-      verify(
-        () => rest.post(
-          '/contacts/u1/messages',
-          data: any(named: 'data'),
-          queryParams: any(named: 'queryParams'),
-          headers: any(named: 'headers'),
-        ),
-      ).called(greaterThanOrEqualTo(1));
-      expect((await store.getOfflineQueue()).dataOrNull ?? const [], isEmpty);
-    },
-  );
+    verify(
+      () => rest.post(
+        '/contacts/u1/messages',
+        data: any(named: 'data'),
+        queryParams: any(named: 'queryParams'),
+        headers: any(named: 'headers'),
+      ),
+    ).called(greaterThanOrEqualTo(1));
+    expect((await store.getOfflineQueue()).dataOrNull ?? const [], isEmpty);
+  });
 
-  test(
-    'retrying a failed message of a still-draft DM materializes the room '
-    'and posts to the real room id',
-    () async {
-      await client.connect();
+  test('retrying a failed message of a still-draft DM materializes the room '
+      'and posts to the real room id', () async {
+    await client.connect();
 
-      final draft = await adapter.dm.openDraft('u1');
-      final key = adapter.dm.draftRoutingKey('u1');
+    final draft = await adapter.dm.openDraft('u1');
+    final key = adapter.dm.draftRoutingKey('u1');
 
-      await adapter.messages.send(key, text: 'hola');
-      final tempId = draft.messages.single.id;
-      expect(draft.isFailed(tempId), isTrue);
-      expect(draft.isDraft, isTrue);
+    await adapter.messages.send(key, text: 'hola');
+    final tempId = draft.messages.single.id;
+    expect(draft.isFailed(tempId), isTrue);
+    expect(draft.isDraft, isTrue);
 
-      offline = false;
-      final retry = await adapter.messages.retrySend(key, tempId);
+    offline = false;
+    final retry = await adapter.messages.retrySend(key, tempId);
 
-      expect(retry.isSuccess, isTrue);
-      // The regression: the retry used to be posted against the synthetic
-      // `draft:u1` routing key, a room that does not exist server-side, so
-      // it could never converge.
-      verify(
-        () => rest.post(
-          '/rooms/r-real/messages',
-          data: any(named: 'data'),
-          queryParams: any(named: 'queryParams'),
-          headers: any(named: 'headers'),
-        ),
-      ).called(1);
-      verifyNever(
-        () => rest.post(
-          '/rooms/$key/messages',
-          data: any(named: 'data'),
-          queryParams: any(named: 'queryParams'),
-          headers: any(named: 'headers'),
-        ),
-      );
-      expect(draft.isDraft, isFalse);
-      expect(draft.roomId, 'r-real');
-      expect(adapter.getChatController('r-real'), same(draft));
-    },
-  );
+    expect(retry.isSuccess, isTrue);
+    // The regression: the retry used to be posted against the synthetic
+    // `draft:u1` routing key, a room that does not exist server-side, so
+    // it could never converge.
+    verify(
+      () => rest.post(
+        '/rooms/r-real/messages',
+        data: any(named: 'data'),
+        queryParams: any(named: 'queryParams'),
+        headers: any(named: 'headers'),
+      ),
+    ).called(1);
+    verifyNever(
+      () => rest.post(
+        '/rooms/$key/messages',
+        data: any(named: 'data'),
+        queryParams: any(named: 'queryParams'),
+        headers: any(named: 'headers'),
+      ),
+    );
+    expect(draft.isDraft, isFalse);
+    expect(draft.roomId, 'r-real');
+    expect(adapter.getChatController('r-real'), same(draft));
+  });
 }
