@@ -4,6 +4,32 @@ import 'package:noma_chat/noma_chat.dart';
 
 import '../_helpers/fixtures.dart';
 
+/// Always resolves so the link preview banner appears without waiting on a
+/// real network fetch.
+class _StubFetcher implements LinkPreviewFetcher {
+  @override
+  Future<LinkPreviewMetadata?> fetch(String url) async =>
+      LinkPreviewMetadata(url: url, title: 'Example');
+
+  @override
+  void cancel(String url) {}
+
+  @override
+  void cancelAll() {}
+
+  @override
+  LinkPreviewCacheStats get cacheStats => const LinkPreviewCacheStats(
+    entries: 0,
+    capacity: 0,
+    failures: 0,
+    inFlight: 0,
+    hits: 0,
+    misses: 0,
+    failureRetries: 0,
+    evictions: 0,
+  );
+}
+
 void main() {
   late ChatController controller;
 
@@ -85,5 +111,46 @@ void main() {
       expect(size.width, greaterThanOrEqualTo(48.0));
       expect(size.height, greaterThanOrEqualTo(48.0));
     });
+
+    testWidgets(
+      'link preview dismiss button exposes a Close semantic label '
+      '(regression: was an unlabeled bare GestureDetector)',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            MessageInput(
+              controller: controller,
+              onSendMessageRequest: (_) {},
+              linkPreviewFetcher: _StubFetcher(),
+            ),
+          ),
+        );
+
+        await tester.enterText(
+          find.byType(TextField),
+          'check https://example.com',
+        );
+        await tester.pump(const Duration(milliseconds: 600));
+        await tester.pump();
+
+        expect(find.bySemanticsLabel('Close'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'cancel-editing button exposes a Close semantic label '
+      '(regression: was an unlabeled bare GestureDetector)',
+      (tester) async {
+        controller.setEditingMessage(fixtureMessage());
+
+        await tester.pumpWidget(
+          wrap(
+            MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+          ),
+        );
+
+        expect(find.bySemanticsLabel('Close'), findsOneWidget);
+      },
+    );
   });
 }
