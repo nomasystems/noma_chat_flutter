@@ -210,6 +210,10 @@ class ChatUiLocalizations {
     this.close = 'Close',
     this.back = 'Back',
     this.moreOptions = 'More options',
+    // Accessibility action label for retrying a failed message send —
+    // surfaced as a screen-reader custom action on the message bubble
+    // (the visual retry icon has no accompanying text).
+    this.retry = 'Retry',
     this.clearText = 'Clear',
     this.playPreview = 'Play preview',
     this.cancel = 'Cancel',
@@ -620,6 +624,9 @@ class ChatUiLocalizations {
   final String close;
   final String back;
   final String moreOptions;
+
+  /// Screen-reader custom action label for retrying a failed message send.
+  final String retry;
   final String clearText;
   final String playPreview;
   final String cancel;
@@ -1072,6 +1079,7 @@ class ChatUiLocalizations {
     String? close,
     String? back,
     String? moreOptions,
+    String? retry,
     String? clearText,
     String? playPreview,
     String? about,
@@ -1340,6 +1348,7 @@ class ChatUiLocalizations {
       close: close ?? this.close,
       back: back ?? this.back,
       moreOptions: moreOptions ?? this.moreOptions,
+      retry: retry ?? this.retry,
       clearText: clearText ?? this.clearText,
       playPreview: playPreview ?? this.playPreview,
       about: about ?? this.about,

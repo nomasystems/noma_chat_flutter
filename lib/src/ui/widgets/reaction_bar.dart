@@ -28,19 +28,29 @@ class ReactionBar extends StatelessWidget {
       spacing: 4,
       children: reactions.entries.map((entry) {
         final isOwn = userReactions.contains(entry.key);
+        void handleTap() {
+          if (onShowDetail != null) {
+            onShowDetail!();
+          } else if (isOwn) {
+            onDeleteReaction?.call(entry.key);
+          } else {
+            onReactionTap?.call(entry.key);
+          }
+        }
+
         return Semantics(
           label: '${entry.key} ${entry.value}',
           button: true,
+          // `onTap` re-declared here (not just relied on via the child
+          // `GestureDetector`'s own auto-generated tap action) so a screen
+          // reader's activation reaches `handleTap` directly. Paired with
+          // `excludeSemantics`, otherwise the child `Text`'s own label
+          // merges into this node alongside the one above, doubling the
+          // announcement ("👍 1, 👍 1").
+          excludeSemantics: true,
+          onTap: handleTap,
           child: GestureDetector(
-            onTap: () {
-              if (onShowDetail != null) {
-                onShowDetail!();
-              } else if (isOwn) {
-                onDeleteReaction?.call(entry.key);
-              } else {
-                onReactionTap?.call(entry.key);
-              }
-            },
+            onTap: handleTap,
             child: ConstrainedBox(
               constraints: const BoxConstraints(minHeight: 32),
               child: Container(

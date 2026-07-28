@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart' show CustomSemanticsAction;
 import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
@@ -534,8 +535,9 @@ class MessageBubble extends StatelessWidget {
     }
 
     final bubble = _buildBubble(context);
-    final body = _buildBubbleColumn(bubble);
-    final wrapped = _wrapWithSwipeAndSemantics(body);
+    final semanticBubble = _wrapWithSemantics(bubble);
+    final body = _buildBubbleColumn(semanticBubble);
+    final wrapped = _wrapWithSwipe(body);
     return _buildAlignedRow(wrapped);
   }
 
@@ -712,16 +714,61 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _wrapWithSwipeAndSemantics(Widget content) {
-    Widget result = content;
-    if (onSwipeToReply != null) {
-      result = SwipeToReply(onSwipe: onSwipeToReply!, child: result);
-    }
+  /// Swipe wraps the whole row (bubble + reactions + thread link) exactly
+  /// like before — only the *semantics* scope changed, see [_wrapWithSemantics].
+  Widget _wrapWithSwipe(Widget content) {
+    if (onSwipeToReply == null) return content;
+    return SwipeToReply(onSwipe: onSwipeToReply!, child: content);
+  }
+
+  /// Scoped to the bubble container only (not reactions/thread-link, which
+  /// are appended as siblings in [_buildBubbleColumn] and keep their own
+  /// unexcluded `Semantics` nodes reachable to screen readers). The
+  /// consolidated [_buildSemanticLabel] replaces the descendants' raw
+  /// text/timestamp/status announcements (`excludeSemantics: true`), but the
+  /// bubble's actual interactive affordances — context menu, retry, opening
+  /// an attachment — have no announcement of their own to fall back on, so
+  /// they're re-declared explicitly on this same node (mirrors the
+  /// `MapButton` pattern: exclude descendants, keep the callbacks).
+  Widget _wrapWithSemantics(Widget content) {
     return Semantics(
       label: _buildSemanticLabel(),
       excludeSemantics: true,
-      child: result,
+      onLongPress: onLongPress,
+      onTap: _attachmentOpenAction,
+      customSemanticsActions: _retryCustomAction,
+      child: content,
     );
+  }
+
+  /// Callback that opens this message's attachment, when it has one — wired
+  /// as the outer bubble's semantic tap action. `null` for text messages
+  /// (no default action besides the long-press menu) and for audio (its
+  /// play/pause toggle is private to `AudioBubble`, not reachable from here).
+  VoidCallback? get _attachmentOpenAction {
+    if (message.isDeleted) return null;
+    if (message.messageType == MessageType.location) {
+      return onTapLocation;
+    }
+    if (message.messageType != MessageType.attachment ||
+        message.attachmentUrl == null) {
+      return null;
+    }
+    final mimeType = _mimeType?.toLowerCase() ?? '';
+    if (mimeType.startsWith('audio/')) return null;
+    if (mimeType.startsWith('image/')) return onTapImage;
+    if (mimeType.startsWith('video/')) return onTapVideo;
+    return onTapFile;
+  }
+
+  /// Exposes the failed-send retry icon as a screen-reader custom action —
+  /// it's a bare 14x14px `GestureDetector` with no text of its own, so it
+  /// has no other way to announce itself once nested under the excluded
+  /// bubble semantics.
+  Map<CustomSemanticsAction, VoidCallback>? get _retryCustomAction {
+    final retry = onRetry;
+    if (!isFailed || retry == null) return null;
+    return {CustomSemanticsAction(label: theme.l10n.retry): retry};
   }
 
   String _buildSemanticLabel() {

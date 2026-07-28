@@ -125,6 +125,40 @@ happens. Read them before upgrading.
   of leaving a wide empty margin beside a portrait photo. The metadata row
   is aligned within the picture's width rather than the bubble's, with a
   floor so a very narrow image cannot squeeze the timestamp.
+- **`MessageBubble` was unreachable with a screen reader beyond the plain
+  text label** — TalkBack/VoiceOver could hear a message but had no way to
+  open the long-press context menu (reply/react/forward/delete/pin/copy),
+  retry a failed send, open an image/video/file attachment, or view a
+  thread's replies: all of it lived inside the bubble's `excludeSemantics`
+  subtree with no equivalent action on the outer node. The context menu and
+  retry are now exposed as a `longPress` action and a `Retry` custom action
+  on the bubble itself (same pattern as `MapButton`: keep `excludeSemantics`,
+  re-declare the callback on the same node); opening an image/video/file
+  attachment is the bubble's `tap` action. Reactions and the thread
+  reply-count row keep their own un-excluded `Semantics` nodes instead of
+  being swallowed by the bubble's — fixing this exposed a latent duplicate-
+  announcement bug in `ReactionBar` (`"👍 1, 👍 1"`), also fixed alongside
+  it. **Known gap**: audio play/pause stays unreachable — the toggle is
+  private to `AudioBubble`, with no callback the bubble can surface as an
+  action.
+- **No screen-reader announcement when a new message arrives** while a chat
+  is open — `MessageList` had no live region for message content, unlike
+  `TypingIndicator`/`ConnectionBanner`, which already announce their own
+  state changes. Incoming messages (not your own outgoing sends, and not
+  loading older history via pagination) now update a `liveRegion` label with
+  `"{sender}: {preview}"`, reusing the same WhatsApp-style preview text
+  `RoomTile` shows for a room's last message.
+- **Photos sent through the chat kept their full EXIF, including GPS
+  coordinates and capture timestamp** — every recipient who downloaded the
+  original file could see where and when it was taken. `pickImageFromCamera`
+  / `pickImageFromGallery` / `pickMultipleMedia` now request
+  `requestFullMetadata: false` from `image_picker`, which drops the
+  GPS/EXIF block on iOS. **This is an iOS-only mitigation**:
+  `image_picker`'s Android implementation copies EXIF from the source file
+  unconditionally whenever it resizes (which every picker here triggers via
+  `imageQuality: 85`), with no equivalent flag — closing that gap needs
+  either an image-processing dependency this package doesn't carry, or a
+  server-side strip on upload.
 
 ### Changed
 

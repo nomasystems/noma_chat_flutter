@@ -9,6 +9,7 @@ import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
+import '../utils/last_message_preview.dart';
 import '../utils/read_receipts_helper.dart';
 import 'date_separator.dart';
 import 'message_bubble.dart';
@@ -220,6 +221,18 @@ class _MessageListState extends State<MessageList> {
 
   static const double _atBottomEpsilonPx = 4;
 
+  // Screen-reader announcement for newly-arrived incoming messages — the
+  // list itself has no other live region, so TalkBack/VoiceOver users with
+  // the chat open have no way to know a message landed short of manually
+  // exploring the list again. `null` until the first `build()` establishes
+  // a baseline (so existing history never announces itself when a room is
+  // opened or paginated); after that, only a `messages.length` increase
+  // whose newest entry is incoming updates the label. Mirrors the
+  // `liveRegion: true` pattern already used by `TypingIndicator` and
+  // `ConnectionBanner`.
+  int? _lastSeenMessageCount;
+  String _liveMessageAnnouncement = '';
+
   @override
   void initState() {
     super.initState();
@@ -251,6 +264,10 @@ class _MessageListState extends State<MessageList> {
     }
     if (oldWidget.controller != widget.controller) {
       _lastTypingRowHeight = null;
+      // Rebaseline instead of carrying over the previous room's count —
+      // otherwise a room switch into a longer history reads its last
+      // message as "new" the moment this build runs.
+      _lastSeenMessageCount = null;
       try {
         oldWidget.controller.scrollController.removeListener(_onScroll);
         if (_pendingScrollToId != null) {
@@ -486,6 +503,28 @@ class _MessageListState extends State<MessageList> {
     return url;
   }
 
+  /// Updates [_liveMessageAnnouncement] when a new incoming message landed
+  /// since the last `build()`. Recomputing on every build is cheap and safe:
+  /// pagination (`loadMore`) also grows `messages.length`, but it prepends
+  /// older history — `messages.last` (the newest message) is unchanged, so
+  /// the label comes out identical and the `Semantics` node below doesn't
+  /// re-fire (Flutter only announces `liveRegion` nodes whose value changed).
+  void _maybeAnnounceNewMessage(List<ChatMessage> messages) {
+    final previousCount = _lastSeenMessageCount;
+    _lastSeenMessageCount = messages.length;
+    if (previousCount == null || messages.length <= previousCount) return;
+
+    final msg = messages.last;
+    if (msg.from == widget.controller.currentUser.id) return;
+    if (msg.messageType == MessageType.reaction) return;
+
+    final senderName = _senderName(msg.from);
+    final preview = previewForMessage(msg, widget.theme.l10n);
+    _liveMessageAnnouncement = (senderName != null && senderName.isNotEmpty)
+        ? '$senderName: $preview'
+        : preview;
+  }
+
   bool _shouldShowDateSeparator(List<ChatMessage> msgs, int index) =>
       _showDateSeparatorAt(msgs, index);
 
@@ -498,6 +537,7 @@ class _MessageListState extends State<MessageList> {
   @override
   Widget build(BuildContext context) {
     final messages = widget.controller.messages;
+    _maybeAnnounceNewMessage(messages);
     final currentIds = {for (final m in messages) m.id};
     _messageKeys.removeWhere((id, _) => !currentIds.contains(id));
     final showTyping = widget.controller.typingUserIds.isNotEmpty;
@@ -527,6 +567,11 @@ class _MessageListState extends State<MessageList> {
 
     return Stack(
       children: [
+        Semantics(
+          liveRegion: true,
+          label: _liveMessageAnnouncement,
+          child: const SizedBox.shrink(),
+        ),
         NotificationListener<ScrollNotification>(
           onNotification: _onScrollNotification,
           child: ListView.builder(
