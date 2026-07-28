@@ -158,22 +158,25 @@ class OptimisticHandler {
     }
 
     // Materialize the draft DM into a real room before the actual send.
-    // ChatFailureResult here aborts the send and marks the optimistic message as
-    // failed — no orphan room left on the server, no broken state in the
-    // controller. The user can retry from the failed bubble.
+    // A failure here does NOT drop the message on the floor: a draft has no
+    // room id, so the room-keyed offline queue cannot represent the send.
+    // [_sendDraftAsDirectMessage] re-drives it through the
+    // contact-addressed DM endpoint, whose queue entry carries the
+    // recipient instead of a room and resolves the room on drain.
     String effectiveRoomId;
     if (controller != null && controller.isDraft) {
       final materialization = await _materializeDraft(controller);
       if (materialization.isFailure) {
-        controller.markFailed(tempId);
-        return _emitFailure<ChatMessage>(
-          materialization.castFailure<ChatMessage>(),
-          operationKind ?? OperationKind.sendMessage,
-          roomId: roomIdOrDraftKey,
-          messageId: tempId,
+        return _sendDraftAsDirectMessage(
+          controller: controller,
+          draftKey: roomIdOrDraftKey,
+          optimistic: optimistic,
+          materializationFailure: materialization.castFailure<ChatMessage>(),
+          operationKind: operationKind ?? OperationKind.sendMessage,
         );
       }
       effectiveRoomId = materialization.dataOrThrow;
+      _discardDraftPending(roomIdOrDraftKey, effectiveRoomId, tempId);
     } else {
       effectiveRoomId = roomIdOrDraftKey;
     }
@@ -309,6 +312,122 @@ class OptimisticHandler {
       );
     }
     return _ensureDmRoomMaterialized(otherUserId);
+  }
+
+  /// Fallback for a send whose draft DM could not be materialized into a
+  /// real room — typically the device is offline, so `rooms.create` never
+  /// reached the server.
+  ///
+  /// Before this existed the optimistic bubble was only marked failed
+  /// in memory: nothing was written to the cache and nothing entered the
+  /// offline queue (which is keyed by room id and therefore cannot
+  /// represent a message to a DM that has no room yet), so the very first
+  /// message of a brand-new DM was lost for good once the screen went
+  /// away.
+  ///
+  /// Two things happen here instead. The optimistic message is persisted
+  /// under the draft routing key so it survives leaving the screen, and
+  /// the send is re-driven through the contact-addressed DM endpoint,
+  /// which enqueues a `PendingSendDirectMessage` carrying the recipient's
+  /// user id. That operation resolves — creating it when needed — the 1:1
+  /// room server-side when the queue drains after reconnect. The original
+  /// optimistic id travels as the idempotency key, so neither the drain
+  /// nor a manual retry can duplicate a send that actually landed.
+  ///
+  /// The fallback is only attempted for failures that prove the request
+  /// never reached the server. Anything else (a validation error, a
+  /// permission rejection) keeps the plain failed-bubble behaviour rather
+  /// than retrying a permanent rejection behind the user's back.
+  Future<ChatResult<ChatMessage>> _sendDraftAsDirectMessage({
+    required ChatController controller,
+    required String draftKey,
+    required ChatMessage optimistic,
+    required ChatResult<ChatMessage> materializationFailure,
+    required OperationKind operationKind,
+  }) async {
+    final tempId = optimistic.id;
+    controller.markFailed(tempId);
+    unawaited(
+      cache
+              ?.savePendingMessage(draftKey, optimistic, isFailed: true)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
+
+    final otherUserId = controller.draftOtherUserId;
+    if (otherUserId == null ||
+        !_neverReachedServer(materializationFailure.failureOrNull)) {
+      return _emitFailure<ChatMessage>(
+        materializationFailure,
+        operationKind,
+        roomId: draftKey,
+        messageId: tempId,
+      );
+    }
+
+    final direct = await client.contacts.sendDirectMessage(
+      otherUserId,
+      text: optimistic.text,
+      messageType: optimistic.messageType,
+      referencedMessageId: optimistic.referencedMessageId,
+      attachmentUrl: optimistic.attachmentUrl,
+      metadata: optimistic.metadata,
+      clientMessageId: optimistic.clientMessageId ?? tempId,
+    );
+
+    if (direct.isFailure) {
+      return _emitFailure<ChatMessage>(
+        materializationFailure,
+        operationKind,
+        roomId: draftKey,
+        messageId: tempId,
+      );
+    }
+
+    final sent = _ensureSentReceipt(direct.dataOrThrow);
+    if (sent.isProvisional) {
+      // Same provisional-echo rule as [sendMessage]: the echo's id does not
+      // match the stored message, so the bubble stays pending until the
+      // authoritative event reconciles it by clientMessageId.
+      controller.markPending(tempId);
+    } else {
+      controller.confirmSent(tempId, sent);
+      unawaited(
+        cache
+                ?.deletePendingMessage(draftKey, tempId)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+    }
+    _emitOperationSuccess(operationKind, roomId: draftKey, messageId: tempId);
+    return ChatSuccess<ChatMessage>(sent);
+  }
+
+  /// Drops the draft-keyed pending row written by a previous
+  /// [_sendDraftAsDirectMessage] once the DM owns a real room — the
+  /// message now lives under [realRoomId]. No-op when the send never went
+  /// through the draft path.
+  void _discardDraftPending(
+    String draftKey,
+    String realRoomId,
+    String messageId,
+  ) {
+    if (draftKey == realRoomId) return;
+    unawaited(
+      cache
+              ?.deletePendingMessage(draftKey, messageId)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
+  }
+
+  /// True when [failure] proves the request never reached the server, so
+  /// re-driving it cannot duplicate anything. Mirrors the predicate the
+  /// offline queue applies before accepting a non-idempotent send.
+  bool _neverReachedServer(ChatFailure? failure) {
+    if (failure is NetworkFailure) return true;
+    if (failure is TimeoutFailure) return failure.kind.isPreResponse;
+    return false;
   }
 
   Future<ChatResult<void>> editMessage(
@@ -501,10 +620,10 @@ class OptimisticHandler {
   }
 
   Future<ChatResult<ChatMessage>> retrySend(
-    String roomId,
+    String roomIdOrDraftKey,
     String messageId,
   ) async {
-    final controller = controllers[roomId];
+    final controller = controllers[roomIdOrDraftKey];
     if (controller == null) {
       return const ChatFailureResult(NotFoundFailure('Controller not found'));
     }
@@ -517,6 +636,31 @@ class OptimisticHandler {
     }
 
     controller.markPending(messageId);
+
+    // A retry inside a still-unmaterialized draft DM must NOT be posted
+    // against the synthetic `draft:<userId>` routing key: no such room
+    // exists server-side, so every attempt is rejected and the bubble
+    // never converges. Materialize first — which also rebinds this
+    // controller to the real room — and fall back to the contact-addressed
+    // queue when materialization is impossible.
+    String roomId;
+    if (controller.isDraft) {
+      final materialization = await _materializeDraft(controller);
+      if (materialization.isFailure) {
+        return _sendDraftAsDirectMessage(
+          controller: controller,
+          draftKey: roomIdOrDraftKey,
+          optimistic: message,
+          materializationFailure: materialization.castFailure<ChatMessage>(),
+          operationKind: OperationKind.retrySend,
+        );
+      }
+      roomId = materialization.dataOrThrow;
+      _discardDraftPending(roomIdOrDraftKey, roomId, messageId);
+    } else {
+      roomId = roomIdOrDraftKey;
+    }
+
     unawaited(
       cache
               ?.savePendingMessage(roomId, message)

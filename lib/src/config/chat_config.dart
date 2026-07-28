@@ -54,6 +54,19 @@ class ChatConfig {
   final Duration authTimeout;
   final Duration requestTimeout;
 
+  /// Timeout for binary attachment transfers — [RestClient.uploadBinary]'s
+  /// `sendTimeout` and [RestClient.downloadBinary]'s `receiveTimeout`.
+  /// Kept separate from [requestTimeout] (which sizes small JSON calls)
+  /// because a photo/video upload on a slow-but-working connection (3G)
+  /// legitimately needs more than 30 s to move its bytes; reusing
+  /// [requestTimeout] there was cutting those transfers off before they
+  /// could finish, and since the upload POST isn't idempotent the retry
+  /// interceptor deliberately doesn't retry it. Defaults to 2 minutes.
+  /// [RestClient.uploadBinary] additionally scales this up for large
+  /// payloads assuming a conservative minimum throughput, so this value
+  /// acts as a floor rather than a hard cap.
+  final Duration attachmentTimeout;
+
   /// How often [WsTransport] sends a `{"type":"ping"}` keep-alive frame.
   /// Defaults to 30 seconds.
   final Duration wsPingInterval;
@@ -208,6 +221,7 @@ class ChatConfig {
     this.wsReconnectDelay = const Duration(seconds: 2),
     this.authTimeout = const Duration(seconds: 10),
     this.requestTimeout = const Duration(seconds: 30),
+    this.attachmentTimeout = const Duration(minutes: 2),
     this.wsPingInterval = const Duration(seconds: 30),
     this.wsPongTimeout = const Duration(seconds: 10),
     this.wsPongWatchdogEnabled = true,
@@ -268,6 +282,11 @@ class ChatConfig {
   ///
   /// [requestTimeout] — maximum duration for a single HTTP request before a
   /// [ChatNetworkException] is raised. Defaults to 30 seconds.
+  ///
+  /// [attachmentTimeout] — maximum duration for attachment upload/download
+  /// transfers, separate from [requestTimeout] since binary payloads
+  /// (photos, videos) need more margin on a slow connection than a small
+  /// JSON call. Defaults to 2 minutes.
   ///
   /// [retryConfig] — controls automatic retry behaviour (attempts, back-off).
   /// Defaults to [RetryConfig] defaults.
@@ -340,6 +359,7 @@ class ChatConfig {
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration attachmentTimeout = const Duration(minutes: 2),
     Duration wsPingInterval = const Duration(seconds: 30),
     Duration wsPongTimeout = const Duration(seconds: 10),
     bool wsPongWatchdogEnabled = true,
@@ -393,6 +413,7 @@ class ChatConfig {
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
+      attachmentTimeout: attachmentTimeout,
       wsPingInterval: wsPingInterval,
       wsPongTimeout: wsPongTimeout,
       wsPongWatchdogEnabled: wsPongWatchdogEnabled,
@@ -431,6 +452,7 @@ class ChatConfig {
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration attachmentTimeout = const Duration(minutes: 2),
     Duration wsPingInterval = const Duration(seconds: 30),
     Duration wsPongTimeout = const Duration(seconds: 10),
     bool wsPongWatchdogEnabled = true,
@@ -466,6 +488,7 @@ class ChatConfig {
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
+      attachmentTimeout: attachmentTimeout,
       wsPingInterval: wsPingInterval,
       wsPongTimeout: wsPongTimeout,
       wsPongWatchdogEnabled: wsPongWatchdogEnabled,
@@ -505,6 +528,7 @@ class ChatConfig {
     Duration wsReconnectDelay = const Duration(seconds: 2),
     Duration authTimeout = const Duration(seconds: 10),
     Duration requestTimeout = const Duration(seconds: 30),
+    Duration attachmentTimeout = const Duration(minutes: 2),
     Duration wsPingInterval = const Duration(seconds: 30),
     Duration wsPongTimeout = const Duration(seconds: 10),
     bool wsPongWatchdogEnabled = true,
@@ -543,6 +567,7 @@ class ChatConfig {
       wsReconnectDelay: wsReconnectDelay,
       authTimeout: authTimeout,
       requestTimeout: requestTimeout,
+      attachmentTimeout: attachmentTimeout,
       wsPingInterval: wsPingInterval,
       wsPongTimeout: wsPongTimeout,
       wsPongWatchdogEnabled: wsPongWatchdogEnabled,

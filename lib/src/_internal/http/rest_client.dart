@@ -21,7 +21,7 @@ import 'retry_interceptor.dart';
 /// if the two drift, so bumping the package version forces an update here
 /// too. A future build_runner-generated constant can drop in without
 /// changing the call sites.
-const String nomaChatSdkVersion = '0.14.0';
+const String nomaChatSdkVersion = '0.14.1';
 
 const String _requestIdExtraKey = 'requestId';
 const Uuid _uuid = Uuid();
@@ -42,6 +42,7 @@ class RestClient {
   final String? _actAsUserId;
   final void Function(String level, String message)? _logger;
   final MetricCallback? _metricCallback;
+  final Duration _attachmentTimeout;
   final Set<CancelToken> _pendingTokens = <CancelToken>{};
 
   RestClient({required ChatConfig config, Dio? dio})
@@ -49,7 +50,8 @@ class RestClient {
       _userId = config.userId,
       _actAsUserId = config.actAsUserId,
       _logger = config.logger,
-      _metricCallback = config.metricCallback {
+      _metricCallback = config.metricCallback,
+      _attachmentTimeout = config.attachmentTimeout {
     _dio.options.baseUrl = config.baseUrl;
     _dio.options.connectTimeout = config.requestTimeout;
     _dio.options.receiveTimeout = config.requestTimeout;
@@ -272,6 +274,7 @@ class RestClient {
       options: Options(
         contentType: mimeType,
         headers: {'content-length': data.length},
+        sendTimeout: _transferTimeoutFor(data.length),
       ),
       onSendProgress: onProgress,
     );
@@ -289,10 +292,33 @@ class RestClient {
       path,
       queryParams: queryParams,
       headers: headers,
-      options: Options(responseType: ResponseType.bytes),
+      options: Options(
+        responseType: ResponseType.bytes,
+        receiveTimeout: _attachmentTimeout,
+      ),
       onReceiveProgress: onProgress,
     );
     return Uint8List.fromList(response.data as List<int>);
+  }
+
+  /// Minimum sustained throughput (bytes/second) assumed for an upload when
+  /// scaling [_attachmentTimeout] up for large payloads — deliberately
+  /// conservative (worse than a typical slow-but-working 3G connection) so a
+  /// big video doesn't get cut off mid-transfer while still bounding the
+  /// wait for a truly dead connection.
+  static const int _minUploadBytesPerSecond = 50 * 1024;
+
+  /// Effective `sendTimeout` for an upload of [byteLength] bytes: the
+  /// larger of the configured [_attachmentTimeout] floor and a duration
+  /// proportional to size, so multi-megabyte videos get more room than the
+  /// flat floor gives a small photo.
+  Duration _transferTimeoutFor(int byteLength) {
+    final proportional = Duration(
+      seconds: (byteLength / _minUploadBytesPerSecond).ceil(),
+    );
+    return proportional > _attachmentTimeout
+        ? proportional
+        : _attachmentTimeout;
   }
 
   Future<Response<dynamic>> _request(

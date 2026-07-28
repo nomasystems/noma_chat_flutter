@@ -84,7 +84,9 @@ class AuthenticatedAttachmentLoader implements AttachmentMediaLoader {
         );
       }
       final result = await _client.attachments.download(id, roomId: ref.roomId);
-      return result.fold((failure) {
+      // Awaited so the `finally` below does not clear the in-flight entry
+      // before the fold settles.
+      return await result.fold((failure) {
         _logger?.attach(
           ChatLogLevel.warn,
           'authenticated attachment download failed',

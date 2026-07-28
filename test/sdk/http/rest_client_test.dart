@@ -279,6 +279,110 @@ void main() {
       expect(out, {'url': 'x'});
     });
 
+    test('uploadBinary() sets a sendTimeout independent from requestTimeout '
+        '(regression: was inheriting the 30s generic requestTimeout, cutting '
+        'off large attachment uploads on slow connections)', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((_) async => resp(data: {'url': 'x'}));
+
+      await rest.uploadBinary('/u', Uint8List.fromList([1, 2, 3]), 'image/png');
+
+      final captured = verify(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: captureAny(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).captured;
+      final options = captured.single as Options;
+
+      expect(options.sendTimeout, isNot(const Duration(seconds: 30)));
+      expect(options.sendTimeout, const Duration(minutes: 2));
+    });
+
+    test(
+      'uploadBinary() scales sendTimeout proportionally for large payloads',
+      () async {
+        when(
+          () => dio.request(
+            any(),
+            data: any(named: 'data'),
+            queryParameters: any(named: 'queryParameters'),
+            options: any(named: 'options'),
+            cancelToken: any(named: 'cancelToken'),
+            onSendProgress: any(named: 'onSendProgress'),
+            onReceiveProgress: any(named: 'onReceiveProgress'),
+          ),
+        ).thenAnswer((_) async => resp(data: {'url': 'x'}));
+
+        // 20 MB payload: well past the point where the proportional
+        // calculation (floor: 50 KB/s) exceeds the 2 minute default floor.
+        final bigPayload = Uint8List(20 * 1024 * 1024);
+        await rest.uploadBinary('/u', bigPayload, 'video/mp4');
+
+        final captured = verify(
+          () => dio.request(
+            any(),
+            data: any(named: 'data'),
+            queryParameters: any(named: 'queryParameters'),
+            options: captureAny(named: 'options'),
+            cancelToken: any(named: 'cancelToken'),
+            onSendProgress: any(named: 'onSendProgress'),
+            onReceiveProgress: any(named: 'onReceiveProgress'),
+          ),
+        ).captured;
+        final options = captured.single as Options;
+
+        expect(options.sendTimeout, greaterThan(const Duration(minutes: 2)));
+      },
+    );
+
+    test('downloadBinary() sets a receiveTimeout independent from '
+        'requestTimeout', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((_) async => resp(data: [1, 2, 3]));
+
+      await rest.downloadBinary('/u');
+
+      final captured = verify(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: captureAny(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).captured;
+      final options = captured.single as Options;
+
+      expect(options.receiveTimeout, isNot(const Duration(seconds: 30)));
+      expect(options.receiveTimeout, const Duration(minutes: 2));
+    });
+
     test('downloadBinary() returns bytes', () async {
       when(
         () => dio.request(

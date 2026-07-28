@@ -365,6 +365,16 @@ class ChatEventRouter {
           fromUserId: fromUserId,
         );
         _updateRoomListReceipt(roomId, messageId, status);
+        // `markAsRead` on ANY of the user's own devices flags the whole
+        // room read up to the latest message, and the backend echoes it
+        // back as this same `receipt_updated` frame to every connection —
+        // there is no separate `unread_updated` for it. Without this, a
+        // second device (e.g. a tablet) never learns the room was read
+        // elsewhere and keeps showing a stale badge. Mirrors the same
+        // optimistic zero `setActiveRoom` applies on the reading device.
+        if (status == ReceiptStatus.read && fromUserId == _currentUser().id) {
+          _updateRoomUnread(roomId, 0);
+        }
       case MessageDeliveredEvent():
         _onMessageDelivered(event);
       case MessageAckedEvent():

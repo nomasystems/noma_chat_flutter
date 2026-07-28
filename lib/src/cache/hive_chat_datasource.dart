@@ -1277,11 +1277,35 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final box = await _box(_boxRooms);
     if (box.length <= maxRooms!) return;
     final keys = box.keys.cast<String>().toList();
+    // `chat_rooms` keys are room ids, not insertion-ordered timestamps —
+    // Hive CE returns box.keys sorted lexicographically, so treating the
+    // front of that list as "oldest" evicted the alphabetically-first
+    // room regardless of actual activity. `ChatRoom` itself carries no
+    // recency field, so rank by the two signals already persisted
+    // per-room elsewhere: the unread cache's `lastMessageTime` (kept
+    // fresh by every inbound/outbound message), falling back to the
+    // room detail's `createdAt` for a room with no unread entry yet.
+    // Ties (neither signal present) sort as epoch 0, oldest-first.
+    final unreadsBox = await _box(_boxUnreads);
+    final detailsBox = await _box(_boxRoomDetails);
+    DateTime recencyOf(String roomId) {
+      final unreadIso = unreadsBox.get(roomId)?['lastMessageTime'] as String?;
+      if (unreadIso != null) {
+        final parsed = DateTime.tryParse(unreadIso);
+        if (parsed != null) return parsed;
+      }
+      final createdIso = detailsBox.get(roomId)?['createdAt'] as String?;
+      if (createdIso != null) {
+        final parsed = DateTime.tryParse(createdIso);
+        if (parsed != null) return parsed;
+      }
+      return DateTime.fromMillisecondsSinceEpoch(0);
+    }
+
+    keys.sort((a, b) => recencyOf(a).compareTo(recencyOf(b)));
     final toRemove = keys.sublist(0, keys.length - maxRooms!);
     await _safeWrite('evictRooms', () => box.deleteAll(toRemove));
     // Cascade: clean orphaned data for evicted rooms (best-effort, no rollback)
-    final detailsBox = await _box(_boxRoomDetails);
-    final unreadsBox = await _box(_boxUnreads);
     final invitedBox = await _box(_boxInvited);
     final pinsBox = await _box(_boxPins);
     final receiptsBox = await _box(_boxReceipts);

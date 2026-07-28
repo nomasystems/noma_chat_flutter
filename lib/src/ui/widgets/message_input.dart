@@ -683,13 +683,17 @@ class _MessageInputState extends State<MessageInput> {
               theme: widget.theme,
             ),
           ),
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _dismissPreview,
-            child: const SizedBox(
-              width: 36,
-              height: 36,
-              child: Center(child: Icon(Icons.close, size: 18)),
+          Semantics(
+            label: widget.theme.l10n.close,
+            button: true,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: _dismissPreview,
+              child: const SizedBox(
+                width: 36,
+                height: 36,
+                child: Center(child: Icon(Icons.close, size: 18)),
+              ),
             ),
           ),
         ],
@@ -768,13 +772,17 @@ class _MessageInputState extends State<MessageInput> {
                     ],
                   ),
                 ),
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => widget.controller.setEditingMessage(null),
-                  child: const SizedBox(
-                    width: 48,
-                    height: 48,
-                    child: Center(child: Icon(Icons.close, size: 18)),
+                Semantics(
+                  label: widget.theme.l10n.close,
+                  button: true,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => widget.controller.setEditingMessage(null),
+                    child: const SizedBox(
+                      width: 48,
+                      height: 48,
+                      child: Center(child: Icon(Icons.close, size: 18)),
+                    ),
                   ),
                 ),
               ],

@@ -17,6 +17,7 @@ import '../utils/attachment_opener.dart';
 import '../utils/platform_support.dart';
 import 'chat_room_app_bar.dart';
 import 'chat_view.dart';
+import 'image_viewer.dart';
 import 'message_context_menu.dart';
 import 'message_info_sheet.dart';
 import 'report_message_dialog.dart';
@@ -112,9 +113,10 @@ class NomaChatView extends StatefulWidget {
   /// report, …) — any non-null field here wins.
   final ChatViewCallbacks? callbacks;
 
-  /// Consumer overrides for [ChatView] behaviours. Any non-default field here
-  /// wins over the auto-computed values (unread snapshot, `isGroup`,
-  /// `isBlocked`, `readOnly`, `contextMenuActions`, …).
+  /// Consumer overrides for [ChatView] behaviours. Only the fields actually
+  /// passed win — the rest keep the SDK defaults, so overriding one knob
+  /// never resets the others. Room state the view owns (unread snapshot,
+  /// `isGroup`, `isBlocked`, `readOnly`) is always recomputed.
   final ChatViewBehaviors? behaviors;
 
   /// Forwarded to [ChatView.backgroundWidget].
@@ -530,7 +532,8 @@ class _NomaChatViewState extends State<NomaChatView> {
       onShareLocation: user.onShareLocation,
       onAttachTap: user.onAttachTap,
       onPermissionDenied: user.onPermissionDenied,
-      onTapImage: user.onTapImage,
+      onTapImage:
+          user.onTapImage ?? (msg) => _openImageViewer(context, sendKey, msg),
       onUnblock:
           user.onUnblock ??
           (isBlocked && blockOtherUserId != null
@@ -627,6 +630,37 @@ class _NomaChatViewState extends State<NomaChatView> {
     );
   }
 
+  /// Default `onTapImage`: opens the built-in full-screen viewer wired to
+  /// the same authenticated media loader the bubbles render through.
+  /// Handing [ImageViewer] only the URL is not enough — attachment
+  /// downloads are Bearer-protected and a plain `CachedNetworkImage`
+  /// gets a 401, so the viewer would show the broken-image fallback while
+  /// the bubble behind it displayed the photo fine.
+  void _openImageViewer(
+    BuildContext context,
+    String roomId,
+    ChatMessage message,
+  ) {
+    final url = message.attachmentUrl;
+    if (url == null || url.isEmpty) return;
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ImageViewer(
+          imageUrl: url,
+          theme: _theme,
+          mediaLoader:
+              widget.builders?.attachmentMediaLoader ??
+              widget.adapter.defaultAttachmentMediaLoader,
+          attachmentRef: AttachmentRef(
+            roomId: roomId,
+            attachmentId: message.attachmentId,
+            fallbackUrl: url,
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _pickAndSendImage(
     String sendKey, {
     required bool fromCamera,
@@ -658,45 +692,29 @@ class _NomaChatViewState extends State<NomaChatView> {
     required RoomListItem? room,
     required bool isBlocked,
   }) {
-    final user = widget.behaviors;
     var actions = _defaultContextMenuActions(room);
     if (widget.contextMenuActionsResolver != null) {
       actions = widget.contextMenuActionsResolver!(room, actions);
     }
-    return ChatViewBehaviors(
-      initialMessageId: widget.initialMessageId ?? _seededInitialMessageId,
-      unreadBoundaryMessageId: _unreadBoundaryMessageId,
-      unreadCount: _initialUnreadCount,
-      isBlocked: isBlocked,
-      isParticipating: room?.isParticipating ?? true,
-      readOnly: room?.isReadOnly ?? false,
-      readOnlyLabel: (room?.selfMuted ?? false)
-          ? _theme.l10n.mutedByAdmin
-          : null,
-      isGroup: room?.isGroup ?? false,
-      enableMentions: user?.enableMentions ?? true,
-      contextMenuActions: user?.contextMenuActions.isNotEmpty == true
-          ? user!.contextMenuActions
-          : actions,
-      editWindow: user?.editWindow ?? const Duration(minutes: 15),
-      deleteWindow: user?.deleteWindow ?? const Duration(days: 2),
-      maxRecordingDuration:
-          user?.maxRecordingDuration ?? const Duration(minutes: 15),
-      inputMaxLines: user?.inputMaxLines ?? 5,
-      showAttachButton: user?.showAttachButton ?? true,
-      showVoiceButton: user?.showVoiceButton ?? true,
-      availableReactions:
-          user?.availableReactions ??
-          const ['👍', '❤️', '😂', '😮', '😢', '🙏'],
-      attachmentExtraOptions: user?.attachmentExtraOptions ?? const [],
-      enableLinkPreview: user?.enableLinkPreview ?? true,
-      connectionState: user?.connectionState,
-      connectionLabels: user?.connectionLabels ?? const {},
-      emptyIcon: user?.emptyIcon,
-      emptyTitle: user?.emptyTitle,
-      emptySubtitle: user?.emptySubtitle,
-      showReadReceiptsInGroups: user?.showReadReceiptsInGroups ?? true,
+    final defaults = ChatViewBehaviors(
+      enableMentions: true,
+      contextMenuActions: actions,
     );
+    final user = widget.behaviors ?? const ChatViewBehaviors();
+    return user
+        .mergedOnto(defaults)
+        .withRoomState(
+          initialMessageId: widget.initialMessageId ?? _seededInitialMessageId,
+          unreadBoundaryMessageId: _unreadBoundaryMessageId,
+          unreadCount: _initialUnreadCount,
+          isBlocked: isBlocked,
+          isParticipating: room?.isParticipating ?? true,
+          readOnly: room?.isReadOnly ?? false,
+          readOnlyLabel: (room?.selfMuted ?? false)
+              ? _theme.l10n.mutedByAdmin
+              : null,
+          isGroup: room?.isGroup ?? false,
+        );
   }
 
   @override

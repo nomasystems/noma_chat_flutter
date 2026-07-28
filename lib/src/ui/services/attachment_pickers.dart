@@ -34,6 +34,17 @@ class AttachmentPickResult {
 /// Returns `null` when the user cancels the system picker. Throws
 /// nothing — pickers swallow plugin errors and log them via [logger]
 /// when supplied so the composer never crashes on a denied permission.
+///
+/// Every still-image pick passes `requestFullMetadata: false` to
+/// `image_picker`. On iOS this skips fetching the source `PHAsset`, so the
+/// picked JPEG comes back re-encoded without the original EXIF block —
+/// notably GPS coordinates and capture timestamp, which would otherwise
+/// travel to every room member who downloads the original file. This is an
+/// iOS-only mitigation: `image_picker_android`'s resize pass (triggered by
+/// `imageQuality < 100`, which every picker here sets) copies EXIF from the
+/// source file unconditionally, with no equivalent flag to suppress it —
+/// stripping GPS on Android needs either an image-processing dependency
+/// this package doesn't carry, or a server-side strip on upload.
 class AttachmentPickers {
   AttachmentPickers._();
 
@@ -61,6 +72,7 @@ class AttachmentPickers {
       final file = await _imagePicker.pickImage(
         source: ip.ImageSource.camera,
         imageQuality: imageQuality,
+        requestFullMetadata: false,
       );
       return await _xfileToValidatedResult(file, policy, logger, onRejected);
     } on Object catch (e) {
@@ -80,6 +92,7 @@ class AttachmentPickers {
       final file = await _imagePicker.pickImage(
         source: ip.ImageSource.gallery,
         imageQuality: imageQuality,
+        requestFullMetadata: false,
       );
       return await _xfileToValidatedResult(file, policy, logger, onRejected);
     } on Object catch (e) {
@@ -130,6 +143,7 @@ class AttachmentPickers {
     try {
       final files = await _imagePicker.pickMultipleMedia(
         imageQuality: imageQuality,
+        requestFullMetadata: false,
       );
       final results = <AttachmentPickResult>[];
       for (final f in files) {

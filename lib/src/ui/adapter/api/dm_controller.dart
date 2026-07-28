@@ -83,10 +83,11 @@ interface class ChatDmController {
     Map<String, dynamic>? extraRoomCustom,
   }) async {
     final existing = findExisting(otherUserId);
-    if (existing != null) return ChatSuccess(existing);
+    if (existing != null) {
+      _adoptDraftController(otherUserId, existing);
+      return ChatSuccess(existing);
+    }
 
-    final draftKey = draftRoutingKey(otherUserId);
-    final draftController = _a._chatControllers[draftKey];
     final custom =
         extraRoomCustom ?? _a._dmContacts.draftCustomFor(otherUserId);
 
@@ -100,16 +101,34 @@ interface class ChatDmController {
       return result.castFailure<String>();
     }
     final realRoomId = result.dataOrThrow.id;
-    if (draftController != null) {
-      _a._chatControllers.remove(draftKey);
-      _a._chatControllers[realRoomId] = draftController;
-      draftController.setRoomId(realRoomId);
-      draftController.clearDraft();
-    }
+    _adoptDraftController(otherUserId, realRoomId);
     _a._dmContacts.bind(otherUserId, realRoomId);
     _a._dmContacts.clearDraftCustom(otherUserId);
     _a._enricher.addFromDetail(realRoomId);
     return ChatSuccess(realRoomId);
+  }
+
+  /// Rebinds an open draft controller for [otherUserId] from its synthetic
+  /// `draft:` slot to [realRoomId].
+  ///
+  /// Runs on BOTH branches of [ensureMaterialized]. The room this DM
+  /// belongs to can appear without us creating it — an offline-queued
+  /// direct message that drains after reconnect creates it server-side,
+  /// and the room enricher binds the contact to it. Leaving the draft
+  /// controller behind in that case strands it under a key no realtime
+  /// event ever routes to, so its optimistic bubbles never reconcile.
+  ///
+  /// No-op when a controller is already registered for [realRoomId]: that
+  /// one is the live view of the room and must not be replaced.
+  void _adoptDraftController(String otherUserId, String realRoomId) {
+    final draftKey = draftRoutingKey(otherUserId);
+    final draftController = _a._chatControllers[draftKey];
+    if (draftController == null) return;
+    if (_a._chatControllers.containsKey(realRoomId)) return;
+    _a._chatControllers.remove(draftKey);
+    _a._chatControllers[realRoomId] = draftController;
+    draftController.setRoomId(realRoomId);
+    draftController.clearDraft();
   }
 
   /// Records a `contact ↔ room` binding inside the adapter's

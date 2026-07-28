@@ -101,6 +101,15 @@ abstract class ChatMessage with _$ChatMessage {
 enum MessageType {
   regular,
   attachment,
+
+  /// Server-originated only: a realtime `reaction_added` event is
+  /// surfaced through the same [ChatMessage] shape as an incoming
+  /// message, discriminated by this type. There is no REST path that
+  /// creates a [ChatMessage] with this type — [MessagesApi.send] always
+  /// gets `400 unsupported_type` back if called with
+  /// `messageType: MessageType.reaction`. To react to a message, call
+  /// [MessagesApi.addReaction] / [MessagesApi.deleteReaction] (or the
+  /// UI-facing `sendReaction`) instead.
   reaction,
   reply,
   audio,
@@ -123,6 +132,12 @@ enum MessageType {
 /// Delivery state of an outgoing message as reported by the backend. Read
 /// receipts can advance from `sent` to `delivered` to `read`.
 enum ReceiptStatus {
+  /// Local-only: the client has handed the message to the transport but
+  /// holds no server confirmation yet (e.g. the optimistic bubble created
+  /// right after a WS ack, before persistence is confirmed). The backend
+  /// never reports this status back and rejects it if passed to
+  /// [MessagesApi.sendReceipt] — only `delivered` and `read` are valid
+  /// there.
   sent,
   delivered,
   read;

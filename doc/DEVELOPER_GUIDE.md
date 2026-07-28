@@ -1614,6 +1614,24 @@ NomaChatView(
 )
 ```
 
+> **You rarely need `onTapImage`.** Left unset, `NomaChatView` already opens
+> the built-in full-screen `ImageViewer` wired to the authenticated media
+> loader. Attachment downloads are Bearer-protected, so an `ImageViewer`
+> built from a URL alone renders the broken-image fallback — if you do
+> override the callback, pass `mediaLoader` and `attachmentRef` too:
+>
+> ```dart
+> ImageViewer(
+>   imageUrl: message.attachmentUrl!,
+>   mediaLoader: chat.adapter.defaultAttachmentMediaLoader,
+>   attachmentRef: AttachmentRef(
+>     roomId: roomId,
+>     attachmentId: message.attachmentId,
+>     fallbackUrl: message.attachmentUrl!,
+>   ),
+> )
+> ```
+
 #### ReportMessageDialog
 
 The report flow uses `ReportMessageDialog` — a single free-text reason field

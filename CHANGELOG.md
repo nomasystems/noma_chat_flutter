@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.14.1
+
+### Fixed
+
+- **Image bubbles size to their content.** A portrait photo left wide empty
+  margins on both sides of the bubble instead of the bubble following the
+  image.
+- **The full-screen image viewer loads authenticated images.** Tapping an
+  attachment opened a viewer that fetched the URL without the bearer token,
+  so it answered 401 and the image never appeared. `onTapImage` now defaults
+  to a loader that carries the session.
+- **Attachment uploads have their own timeout.** They inherited the 30 second
+  timeout meant for small JSON calls, which a photo or a video over a slow
+  connection does not fit in; since the upload is a POST, the retry
+  interceptor deliberately excludes it, so the send just failed.
+- **Photos no longer ship their EXIF location.** A picked image carried the
+  GPS coordinates of wherever it was taken, so anyone who downloaded it
+  learned where the sender had been. Not requested on iOS any more; on
+  Android `image_picker` still copies EXIF when it resizes, so that half is
+  still open.
+- **The chat is usable with a screen reader.** The message bubble excluded its
+  own semantics and declared no actions, so a reader could read a message and
+  reach nothing else: no context menu to reply, react, forward, delete, pin or
+  copy, no retry on a failed send, no way to open an attachment or enter a
+  thread.
+- **Consumer behaviours merge onto the defaults** instead of replacing them
+  wholesale, so enabling one thing no longer switches the rest off.
+- **The room cache evicts the least recently used room**, not the first one
+  alphabetically.
+- Close buttons in the media viewer and the attachment sheet are labelled.
+
 ## 0.14.0
 
 ### Breaking changes
@@ -108,6 +139,57 @@ happens. Read them before upgrading.
   errored out. It is now resolved against the configured base URL first. The
   legacy header-only fallback, used when the backend returns no signed URL at
   all, is unchanged.
+- Tapping an image bubble now opens the full-screen `ImageViewer` out of the
+  box, wired to the same authenticated media loader the bubbles render
+  through. `NomaChatView` previously forwarded `onTapImage` with no default
+  at all, so opening the viewer was left to the host — and a host that
+  handed `ImageViewer` only a URL got the broken-image fallback, because
+  attachment downloads are Bearer-protected and `CachedNetworkImage` never
+  sends that header. A host-supplied `onTapImage` still wins. **Hosts that
+  build an `ImageViewer` themselves must pass `mediaLoader` and
+  `attachmentRef`** (`adapter.defaultAttachmentMediaLoader`) or drop their
+  override and take the default.
+- Image bubbles no longer stretch to the full bubble width when the picture
+  is taller than it is wide. The bubble now sizes itself to the shape the
+  photo is actually painted at — its aspect ratio scaled down to fit the
+  available width and `ChatTheme.imageMaxHeight` (250 by default) — instead
+  of leaving a wide empty margin beside a portrait photo. The metadata row
+  is aligned within the picture's width rather than the bubble's, with a
+  floor so a very narrow image cannot squeeze the timestamp.
+- **`MessageBubble` was unreachable with a screen reader beyond the plain
+  text label** — TalkBack/VoiceOver could hear a message but had no way to
+  open the long-press context menu (reply/react/forward/delete/pin/copy),
+  retry a failed send, open an image/video/file attachment, or view a
+  thread's replies: all of it lived inside the bubble's `excludeSemantics`
+  subtree with no equivalent action on the outer node. The context menu and
+  retry are now exposed as a `longPress` action and a `Retry` custom action
+  on the bubble itself (same pattern as `MapButton`: keep `excludeSemantics`,
+  re-declare the callback on the same node); opening an image/video/file
+  attachment is the bubble's `tap` action. Reactions and the thread
+  reply-count row keep their own un-excluded `Semantics` nodes instead of
+  being swallowed by the bubble's — fixing this exposed a latent duplicate-
+  announcement bug in `ReactionBar` (`"👍 1, 👍 1"`), also fixed alongside
+  it. **Known gap**: audio play/pause stays unreachable — the toggle is
+  private to `AudioBubble`, with no callback the bubble can surface as an
+  action.
+- **No screen-reader announcement when a new message arrives** while a chat
+  is open — `MessageList` had no live region for message content, unlike
+  `TypingIndicator`/`ConnectionBanner`, which already announce their own
+  state changes. Incoming messages (not your own outgoing sends, and not
+  loading older history via pagination) now update a `liveRegion` label with
+  `"{sender}: {preview}"`, reusing the same WhatsApp-style preview text
+  `RoomTile` shows for a room's last message.
+- **Photos sent through the chat kept their full EXIF, including GPS
+  coordinates and capture timestamp** — every recipient who downloaded the
+  original file could see where and when it was taken. `pickImageFromCamera`
+  / `pickImageFromGallery` / `pickMultipleMedia` now request
+  `requestFullMetadata: false` from `image_picker`, which drops the
+  GPS/EXIF block on iOS. **This is an iOS-only mitigation**:
+  `image_picker`'s Android implementation copies EXIF from the source file
+  unconditionally whenever it resizes (which every picker here triggers via
+  `imageQuality: 85`), with no equivalent flag — closing that gap needs
+  either an image-processing dependency this package doesn't carry, or a
+  server-side strip on upload.
 
 ### Changed
 
