@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.14.1
+
+### Fixed
+
+- **Image bubbles size to their content.** A portrait photo left wide empty
+  margins on both sides of the bubble instead of the bubble following the
+  image.
+- **The full-screen image viewer loads authenticated images.** Tapping an
+  attachment opened a viewer that fetched the URL without the bearer token,
+  so it answered 401 and the image never appeared. `onTapImage` now defaults
+  to a loader that carries the session.
+- **Attachment uploads have their own timeout.** They inherited the 30 second
+  timeout meant for small JSON calls, which a photo or a video over a slow
+  connection does not fit in; since the upload is a POST, the retry
+  interceptor deliberately excludes it, so the send just failed.
+- **Photos no longer ship their EXIF location.** A picked image carried the
+  GPS coordinates of wherever it was taken, so anyone who downloaded it
+  learned where the sender had been. Not requested on iOS any more; on
+  Android `image_picker` still copies EXIF when it resizes, so that half is
+  still open.
+- **The chat is usable with a screen reader.** The message bubble excluded its
+  own semantics and declared no actions, so a reader could read a message and
+  reach nothing else: no context menu to reply, react, forward, delete, pin or
+  copy, no retry on a failed send, no way to open an attachment or enter a
+  thread.
+- **Consumer behaviours merge onto the defaults** instead of replacing them
+  wholesale, so enabling one thing no longer switches the rest off.
+- **The room cache evicts the least recently used room**, not the first one
+  alphabetically.
+- Close buttons in the media viewer and the attachment sheet are labelled.
+
 ## 0.14.0
 
 ### Breaking changes
