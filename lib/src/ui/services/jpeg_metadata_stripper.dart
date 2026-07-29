@@ -46,7 +46,8 @@ class JpegMetadataStripper {
       // Padding between segments is legal: any run of 0xFF bytes collapses
       // into the marker prefix of the next segment.
       var markerStart = i;
-      while (markerStart + 1 < bytes.length && bytes[markerStart + 1] == _marker) {
+      while (markerStart + 1 < bytes.length &&
+          bytes[markerStart + 1] == _marker) {
         markerStart++;
       }
       // Padding that runs to the end of the buffer leaves no marker to read.

@@ -73,7 +73,9 @@ void main() {
 
       expect(
         out,
-        equals(_bytes([..._soi, ..._jfif, ..._quantTable, ..._scan, ..._pixels])),
+        equals(
+          _bytes([..._soi, ..._jfif, ..._quantTable, ..._scan, ..._pixels]),
+        ),
       );
     });
 
@@ -89,14 +91,22 @@ void main() {
 
       final out = JpegMetadataStripper.strip(input);
 
-      expect(out, equals(_bytes([..._soi, ..._quantTable, ..._scan, ..._pixels])));
+      expect(
+        out,
+        equals(_bytes([..._soi, ..._quantTable, ..._scan, ..._pixels])),
+      );
     });
 
     test('copies everything after the scan verbatim', () {
       // Entropy-coded data can contain 0xFF bytes; the walk must not try to
       // interpret them as markers once the scan has started.
       const trickyPixels = [0xFF, 0x00, 0xFF, 0xD0, 0x12, 0xFF, 0xD9];
-      final input = _bytes([..._soi, ..._quantTable, ..._scan, ...trickyPixels]);
+      final input = _bytes([
+        ..._soi,
+        ..._quantTable,
+        ..._scan,
+        ...trickyPixels,
+      ]);
 
       final out = JpegMetadataStripper.strip(input);
 
@@ -118,47 +128,72 @@ void main() {
       expect(_containsExifMarker(out), isFalse);
     });
 
-    group('returns the input untouched when it cannot parse with confidence', () {
-      test('a PNG', () {
-        final png = _bytes([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01]);
-        expect(JpegMetadataStripper.strip(png), same(png));
-      });
+    group(
+      'returns the input untouched when it cannot parse with confidence',
+      () {
+        test('a PNG', () {
+          final png = _bytes([
+            0x89,
+            0x50,
+            0x4E,
+            0x47,
+            0x0D,
+            0x0A,
+            0x1A,
+            0x0A,
+            0x01,
+          ]);
+          expect(JpegMetadataStripper.strip(png), same(png));
+        });
 
-      test('an empty or tiny buffer', () {
-        final tiny = _bytes([0xFF, 0xD8]);
-        expect(JpegMetadataStripper.strip(tiny), same(tiny));
-        final empty = Uint8List(0);
-        expect(JpegMetadataStripper.strip(empty), same(empty));
-      });
+        test('an empty or tiny buffer', () {
+          final tiny = _bytes([0xFF, 0xD8]);
+          expect(JpegMetadataStripper.strip(tiny), same(tiny));
+          final empty = Uint8List(0);
+          expect(JpegMetadataStripper.strip(empty), same(empty));
+        });
 
-      test('a segment length that runs past the end', () {
-        final truncated = _bytes([..._soi, 0xFF, 0xE1, 0x00, 0x40, 0x01, 0x02]);
-        expect(JpegMetadataStripper.strip(truncated), same(truncated));
-      });
+        test('a segment length that runs past the end', () {
+          final truncated = _bytes([
+            ..._soi,
+            0xFF,
+            0xE1,
+            0x00,
+            0x40,
+            0x01,
+            0x02,
+          ]);
+          expect(JpegMetadataStripper.strip(truncated), same(truncated));
+        });
 
-      test('a length field below the two bytes it counts', () {
-        final malformed = _bytes([..._soi, 0xFF, 0xE1, 0x00, 0x01, 0x00]);
-        expect(JpegMetadataStripper.strip(malformed), same(malformed));
-      });
+        test('a length field below the two bytes it counts', () {
+          final malformed = _bytes([..._soi, 0xFF, 0xE1, 0x00, 0x01, 0x00]);
+          expect(JpegMetadataStripper.strip(malformed), same(malformed));
+        });
 
-      test('a file that never reaches a scan', () {
-        final noScan = _bytes([..._soi, ..._jfif, ..._segment(0xE1, _exifWithGps)]);
-        expect(JpegMetadataStripper.strip(noScan), same(noScan));
-      });
+        test('a file that never reaches a scan', () {
+          final noScan = _bytes([
+            ..._soi,
+            ..._jfif,
+            ..._segment(0xE1, _exifWithGps),
+          ]);
+          expect(JpegMetadataStripper.strip(noScan), same(noScan));
+        });
 
-      test('padding that runs to the end of the buffer', () {
-        // Without a bounds check after the padding walk this reads past the
-        // end and throws, in exactly the malformed case the class promises
-        // to survive.
-        final trailingFill = _bytes([..._soi, 0xFF, 0xFF]);
-        expect(JpegMetadataStripper.strip(trailingFill), same(trailingFill));
-      });
+        test('padding that runs to the end of the buffer', () {
+          // Without a bounds check after the padding walk this reads past the
+          // end and throws, in exactly the malformed case the class promises
+          // to survive.
+          final trailingFill = _bytes([..._soi, 0xFF, 0xFF]);
+          expect(JpegMetadataStripper.strip(trailingFill), same(trailingFill));
+        });
 
-      test('a byte that is not a marker where one is expected', () {
-        final garbage = _bytes([..._soi, 0x42, 0x43, 0x44, 0x45]);
-        expect(JpegMetadataStripper.strip(garbage), same(garbage));
-      });
-    });
+        test('a byte that is not a marker where one is expected', () {
+          final garbage = _bytes([..._soi, 0x42, 0x43, 0x44, 0x45]);
+          expect(JpegMetadataStripper.strip(garbage), same(garbage));
+        });
+      },
+    );
 
     test('is idempotent', () {
       final input = _bytes([
