@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.14.2
+
+### Fixed
+
+- **Picked photos no longer carry their EXIF metadata**, and with it the GPS coordinates of where
+  they were taken, which until now travelled to every room member who downloaded the original file.
+  `requestFullMetadata: false` already covered iOS, but it does nothing on Android:
+  `image_picker_android` copies EXIF from the source file unconditionally whenever it resizes, and
+  offers no flag to suppress it. Picked bytes now go through `JpegMetadataStripper`, which drops the
+  EXIF, XMP/IPTC and comment segments of a JPEG without adding an image-processing dependency.
+  Non-JPEG picks, and any JPEG that cannot be parsed with full confidence, are returned untouched —
+  corrupting a photo would be a worse outcome than leaving metadata on it. Covers both the image
+  pickers and the generic file picker.
+
 ## 0.14.1
 
 ### Fixed

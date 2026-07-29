@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart' as ip;
 import '../models/attachment_policy.dart';
 import '../models/attachment_rejection.dart';
 import '../utils/platform_support.dart';
+import 'jpeg_metadata_stripper.dart';
 
 /// ChatResult of an attachment picker call.
 ///
@@ -35,16 +36,21 @@ class AttachmentPickResult {
 /// nothing — pickers swallow plugin errors and log them via [logger]
 /// when supplied so the composer never crashes on a denied permission.
 ///
-/// Every still-image pick passes `requestFullMetadata: false` to
-/// `image_picker`. On iOS this skips fetching the source `PHAsset`, so the
-/// picked JPEG comes back re-encoded without the original EXIF block —
-/// notably GPS coordinates and capture timestamp, which would otherwise
-/// travel to every room member who downloads the original file. This is an
-/// iOS-only mitigation: `image_picker_android`'s resize pass (triggered by
-/// `imageQuality < 100`, which every picker here sets) copies EXIF from the
-/// source file unconditionally, with no equivalent flag to suppress it —
-/// stripping GPS on Android needs either an image-processing dependency
-/// this package doesn't carry, or a server-side strip on upload.
+/// Picked images are stripped of their metadata on every platform, so GPS
+/// coordinates and capture timestamps never travel to the room members who
+/// download the original file.
+///
+/// Two passes, because neither covers both platforms:
+///
+/// - `requestFullMetadata: false` on every still-image pick. On iOS this
+///   skips fetching the source `PHAsset`, so the JPEG comes back re-encoded
+///   without the original EXIF block. It does nothing on Android, where
+///   `image_picker_android`'s resize pass (triggered by `imageQuality < 100`,
+///   which every picker here sets) copies EXIF from the source file
+///   unconditionally and offers no flag to suppress it.
+/// - [JpegMetadataStripper] over the picked bytes, which closes the Android
+///   gap without adding an image-processing dependency and leaves non-JPEG
+///   picks untouched.
 class AttachmentPickers {
   AttachmentPickers._();
 
@@ -190,7 +196,7 @@ class AttachmentPickers {
         return null;
       }
       final pick = AttachmentPickResult(
-        bytes: bytes,
+        bytes: JpegMetadataStripper.strip(bytes),
         mimeType:
             _mimeFromExtension(file.extension) ?? 'application/octet-stream',
         fileName: file.name,
@@ -226,7 +232,7 @@ class AttachmentPickers {
     String fallbackMime = 'application/octet-stream',
   }) async {
     if (file == null) return null;
-    final bytes = await file.readAsBytes();
+    final bytes = JpegMetadataStripper.strip(await file.readAsBytes());
     final pick = AttachmentPickResult(
       bytes: bytes,
       mimeType:

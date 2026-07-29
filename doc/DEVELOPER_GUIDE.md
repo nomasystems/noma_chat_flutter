@@ -1112,6 +1112,30 @@ policy for small tweaks.
 
 #### Surfacing a rejected pick — `onRejected`
 
+#### Photo metadata is stripped for you
+
+Every picked image loses its metadata before it becomes an
+`AttachmentPickResult`, so the **GPS coordinates and capture timestamp of a
+photo never reach the other members of a room**. You do not have to opt in,
+and there is no flag to keep them.
+
+Two passes are needed because neither platform is covered by the other:
+
+- `requestFullMetadata: false` is passed to every still-image pick. On iOS
+  this skips fetching the source `PHAsset` and the JPEG comes back
+  re-encoded without its EXIF block. On Android it changes nothing:
+  `image_picker_android` copies EXIF from the source file unconditionally
+  whenever it resizes (any `imageQuality < 100`), with no flag to suppress it.
+- `JpegMetadataStripper` then walks the picked bytes and drops the EXIF,
+  XMP/IPTC and comment segments. It carries no image-processing dependency.
+
+The stripper is deliberately conservative: a non-JPEG, a truncated file, or
+any segment it cannot parse with full confidence comes back **untouched**.
+Corrupting someone's photo is a worse outcome than leaving metadata on it.
+
+This applies to `pickFile` too, so a photo attached through the generic file
+picker is covered as well.
+
 Every `AttachmentPickers` method (`pickImageFromCamera`,
 `pickImageFromGallery`, `pickVideoFromGallery`, `pickMultipleMedia`,
 `pickFile`) takes an optional `onRejected: void Function(AttachmentRejection
