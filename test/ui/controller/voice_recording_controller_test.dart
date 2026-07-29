@@ -209,6 +209,7 @@ void main() {
     controller.addListener(() => notifyCount++);
 
     await controller.startRecording();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
     expect(notifyCount, greaterThan(0));
   });
 
@@ -237,8 +238,10 @@ void main() {
   );
 
   test(
-    'startRecording returns permissionJustGranted on first slow grant',
+    'startRecording records on the very first grant, however slow',
     () async {
+      // A slow `hasPermission` is the signature of the OS dialog being shown.
+      // The first grant must still record instead of asking for a second touch.
       var firstCall = true;
       when(() => mockRecorder.hasPermission()).thenAnswer((_) async {
         if (firstCall) {
@@ -254,15 +257,88 @@ void main() {
         () => mockRecorder.getAmplitude(),
       ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
 
-      final first = await controller.startRecording();
-      expect(first, StartRecordingResult.permissionJustGranted);
-      expect(controller.state, VoiceRecordingState.idle);
+      final first = await controller.startRecording(isStillWanted: () => true);
 
-      final second = await controller.startRecording();
-      expect(second, StartRecordingResult.started);
+      expect(first, StartRecordingResult.started);
       expect(controller.state, VoiceRecordingState.recording);
+      verify(
+        () => mockRecorder.start(any(), path: any(named: 'path')),
+      ).called(1);
     },
   );
+
+  test(
+    'a touch released before the recorder is armed never opens the recorder',
+    () async {
+      var fingerDown = true;
+      // The finger lifts while the permission check is still in flight, so
+      // the recorder must never be armed: on iOS arming it opens the shared
+      // audio session and stops whatever the user was listening to.
+      when(() => mockRecorder.hasPermission()).thenAnswer((_) async {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        fingerDown = false;
+        return true;
+      });
+      when(
+        () => mockRecorder.start(any(), path: any(named: 'path')),
+      ).thenAnswer((_) async {});
+
+      final result = await controller.startRecording(
+        isStillWanted: () => fingerDown,
+      );
+
+      expect(result, StartRecordingResult.aborted);
+      expect(controller.state, VoiceRecordingState.idle);
+      verifyNever(() => mockRecorder.start(any(), path: any(named: 'path')));
+    },
+  );
+
+  test(
+    'a fresh recording is not announced until it outlives the tap',
+    () async {
+      when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+      when(
+        () => mockRecorder.start(any(), path: any(named: 'path')),
+      ).thenAnswer((_) async {});
+      when(
+        () => mockRecorder.getAmplitude(),
+      ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+
+      final seen = <VoiceRecordingState>[];
+      controller.addListener(() => seen.add(controller.state));
+
+      await controller.startRecording();
+
+      expect(controller.state, VoiceRecordingState.recording);
+      expect(seen, isEmpty);
+
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+
+      expect(seen, contains(VoiceRecordingState.recording));
+    },
+  );
+
+  test('a tap too short to be a recording never reaches listeners', () async {
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenAnswer((_) async => '');
+
+    final seen = <VoiceRecordingState>[];
+    controller.addListener(() => seen.add(controller.state));
+
+    await controller.startRecording();
+    await controller.stopRecording();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(seen, isNot(contains(VoiceRecordingState.recording)));
+    expect(controller.state, VoiceRecordingState.idle);
+  });
 
   test(
     'preListen forwards player position events as listener notifications',

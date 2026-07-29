@@ -6,6 +6,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.15.0
+
+### Changed
+
+- **A voice message starts recording the moment the finger touches the mic button**, instead of
+  after a half-second hold. Everything that follows is unchanged: slide up to lock, slide left to
+  cancel, release to send.
+- **BREAKING — `StartRecordingResult` lost `permissionJustGranted` and gained `aborted`.** Code that
+  `switch`es exhaustively over the enum will no longer compile. `permissionJustGranted` existed only
+  to feed a heuristic that timed `hasPermission()` and guessed whether the OS permission dialog had
+  been shown, dropping that first recording; it is gone, and a first grant now records like any
+  other. `aborted` is returned when the touch that asked for the recording is already over before
+  the platform recorder gets armed. Migration: delete the `permissionJustGranted` branch — the
+  `started` branch covers what it used to — and treat `aborted` like `alreadyRunning`, i.e. as a
+  non-event with no message for the user.
+
+### Fixed
+
+- **The mic button no longer steals gestures from the rest of the composer.** The recorder listened
+  through a `GestureDetector` wrapping the whole composer, so its long-press recognizer competed in
+  the gesture arena with everything underneath it. It is now a plain `Listener`, which observes the
+  pointer stream without ever claiming it, and the mic button's own rectangle is what decides
+  whether a touch starts a recording.
+- **A tap on the mic no longer flashes the recording row.** Capture starts on touch down, so a
+  stray tap used to swap the composer to the recording UI and straight back. The recording state is
+  now announced to listeners only once the touch outlives a short window
+  (`VoiceRecordingController.revealDelay`, 120 ms); the capture itself is untouched, so audio from
+  the first millisecond still ends up in the message.
+- **A tap too short to be a recording no longer opens the platform audio session.** Arming the
+  recorder activates the shared audio session, and on iOS that interrupts whatever the user is
+  listening to. When the finger lifts before the recorder is armed, the start is now abandoned and
+  the recorder is never touched.
+- **An interrupted touch discards the recording.** A pointer cancelled by the system (an incoming
+  call, a parent scrollable taking the gesture over) reached no handler at all, leaving the
+  recording running with no finger left to end it. Cancelled touches now drop it; a locked
+  recording, which no longer depends on the finger, is left running.
+
 ## 0.14.2
 
 ### Fixed

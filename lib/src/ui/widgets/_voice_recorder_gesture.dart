@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../controller/voice_recording_controller.dart';
@@ -6,8 +8,8 @@ import '../theme/chat_theme.dart';
 import '_recording_indicators.dart';
 
 /// Drag thresholds for the slide-to-cancel / slide-to-lock gesture
-/// inside the composer. Matched against the long-press
-/// `localOffsetFromOrigin` cumulative offset.
+/// inside the composer. Matched against the cumulative offset of the
+/// finger relative to where it first touched the mic button.
 class VoiceGestureThresholds {
   const VoiceGestureThresholds({
     this.lockThreshold = -50.0,
@@ -35,15 +37,15 @@ class VoiceGestureThresholds {
 /// composer. Wraps the lower-level [VoiceRecordingController] and adds:
 ///
 /// - cumulative drag offsets (mirrors the finger position relative to
-///   the long-press origin)
+///   the touch origin)
 /// - lock / cancel threshold logic
 /// - convenience getters for the composer build switch
-/// - lifecycle of the recording controller (lazy create on long-press,
+/// - lifecycle of the recording controller (lazy create on touch down,
 ///   cleanup on idle / cancel / dispose)
 ///
-/// The composer owns one of these and forwards `onLongPress*` callbacks
-/// from a [GestureDetector]; the embedded [_VoiceRecorderGesture] widget
-/// then handles the lock-hint overlay.
+/// The composer owns one of these and [VoiceRecorderGesture] feeds it the
+/// raw pointer stream of the mic button; that widget also handles the
+/// lock-hint overlay.
 class MessageInputVoiceController extends ChangeNotifier {
   MessageInputVoiceController({
     required this.maxRecordingDuration,
@@ -62,8 +64,8 @@ class MessageInputVoiceController extends ChangeNotifier {
   double _dragOffsetY = 0;
   bool _disposed = false;
 
-  /// Underlying recording controller. Lazily created when the user
-  /// initiates a long-press and torn down when the recorder returns to
+  /// Underlying recording controller. Lazily created when the finger
+  /// touches the mic button and torn down when the recorder returns to
   /// idle (or on dispose). Exposed so consumers can read live state
   /// (waveform, duration, …) — typically through a [ListenableBuilder].
   VoiceRecordingController? get recording => _recording;
@@ -81,8 +83,8 @@ class MessageInputVoiceController extends ChangeNotifier {
 
   /// True whenever the recorder is in any non-idle state (recording,
   /// locked, or pre-listen). The composer uses it to swap the
-  /// composer/recording rows and to block accidental long-presses while
-  /// a recording is already active.
+  /// composer/recording rows and to block a second touch from starting a
+  /// recording while one is already active.
   bool get isAnyRecordingState =>
       _recording != null && _recording!.state != VoiceRecordingState.idle;
 
@@ -90,21 +92,32 @@ class MessageInputVoiceController extends ChangeNotifier {
   /// [StartRecordingResult] so the composer can surface permission
   /// errors. Idempotent: a second call while already recording returns
   /// [StartRecordingResult.alreadyRunning].
-  Future<StartRecordingResult> onLongPressStart() async {
+  ///
+  /// [isStillWanted] is forwarded to
+  /// [VoiceRecordingController.startRecording] so a touch that is already
+  /// over never arms the platform recorder.
+  Future<StartRecordingResult> onLongPressStart({
+    bool Function()? isStillWanted,
+  }) async {
     if (_disposed) return StartRecordingResult.alreadyRunning;
-    _recording ??= _recordingControllerFactory(maxRecordingDuration);
-    final result = await _recording!.startRecording();
-    if (result == StartRecordingResult.started) {
-      _recording!.addListener(_onRecordingStateChanged);
-      notifyListeners();
+    final recording = _recording ??= _recordingControllerFactory(
+      maxRecordingDuration,
+    );
+    // Subscribed before starting rather than after: the recording
+    // controller holds its `recording` notification back for a moment
+    // (`revealDelay`), and this listener is what turns it into a composer
+    // rebuild.
+    recording.addListener(_onRecordingStateChanged);
+    final result = await recording.startRecording(isStillWanted: isStillWanted);
+    if (result != StartRecordingResult.started) {
+      recording.removeListener(_onRecordingStateChanged);
     }
     return result;
   }
 
-  /// Handles a drag move while the long-press is held. [cumulativeOffset]
-  /// is the latest absolute position relative to the long-press origin
-  /// (NOT an incremental delta) — matches
-  /// `LongPressMoveUpdateDetails.localOffsetFromOrigin`. [screenWidth] is
+  /// Handles a drag move while the finger is held down. [cumulativeOffset]
+  /// is the latest position relative to the touch origin (NOT an
+  /// incremental delta). [screenWidth] is
   /// used to compute the dynamic cancel threshold (1/3 of width by
   /// default), keeping accidental short drags from tearing down the
   /// recording.
@@ -133,7 +146,7 @@ class MessageInputVoiceController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Handles long-press release. Returns the captured
+  /// Handles the finger lifting off. Returns the captured
   /// [VoiceMessageData] when the recording was sent successfully (i.e.
   /// long enough); null when the recording was below threshold, was in
   /// the middle of a cancel/lock transition, or was already locked
@@ -218,9 +231,16 @@ class MessageInputVoiceController extends ChangeNotifier {
 typedef VoiceRecordingControllerFactory =
     VoiceRecordingController Function(Duration maxDuration);
 
-/// Wraps the composer in the long-press gesture detector that drives
-/// the voice recorder, and renders the floating "swipe up to lock"
-/// overlay pill while a recording is active.
+/// Wraps the composer in the pointer listener that drives the voice
+/// recorder, and renders the floating "swipe up to lock" overlay pill
+/// while a recording is active.
+///
+/// Uses a raw [Listener] rather than a [GestureDetector]: the wrapped
+/// child is the whole composer, so a tap recognizer here would enter the
+/// gesture arena and steal taps from the text field, the send button and
+/// the attachment buttons. A [Listener] observes the pointer stream
+/// without competing for it, and [voiceButtonKey] narrows the reaction
+/// down to the mic button's own rectangle.
 ///
 /// Owns no recording state itself — everything flows through the
 /// [MessageInputVoiceController] passed in. Held as a [StatefulWidget]
@@ -254,13 +274,15 @@ class VoiceRecorderGesture extends StatefulWidget {
   /// behaviour.
   final VoidCallback? onUnsupported;
 
-  /// When provided, long-press only triggers a new recording if the
-  /// finger went down inside the widget identified by this key (the mic
-  /// button). Outside that area the gesture is ignored so accidental
-  /// long-presses on the text field, attach button or send button never
-  /// start a recording. The drag tracking that follows once a recording
-  /// is in flight is unaffected — Flutter keeps the gesture latched to
-  /// the original touch even when the finger leaves the mic area.
+  /// When provided, a touch only triggers a new recording if the finger
+  /// went down inside the widget identified by this key (the mic
+  /// button). Outside that area the touch is ignored so taps on the text
+  /// field, attach button or send button never start a recording. The
+  /// drag tracking that follows once a recording is in flight is
+  /// unaffected — Flutter keeps routing the pointer to this listener
+  /// even when the finger leaves the mic area.
+  ///
+  /// Leaving it null makes the whole child act as the mic button.
   final GlobalKey? voiceButtonKey;
 
   @override
@@ -270,6 +292,10 @@ class VoiceRecorderGesture extends StatefulWidget {
 class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     with WidgetsBindingObserver {
   OverlayEntry? _lockHintEntry;
+  int? _activePointer;
+  Offset _touchOrigin = Offset.zero;
+  bool _startInFlight = false;
+  bool _releasedBeforeStart = false;
 
   @override
   void initState() {
@@ -307,18 +333,44 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     _syncLockHintOverlay();
   }
 
-  Future<void> _handleLongPressStart(LongPressStartDetails details) async {
+  void _handlePointerDown(PointerDownEvent event) {
+    if (_activePointer != null || _startInFlight) return;
+    if (widget.controller.isAnyRecordingState) return;
     final key = widget.voiceButtonKey;
     if (key != null) {
-      final ctx = key.currentContext;
-      final box = ctx?.findRenderObject();
+      final box = key.currentContext?.findRenderObject();
       if (box is! RenderBox) return;
-      final origin = box.localToGlobal(Offset.zero);
-      final rect = origin & box.size;
-      if (!rect.contains(details.globalPosition)) return;
+      final rect = box.localToGlobal(Offset.zero) & box.size;
+      if (!rect.contains(event.position)) return;
     }
-    final result = await widget.controller.onLongPressStart();
+    _activePointer = event.pointer;
+    _touchOrigin = event.position;
+    _releasedBeforeStart = false;
+    _startInFlight = true;
+    unawaited(_startRecording());
+  }
+
+  Future<void> _startRecording() async {
+    final result = await widget.controller.onLongPressStart(
+      isStillWanted: () => !_releasedBeforeStart,
+    );
+    _startInFlight = false;
     if (!mounted) return;
+    if (result == StartRecordingResult.aborted) {
+      _releasedBeforeStart = false;
+      return;
+    }
+    if (result == StartRecordingResult.started) {
+      if (_releasedBeforeStart) {
+        // The veto lost the race: the recorder was already armed when the
+        // finger lifted (an OS permission dialog, for instance, answers
+        // long after the touch is over). Drop the recording instead of
+        // leaving it running with no finger left to end it.
+        _releasedBeforeStart = false;
+        await widget.controller.cancel();
+      }
+      return;
+    }
     if (result == StartRecordingResult.permissionDenied) {
       widget.onPermissionDenied?.call();
     } else if (result == StartRecordingResult.unsupported) {
@@ -326,15 +378,38 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     }
   }
 
-  void _handleLongPressMoveUpdate(LongPressMoveUpdateDetails details) {
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (event.pointer != _activePointer) return;
     final screenWidth = MediaQuery.maybeSizeOf(context)?.width ?? 360;
     widget.controller.onLongPressMoveUpdate(
-      details.localOffsetFromOrigin,
+      event.position - _touchOrigin,
       screenWidth,
     );
   }
 
-  Future<void> _handleLongPressEnd() async {
+  void _handlePointerUp(PointerUpEvent event) {
+    if (event.pointer != _activePointer) return;
+    _activePointer = null;
+    if (_startInFlight) {
+      _releasedBeforeStart = true;
+      return;
+    }
+    unawaited(_handleRelease());
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    if (event.pointer != _activePointer) return;
+    _activePointer = null;
+    if (_startInFlight) {
+      _releasedBeforeStart = true;
+      return;
+    }
+    // A cancelled pointer is an interruption, not an intent to send. A
+    // locked recording is left alone: it no longer depends on the finger.
+    if (widget.controller.isRecording) unawaited(widget.controller.cancel());
+  }
+
+  Future<void> _handleRelease() async {
     final data = await widget.controller.onLongPressEnd();
     if (data != null) widget.onVoiceMessageReady?.call(data);
   }
@@ -382,14 +457,15 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
 
   @override
   Widget build(BuildContext context) {
-    final isRecordingNow = widget.controller.isAnyRecordingState;
-    return GestureDetector(
-      onLongPressStart: !isRecordingNow ? _handleLongPressStart : null,
-      onLongPressMoveUpdate: _handleLongPressMoveUpdate,
-      onLongPressEnd: (_) => _handleLongPressEnd(),
-      behavior: isRecordingNow
-          ? HitTestBehavior.opaque
-          : HitTestBehavior.deferToChild,
+    return Listener(
+      onPointerDown: _handlePointerDown,
+      onPointerMove: _handlePointerMove,
+      onPointerUp: _handlePointerUp,
+      onPointerCancel: _handlePointerCancel,
+      // Opaque so the whole mic button rectangle reacts, not just the
+      // painted glyph inside it. Children are still hit-tested first and
+      // ancestors still receive the pointer, so nothing is stolen.
+      behavior: HitTestBehavior.opaque,
       child: widget.child,
     );
   }
