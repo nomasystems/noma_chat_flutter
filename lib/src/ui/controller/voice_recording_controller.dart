@@ -17,37 +17,35 @@ import '_voice_recorder_io.dart'
 /// Finite state machine of the voice recorder.
 ///
 /// - `idle`: nothing happening, ready to record.
-/// - `recording`: user is actively recording (long-press held).
+/// - `recording`: user is actively recording (finger held down).
 /// - `locked`: recording continues hands-free (user slid up to lock).
 /// - `preListen`: recording stopped, user is previewing before sending.
 enum VoiceRecordingState { idle, recording, locked, preListen }
 
-/// ChatResult of [VoiceRecordingController.startRecording].
-///
-/// `permissionJustGranted` is returned when the OS permission dialog was
-/// shown during this call and the user accepted: instead of starting to
-/// record (which would leave the UI in a state where the user cannot
-/// interact with the recording because the long-press has already ended),
-/// we abort and let the user trigger a new recording with another tap.
+/// Result of [VoiceRecordingController.startRecording].
 enum StartRecordingResult {
   started,
   alreadyRunning,
   permissionDenied,
-  permissionJustGranted,
   unsupported,
-}
 
-const _kPermissionDialogThreshold = Duration(milliseconds: 300);
+  /// The touch that asked for the recording was already over by the time
+  /// the platform recorder was about to be armed, so nothing was started
+  /// and the platform audio session was never opened.
+  aborted,
+}
 
 const _kMinDuration = Duration(seconds: 1);
 const _kAmplitudeSampleInterval = Duration(milliseconds: 100);
 const _kMaxWaveformSamples = 200;
+const _kRevealDelay = Duration(milliseconds: 120);
 
 /// Drives the voice-message recorder UI: permission flow, recording state,
 /// amplitude sampling for the waveform, and pre-listen playback.
 class VoiceRecordingController extends ChangeNotifier {
   VoiceRecordingController({
     this.maxDuration = const Duration(minutes: 15),
+    this.revealDelay = _kRevealDelay,
     @visibleForTesting AudioRecorder? recorder,
     @visibleForTesting AudioPlayer? preListenPlayer,
     @visibleForTesting String? tempDirectoryPath,
@@ -56,6 +54,18 @@ class VoiceRecordingController extends ChangeNotifier {
        _tempDirectoryPath = tempDirectoryPath;
 
   final Duration maxDuration;
+
+  /// How long a fresh recording is kept to itself before listeners are
+  /// told about it.
+  ///
+  /// Capture starts on touch down — the recorder must not require a hold —
+  /// so a stray tap on the mic button arms the recorder for a few frames.
+  /// Without this window the composer would swap to the recording row and
+  /// straight back for a touch the user never meant as a recording. The
+  /// capture is unaffected: [state] is `recording` from the first
+  /// millisecond and audio from that instant ends up in the file; only the
+  /// notification waits. Set to [Duration.zero] to notify immediately.
+  final Duration revealDelay;
   final AudioRecorder _recorder;
   final AudioPlayer _preListenPlayer;
   final String? _tempDirectoryPath;
@@ -66,6 +76,7 @@ class VoiceRecordingController extends ChangeNotifier {
   String? _recordingPath;
   Timer? _durationTimer;
   Timer? _amplitudeTimer;
+  Timer? _revealTimer;
   bool _isPaused = false;
   StreamSubscription<Duration>? _preListenPositionSub;
   StreamSubscription<Duration>? _preListenDurationSub;
@@ -85,9 +96,17 @@ class VoiceRecordingController extends ChangeNotifier {
   Duration get preListenPosition => _preListenPosition;
   Duration? get preListenDuration => _preListenDuration;
 
-  bool _permissionDialogShown = false;
-
-  Future<StartRecordingResult> startRecording() async {
+  /// Starts capturing audio.
+  ///
+  /// [isStillWanted] is consulted at the last moment before the platform
+  /// recorder is armed. Returning false yields
+  /// [StartRecordingResult.aborted] without touching the recorder, which
+  /// is what keeps a tap shorter than the arming latency from opening and
+  /// closing the platform audio session — on iOS that cycle interrupts
+  /// whatever the user was listening to.
+  Future<StartRecordingResult> startRecording({
+    bool Function()? isStillWanted,
+  }) async {
     if (_state != VoiceRecordingState.idle) {
       return StartRecordingResult.alreadyRunning;
     }
@@ -101,30 +120,19 @@ class VoiceRecordingController extends ChangeNotifier {
       return StartRecordingResult.unsupported;
     }
 
-    final stopwatch = Stopwatch()..start();
-    final hasPermission = await _recorder.hasPermission();
-    stopwatch.stop();
-
-    final dialogLikelyShown = stopwatch.elapsed > _kPermissionDialogThreshold;
-
-    if (!hasPermission) {
-      if (dialogLikelyShown) _permissionDialogShown = true;
+    if (!await _recorder.hasPermission()) {
       return StartRecordingResult.permissionDenied;
     }
-
-    // First time the OS dialog was shown and the user accepted: don't
-    // start recording immediately because the long-press is already gone.
-    // Mark the flag so subsequent calls don't trigger the same heuristic.
-    if (dialogLikelyShown && !_permissionDialogShown) {
-      _permissionDialogShown = true;
-      return StartRecordingResult.permissionJustGranted;
-    }
-    _permissionDialogShown = true;
 
     final dirPath = _tempDirectoryPath ?? await voiceRecorderTempPath();
     voiceRecorderCleanupResidualFiles(dirPath);
     final timestamp = DateTime.now().millisecondsSinceEpoch;
     _recordingPath = '$dirPath/voice_$timestamp.m4a';
+
+    if (isStillWanted != null && !isStillWanted()) {
+      _recordingPath = null;
+      return StartRecordingResult.aborted;
+    }
 
     await _recorder.start(
       const RecordConfig(encoder: AudioEncoder.aacLc, numChannels: 1),
@@ -138,8 +146,32 @@ class VoiceRecordingController extends ChangeNotifier {
 
     _startTimers();
 
-    notifyListeners();
+    if (revealDelay > Duration.zero) {
+      _revealTimer = Timer(revealDelay, _reveal);
+    } else {
+      notifyListeners();
+    }
     return StartRecordingResult.started;
+  }
+
+  /// Notifications are held back while [_revealTimer] is pending — see
+  /// [revealDelay]. Gating here rather than at each call site also covers
+  /// the amplitude timer, which would otherwise reveal the recording after
+  /// one sample interval.
+  @override
+  void notifyListeners() {
+    if (_revealTimer != null) return;
+    super.notifyListeners();
+  }
+
+  void _reveal() {
+    _revealTimer = null;
+    notifyListeners();
+  }
+
+  void _endRevealDelay() {
+    _revealTimer?.cancel();
+    _revealTimer = null;
   }
 
   void _startTimers() {
@@ -173,6 +205,7 @@ class VoiceRecordingController extends ChangeNotifier {
   void lockRecording() {
     if (_state != VoiceRecordingState.recording) return;
     _state = VoiceRecordingState.locked;
+    _endRevealDelay();
     notifyListeners();
   }
 
@@ -390,6 +423,7 @@ class VoiceRecordingController extends ChangeNotifier {
     _durationTimer = null;
     _amplitudeTimer?.cancel();
     _amplitudeTimer = null;
+    _endRevealDelay();
   }
 
   void _cleanupFile() {
