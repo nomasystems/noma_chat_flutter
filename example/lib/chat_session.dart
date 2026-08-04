@@ -154,6 +154,7 @@ Future<LoginOutcome> openChatSession(
   // an app restart (Hive self-initialises inside create()). Swap to
   // MemoryChatLocalDatasource() for a session-only store.
   final hiveCache = await HiveChatDatasource.create(
+    userId: userId,
     maxMessagesPerRoom: 500,
     maxRooms: 100,
   );

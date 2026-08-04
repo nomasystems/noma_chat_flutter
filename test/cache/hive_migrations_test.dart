@@ -199,7 +199,14 @@ void main() {
   });
 
   group('orphaned message boxes', () {
-    test('cleans message boxes for rooms that no longer exist', () async {
+    // A cold start on its own proves nothing about which rooms still
+    // exist: `chat_rooms` is only written by the `POST /rooms` create
+    // path, so on an install that joined its rooms the box is empty and
+    // treating that emptiness as "every room is gone" wiped the user's
+    // entire history. Reclamation now needs an authoritative room
+    // listing to nominate the room first — see
+    // hive_orphan_cleanup_test.dart for the full lifecycle.
+    test('a cold start never wipes a message box on its own', () async {
       await ds.saveRooms([const ChatRoom(id: 'room-keep')]);
       await ds.saveMessages('room-keep', [
         ChatMessage(
@@ -209,12 +216,12 @@ void main() {
           text: 'keep',
         ),
       ]);
-      await ds.saveMessages('room-orphan', [
+      await ds.saveMessages('room-unlisted', [
         ChatMessage(
-          id: 'msg-orphan',
+          id: 'msg-unlisted',
           from: 'user-1',
           timestamp: DateTime.utc(2026),
-          text: 'orphan',
+          text: 'unlisted',
         ),
       ]);
 
@@ -223,8 +230,8 @@ void main() {
 
       final ds2 = await HiveChatDatasource.create(basePath: tempDir.path);
 
-      final orphanMessages = (await ds2.getMessages('room-orphan')).dataOrNull!;
-      expect(orphanMessages, isEmpty);
+      final unlisted = (await ds2.getMessages('room-unlisted')).dataOrNull!;
+      expect(unlisted, hasLength(1));
 
       final keptMessages = (await ds2.getMessages('room-keep')).dataOrNull!;
       expect(keptMessages.length, 1);

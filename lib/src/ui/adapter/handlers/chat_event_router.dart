@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../api/messages_api_cached.dart';
 import '../../../cache/local_datasource.dart';
 import '../../../client/chat_client.dart';
 import '../../../core/result.dart';
 import '../../../events/chat_event.dart';
 import '../../../models/message.dart';
 import '../../../models/user.dart';
+import '../../controller/chat_controller.dart';
 import '../../controller/room_list_controller.dart';
 import '../../l10n/chat_ui_localizations.dart';
 import '../services/chat_controller_registry.dart';
@@ -359,11 +361,13 @@ class ChatEventRouter {
         :final status,
         :final fromUserId,
       ):
-        _controllers[roomId]?.updateReceipt(
+        final receiptController = _controllers[roomId];
+        receiptController?.updateReceipt(
           messageId,
           status,
           fromUserId: fromUserId,
         );
+        _persistReceipts(roomId, receiptController);
         _updateRoomListReceipt(roomId, messageId, status);
         // `markAsRead` on ANY of the user's own devices flags the whole
         // room read up to the latest message, and the backend echoes it
@@ -483,6 +487,7 @@ class ChatEventRouter {
       messageId: event.messageId,
       seq: event.seq,
     );
+    _persistReceipts(resolvedRoomId, controller);
     // Mirror the aggregate of the newest own message onto the row so
     // the chat-list tick moves in lockstep with the bubbles.
     for (final m in controller.messages.reversed) {
@@ -492,6 +497,23 @@ class ChatEventRouter {
         _updateRoomListReceipt(resolvedRoomId, m.id, status);
       }
       return;
+    }
+  }
+
+  /// Writes back the message rows whose receipt the frame just advanced,
+  /// and drops the TTL entry behind `messages.getRoomReceipts`.
+  ///
+  /// Both halves answer the same problem: a receipt arrives as an event
+  /// and nothing persists it on its own, so a process death would take
+  /// every ✓✓ with it, and the receipts list the cache holds is outdated
+  /// the moment a frame lands. Only the cached API chain carries a TTL
+  /// ledger — a custom or mock client has nothing to invalidate.
+  void _persistReceipts(String roomId, ChatController? controller) {
+    final updated = controller?.drainReceiptUpdates() ?? const <ChatMessage>[];
+    if (updated.isNotEmpty) _cache?.saveMessages(roomId, updated);
+    final messagesApi = _client.messages;
+    if (messagesApi is CachedMessagesApi) {
+      messagesApi.cacheManager.invalidate('receipts:$roomId');
     }
   }
 

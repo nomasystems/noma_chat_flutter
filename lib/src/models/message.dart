@@ -148,6 +148,15 @@ enum ReceiptStatus {
   /// without duplicating the ordering at every call site.
   int get rank => index + 1;
 
+  /// The further-along of [a] and [b] under [rank]; `null` only when both
+  /// are null. Every writer of receipt state defers to this one comparison
+  /// — the controller's aggregate, the merge that runs when a message row
+  /// is replaced, and the merge the cache runs on write — so a payload
+  /// carrying a lower receipt, or none at all, can never walk a ✓✓ back
+  /// down to a ✓.
+  static ReceiptStatus? highest(ReceiptStatus? a, ReceiptStatus? b) =>
+      (a?.rank ?? 0) >= (b?.rank ?? 0) ? a : b;
+
   /// `true` when the recipient has confirmed reading the message.
   /// Drives the double-blue check rendering in the bubble status.
   bool get isRead => this == ReceiptStatus.read;

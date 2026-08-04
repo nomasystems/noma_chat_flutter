@@ -60,7 +60,34 @@ class ChatController extends ChangeNotifier {
   // For 1:1 chats the aggregate equals the single other user's state.
   // For groups, it's the WhatsApp-style aggregate: ✓✓-blue only when
   // every non-sender member has read.
+  //
+  // Written ONLY through [_setReceipt] (monotonic) and reset ONLY through
+  // [_clearReceipts] or [_revokeReceiptFor]. Assigning into it directly
+  // reintroduces the ✓✓ → ✓ downgrade this indirection exists to prevent.
   final Map<String, ReceiptStatus> _receiptStatuses = {};
+
+  // Ids whose receipt advanced and whose row has not been written back to
+  // the cache yet. The map above dies with the process; `ChatMessage.receipt`
+  // is what survives it, so every advance is mirrored onto the message
+  // object and queued here for the adapter to persist — see
+  // [drainReceiptUpdates].
+  final Set<String> _receiptDirty = {};
+
+  // Ids whose receipt was derived from evidence that dies with this
+  // session — a peer's whole-room read, which describes its own extent by
+  // a confirmation time and by nothing else. The mark is shown like any
+  // other, but the row never leaves through [drainReceiptUpdates], for
+  // ANY consumer: the cache merges receipts upward and can never lower a
+  // stored one, so a value that cannot be re-derived on the next cold
+  // start must not become permanent. Fed by [updateReceipt]'s
+  // `persistable: false`.
+  //
+  // An id stays here for as long as its per-user breakdown does: every
+  // later aggregate for that row is computed from the same [_readBy] /
+  // [_deliveredBy] entries and so rests on the same evidence, however
+  // well-traced whatever raised it was. [_clearReceipts] and
+  // [_revokeReceiptFor], which drop that breakdown, drop this with it.
+  final Set<String> _heldBackReceipts = {};
 
   // Per-user breakdown driving the aggregate above. `_readBy[msg]` is
   // the set of userIds that have read `msg`; `_deliveredBy[msg]` covers
@@ -171,7 +198,7 @@ class ChatController extends ChangeNotifier {
     if (existingIndex != null) {
       final replaced = _messages[existingIndex];
       if (_keepExistingOverProvisional(replaced, message)) return;
-      _messages[existingIndex] = message;
+      _messages[existingIndex] = _mergeReceiptInto(message, replaced);
       if (replaced.id != message.id) {
         _reconcileReplacedId(replaced.id, message.id);
       }
@@ -180,7 +207,7 @@ class ChatController extends ChangeNotifier {
       notifyListeners();
       return;
     }
-    _messages.add(message);
+    _messages.add(_mergeReceiptInto(message));
     _sortMessages();
     _trimMessages();
     _rebuildIndex();
@@ -194,10 +221,10 @@ class ChatController extends ChangeNotifier {
       if (idx != null) {
         final replaced = _messages[idx];
         if (_keepExistingOverProvisional(replaced, msg)) continue;
-        _messages[idx] = msg;
+        _messages[idx] = _mergeReceiptInto(msg, replaced);
         if (replaced.id != msg.id) _reconcileReplacedId(replaced.id, msg.id);
       } else {
-        _messages.add(msg);
+        _messages.add(_mergeReceiptInto(msg));
       }
     }
     _sortMessages();
@@ -244,9 +271,13 @@ class ChatController extends ChangeNotifier {
   }
 
   void setMessages(List<ChatMessage> messages) {
+    final merged = [
+      for (final msg in messages)
+        _mergeReceiptInto(msg, getMessageById(msg.id)),
+    ];
     _messages
       ..clear()
-      ..addAll(messages);
+      ..addAll(merged);
     _sortMessages();
     _rebuildIndex();
     _reapplyDeliveredCursors();
@@ -256,7 +287,7 @@ class ChatController extends ChangeNotifier {
   void updateMessage(ChatMessage message) {
     final index = _indexById[message.id];
     if (index == null) return;
-    _messages[index] = message;
+    _messages[index] = _mergeReceiptInto(message, _messages[index]);
     notifyListeners();
   }
 
@@ -286,11 +317,7 @@ class ChatController extends ChangeNotifier {
     _indexByClientMessageId.clear();
     _reactions.clear();
     _userReactions.clear();
-    _receiptStatuses.clear();
-    _readBy.clear();
-    _deliveredBy.clear();
-    _seqByMessageId.clear();
-    _deliveredCursors.clear();
+    _clearReceipts();
     _pinnedMessages.clear();
     _pendingMessages.clear();
     _tempToServerId.clear();
@@ -383,15 +410,13 @@ class ChatController extends ChangeNotifier {
   }
 
   /// Re-derives every cached receipt aggregate from the per-user breakdown.
-  /// Returns `true` when at least one visible status changed.
+  /// Only advances statuses: a reclassification (group/1:1) or a roster that
+  /// shrank must never walk a bubble back down. Returns `true` when at least
+  /// one visible status changed.
   bool _recomputeAllReceipts() {
     var changed = false;
     for (final entry in {..._readBy.keys, ..._deliveredBy.keys}.toList()) {
-      final next = _aggregateStatus(entry);
-      if (_receiptStatuses[entry] != next) {
-        _receiptStatuses[entry] = next;
-        changed = true;
-      }
+      if (_setReceipt(entry, _aggregateStatus(entry))) changed = true;
     }
     return changed;
   }
@@ -501,12 +526,47 @@ class ChatController extends ChangeNotifier {
 
   void markPending(String tempId) {
     _pendingMessages[tempId] = true;
+    _revokeReceiptFor(tempId);
     notifyListeners();
   }
 
   void markFailed(String tempId) {
     _pendingMessages[tempId] = false;
+    _revokeReceiptFor(tempId);
     notifyListeners();
+  }
+
+  /// `true` while [messageId] names an optimistic row whose send has not
+  /// been confirmed — still in flight ([markPending]) or given up on
+  /// ([markFailed]).
+  ///
+  /// Such a row exists on this device only: the server never accepted it,
+  /// so nobody can have received or read it, and its temporary id is not
+  /// one any peer cursor can legitimately refer to. Receipts must
+  /// therefore stop at its door — see [_setReceipt].
+  bool _isUnsent(String messageId) => _pendingMessages.containsKey(messageId);
+
+  /// Erases every trace of a receipt for [messageId]: the aggregate, the
+  /// per-user breakdown, the stamp on the row itself and its slot in the
+  /// write-back queue.
+  ///
+  /// [_setReceipt] refuses unsent rows, so this only matters for the
+  /// window BEFORE a row is declared unsent — a rehydrated pending row
+  /// reaches the list through [addMessage] and is marked failed a step
+  /// later, and [_mergeReceiptInto] can stamp it in between if it lands on
+  /// a slot a confirmed row already occupied. Declaring the row unsent
+  /// revokes that stamp instead of letting it reach the cache as history.
+  void _revokeReceiptFor(String messageId) {
+    _receiptStatuses.remove(messageId);
+    _readBy.remove(messageId);
+    _deliveredBy.remove(messageId);
+    _receiptDirty.remove(messageId);
+    _heldBackReceipts.remove(messageId);
+    final index = _indexById[messageId];
+    if (index == null) return;
+    final msg = _messages[index];
+    if (msg.receipt == null) return;
+    _messages[index] = msg.copyWith(receipt: null);
   }
 
   void confirmSent(String tempId, ChatMessage serverMessage) {
@@ -526,6 +586,14 @@ class ChatController extends ChangeNotifier {
     // `new_message` event can land BEFORE this echo, in which case the
     // row already exists under its real id and the provisional echo must
     // not add a duplicate — the event row's id wins.
+    //
+    // The upsert goes through [_mergeReceiptInto] like every other write
+    // to [_messages]. A send confirmation is a REST echo: it knows the
+    // message was accepted and nothing more, so it carries `sent` at best
+    // (`ChatUiAdapter._ensureSentReceipt`). Assigned raw it would walk a
+    // row the event stream had already advanced back down to one tick —
+    // invisibly for the bundled list, which reads [receiptStatuses] first,
+    // but plainly for any host rendering `ChatMessage.receipt`.
     var confirmedId = serverMessage.id;
     final existingIndex = _existingIndexFor(serverMessage);
     if (existingIndex != null) {
@@ -533,13 +601,13 @@ class ChatController extends ChangeNotifier {
       if (_keepExistingOverProvisional(existing, serverMessage)) {
         confirmedId = existing.id;
       } else {
-        _messages[existingIndex] = serverMessage;
+        _messages[existingIndex] = _mergeReceiptInto(serverMessage, existing);
         if (existing.id != serverMessage.id) {
           _reconcileReplacedId(existing.id, serverMessage.id);
         }
       }
     } else {
-      _messages.add(serverMessage);
+      _messages.add(_mergeReceiptInto(serverMessage));
     }
 
     _tempToServerId[tempId] = confirmedId;
@@ -584,24 +652,32 @@ class ChatController extends ChangeNotifier {
   ///
   /// [fromUserId] = `null` applies the receipt wholesale without
   /// per-user bookkeeping; behaves identically in 1:1 conversations.
+  ///
+  /// [persistable] = `false` declares the receipt derived from evidence
+  /// that cannot be re-checked once this session ends. It is applied and
+  /// rendered like any other, but every row it advances — including the
+  /// ones reached by the propagation above — is withheld from
+  /// [drainReceiptUpdates] from then on, so no consumer can write it to
+  /// the cache, where receipts only ever merge upward. The room-open
+  /// rehydration passes it for a peer's whole-room read: that row names no
+  /// cursor message, and its confirmation time is not one.
   void updateReceipt(
     String messageId,
     ReceiptStatus status, {
     String? fromUserId,
+    bool persistable = true,
   }) {
     if (fromUserId == null) {
-      // Rank-guard: a wholesale receipt (no per-user bookkeeping) must not
-      // regress a message that already reached a higher state via an
-      // out-of-order frame (a late `delivered` after a `read`).
-      final current = _receiptFor(messageId);
-      if (_rankReceipt(status) <= _rankReceipt(current)) return;
-      _receiptStatuses[messageId] = status;
-      _propagateAggregated(messageId, status);
+      // A wholesale receipt (no per-user bookkeeping) must not regress a
+      // message that already reached a higher state via an out-of-order
+      // frame (a late `delivered` after a `read`).
+      if (!_setReceipt(messageId, status, persistable: persistable)) return;
+      _propagateAggregated(messageId, status, persistable: persistable);
       notifyListeners();
       return;
     }
 
-    _recordReceiptFor(messageId, status, fromUserId);
+    _recordReceiptFor(messageId, status, fromUserId, persistable: persistable);
 
     // Propagate: any older message from the same sender that the reader
     // hadn't acknowledged yet is implicitly acknowledged at this level.
@@ -617,7 +693,7 @@ class ChatController extends ChangeNotifier {
           if (m.id == messageId) continue;
           if (m.from != senderId) continue;
           if (m.timestamp.isAfter(referenceTs)) continue;
-          _recordReceiptFor(m.id, status, fromUserId);
+          _recordReceiptFor(m.id, status, fromUserId, persistable: persistable);
         }
       }
     }
@@ -627,15 +703,25 @@ class ChatController extends ChangeNotifier {
   void _recordReceiptFor(
     String messageId,
     ReceiptStatus status,
-    String fromUserId,
-  ) {
+    String fromUserId, {
+    bool persistable = true,
+  }) {
+    // Keep the per-user breakdown clean too, not just the aggregate: an ack
+    // recorded under a temporary id outlives the id itself, and would be
+    // re-derived into a receipt by the next [_recomputeAllReceipts] — after
+    // reconciliation dropped the pending mark that [_setReceipt] relies on.
+    if (_isUnsent(messageId)) return;
     if (status == ReceiptStatus.delivered) {
       (_deliveredBy[messageId] ??= <String>{}).add(fromUserId);
     } else if (status == ReceiptStatus.read) {
       (_deliveredBy[messageId] ??= <String>{}).add(fromUserId);
       (_readBy[messageId] ??= <String>{}).add(fromUserId);
     }
-    _receiptStatuses[messageId] = _aggregateStatus(messageId);
+    _setReceipt(
+      messageId,
+      _aggregateStatus(messageId),
+      persistable: persistable,
+    );
   }
 
   /// Records the server-assigned [seq] of [messageId], learned from a
@@ -680,6 +766,11 @@ class ChatController extends ChangeNotifier {
     var changed = false;
     for (var i = 0; i < _messages.length; i++) {
       final m = _messages[i];
+      // Index-based coverage is blind to what a row actually is: an
+      // optimistic row sits in conversation order like any other and would
+      // fall inside a cursor that can only have been computed from server
+      // history.
+      if (_isUnsent(m.id)) continue;
       final msgSeq = _seqByMessageId[m.id];
       final covered = (cursorSeq != null && msgSeq != null)
           ? msgSeq <= cursorSeq
@@ -687,11 +778,7 @@ class ChatController extends ChangeNotifier {
       if (!covered) continue;
       final delivered = _deliveredBy[m.id] ??= <String>{};
       if (!delivered.add(userId)) continue;
-      final aggregated = _aggregateStatus(m.id);
-      if (_rankReceipt(aggregated) > _rankReceipt(_receiptStatuses[m.id])) {
-        _receiptStatuses[m.id] = aggregated;
-        changed = true;
-      }
+      if (_setReceipt(m.id, _aggregateStatus(m.id))) changed = true;
     }
     return changed;
   }
@@ -708,15 +795,144 @@ class ChatController extends ChangeNotifier {
   ReceiptStatus? _receiptFor(String messageId) {
     final recorded = _receiptStatuses[messageId];
     if (recorded != null) return recorded;
-    final match = _messages.firstWhere(
-      (m) => m.id == messageId,
-      orElse: () => _absentReceiptReference,
-    );
-    if (identical(match, _absentReceiptReference)) return null;
-    return match.receipt;
+    final index = _indexById[messageId];
+    return index != null ? _messages[index].receipt : null;
   }
 
-  ReceiptStatus _aggregateStatus(String messageId) {
+  /// The single writer of [_receiptStatuses]. Receipt state is monotonic:
+  /// [status] only lands when it strictly outranks what the bubble already
+  /// shows ([_receiptFor], which accounts for the message's own baseline
+  /// receipt). A `null` [status] means "not derivable right now" and leaves
+  /// the current state untouched. Returns `true` when the visible status
+  /// changed.
+  ///
+  /// The guard lives here, not at the call sites, because every source of a
+  /// lower value is legitimate on its own terms — an out-of-order frame, a
+  /// re-aggregation under a roster that shrank, a group/1:1 reclassification
+  /// — and none of them may turn a ✓✓ back into a ✓.
+  ///
+  /// It is also where unsent rows are turned away, for the same reason:
+  /// every fan-out that reaches a row it never got an event for — the
+  /// high-water-mark walk in [updateReceipt], [_propagateAggregated],
+  /// [_applyDeliveredCursorFor] — sweeps the whole list by timestamp or
+  /// index and would otherwise sweep up the user's own failed sends along
+  /// with the real ones. A pending or failed row carries no receipt at
+  /// all: it is stamped by nothing, queued for persistence by nothing, and
+  /// so never reaches the cache as message history claiming to have been
+  /// delivered and read.
+  bool _setReceipt(
+    String messageId,
+    ReceiptStatus? status, {
+    bool persistable = true,
+  }) {
+    if (status == null) return false;
+    if (_isUnsent(messageId)) return false;
+    if (_rankReceipt(status) <= _rankReceipt(_receiptFor(messageId))) {
+      return false;
+    }
+    _receiptStatuses[messageId] = status;
+    // Recorded against the row, not against the call that is running: the
+    // queue is shared and drained by whoever gets there first, so the only
+    // way to hold a value back from all of them is for the controller to
+    // know the row carries one.
+    if (!persistable) _heldBackReceipts.add(messageId);
+    _stampReceiptOnMessage(messageId, status);
+    return true;
+  }
+
+  /// Mirrors an advanced aggregate onto the message object itself and
+  /// queues the id for [drainReceiptUpdates]. Receipts reach the SDK as
+  /// events, never as message rows, so without this pass nothing the cache
+  /// ever writes would carry them and every ✓✓ would die with the process.
+  void _stampReceiptOnMessage(String messageId, ReceiptStatus status) {
+    final index = _indexById[messageId];
+    if (index == null) return;
+    final msg = _messages[index];
+    if (msg.receipt == status) return;
+    _messages[index] = msg.copyWith(receipt: status);
+    _receiptDirty.add(messageId);
+  }
+
+  /// Stamps [incoming] with the furthest-along receipt known for the slot
+  /// it is about to occupy: its own, the one [replaced] carried, and the
+  /// aggregates recorded under either id. This is [_setReceipt]'s
+  /// monotonic rule applied to the message object rather than to the
+  /// aggregate map, and it is what stops a bubble already showing ✓✓ from
+  /// falling back to ✓ when a payload without a receipt — every REST row —
+  /// takes its place.
+  ChatMessage _mergeReceiptInto(ChatMessage incoming, [ChatMessage? replaced]) {
+    final known = ReceiptStatus.highest(
+      ReceiptStatus.highest(incoming.receipt, _receiptStatuses[incoming.id]),
+      replaced == null
+          ? null
+          : ReceiptStatus.highest(
+              replaced.receipt,
+              _receiptStatuses[replaced.id],
+            ),
+    );
+    if (known == incoming.receipt) return incoming;
+    // The hold-back is a property of the value, so it survives the row
+    // being re-keyed along with the value itself.
+    if (replaced != null && _heldBackReceipts.contains(replaced.id)) {
+      _heldBackReceipts.add(incoming.id);
+    }
+    _setReceipt(incoming.id, known);
+    // Queued here rather than left to [_setReceipt], which declines an
+    // equal rank — the shape of a receipt that landed before the row it
+    // belongs to, recorded in [_receiptStatuses] and stamped on nothing.
+    // This merge is where such a row finally gets the value, and the wire
+    // row it arrived as carries none, so without this the cache keeps the
+    // receipt-less one. What the replaced row already carried is excluded:
+    // that value came off the cache to begin with.
+    if (!_isUnsent(incoming.id) &&
+        _rankReceipt(known) > _rankReceipt(replaced?.receipt)) {
+      _receiptDirty.add(incoming.id);
+    }
+    return incoming.copyWith(receipt: known);
+  }
+
+  /// The messages whose receipt advanced since the last call, ready to be
+  /// written back to the cache — [receiptStatuses] lives only in memory,
+  /// `ChatMessage.receipt` is what survives a cold start. Draining clears
+  /// the queue: the caller owns the write from that point on.
+  ///
+  /// Consumers should NOT call this directly — the adapter drains it after
+  /// every receipt-bearing event and after the room-open rehydration.
+  ///
+  /// This is the only way out of the controller, which is why the
+  /// hold-back is applied here rather than by the caller that asked for
+  /// it: the two consumers share one queue and either can drain the
+  /// other's rows, so a rule enforced on one side of it holds for neither.
+  List<ChatMessage> drainReceiptUpdates() {
+    if (_receiptDirty.isEmpty) return const <ChatMessage>[];
+    final updated = <ChatMessage>[];
+    for (final id in _receiptDirty) {
+      if (_heldBackReceipts.contains(id)) continue;
+      final index = _indexById[id];
+      if (index != null) updated.add(_messages[index]);
+    }
+    _receiptDirty.clear();
+    return updated;
+  }
+
+  /// A whole-controller reset escaping the monotonicity of [_setReceipt]:
+  /// a room reloaded from scratch ([clearMessages]) must not carry acks over
+  /// to whatever lands next under the same ids. [_revokeReceiptFor] is the
+  /// same escape narrowed to a single row.
+  void _clearReceipts() {
+    _receiptStatuses.clear();
+    _receiptDirty.clear();
+    _heldBackReceipts.clear();
+    _readBy.clear();
+    _deliveredBy.clear();
+    _seqByMessageId.clear();
+    _deliveredCursors.clear();
+  }
+
+  /// The aggregated status for [messageId] derived from the per-user
+  /// breakdown, or `null` when it is not derivable yet — see [_setReceipt],
+  /// the only consumer, which treats `null` as "leave it alone".
+  ReceiptStatus? _aggregateStatus(String messageId) {
     final otherUserIds = _otherUsers.map((u) => u.id).toSet();
     final totalOthers = otherUserIds.length;
     // Treat the chat as 1:1 only when we KNOW it isn't a group. When the
@@ -726,7 +942,8 @@ class ChatController extends ChangeNotifier {
     // a single peer read, and stay stuck there permanently.
     final treatAsOneToOne = _isGroup == null ? totalOthers <= 1 : !_isGroup!;
     if (treatAsOneToOne) {
-      // 1:1: any read => read; any delivered => delivered.
+      // 1:1: any read => read; any delivered => delivered. Derived from the
+      // per-user acks alone, so the roster being empty can't skew it.
       final readers = _readBy[messageId];
       if (readers != null && readers.isNotEmpty) return ReceiptStatus.read;
       final delivered = _deliveredBy[messageId];
@@ -735,10 +952,13 @@ class ChatController extends ChangeNotifier {
       }
       return ReceiptStatus.sent;
     }
-    // Group: only mark as read once *every* other member has read. Until the
-    // member list is hydrated (`totalOthers == 0`) we can't know "all", so the
-    // aggregate stays at `sent` rather than prematurely flipping to read.
-    if (totalOthers == 0) return ReceiptStatus.sent;
+    // Group: only mark as read once *every* other member has read, which
+    // needs the roster as the divisor. An empty roster on a group is member
+    // hydration not having landed — a group is never a room with nobody in
+    // it — so the aggregate is UNKNOWN, not `sent`: reporting `sent` here
+    // would downgrade every already-read message on each re-entry into the
+    // app, when the controller is rebuilt ahead of its member list.
+    if (totalOthers == 0) return null;
     final readers = _readBy[messageId] ?? const <String>{};
     final readByAll =
         readers.length >= totalOthers && otherUserIds.every(readers.contains);
@@ -758,7 +978,11 @@ class ChatController extends ChangeNotifier {
   // Preserves the old "high water mark for all previous messages of the
   // same sender" behaviour for callers (and tests) still on the binary
   // API. Drops out cleanly when a per-user call arrives later.
-  void _propagateAggregated(String messageId, ReceiptStatus status) {
+  void _propagateAggregated(
+    String messageId,
+    ReceiptStatus status, {
+    bool persistable = true,
+  }) {
     final reference = _messages.firstWhere(
       (m) => m.id == messageId,
       orElse: () => _absentReceiptReference,
@@ -770,9 +994,7 @@ class ChatController extends ChangeNotifier {
       if (m.id == messageId) continue;
       if (m.from != senderId) continue;
       if (m.timestamp.isAfter(referenceTs)) continue;
-      final current = _receiptStatuses[m.id] ?? m.receipt;
-      if (_rankReceipt(current) >= _rankReceipt(status)) continue;
-      _receiptStatuses[m.id] = status;
+      _setReceipt(m.id, status, persistable: persistable);
     }
   }
 

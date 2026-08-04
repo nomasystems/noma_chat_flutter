@@ -324,6 +324,79 @@ void main() {
     );
 
     test(
+      'getRoomReceipts() re-fetches under a cache-first default policy',
+      () async {
+        when(() => rest.getWithTotalCount(any())).thenAnswer(
+          (_) async => (
+            {
+              'receipts': [
+                {'userId': 'u2', 'lastReadAt': '2026-01-02T00:00:00Z'},
+              ],
+              'hasMore': false,
+            },
+            1,
+          ),
+        );
+        when(() => cache.getReceipts(any())).thenAnswer(
+          (_) async =>
+              const ChatSuccess(<ReadReceipt>[ReadReceipt(userId: 'u2')]),
+        );
+        final cacheFirst = CachedMessagesApi(
+          rest: rest,
+          cache: cache,
+          cacheManager: CacheManager(
+            config: const CacheConfig(
+              defaultReadPolicy: CachePolicy.cacheFirst,
+              ttlMessages: Duration(days: 30),
+            ),
+          ),
+        );
+
+        await cacheFirst.getRoomReceipts('r1');
+        await cacheFirst.getRoomReceipts('r1');
+
+        verify(() => rest.getWithTotalCount(any())).called(2);
+      },
+    );
+
+    test('markRoomAsRead() drops the room-receipts TTL entry', () async {
+      final snapshots = <Map<String, DateTime>>[];
+      when(() => cache.saveCacheTimestamps(any())).thenAnswer((inv) async {
+        snapshots.add(
+          Map<String, DateTime>.from(
+            inv.positionalArguments.first as Map<String, DateTime>,
+          ),
+        );
+      });
+      when(() => rest.getWithTotalCount(any())).thenAnswer(
+        (_) async => ({'receipts': <dynamic>[], 'hasMore': false}, 0),
+      );
+      when(
+        () => rest.postVoid(any(), data: any(named: 'data')),
+      ).thenAnswer((_) async {});
+
+      // A debounce long enough that only `dispose` ever flushes, so the
+      // single snapshot is the state after both calls.
+      final manager = CacheManager(
+        config: const CacheConfig(),
+        datasource: cache,
+        persistDebounce: const Duration(minutes: 5),
+      );
+      final tracked = CachedMessagesApi(
+        rest: rest,
+        cache: cache,
+        cacheManager: manager,
+      );
+
+      await tracked.getRoomReceipts('r1');
+      await tracked.markRoomAsRead('r1');
+      await manager.dispose();
+
+      expect(snapshots, hasLength(1));
+      expect(snapshots.single.keys, isNot(contains('receipts:r1')));
+    });
+
+    test(
       'getReactions() with networkOnly cachePolicy bypasses the cache',
       () async {
         when(() => cache.getReactions(any(), any())).thenAnswer(

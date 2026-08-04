@@ -236,6 +236,127 @@ void main() {
     );
   });
 
+  group('receipt durability', () {
+    final outgoing = ChatMessage(
+      id: 'msg-r',
+      from: 'user-1',
+      timestamp: DateTime.utc(2026, 2, 1),
+      text: 'Outgoing',
+    );
+
+    Future<ChatMessage> onlyStored(String roomId) async =>
+        (await ds.getMessages(roomId)).dataOrNull!.single;
+
+    test('a stored read survives a network row with a null receipt', () async {
+      await ds.saveMessages('room-r1', [
+        outgoing.copyWith(receipt: ReceiptStatus.read),
+      ]);
+      await ds.saveMessages('room-r1', [outgoing]);
+      expect((await onlyStored('room-r1')).receipt, ReceiptStatus.read);
+    });
+
+    test('a lower receipt never replaces a higher stored one', () async {
+      await ds.saveMessages('room-r2', [
+        outgoing.copyWith(receipt: ReceiptStatus.read),
+      ]);
+      await ds.saveMessages('room-r2', [
+        outgoing.copyWith(receipt: ReceiptStatus.delivered),
+      ]);
+      expect((await onlyStored('room-r2')).receipt, ReceiptStatus.read);
+    });
+
+    test('a higher receipt still advances the stored one', () async {
+      await ds.saveMessages('room-r3', [
+        outgoing.copyWith(receipt: ReceiptStatus.sent),
+      ]);
+      await ds.saveMessages('room-r3', [
+        outgoing.copyWith(receipt: ReceiptStatus.read),
+      ]);
+      expect((await onlyStored('room-r3')).receipt, ReceiptStatus.read);
+    });
+
+    test('the merge follows the row when its timestamp key moves', () async {
+      await ds.saveMessages('room-r4', [
+        outgoing.copyWith(receipt: ReceiptStatus.read),
+      ]);
+      await ds.saveMessages('room-r4', [
+        outgoing.copyWith(timestamp: DateTime.utc(2026, 2, 2)),
+      ]);
+      expect((await onlyStored('room-r4')).receipt, ReceiptStatus.read);
+    });
+
+    test('updateMessage keeps the stored receipt while editing', () async {
+      await ds.saveMessages('room-r5', [
+        outgoing.copyWith(receipt: ReceiptStatus.read),
+      ]);
+      await ds.updateMessage(
+        'room-r5',
+        outgoing.copyWith(text: 'Edited', isEdited: true),
+      );
+      final stored = await onlyStored('room-r5');
+      expect(stored.text, 'Edited');
+      expect(stored.receipt, ReceiptStatus.read);
+    });
+
+    test('cold start: a controller built from the reopened cache shows '
+        'the double check before any network event', () async {
+      const me = ChatUser(id: 'user-1');
+      const peer = ChatUser(id: 'user-2');
+      // The room has to be known for its message box to survive the
+      // orphan sweep the next startup runs.
+      await ds.saveRooms([
+        const ChatRoom(
+          id: 'room-cold',
+          audience: RoomAudience.contacts,
+          members: ['user-1', 'user-2'],
+        ),
+      ]);
+      await ds.saveMessages('room-cold', [outgoing]);
+
+      // What the router does when a receipt frame lands: advance the
+      // controller, then write back the rows it stamped.
+      final live = ChatController(
+        initialMessages: [outgoing],
+        currentUser: me,
+        otherUsers: const [peer],
+      );
+      addTearDown(live.dispose);
+      live.updateReceipt('msg-r', ReceiptStatus.read, fromUserId: 'user-2');
+      final stamped = live.drainReceiptUpdates();
+      expect(stamped.single.receipt, ReceiptStatus.read);
+      await ds.saveMessages('room-cold', stamped);
+
+      await ds.dispose();
+      await Hive.close();
+      ds = await HiveChatDatasource.create(basePath: tempDir.path);
+
+      final cached = (await ds.getMessages('room-cold')).dataOrNull!;
+      final cold = ChatController(
+        initialMessages: cached,
+        currentUser: me,
+        otherUsers: const [peer],
+      );
+      addTearDown(cold.dispose);
+      expect(cold.messages.single.receipt, ReceiptStatus.read);
+
+      // The row the backend replays on the next sync carries no receipt.
+      cold.addMessages([outgoing]);
+      expect(cold.messages.single.receipt, ReceiptStatus.read);
+    });
+
+    test('draining twice does not replay the same rows', () async {
+      final live = ChatController(
+        initialMessages: [outgoing],
+        currentUser: const ChatUser(id: 'user-1'),
+        otherUsers: const [ChatUser(id: 'user-2')],
+      );
+      addTearDown(live.dispose);
+      live.updateReceipt('msg-r', ReceiptStatus.read, fromUserId: 'user-2');
+      expect(live.drainReceiptUpdates(), hasLength(1));
+      expect(live.drainReceiptUpdates(), isEmpty);
+    });
+  });
+
   group('updateMessage does not track non-existent rooms', () {
     test('updateMessage on missing room does not create tracking', () async {
       final msg = ChatMessage(
