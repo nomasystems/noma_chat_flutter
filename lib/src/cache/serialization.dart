@@ -9,31 +9,49 @@ import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
 
-Map<String, dynamic> messageToMap(ChatMessage msg) => {
-  'id': msg.id,
-  'from': msg.from,
-  'timestamp': msg.timestamp.toIso8601String(),
-  if (msg.text != null) 'text': msg.text,
-  'messageType': msg.messageType.name,
-  if (msg.attachmentUrl != null) 'attachmentUrl': msg.attachmentUrl,
-  if (msg.attachmentId != null) 'attachmentId': msg.attachmentId,
-  if (msg.referencedMessageId != null)
-    'referencedMessageId': msg.referencedMessageId,
-  if (msg.clientMessageId != null) 'clientMessageId': msg.clientMessageId,
-  if (msg.reaction != null) 'reaction': msg.reaction,
-  if (msg.reply != null) 'reply': msg.reply,
-  if (msg.metadata != null) 'metadata': msg.metadata,
-  if (msg.receipt != null) 'receipt': msg.receipt!.name,
-  if (msg.isEdited) 'isEdited': true,
-  if (msg.isDeleted) 'isDeleted': true,
-  if (msg.isForwarded) 'isForwarded': true,
-  if (msg.isSystem) 'isSystem': true,
-  if (msg.mimeType != null) 'mimeType': msg.mimeType,
-  if (msg.fileName != null) 'fileName': msg.fileName,
-  if (msg.fileSize != null) 'fileSize': msg.fileSize,
-  if (msg.thumbnailUrl != null) 'thumbnailUrl': msg.thumbnailUrl,
-  if (msg.silentlyDropped) 'silentlyDropped': true,
-};
+/// Serialises [msg] into the shape the cache stores.
+///
+/// [previous] is the row already held under the same key, when there is
+/// one. Only the receipt is merged against it, taking the further-along of
+/// the two ([ReceiptStatus.highest]): a row coming back from the network
+/// carries no receipt of its own, so writing it verbatim would erase a
+/// `read` the event stream had already confirmed. Rows written before the
+/// field existed have no `receipt` entry and contribute nothing.
+Map<String, dynamic> messageToMap(
+  ChatMessage msg, {
+  Map<dynamic, dynamic>? previous,
+}) {
+  final storedReceipt = previous?['receipt'];
+  final receipt = ReceiptStatus.highest(
+    msg.receipt,
+    storedReceipt is String ? _parseReceiptStatus(storedReceipt) : null,
+  );
+  return {
+    'id': msg.id,
+    'from': msg.from,
+    'timestamp': msg.timestamp.toIso8601String(),
+    if (msg.text != null) 'text': msg.text,
+    'messageType': msg.messageType.name,
+    if (msg.attachmentUrl != null) 'attachmentUrl': msg.attachmentUrl,
+    if (msg.attachmentId != null) 'attachmentId': msg.attachmentId,
+    if (msg.referencedMessageId != null)
+      'referencedMessageId': msg.referencedMessageId,
+    if (msg.clientMessageId != null) 'clientMessageId': msg.clientMessageId,
+    if (msg.reaction != null) 'reaction': msg.reaction,
+    if (msg.reply != null) 'reply': msg.reply,
+    if (msg.metadata != null) 'metadata': msg.metadata,
+    if (receipt != null) 'receipt': receipt.name,
+    if (msg.isEdited) 'isEdited': true,
+    if (msg.isDeleted) 'isDeleted': true,
+    if (msg.isForwarded) 'isForwarded': true,
+    if (msg.isSystem) 'isSystem': true,
+    if (msg.mimeType != null) 'mimeType': msg.mimeType,
+    if (msg.fileName != null) 'fileName': msg.fileName,
+    if (msg.fileSize != null) 'fileSize': msg.fileSize,
+    if (msg.thumbnailUrl != null) 'thumbnailUrl': msg.thumbnailUrl,
+    if (msg.silentlyDropped) 'silentlyDropped': true,
+  };
+}
 
 /// Deserialises a cached message map back into a [ChatMessage].
 ///

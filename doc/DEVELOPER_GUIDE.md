@@ -100,6 +100,142 @@ final chat = await NomaChat.create(
   maxRooms: 200,                           // null = unlimited
   messageTtl: const Duration(days: 30),    // purge older messages on startup
   encryptionCipher: HiveAesCipher(key),    // optional at-rest encryption
+
+  // How long the cache waits before reclaiming disk (defaults shown):
+  orphanGracePeriod: const Duration(days: 7),        // rooms the server stopped listing
+  unscopedCacheRetention: const Duration(days: 30),  // see Per-user scoping
+);
+```
+
+`orphanGracePeriod` is how long a room must stay missing from authoritative room
+listings before the cache destroys its local message history. Lengthen it if
+your backend can omit rooms it still serves; the cost of shortening it is
+history destroyed for a room that was only temporarily unlisted.
+
+#### Per-user scoping
+
+Every box the bundled cache opens is namespaced with a digest of
+`currentUser.id`, so two accounts signing in on the same device get two disjoint
+stores and a logout may keep the cache without leaking the previous user's
+rooms, names or messages. Nothing to configure — `NomaChat.create()` passes the
+id for you.
+
+If you build the datasource yourself, pass it explicitly:
+
+```dart
+localDatasource: await HiveChatDatasource.create(userId: userId),
+```
+
+Omitting `userId` selects the pre-0.16 device-wide layout, which every account
+on the device shares.
+
+The box name carries `u_` plus a 32-character digest of the id, never the id
+itself — an id has to be folded to fit a box name, and every fold merges
+distinct ids (`a.b@x.com` and `a_b@x_com`; `Alice` and `alice`, since Hive
+lower-cases box names), which would be one account handed another's store. The
+practical consequence for a host: **no file on disk is named after a user**, so
+deleting box files by hand on logout will not find them. Use the datasource's
+own `clear()`.
+
+Because the id derives the store's name, a blank or whitespace-only id is
+rejected — both constructors throw `ArgumentError`. In 0.15 the id never reached
+the cache and such a session opened normally. If you build a session before the
+id is known, pass `enableCache: false` for it.
+
+A store that turns out to belong to another account — the same namespace reached
+by two ids, through a host that respelled its ids between releases or a backup
+restored from another device — is destroyed before a single box of it is read.
+If the destruction cannot be completed, `create()` throws a `StateError` instead
+of returning a datasource that would serve the survivors to the signed-in user.
+Nothing is claimed on that path, so a later launch tries again; treat it as any
+other cache failure and retry, or open that one session with
+`enableCache: false`.
+
+##### Carrying the old local history over
+
+A device upgrading from a pre-0.16 build still holds that device-wide store, and
+**by default nothing is adopted from it**: the store carries no record of whose
+it is, so the SDK will not guess. It is left untouched and reclaimed from disk
+after `unscopedCacheRetention` (30 days); the user re-fetches their history from
+the server.
+
+If your app can never have had a second account signed in on the same install,
+you can assert who that cache belongs to and it is moved into that user's
+namespace:
+
+```dart
+final chat = await NomaChat.create(
+  /* ...required params... */
+  currentUser: ChatUser(id: userId, displayName: name),
+  adoptUnscopedCacheFor: userId,   // "this device's old cache is userId's"
+  unscopedCacheRetention: const Duration(days: 30),  // how long the old store waits
+);
+```
+
+This is an assertion, not a hint. **If it is wrong, the named user inherits the
+other person's rooms, contacts and message history and sees it as their own.**
+Only pass it when the promise holds; the cost of omitting it is one re-fetch.
+
+Resolution, given the `cacheOwner` stamp the store carries and your assertion:
+
+| Stamp | `adoptUnscopedCacheFor` | Result |
+|---|---|---|
+| absent | omitted | not adopted, reclaimed after the retention window |
+| absent | current user id | **adopted** |
+| absent | another user id | not adopted, kept on disk for that user to adopt |
+
+Those three rows are the whole decision in practice, because **the stamp is
+always absent here**. Only a per-user store is ever stamped; nothing writes an
+owner into the device-wide layout, in this release or any before it, so a device
+upgrading from any build arrives at this table unstamped. The SDK does resolve
+the stamped cases — a stamp naming the current user adopts, one naming somebody
+else refuses, and it refuses even against an assertion that says otherwise,
+because evidence written by the store outranks a declaration about it — but no
+store a released build can leave on disk reaches them.
+
+Whatever the answer, it is written into that user's own store as a migration
+record, and **that record** is what stops the question being asked twice. The
+`cacheOwner` stamp is a different thing: evidence of *whose* a store is, written
+by every scoped store at creation and checked on every open — a store found
+stamped for somebody else is destroyed rather than served. Neither is a
+substitute for the other; a store can be stamped and still have never been
+through the migration.
+
+Starting to pass `adoptUnscopedCacheFor` in a later release is the one exception
+to the once-only rule: a refusal recorded while you were passing nothing is
+reopened when you start passing it, so a host that ships the scoping first and
+the assertion second does not lose the history of everyone who launched in
+between, as long as the retention window has not expired.
+
+That reopen is also why **adoption merges rather than restores**. It runs
+against a per-user store that has been live for a whole release, so the old
+store fills in what the new one does not have and never writes over what it
+does. Two consequences worth knowing:
+
+- Contacts and invited rooms are stored as lists, not keyed by id, so each is
+  carried over whole or not at all — and not at all once the user has a list of
+  their own. Both are write-through caches of a server fetch, so nothing is
+  lost that the next fetch does not restore.
+- **The queue of unsent operations is never carried over.** Every other box
+  holds state, which is merely stale when it is old; that one holds
+  instructions, and nothing in an entry records when it was enqueued. Adopting
+  it would hand a month-old send straight to the transport.
+
+An adoption killed part-way through resumes on the next launch. The old store's
+own meta box is the last thing the move removes, so for as long as any of it is
+still on disk it is still findable — nothing is left stranded between the two
+layouts.
+
+Call `HiveChatDatasource.purgeUnscopedCache()` to reclaim the old layout
+immediately instead of waiting the retention window out. If your store is
+encrypted, pass the same cipher — the per-room boxes have no fixed names and are
+found by reading room ids out of the global ones, so a missing or wrong cipher
+silently leaves them on disk:
+
+```dart
+await HiveChatDatasource.purgeUnscopedCache(
+  encryptionCipher: HiveAesCipher(key32),   // the one the old store was written with
+  onWarning: (m) => debugPrint(m),          // the only signal a purge was partial
 );
 ```
 
@@ -141,7 +277,7 @@ final chat = await NomaChat.create(
     enableHttpLog: false,                  // log full HTTP request bodies
     ssePath: '/eventsource',               // SSE endpoint path (CHT/NRTE default)
     actAsUserId: null,                     // managed-user delegation (REST only); see below
-    localDatasource: await HiveChatDatasource.create(),
+    localDatasource: await HiveChatDatasource.create(userId: userId),
   ),
   isDmRoom: (detail) =>                    // see Customization hooks
       detail.type == RoomType.oneToOne &&
@@ -1396,11 +1532,14 @@ final ephemeral = await NomaChat.create(/* ... */, enableCache: false);
 ### Building the datasource yourself
 
 If you build a `ChatConfig` by hand (the `config:` escape hatch), construct the
-datasource with `HiveChatDatasource.create()` (not `open()`) and wire it as
-`localDatasource`:
+datasource with `HiveChatDatasource.create()` — the only constructor there is —
+and wire it as `localDatasource`. **Pass the signed-in user's id**: `NomaChat.create()` does it
+for you, but on this path nothing does, and a datasource built without one opens
+the device-wide layout every account on the device shares.
 
 ```dart
 final ds = await HiveChatDatasource.create(
+  userId: userId,                             // scopes every box to this account
   maxMessagesPerRoom: 500,
   maxRooms: 200,
   messageTtl: const Duration(days: 30),
@@ -1417,7 +1556,7 @@ it yourself and pass it as `localDatasource` (the bundled one created by
 `NomaChat.create()` is not exposed):
 
 ```dart
-final ds = await HiveChatDatasource.create();
+final ds = await HiveChatDatasource.create(userId: userId);
 final chat = await NomaChat.create(/* ...required... */, localDatasource: ds);
 
 final snapshot = await ds.exportData(); // Map<String, dynamic>

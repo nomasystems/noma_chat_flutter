@@ -107,8 +107,8 @@ interface class ChatMessagesController {
     // back from the backend without per-message receipt info — every
     // outgoing bubble reverts to a single ✓ until the peer reads
     // something new. Pull the room receipts now and walk outgoing
-    // messages: anything timestamped ≤ a peer's `lastReadAt` is marked
-    // as read so the visual state matches reality.
+    // messages: anything at-or-before a peer's read cursor is marked as
+    // read so the visual state matches reality.
     if (finalResult.isSuccess && !_a._disposed) {
       unawaited(_rehydrateOutgoingReceipts(roomId, controller));
     }
@@ -1047,12 +1047,32 @@ interface class ChatMessagesController {
   /// Fire-and-forget: any failure simply leaves bubbles as ✓ (single
   /// tick), same as before the rehydration was added.
   ///
-  /// Read coverage uses conversation order against
-  /// `lastReadMessageId` when the backend provides it; the timestamp
-  /// comparison (`lastReadAt` records confirmation time, not message
-  /// time, and can over-mark) stays as the legacy fallback for
-  /// whole-room reads. Delivered coverage applies the
-  /// `lastDeliveredMessageId` cursor via
+  /// Read coverage always resolves `lastReadMessageId` to a position in
+  /// conversation order: the cursor's own index when it is inside the
+  /// loaded window, its timestamp read back from the local cache when it
+  /// is not. A cursor id that resolves to neither marks NOTHING.
+  ///
+  /// It must not fall back to `lastReadAt` there, however tempting: that
+  /// field is the instant the SERVER recorded the confirmation, not the
+  /// time of the message that was read, and a cursor only paginates out
+  /// of the window when the peer's read position is old — which is
+  /// exactly when the recent messages are genuinely unread and yet
+  /// timestamped before that confirmation. Marking them would tell the
+  /// sender the peer read messages they never opened, and receipt state
+  /// is monotonic, so the genuine `delivered` that follows could never
+  /// walk it back.
+  ///
+  /// `lastReadAt` is used for one row shape only: no cursor id at all,
+  /// which the backend writes exclusively for whole-room reads
+  /// (`chat_engine_read_receipts:advance_room_cursors/3` stores
+  /// `lastReadMessageId = null` alongside a seq snapshot of the whole
+  /// conversation). There the cursor's extent *is* "every message in the
+  /// room at that instant", so the confirmation time reconstructs it
+  /// rather than standing in for a message. Those marks still show up in
+  /// the UI but are applied `persistable: false`, which keeps them out of
+  /// every write-back — this one and the event router's alike.
+  ///
+  /// Delivered coverage applies the `lastDeliveredMessageId` cursor via
   /// [ChatController.applyDeliveryCursor].
   ///
   /// Also propagates the resulting aggregate status of the room's
@@ -1067,6 +1087,9 @@ interface class ChatMessagesController {
     final receipts = result.dataOrThrow.items;
     if (receipts.isEmpty) return;
     final currentUserId = _a.currentUser.id;
+    // Cached id → timestamp map, read at most once per rehydration and
+    // only when some row needs a cursor the window does not hold.
+    Map<String, DateTime>? cachedTimestamps;
     for (final r in receipts) {
       if (r.userId == currentUserId) continue;
       final lastDeliveredId = r.lastDeliveredMessageId;
@@ -1078,34 +1101,85 @@ interface class ChatMessagesController {
       }
       final lastReadId = r.lastReadMessageId;
       final lastReadAt = r.lastReadAt;
-      if (lastReadId == null && lastReadAt == null) continue;
-      final messages = controller.messages;
-      int? readCutoff;
+      final int? cutoffIndex;
+      final DateTime? cutoffTime;
+      // Tie-breaker for messages sharing the cutoff's exact timestamp, so
+      // the timestamp path covers the same set the index path would: the
+      // controller sorts by (timestamp, id).
+      final String? cutoffId;
       if (lastReadId != null) {
-        for (var i = 0; i < messages.length; i++) {
-          if (messages[i].id == lastReadId) {
-            readCutoff = i;
-            break;
-          }
+        final index = controller.messages.indexWhere((m) => m.id == lastReadId);
+        if (index >= 0) {
+          cutoffIndex = index;
+          cutoffTime = null;
+          cutoffId = null;
+        } else {
+          cachedTimestamps ??= await _cachedMessageTimestamps(roomId);
+          if (_a._disposed) return;
+          final resolved = cachedTimestamps[lastReadId];
+          if (resolved == null) continue;
+          cutoffIndex = null;
+          cutoffTime = resolved;
+          cutoffId = lastReadId;
         }
+      } else if (lastReadAt != null) {
+        cutoffIndex = null;
+        cutoffTime = lastReadAt;
+        cutoffId = null;
+      } else {
+        continue;
       }
+      final traced = cutoffIndex != null || cutoffId != null;
+      final messages = controller.messages;
       for (var i = 0; i < messages.length; i++) {
         final msg = messages[i];
         if (msg.from != currentUserId) continue;
         if (msg.receipt == ReceiptStatus.read) continue;
-        final covered = readCutoff != null
-            ? i <= readCutoff
-            : (lastReadId == null &&
-                  lastReadAt != null &&
-                  !msg.timestamp.isAfter(lastReadAt));
+        // An optimistic row still carries a temporary id and a local
+        // clock's timestamp — no peer cursor can refer to it, and its
+        // timestamp is not comparable with a server-side one.
+        if (controller.isPending(msg.id) || controller.isFailed(msg.id)) {
+          continue;
+        }
+        final bool covered;
+        if (cutoffIndex != null) {
+          covered = i <= cutoffIndex;
+        } else {
+          final order = msg.timestamp.compareTo(cutoffTime!);
+          covered =
+              order < 0 ||
+              (order == 0 &&
+                  (cutoffId == null || msg.id.compareTo(cutoffId) <= 0));
+        }
         if (!covered) continue;
         controller.updateReceipt(
           msg.id,
           ReceiptStatus.read,
           fromUserId: r.userId,
+          persistable: traced,
         );
       }
     }
+    // Persist what the rehydration recovered. Without this the same
+    // round trip repeats on every open: the receipts endpoint is the
+    // only place these marks exist, so the cached rows have to take
+    // them over for the NEXT cold start to render ✓✓ before the
+    // network answers.
+    //
+    // Everything derived from a whole-room confirmation time is excluded:
+    // a cached receipt is permanent (the merge on read keeps the highest
+    // value ever stored), so only marks that trace to a cursor — the ones
+    // the next rehydration would derive again from the same evidence —
+    // earn that. The rest live for this session and are re-derived, or
+    // corrected, on the next open. The exclusion is the controller's, not
+    // this drain's: the loop above suspends on the cache read, and a
+    // receipt frame landing in that window drains the same queue from the
+    // event router.
+    final recovered = controller.drainReceiptUpdates();
+    if (recovered.isNotEmpty) {
+      unawaited(_persistReceiptRows(roomId, recovered));
+    }
+
     // Sync the room-list tile so the tick under the room name matches
     // the bubble status. Walks newest-to-oldest looking for the most
     // recent outgoing message in the controller; pushes its aggregated
@@ -1120,6 +1194,30 @@ interface class ChatMessagesController {
       _a._roomListMutator.updateRoomListReceipt(roomId, msg.id, status);
       return;
     }
+  }
+
+  Future<void> _persistReceiptRows(
+    String roomId,
+    List<ChatMessage> rows,
+  ) async {
+    final cache = _a._cache;
+    if (cache == null) return;
+    await cache.saveMessages(roomId, rows);
+  }
+
+  /// Timestamps of every message [roomId] holds in the local cache, keyed
+  /// by id. Lets a read cursor pointing outside the loaded window still be
+  /// placed in conversation order — by the cursor message's OWN time, the
+  /// only thing that makes the resulting mark evidence of a read. Empty
+  /// when the adapter was built without a `cache:` (the consumer's own
+  /// datasource is not reachable from here), which leaves such a cursor
+  /// unresolvable and marks nothing.
+  Future<Map<String, DateTime>> _cachedMessageTimestamps(String roomId) async {
+    final cache = _a._cache;
+    if (cache == null) return const <String, DateTime>{};
+    final rows = (await cache.getMessages(roomId)).dataOrNull;
+    if (rows == null) return const <String, DateTime>{};
+    return {for (final m in rows) m.id: m.timestamp};
   }
 
   /// Loads per-user read receipts for [roomId].

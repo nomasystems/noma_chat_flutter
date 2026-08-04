@@ -73,7 +73,31 @@ class NomaChat {
   /// the UI adapter for title resolution and optimistic message rendering.
   ///
   /// [enableCache] — when `true` (default) creates and opens a Hive store
-  /// for offline-first access. Set to `false` for anonymous / ephemeral sessions.
+  /// for offline-first access, namespaced to `currentUser.id` so accounts
+  /// sharing a device never read each other's data. Set to `false` for
+  /// anonymous / ephemeral sessions.
+  ///
+  /// [adoptUnscopedCacheFor] — assert that the pre-0.16 device-wide cache
+  /// still on this device belongs to this user id, so its local history is
+  /// carried into the per-user store instead of being reclaimed. Pass
+  /// `currentUser.id` only if your app can never have had a second account
+  /// signed in on the same install; if it could, omit this and the old
+  /// history is dropped. Getting it wrong shows one user the other's chat
+  /// history. See [HiveChatDatasource.create] for the full contract.
+  ///
+  /// [unscopedCacheRetention] — how long that device-wide cache is kept on
+  /// disk once an adoption has been refused for want of an owner. 30 days
+  /// by default, which is the window in which a host that ships the
+  /// scoping first can still add [adoptUnscopedCacheFor] and carry the
+  /// history over. Shorten it to reclaim the space sooner, at the cost of
+  /// closing that window; [HiveChatDatasource.purgeUnscopedCache] reclaims
+  /// it outright.
+  ///
+  /// [orphanGracePeriod] — how long a room must stay missing from
+  /// authoritative room listings before the cache destroys its local
+  /// message history. 7 days by default. Lengthen it if your backend can
+  /// omit rooms it still serves; the cost of shortening it is history
+  /// destroyed for a room that was only temporarily unlisted.
   ///
   /// [maxMessagesPerRoom] — maximum messages stored per room in the local cache.
   /// Defaults to 500. Older messages are evicted when the limit is reached.
@@ -88,6 +112,13 @@ class NomaChat {
   ///
   /// Throws [ArgumentError] if [baseUrl] or [realtimeUrl] are malformed, end
   /// with `/`, or use `http://` in a release build.
+  ///
+  /// Throws [ArgumentError] when the bundled cache is enabled and
+  /// `currentUser.id` is blank or nothing but whitespace. Before 0.16 the
+  /// id never reached the cache and such a session opened normally; it
+  /// now names the store, and a store named after nothing is the
+  /// device-wide one every account shares. Hosts that build a session
+  /// before the id is known should pass `enableCache: false` for it.
   ///
   /// Example:
   /// ```dart
@@ -113,6 +144,9 @@ class NomaChat {
     void Function()? onAuthFailure,
     // Cache
     bool enableCache = true,
+    String? adoptUnscopedCacheFor,
+    Duration unscopedCacheRetention = const Duration(days: 30),
+    Duration orphanGracePeriod = const Duration(days: 7),
     int maxMessagesPerRoom = 500,
     int? maxRooms,
     Duration? messageTtl,
@@ -146,6 +180,13 @@ class NomaChat {
     // same box names. Skip it entirely when `config` is provided.
     if (config == null && effectiveDatasource == null && enableCache) {
       hiveCache = await HiveChatDatasource.create(
+        // Scope every box to the signed-in user: two accounts on the same
+        // device must not share a store, and a logout that keeps the
+        // cache must not show the next user the previous one's rooms.
+        userId: currentUser.id,
+        adoptUnscopedCacheFor: adoptUnscopedCacheFor,
+        unscopedCacheRetention: unscopedCacheRetention,
+        orphanGracePeriod: orphanGracePeriod,
         maxMessagesPerRoom: maxMessagesPerRoom,
         maxRooms: maxRooms,
         messageTtl: messageTtl,
@@ -217,7 +258,10 @@ class NomaChat {
   /// want persistence, set `config.localDatasource` (e.g. via
   /// [HiveChatDatasource.create]) before calling this. The adapter
   /// shares `config.localDatasource` so client and adapter never
-  /// diverge.
+  /// diverge. Pass the signed-in user's id to that constructor:
+  /// `HiveChatDatasource.create()` without one opens the device-wide
+  /// layout that every account on the device shares, which is what the
+  /// per-user scoping exists to avoid.
   ///
   /// [currentUser] — the authenticated user who owns this session.
   ///
@@ -229,7 +273,7 @@ class NomaChat {
   ///   baseUrl: 'https://chat.myapp.com/v1',
   ///   realtimeUrl: 'https://chat.myapp.com',
   ///   tokenProvider: () => authService.getToken(),
-  ///   localDatasource: await HiveChatDatasource.create(),
+  ///   localDatasource: await HiveChatDatasource.create(userId: userId),
   /// );
   /// final chat = await NomaChat.fromConfig(
   ///   config: config,

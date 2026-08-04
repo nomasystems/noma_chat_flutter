@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
@@ -15,6 +17,9 @@ import 'package:noma_chat/noma_chat.dart';
 ///   every older message from the same sender is implicitly read too —
 ///   but only by that recipient, and only for the same sender. Older
 ///   messages by a different sender stay untouched.
+/// * Monotonicity: the aggregate only ever moves forward along
+///   `sent → delivered → read`. No event, roster change or group/1:1
+///   reclassification may walk a rendered ✓✓ back to a ✓.
 /// * [ChatController.clearMessages] resets both the per-user tracking
 ///   and the aggregated cache so a re-loaded room doesn't carry over
 ///   stale acks.
@@ -289,8 +294,10 @@ void main() {
       c.setIsGroup(true);
 
       c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
-      // Members unknown → can't be "read by all" → stays at sent.
-      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+      // Members unknown → can't be "read by all" → the aggregate is unknown
+      // and nothing is recorded. Absent and `sent` render identically (one
+      // check); what matters is that it did NOT flip to read.
+      expect(c.receiptStatuses['m1'], isNull);
     });
 
     test('without the group flag, an unhydrated chat falls back to the 1:1 '
@@ -309,10 +316,11 @@ void main() {
       addTearDown(c.dispose);
       c.setIsGroup(true);
 
-      // Two of three peers read while the roster is still empty.
+      // Two of three peers read while the roster is still empty: no divisor
+      // for "read by all" yet, so nothing is recorded (renders as one check).
       c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
       c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
-      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+      expect(c.receiptStatuses['m1'], isNull);
 
       // Member list arrives with three members — still not read-by-all.
       c.setOtherUsers(const [
@@ -411,6 +419,229 @@ void main() {
       c.updateReceipt('m1', ReceiptStatus.delivered);
       expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
       c.updateReceipt('m1', ReceiptStatus.read);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+  });
+
+  group('Monotonicity: a check never walks back', () {
+    const peers = [
+      ChatUser(id: 'u1', displayName: 'Alice'),
+      ChatUser(id: 'u2', displayName: 'Bob'),
+      ChatUser(id: 'u3', displayName: 'Charlie'),
+    ];
+
+    test('rank never decreases across an arbitrary sequence of events', () {
+      const ids = ['m1', 'm2', 'm3'];
+
+      for (var seed = 0; seed < 30; seed++) {
+        final rnd = Random(seed);
+        final c = ChatController(
+          initialMessages: [
+            own('m1', offset: const Duration(seconds: 1)),
+            own('m2', offset: const Duration(seconds: 2)),
+            own('m3', offset: const Duration(seconds: 3)),
+          ],
+          currentUser: me,
+          otherUsers: peers,
+        );
+        addTearDown(c.dispose);
+        final highWater = {for (final id in ids) id: 0};
+
+        for (var step = 0; step < 80; step++) {
+          final id = ids[rnd.nextInt(ids.length)];
+          final peer = peers[rnd.nextInt(peers.length)].id;
+          final status =
+              ReceiptStatus.values[rnd.nextInt(ReceiptStatus.values.length)];
+          final event = rnd.nextInt(6);
+          if (event == 0) {
+            c.updateReceipt(id, status);
+          } else if (event == 1) {
+            c.updateReceipt(id, status, fromUserId: peer);
+          } else if (event == 2) {
+            c.applyDeliveryCursor(
+              userId: peer,
+              messageId: id,
+              seq: rnd.nextInt(5),
+            );
+          } else if (event == 3) {
+            c.setOtherUsers(peers.take(rnd.nextInt(peers.length + 1)).toList());
+          } else if (event == 4) {
+            c.setIsGroup(rnd.nextBool());
+          } else {
+            c.recordMessageSeq(id, rnd.nextInt(5));
+          }
+
+          for (final tracked in ids) {
+            final rank = c.receiptStatuses[tracked]?.rank ?? 0;
+            expect(
+              rank,
+              greaterThanOrEqualTo(highWater[tracked]!),
+              reason:
+                  'seed $seed, step $step (event $event): $tracked regressed '
+                  'from ${highWater[tracked]} to $rank',
+            );
+            highWater[tracked] = rank;
+          }
+        }
+      }
+    });
+
+    test('re-entering the app with an unhydrated roster keeps read', () {
+      // The closed reproduction: the room is known to be a group, every peer
+      // had read, and the controller is rebuilt (app resumed) before member
+      // hydration lands — the roster momentarily goes empty.
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: peers,
+      );
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+      for (final p in peers) {
+        c.updateReceipt('m1', ReceiptStatus.read, fromUserId: p.id);
+      }
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+
+      c.setOtherUsers(const []);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('an emptied roster keeps read in a DM too', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+
+      c.setOtherUsers(const []);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('setIsGroup does not downgrade an already-read message', () {
+      // Receipts can land before the adapter pins the room type: the peer
+      // read while the chat still looked like a 1:1.
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+
+      c.setIsGroup(true);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('a growing member count does not downgrade', () {
+      // The group opened with a partial roster (one member), the only known
+      // peer read, and the remaining members arrive afterwards.
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+
+      c.setOtherUsers(peers);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('a delivered cursor does not downgrade the server baseline', () {
+      // After a resume the aggregate cache is empty and the only receipt
+      // knowledge is the message's own field, rehydrated from cache. The
+      // peer acking a NEWER message drags a delivered cursor over this one.
+      final c = ChatController(
+        initialMessages: [
+          ChatMessage(
+            id: 'm1',
+            from: 'me',
+            timestamp: t0,
+            text: 'm1',
+            receipt: ReceiptStatus.read,
+          ),
+          own('m2', offset: const Duration(seconds: 1)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.applyDeliveryCursor(userId: 'u1', messageId: 'm2');
+      expect(c.receiptStatuses['m1'], isNot(ReceiptStatus.delivered));
+      expect(c.receiptStatuses['m2'], ReceiptStatus.delivered);
+    });
+
+    test('clearMessages resets the monotonic floor', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      c.clearMessages();
+      expect(c.receiptStatuses, isEmpty);
+
+      // The reset must be real, not merely a cleared map shadowed by the old
+      // floor: the same id can go back to `sent` in the reloaded room.
+      c.addMessage(own('m1'));
+      c.updateReceipt('m1', ReceiptStatus.sent, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+    });
+  });
+
+  group('Write-back queue (drainReceiptUpdates)', () {
+    test('a receipt that landed before its row is queued once the row '
+        'arrives', () {
+      // The ack beat the send confirmation: nothing carries the value but
+      // the aggregate map, and the row that finally shows up came off the
+      // wire without a receipt. What the drain returns here is the only
+      // thing standing between that value and a cold start without it.
+      final c = ChatController(
+        initialMessages: const [],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.drainReceiptUpdates(), isEmpty);
+
+      c.addMessage(own('m1'));
+
+      final drained = c.drainReceiptUpdates();
+      expect(drained.map((m) => m.id), ['m1']);
+      expect(drained.single.receipt, ReceiptStatus.read);
+    });
+
+    test('a mark applied as not persistable never leaves through the '
+        'drain', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt(
+        'm1',
+        ReceiptStatus.read,
+        fromUserId: 'u1',
+        persistable: false,
+      );
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+      expect(c.drainReceiptUpdates(), isEmpty);
+
+      // Nor through the row landing again and picking the value back up.
+      c.addMessage(own('m1'));
+      expect(c.drainReceiptUpdates(), isEmpty);
       expect(c.receiptStatuses['m1'], ReceiptStatus.read);
     });
   });

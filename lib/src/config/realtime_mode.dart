@@ -5,10 +5,6 @@
 /// primary, SSE as fallback after a WS failure. The other modes are
 /// opt-in for hostile networks, constrained backends, debugging or
 /// low-power devices.
-///
-/// See `info/noma-chat/ARCHITECTURE.md` ("Transportes en tiempo real")
-/// for the trade-off matrix, and `.claude/plans/realtime_modes.md` for
-/// the design notes.
 enum RealtimeMode {
   /// WS primary + SSE fallback after a WS failure. Recommended default.
   auto,

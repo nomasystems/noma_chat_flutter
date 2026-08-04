@@ -6,6 +6,155 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.16.0
+
+### Security
+
+- **The local cache is now namespaced per user.** Every Hive box the SDK opens is prefixed with a
+  digest of the signed-in user's id — `u_` followed by 32 hex characters — so two accounts on the
+  same device get two disjoint stores. Until now they shared one: signing out and signing in as
+  somebody else left the previous user's rooms, contacts, display names and message history in
+  place, and the new session read them as its own. `NomaChat.create()` passes `currentUser.id` for
+  you — **nothing to do if you use it**. If you build the datasource yourself, pass the id:
+  `HiveChatDatasource.create(userId: userId)`. Omitting it selects the old device-wide layout,
+  which is still shared by every account that opens it.
+
+  The id is digested rather than spelled out, so **no box on disk carries a user's id in its
+  name**: a host that hand-deletes box files on logout, or goes looking for the boxes belonging to
+  a given user, will not find them. Clear a user's cache through the datasource's own `clear()`.
+
+  One consequence to check before upgrading: the id now derives the store's name, so
+  `NomaChat.create()` and `HiveChatDatasource.create()` **throw `ArgumentError` for a blank or
+  whitespace-only id**. In 0.15 the id never reached the cache and such a session opened normally.
+  If your host builds a session before the id is known, pass `enableCache: false` for it.
+
+- **A cache that turns out to belong to another account is destroyed before it is read**, and when
+  it cannot be destroyed the session is refused: `create()` throws a `StateError` rather than
+  returning a datasource that would serve the surviving boxes to the signed-in user. Nothing is
+  claimed on that path, so the next launch tries the destruction again. It takes a store whose
+  namespace two ids somehow share — a host that respells its ids between releases, a backup
+  restored from another device — plus a write failure on top, so no ordinary install reaches it;
+  handle it like any other cache failure and retry, or open that session with
+  `enableCache: false`.
+
+### Added
+
+- **`adoptUnscopedCacheFor` — opt in to carrying the pre-0.16 local history over.** A device
+  upgrading from an earlier version still holds the old device-wide store, and by default **nothing
+  is adopted from it**: the store carries no record of whose it is, so the SDK will not guess. It is
+  left untouched and reclaimed from disk after 30 days (`unscopedCacheRetention`), and the user
+  re-fetches their history from the server on first open — visible as an empty room until the
+  network answers, and as the permanent loss of anything the server no longer serves.
+
+  If your app can never have had a second account signed in on the same install, you can say so and
+  the old store is moved into that user's namespace:
+
+  ```dart
+  final chat = await NomaChat.create(
+    /* ...required params... */
+    currentUser: ChatUser(id: userId, displayName: name),
+    adoptUnscopedCacheFor: userId,
+  );
+  ```
+
+  This is an assertion, not a hint. **If it is wrong, the named user inherits the other person's
+  rooms, contacts and message history and sees it as their own** — the exact leak the scoping above
+  closes, re-opened by hand. It is refused when it names anyone other than the signed-in user (the
+  old store is then left on disk, still adoptable by whoever it belongs to), and refused when the
+  store's own owner stamp disagrees with it.
+
+  Whatever the answer, it is written into that user's store as a migration record, and that record
+  is what stops the question being asked a second time — not the `cacheOwner` stamp, which answers
+  a different question (*whose* a store is, so that one found stamped for somebody else is
+  destroyed rather than served). The one exception is deliberate: a refusal taken while you were
+  passing nothing is reopened when you start passing the parameter, so shipping the scoping in one
+  release and the assertion in the next still carries the history over, as long as the retention
+  window has not expired.
+
+  On that reopen path the old store can be a release older than the one adopting it, so **adoption
+  fills gaps and never writes over live state**. Two consequences: contacts and invited rooms are
+  stored as lists rather than keyed by id, so each is carried over whole or not at all — and not at
+  all once the user has a list of their own; and the queue of unsent operations is never carried
+  over, because it holds instructions rather than state and nothing in it records how old they are.
+
+  An adoption interrupted before it completes — the process killed mid-move — resumes on the next
+  launch instead of stranding what was left behind. The old store's own meta box is the last thing
+  removed, so for as long as anything of it remains, it is still there to be found.
+- `unscopedCacheRetention` and `orphanGracePeriod` are now reachable from `NomaChat.create()`
+  (30 and 7 days by default), not only from `HiveChatDatasource.create()`.
+- `HiveChatDatasource.purgeUnscopedCache()` deletes the old device-wide layout on demand, for hosts
+  that would rather reclaim the space than wait out the retention window. Pass the same
+  `encryptionCipher` your store uses: the per-room boxes are found by reading room ids out of the
+  global ones, and without the right cipher they are silently left on disk.
+
+### Fixed
+
+- **A double tick never turns back into a single one.** Receipt state is now monotonic: it only ever
+  advances. Three paths used to walk it backwards — a REST row (which carries no receipt at all)
+  replacing a message already acked over the event stream, a room reclassified between 1:1 and
+  group, and a re-aggregation under a roster that had shrunk. The fourth way in, an out-of-order
+  frame, was already guarded in 0.15. Every path that replaces a message row — the server echo
+  that confirms an optimistic send included — now defers to that same comparison, held in one
+  place, so the lower value is discarded instead of being written.
+- **A group's read ticks survive re-entering the app.** The aggregate for a group is "read once
+  every other member has read", which needs the member list as the divisor. When the controller was
+  rebuilt before its roster had hydrated, that divisor was zero and the aggregate reported `sent`,
+  downgrading every already-read message in the room. An empty roster on a group is now treated as
+  "not derivable yet" and leaves the existing state alone.
+- **Receipts survive the app being killed.** They arrive as events and were never written anywhere,
+  so every ✓✓ died with the process and the room re-opened showing single ticks. Advanced receipts
+  are now mirrored onto the message rows and persisted, and a cached row's receipt is merged rather
+  than overwritten when a receipt-less network row replaces it.
+- **Re-opening a room recovers the ticks the event stream missed.** The rehydration that replays the
+  server's read cursor only applied its `lastReadMessageId` when that message was inside the loaded
+  window, and fell back to the timestamp comparison only when the backend had sent no id at all — so
+  a room re-opened on its most recent page, where the cursor has usually paginated out, matched
+  neither branch and left every older bubble on one tick. The fallback now also covers the
+  paginated-out case — **as far as the local cache can carry it**: the cursor message is placed in
+  conversation order by its own timestamp, looked up in the cache, and a cursor the cache does not
+  hold either still marks nothing rather than guess. That is a fresh install, the first open after
+  `clear()` — where the cache holds only the page just loaded — and any session running with
+  `enableCache: false`. Such a room opens on single ticks until a receipt event or a later launch
+  fills them in. What the fallback recovers **from a cursor** is written to the cache, so the next
+  cold start renders from it instead of repeating the round trip. A whole-room read — the shape the
+  backend sends with no `lastReadMessageId` at all — is applied to the screen but deliberately never
+  written: a stored tick can only ever move up, and there is no cursor behind that one to justify
+  making it permanent.
+- **A message that failed to send is no longer filed away as delivered and read.** A peer's receipt
+  advances every older message of yours at once, and optimistic rows sat in that range, so a failed
+  send picked up the tick of a later successful one — and, new in this release, was written into the
+  message history carrying it. Two things followed on the next cold start: the failed message
+  rendered as delivered and read, and once you retried it successfully the room showed it twice.
+  Unsent rows now take no receipt at all, and one that already carried a receipt has it revoked the
+  moment the send is declared pending or failed.
+- **A cold start no longer wipes the message history of rooms this device only joined.** The orphan
+  sweep destroyed the message box of any room absent from the `chat_rooms` box — but `saveRooms` has
+  a single caller in the SDK, the room-creation path, so on any install that joined its rooms
+  instead of creating them that box is empty and every room looked orphaned. The sweep now needs
+  positive proof of deletion: a room must be missing from two authoritative room listings, spread
+  over a grace period (`orphanGracePeriod`, 7 days by default), and unattested by every local source
+  that knows about rooms. An install that is offline, or that has not loaded its room list yet,
+  produces no candidates at all and loses nothing.
+
+### Changed
+
+- **The per-room receipts list is pinned to network-first** rather than following whatever read
+  policy the consumer configured. `networkFirst` is already the default, so this changes nothing
+  unless you set `defaultReadPolicy: CachePolicy.cacheFirst` — under which a peer reading while the
+  app is not running leaves no local signal that could invalidate the stored copy, and a long
+  message TTL pinned the room's ticks to a stale snapshot for as long as that TTL ran. The cached
+  rows still render instantly on open, and receipts only advance, so the round trip costs no
+  perceived latency and cannot regress what is on screen. The cache remains the offline fallback.
+  Sending a read receipt, and any receipt-bearing event, now also expires the freshness entry
+  behind that list, so the next read goes to the network; the stored rows themselves are kept and
+  keep serving offline reads.
+- **`clear()` now removes the pending and reaction boxes of every room it knows about**, not only
+  the message boxes it had opened. A logout that cleared the cache used to leave unsent drafts and
+  reactions on disk for any room the session had not visited, where nothing would ever read them
+  again and nothing would delete them either. It also deliberately preserves two keys it wrote
+  itself — the store's owner and the record of whether the pre-0.16 cache was adopted — so clearing
+  a cache does not make the next launch re-ask a question that was already answered.
+
 ## 0.15.0
 
 ### Changed

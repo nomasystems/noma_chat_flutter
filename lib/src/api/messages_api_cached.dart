@@ -270,8 +270,14 @@ class CachedMessagesApi extends RestMessagesApi {
     if (result.isSuccess) {
       try {
         // Invalidate BEFORE writing — see the comment in `send()` for why
-        // the ordering matters for a concurrent cacheFirst reader.
-        _cacheManager.invalidateKeys(const ['rooms:all', 'rooms:unread']);
+        // the ordering matters for a concurrent cacheFirst reader. The
+        // room's receipts list carries this user's own read cursor, so it
+        // is outdated by this call too.
+        _cacheManager.invalidateKeys([
+          'rooms:all',
+          'rooms:unread',
+          'receipts:$roomId',
+        ]);
         await _cache.deleteUnread(roomId);
       } catch (e) {
         logger?.call(
@@ -289,6 +295,15 @@ class CachedMessagesApi extends RestMessagesApi {
   ) => _cacheManager.resolve<ChatPaginatedResponse<ReadReceipt>>(
     key: 'receipts:$roomId',
     ttl: _cacheManager.config.ttlMessages,
+    // Pinned rather than left to the consumer's default read policy. A
+    // peer reads while this app is not running, so no local signal can
+    // invalidate the stored copy, and under a cache-first default the
+    // message TTL (consumers run it into weeks) would pin a room's ticks
+    // to a snapshot that old. The cached rows already render the ✓✓
+    // instantly on open, so the round trip costs no perceived latency,
+    // and receipts only ever advance — a late answer cannot regress the
+    // UI. The cache stays as the offline fallback.
+    policy: CachePolicy.networkFirst,
     fromCache: () async {
       final cached =
           (await _cache.getReceipts(roomId)).dataOrNull ??

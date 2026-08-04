@@ -150,6 +150,12 @@ class RoomsApi implements ChatRoomsApi {
   /// Returns [ChatSuccess] holding a [UserRooms] that includes the list of
   /// [UnreadRoom] entries and pending [InvitedRoom] invitations.
   ///
+  /// Only a complete `'all'` listing — no [pagination] and
+  /// `UserRooms.hasMore == false` — replaces the cached room set. Every
+  /// other response, a truncated first page included, is merged into it:
+  /// a response that does not carry the whole room set cannot prove that
+  /// a room it omits no longer exists.
+  ///
   /// Throws [ChatAuthException] if the token cannot be refreshed.
   /// Throws [ChatNetworkException] on network errors when the cache is empty.
   ///
@@ -203,7 +209,17 @@ class RoomsApi implements ChatRoomsApi {
           // rooms deleted or left on the server are evicted. A partial view
           // ('unread' or a paginated slice) only carries a subset, so merge
           // to avoid dropping rooms it did not return.
-          if (type == 'all' && pagination == null) {
+          //
+          // `hasMore` marks a truncated page. It is the same request, but
+          // its body is not the caller's complete room set, so it cannot
+          // stand in for one: reconciling on it would evict — and, through
+          // `reconcileUnreads`, nominate for on-disk reclamation — rooms
+          // that are merely on the pages nobody fetched. Merge instead; the
+          // cost is a room list that keeps a stale entry until a complete
+          // listing arrives.
+          final isCompleteRoomSet =
+              type == 'all' && pagination == null && !data.hasMore;
+          if (isCompleteRoomSet) {
             await _cache.reconcileUnreads(data.rooms);
           } else {
             await _cache.saveUnreads(data.rooms);

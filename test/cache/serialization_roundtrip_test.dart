@@ -89,6 +89,66 @@ void main() {
     });
   });
 
+  group('serialization — receipt merge against the stored row', () {
+    final msg = ChatMessage(
+      id: 'm1',
+      from: 'u1',
+      timestamp: DateTime(2026, 1, 1),
+      text: 'hello',
+    );
+
+    test('a null receipt does not erase the stored one', () {
+      final map = messageToMap(
+        msg,
+        previous: messageToMap(msg.copyWith(receipt: ReceiptStatus.read)),
+      );
+      expect(messageFromMap(map).receipt, ReceiptStatus.read);
+    });
+
+    test('a lower receipt does not overwrite a higher stored one', () {
+      final map = messageToMap(
+        msg.copyWith(receipt: ReceiptStatus.delivered),
+        previous: messageToMap(msg.copyWith(receipt: ReceiptStatus.read)),
+      );
+      expect(messageFromMap(map).receipt, ReceiptStatus.read);
+    });
+
+    test('a higher receipt advances past the stored one', () {
+      final map = messageToMap(
+        msg.copyWith(receipt: ReceiptStatus.read),
+        previous: messageToMap(msg.copyWith(receipt: ReceiptStatus.sent)),
+      );
+      expect(messageFromMap(map).receipt, ReceiptStatus.read);
+    });
+
+    test('a stored row from before the field existed is not a crash', () {
+      final legacy = <dynamic, dynamic>{
+        'id': 'm1',
+        'from': 'u1',
+        'timestamp': DateTime(2026, 1, 1).toIso8601String(),
+      };
+      expect(
+        messageToMap(
+          msg.copyWith(receipt: ReceiptStatus.delivered),
+          previous: legacy,
+        )['receipt'],
+        'delivered',
+      );
+      expect(messageToMap(msg, previous: legacy).containsKey('receipt'), false);
+    });
+
+    test('a corrupted stored receipt is ignored, not thrown on', () {
+      final corrupted = <dynamic, dynamic>{'receipt': 42};
+      expect(
+        messageToMap(
+          msg.copyWith(receipt: ReceiptStatus.sent),
+          previous: corrupted,
+        )['receipt'],
+        'sent',
+      );
+    });
+  });
+
   group('serialization — room with optional fields', () {
     test('roomToMap/roomFromMap round-trips populated fields', () {
       const room = ChatRoom(
