@@ -16,17 +16,23 @@ void main() {
     int? lastMessageDurationMs,
     bool lastMessageIsDeleted = false,
     String? lastMessageReactionEmoji,
+    String? lastMessageSenderName,
+    String? lastMessageReactionTargetText,
+    MessageType? lastMessageReactionTargetType,
     bool isGroup = false,
   }) => RoomListItem(
     id: roomId,
     lastMessage: lastMessage,
     lastMessageUserId: lastMessageUserId,
+    lastMessageSenderName: lastMessageSenderName,
     lastMessageType: lastMessageType,
     lastMessageMimeType: lastMessageMimeType,
     lastMessageFileName: lastMessageFileName,
     lastMessageDurationMs: lastMessageDurationMs,
     lastMessageIsDeleted: lastMessageIsDeleted,
     lastMessageReactionEmoji: lastMessageReactionEmoji,
+    lastMessageReactionTargetText: lastMessageReactionTargetText,
+    lastMessageReactionTargetType: lastMessageReactionTargetType,
     isGroup: isGroup,
   );
 
@@ -137,13 +143,57 @@ void main() {
       expect(buildLastMessagePreview(r, l10n), '📄 ${l10n.file}');
     });
 
-    test('reaction reuses pre-formatted lastMessage', () {
+    test('own reaction quotes the message it was aimed at', () {
       final r = item(
-        lastMessage: 'Reaccionaste 😀 a "hola"',
+        lastMessageUserId: me,
         lastMessageType: MessageType.reaction,
         lastMessageReactionEmoji: '😀',
+        lastMessageReactionTargetText: 'hola',
       );
-      expect(buildLastMessagePreview(r, l10n), 'Reaccionaste 😀 a "hola"');
+      expect(
+        buildLastMessagePreview(r, l10n, currentUserId: me),
+        l10n.reactionPreviewSelf('😀', 'hola'),
+      );
+    });
+
+    test("someone else's reaction names them", () {
+      final r = item(
+        lastMessageUserId: peer,
+        lastMessageSenderName: 'Alice',
+        lastMessageType: MessageType.reaction,
+        lastMessageReactionEmoji: '😀',
+        lastMessageReactionTargetText: 'hola',
+      );
+      expect(
+        buildLastMessagePreview(r, l10n, currentUserId: me),
+        l10n.reactionPreviewOther('Alice', '😀', 'hola'),
+      );
+    });
+
+    test('a reaction on a text-less message quotes its label', () {
+      final r = item(
+        lastMessageUserId: me,
+        lastMessageType: MessageType.reaction,
+        lastMessageReactionEmoji: '😀',
+        lastMessageReactionTargetType: MessageType.audio,
+      );
+      expect(
+        buildLastMessagePreview(r, l10n, currentUserId: me),
+        l10n.reactionPreviewSelf('😀', l10n.audioPreview),
+      );
+    });
+
+    test('a reaction by someone the row cannot name stays bare', () {
+      final r = item(
+        lastMessageUserId: peer,
+        lastMessageType: MessageType.reaction,
+        lastMessageReactionEmoji: '😀',
+        lastMessageReactionTargetText: 'hola',
+      );
+      expect(
+        buildLastMessagePreview(r, l10n, currentUserId: me),
+        l10n.reactionPreview('😀'),
+      );
     });
 
     test('reaction without snippet uses generic reactionPreview', () {

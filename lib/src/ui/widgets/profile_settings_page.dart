@@ -228,14 +228,14 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
     });
     if (result.isFailure) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.theme.l10n.photoUploadFailed)),
+        SnackBar(content: Text(widget.theme.l10nOf(context).photoUploadFailed)),
       );
       return false;
     }
     if (showSuccessToast) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(widget.theme.l10n.changesSaved),
+          content: Text(widget.theme.l10nOf(context).changesSaved),
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
@@ -246,7 +246,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final me = widget.adapter.currentUser;
     return Scaffold(
       appBar: AppBar(

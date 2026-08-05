@@ -332,14 +332,17 @@ class NomaChatClient implements ChatClient {
     queue.enqueue(op);
   }
 
-  /// An upload never reaches the point of creating a message — retrying it
-  /// after a [NetworkFailure] or any [TimeoutFailure] (including a
-  /// `receive` timeout, unlike the non-idempotent text-send path) only
-  /// risks an orphaned, never-referenced blob server-side, not a duplicate
-  /// message. A permanent failure (validation, auth, forbidden, …) is not
-  /// worth retrying — the same request would just fail again.
+  /// An upload is as non-idempotent as a send: `POST /attachments` carries
+  /// no idempotency key and the server mints a fresh `attachmentId` on
+  /// every call, so replaying one that may already have landed leaves a
+  /// duplicate blob behind. Only a [NetworkFailure] or a pre-response
+  /// [TimeoutFailure] prove the bytes never arrived — the same predicate
+  /// the text-send path applies. A permanent failure (validation, auth,
+  /// forbidden, …) is not worth retrying either: the same request would
+  /// just fail again.
   bool _isRetryableUploadFailure(ChatFailure? failure) =>
-      failure is NetworkFailure || failure is TimeoutFailure;
+      failure is NetworkFailure ||
+      (failure is TimeoutFailure && failure.kind.isPreResponse);
 
   @override
   Future<void> logout() async {

@@ -77,13 +77,13 @@ class UserProfileView extends StatelessWidget {
     };
   }
 
-  String _presenceText() {
+  String _presenceText(BuildContext context) {
     return switch (presence!) {
-      PresenceStatus.available => theme.l10n.presenceAvailable,
-      PresenceStatus.away => theme.l10n.presenceAway,
-      PresenceStatus.busy => theme.l10n.presenceBusy,
-      PresenceStatus.dnd => theme.l10n.presenceDnd,
-      PresenceStatus.offline => theme.l10n.presenceOffline,
+      PresenceStatus.available => theme.l10nOf(context).presenceAvailable,
+      PresenceStatus.away => theme.l10nOf(context).presenceAway,
+      PresenceStatus.busy => theme.l10nOf(context).presenceBusy,
+      PresenceStatus.dnd => theme.l10nOf(context).presenceDnd,
+      PresenceStatus.offline => theme.l10nOf(context).presenceOffline,
     };
   }
 
@@ -93,11 +93,11 @@ class UserProfileView extends StatelessWidget {
     // sheet stays one-shot when no live signal is supplied.
     return ListenableBuilder(
       listenable: rebuildSignal ?? Listenable.merge(const []),
-      builder: (context, _) => _buildContent(),
+      builder: (context, _) => _buildContent(context),
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(BuildContext context) {
     final u = userResolver?.call() ?? user;
     final hasActions = onStartChat != null || onMute != null || onBlock != null;
 
@@ -145,7 +145,7 @@ class UserProfileView extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  _presenceText(),
+                  _presenceText(context),
                   style:
                       theme.bubble.timestampStyle ??
                       TextStyle(fontSize: 13, color: Colors.grey.shade500),
@@ -160,7 +160,7 @@ class UserProfileView extends StatelessWidget {
               children: [
                 if (onStartChat != null)
                   _ActionButton(
-                    label: theme.l10n.startChat,
+                    label: theme.l10nOf(context).startChat,
                     icon: Icons.chat_outlined,
                     onPressed: onStartChat!,
                     color: theme.input.sendButtonColor ?? Colors.blue,
@@ -168,7 +168,7 @@ class UserProfileView extends StatelessWidget {
                 if (onMute != null) ...[
                   if (onStartChat != null) const SizedBox(width: 12),
                   _ActionButton(
-                    label: theme.l10n.mute,
+                    label: theme.l10nOf(context).mute,
                     icon: Icons.notifications_off_outlined,
                     onPressed: onMute!,
                     color: theme.roomList.mutedIconColor ?? Colors.grey,
@@ -178,7 +178,7 @@ class UserProfileView extends StatelessWidget {
                   if (onStartChat != null || onMute != null)
                     const SizedBox(width: 12),
                   _ActionButton(
-                    label: theme.l10n.block,
+                    label: theme.l10nOf(context).block,
                     icon: Icons.block_outlined,
                     onPressed: onBlock!,
                     color: theme.contextMenuDestructiveColor ?? Colors.red,

@@ -11,7 +11,6 @@ import '../../../models/message.dart';
 import '../../../models/user.dart';
 import '../../controller/chat_controller.dart';
 import '../../controller/room_list_controller.dart';
-import '../../l10n/chat_ui_localizations.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/dm_contact_registry.dart';
 import '../services/pending_reactions_registry.dart';
@@ -32,7 +31,6 @@ class ChatEventRouterDeps {
     required this.presence,
     required this.cache,
     required this.connectionStateNotifier,
-    required this.l10n,
     required this.autoMarkAsRead,
     required this.autoConfirmDelivery,
     required this.currentUser,
@@ -74,7 +72,6 @@ class ChatEventRouterDeps {
   final PresenceRegistry presence;
   final ChatLocalDatasource? cache;
   final ValueNotifier<ChatConnectionState> connectionStateNotifier;
-  final ChatUiLocalizations l10n;
   final bool autoMarkAsRead;
   final bool autoConfirmDelivery;
   final ChatUser Function() currentUser;
@@ -178,7 +175,6 @@ class ChatEventRouter {
   ChatLocalDatasource? get _cache => _deps.cache;
   ValueNotifier<ChatConnectionState> get _connectionStateNotifier =>
       _deps.connectionStateNotifier;
-  ChatUiLocalizations get _l10n => _deps.l10n;
   bool get _autoMarkAsRead => _deps.autoMarkAsRead;
   bool get _autoConfirmDelivery => _deps.autoConfirmDelivery;
   bool _isDisposed() => _deps.isDisposed();
@@ -679,15 +675,12 @@ class ChatEventRouter {
     final room = _roomList.getRoomById(roomId);
     if (room != null && room.lastMessageId == messageId) {
       _roomList.updateRoom(
-        room.copyWith(
-          lastMessage: _l10n.messageDeleted,
-          lastMessageIsDeleted: true,
-        ),
+        room.copyWith(lastMessage: null, lastMessageIsDeleted: true),
       );
       unawaited(
         _client.rooms.updateCachedRoomPreview(
           roomId,
-          lastMessage: _l10n.messageDeleted,
+          lastMessage: '',
           lastMessageIsDeleted: true,
         ),
       );

@@ -26,12 +26,12 @@ class ReportMessageDialog extends StatefulWidget {
     this.reasonHint,
   });
 
-  /// Theme whose [ChatTheme.l10n] supplies the localized title and button
+  /// Theme whose [ChatThemeL10n.l10nOf] supplies the localized title and button
   /// labels. Defaults to [ChatTheme.defaults].
   final ChatTheme theme;
 
   /// Overrides the dialog title. When `null`, falls back to
-  /// `theme.l10n.reportMessageTitle`.
+  /// `theme.l10nOf(context).reportMessageTitle`.
   final String? title;
 
   /// Placeholder shown in the reason field while it is empty. When `null`,
@@ -71,7 +71,7 @@ class _ReportMessageDialogState extends State<ReportMessageDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final canSubmit = _reasonController.text.trim().isNotEmpty;
     return AlertDialog(
       title: Text(widget.title ?? l10n.reportMessageTitle),

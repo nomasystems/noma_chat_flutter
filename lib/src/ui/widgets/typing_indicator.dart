@@ -103,7 +103,7 @@ class _TypingIndicatorState extends State<TypingIndicator>
 
     return Semantics(
       liveRegion: true,
-      label: theme.l10n.typing,
+      label: theme.l10nOf(context).typing,
       child: Padding(
         padding: const EdgeInsets.only(left: 8, right: 8, top: 6, bottom: 1),
         child: Align(

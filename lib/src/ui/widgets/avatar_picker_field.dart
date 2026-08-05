@@ -164,8 +164,8 @@ class _AvatarPickerFieldState extends State<AvatarPickerField> {
     return Semantics(
       button: true,
       label: widget.kind == AvatarKind.user
-          ? widget.theme.l10n.profilePhoto
-          : widget.theme.l10n.groupPhoto,
+          ? widget.theme.l10nOf(context).profilePhoto
+          : widget.theme.l10nOf(context).groupPhoto,
       child: GestureDetector(
         onTap: _open,
         child: Stack(

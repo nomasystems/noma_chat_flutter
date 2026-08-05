@@ -325,7 +325,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
   }
 
   Future<void> _openActions(RoomUser target) async {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final options = <ChatRoomOption>[];
     if (target.role == RoomRole.member) {
       options.add(
@@ -383,7 +383,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         SnackBar(
           content: Text(
             result.failureOrNull?.toString() ??
-                widget.theme.l10n.updateRoleFailed,
+                widget.theme.l10nOf(context).updateRoleFailed,
           ),
         ),
       );
@@ -406,7 +406,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         SnackBar(
           content: Text(
             result.failureOrNull?.toString() ??
-                widget.theme.l10n.removeMemberFailed,
+                widget.theme.l10nOf(context).removeMemberFailed,
           ),
         ),
       );
@@ -455,7 +455,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
             return ListTile(
               title: Center(
                 child: Text(
-                  widget.theme.l10n.loadMore,
+                  widget.theme.l10nOf(context).loadMore,
                   style: TextStyle(
                     color: Theme.of(context).colorScheme.primary,
                   ),
@@ -510,7 +510,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
                     const SizedBox(width: 4),
                     IconButton(
                       icon: const Icon(Icons.more_vert),
-                      tooltip: widget.theme.l10n.manage,
+                      tooltip: widget.theme.l10nOf(context).manage,
                       onPressed: () => _openActions(m),
                     ),
                   ],
@@ -542,7 +542,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
   }
 
   Widget? _badgeFor(RoomRole role) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final label = switch (role) {
       RoomRole.owner => l10n.owner,
       RoomRole.admin => l10n.admin,

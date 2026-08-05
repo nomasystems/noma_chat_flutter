@@ -100,7 +100,7 @@ class MessageForwardSheet extends StatefulWidget {
   final bool searchEnabled;
 
   /// Sheet title text. Overridden by [titleBuilder] when both are
-  /// supplied. Defaults to `theme.l10n.forwardTo`.
+  /// supplied. Defaults to `theme.l10nOf(context).forwardTo`.
   final String? title;
 
   /// Builder for the sheet title. Replaces both the default text and
@@ -115,7 +115,7 @@ class MessageForwardSheet extends StatefulWidget {
   final MessageForwardRowBuilder? rowBuilder;
 
   /// Label for the default confirm button. Ignored when
-  /// [confirmBuilder] is supplied. Defaults to `theme.l10n.forward`.
+  /// [confirmBuilder] is supplied. Defaults to `theme.l10nOf(context).forward`.
   final String? confirmLabel;
 
   /// Builder for the confirm button. Replaces the default
@@ -125,9 +125,9 @@ class MessageForwardSheet extends StatefulWidget {
 
   /// Widget shown INSIDE the sheet when no rooms remain to choose from
   /// (initial list empty, or search filtered everything out). Defaults
-  /// to a centred text using `theme.l10n.noChatsToForward`. To handle
-  /// the "no candidates at all" case BEFORE opening the sheet (e.g.
-  /// to navigate to a "New chat" page instead of showing an empty
+  /// to a centred text using `theme.l10nOf(context).noChatsToForward`.
+  /// To handle the "no candidates at all" case BEFORE opening the sheet
+  /// (e.g. to navigate to a "New chat" page instead of showing an empty
   /// modal), pass `onEmpty` to [show] instead.
   final WidgetBuilder? emptyStateBuilder;
 
@@ -136,7 +136,8 @@ class MessageForwardSheet extends StatefulWidget {
   /// Convenience: builds + shows the sheet on the modal stack.
   ///
   /// When `rooms` is empty AND no `onEmpty` is provided, the default
-  /// behaviour is a `SnackBar` with `theme.l10n.noChatsToForward` and
+  /// behaviour is a `SnackBar` with
+  /// `theme.l10nOf(context).noChatsToForward` and
   /// the helper returns `null` without opening the sheet. Pass
   /// `onEmpty` to override: open a "New chat" route, show a dialog,
   /// trigger a tour — anything you want.
@@ -166,9 +167,9 @@ class MessageForwardSheet extends StatefulWidget {
       if (onEmpty != null) {
         onEmpty(context);
       } else {
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text(theme.l10n.noChatsToForward)));
+        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+          SnackBar(content: Text(theme.l10nOf(context).noChatsToForward)),
+        );
       }
       return null;
     }
@@ -249,7 +250,7 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final selectedIds = _selected.toList();
     final visible = _visibleRooms;
     return SafeArea(

@@ -180,7 +180,7 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final viewInsets = MediaQuery.viewInsetsOf(context).bottom;
     return Padding(
       padding: EdgeInsets.only(bottom: viewInsets),

@@ -70,8 +70,8 @@ class AvatarPickerSheet {
                   children: [
                     Text(
                       kind == AvatarKind.user
-                          ? theme.l10n.profilePhoto
-                          : theme.l10n.groupPhoto,
+                          ? theme.l10nOf(sheetCtx).profilePhoto
+                          : theme.l10nOf(sheetCtx).groupPhoto,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -83,25 +83,25 @@ class AvatarPickerSheet {
               if (PlatformSupport.supportsCameraCapture)
                 ListTile(
                   leading: const Icon(Icons.photo_camera_outlined),
-                  title: Text(theme.l10n.takePhoto),
+                  title: Text(theme.l10nOf(sheetCtx).takePhoto),
                   onTap: () => Navigator.of(sheetCtx).pop(_Source.camera),
                 ),
               ListTile(
                 leading: const Icon(Icons.photo_library_outlined),
-                title: Text(theme.l10n.chooseFromGallery),
+                title: Text(theme.l10nOf(sheetCtx).chooseFromGallery),
                 onTap: () => Navigator.of(sheetCtx).pop(_Source.gallery),
               ),
               if (initialAvatarUrl != null && initialAvatarUrl.isNotEmpty) ...[
                 ListTile(
                   leading: const Icon(Icons.visibility_outlined),
-                  title: Text(theme.l10n.viewPhoto),
+                  title: Text(theme.l10nOf(sheetCtx).viewPhoto),
                   onTap: () => Navigator.of(sheetCtx).pop(_Source.view),
                 ),
                 if (allowRemove)
                   ListTile(
                     leading: Icon(Icons.delete_outline, color: errorColor),
                     title: Text(
-                      theme.l10n.removePhoto,
+                      theme.l10nOf(sheetCtx).removePhoto,
                       style: TextStyle(color: errorColor),
                     ),
                     onTap: () => Navigator.of(sheetCtx).pop(_Source.remove),

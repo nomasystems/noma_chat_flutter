@@ -22,13 +22,13 @@ class NotParticipatingBanner extends StatelessWidget {
   final ChatTheme theme;
 
   /// Override for the banner text. Defaults to
-  /// `theme.l10n.notParticipatingBanner` ("You can't send messages
+  /// `theme.l10nOf(context).notParticipatingBanner` ("You can't send messages
   /// to this group because you're no longer a participant.").
   final String? label;
 
   @override
   Widget build(BuildContext context) {
-    final resolved = label ?? theme.l10n.notParticipatingBanner;
+    final resolved = label ?? theme.l10nOf(context).notParticipatingBanner;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),

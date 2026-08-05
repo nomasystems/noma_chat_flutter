@@ -45,6 +45,12 @@ mixin _$ChatInputTheme {
  Widget Function(BuildContext context)? get voiceIconBuilder;/// Builder for the send button. Receives whether the composer has text.
  Widget Function(BuildContext context, bool hasText)? get sendIconBuilder;/// Custom layout while voice recording is active (replaces the default
 /// red-mic row).
+///
+/// Called only once capture really is live, so [VoiceRecordingController]
+/// is always in its `recording` state here. The composer puts its own
+/// row up from the touch itself, while the platform recorder is still
+/// arming; that window belongs to the SDK precisely so a host builder
+/// never sees an idle controller with no duration and no waveform.
  Widget Function(BuildContext context, VoiceRecordingController controller, VoidCallback onSend)? get recordingComposerBuilder;/// Builder for the floating "slide up to lock" hint.
  Widget Function(BuildContext context)? get lockHintBuilder;/// Background of the "Editing this message" banner above the composer.
  Color? get editingBackgroundColor;/// Border / accent colour of the editing banner.
@@ -344,6 +350,12 @@ class _ChatInputTheme implements ChatInputTheme {
 @override final  Widget Function(BuildContext context, bool hasText)? sendIconBuilder;
 /// Custom layout while voice recording is active (replaces the default
 /// red-mic row).
+///
+/// Called only once capture really is live, so [VoiceRecordingController]
+/// is always in its `recording` state here. The composer puts its own
+/// row up from the touch itself, while the platform recorder is still
+/// arming; that window belongs to the SDK precisely so a host builder
+/// never sees an idle controller with no duration and no waveform.
 @override final  Widget Function(BuildContext context, VoiceRecordingController controller, VoidCallback onSend)? recordingComposerBuilder;
 /// Builder for the floating "slide up to lock" hint.
 @override final  Widget Function(BuildContext context)? lockHintBuilder;

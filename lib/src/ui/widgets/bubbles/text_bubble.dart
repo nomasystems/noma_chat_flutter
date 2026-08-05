@@ -42,8 +42,25 @@ class TextBubble extends StatelessWidget {
   final ChatTheme theme;
   final Widget? replyPreview;
   final Widget? linkPreview;
+
+  /// Renders the body through `SelectableText.rich` so it can be selected
+  /// and copied.
+  ///
+  /// Silently yields for a message whose markdown produced a tap target:
+  /// `SelectableText.rich` routes every pointer event to its selection
+  /// gesture detector and never dispatches `TextSpan.recognizer`, so a
+  /// selectable bubble paints live-looking links and mentions that can't
+  /// fire. Those bubbles fall back to `Text.rich` — a dead link is worse
+  /// than an unselectable one, and it is decided per message, so bubbles
+  /// with no tap target keep selection.
   final bool enableSelection;
+
+  /// Opens the tapped URL. `null` leaves link spans styled but inert — see
+  /// [parseMarkdown] for how each inline role treats a missing handler.
   final ValueChanged<String>? onTapLink;
+
+  /// Opens the tapped `@mention`. `null` renders mentions as plain body
+  /// text instead of painting an affordance nothing answers.
   final ValueChanged<String>? onTapMention;
   final Widget? statusWidget;
 
@@ -53,9 +70,9 @@ class TextBubble extends StatelessWidget {
         ? (theme.bubble.outgoingTextStyle ?? const TextStyle(fontSize: 15))
         : (theme.bubble.incomingTextStyle ?? const TextStyle(fontSize: 15));
 
-    final editedHint = _resolveEditedHint();
-    final metaRow = _buildMetaRow(editedHint);
-    final metaWidth = _estimateMetaWidth(metaRow, editedHint);
+    final editedHint = _resolveEditedHint(context);
+    final metaRow = _buildMetaRow(context, editedHint);
+    final metaWidth = _estimateMetaWidth(context, metaRow, editedHint);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -74,16 +91,16 @@ class TextBubble extends StatelessWidget {
   /// Resolves the "edited" hint once. When the edit came from an admin,
   /// suffix " · by admin" so the consumer always sees a single hint
   /// tag, never two. Cheap and avoids reflowing the meta row layout.
-  String? _resolveEditedHint() {
+  String? _resolveEditedHint(BuildContext context) {
     if (!isEdited) return null;
     return editedByAdmin
-        ? '${theme.l10n.edited} · by admin'
-        : theme.l10n.edited;
+        ? '${theme.l10nOf(context).edited} · by admin'
+        : theme.l10nOf(context).edited;
   }
 
   /// Builds the trailing metadata row (edited hint + admin pill +
   /// timestamp + status). Returns `null` when nothing would be drawn.
-  Widget? _buildMetaRow(String? editedHint) {
+  Widget? _buildMetaRow(BuildContext context, String? editedHint) {
     final hasTimestamp = timestamp != null || isEdited || adminSent;
     if (!hasTimestamp && statusWidget == null) return null;
 
@@ -121,7 +138,7 @@ class TextBubble extends StatelessWidget {
         if (adminSent && !isEdited)
           Padding(
             padding: EdgeInsets.only(right: timestamp != null ? 2 : 0),
-            child: Text(theme.l10n.admin, style: adminLabelStyle),
+            child: Text(theme.l10nOf(context).admin, style: adminLabelStyle),
           ),
         if (timestamp != null)
           Text(DateFormatter.formatTime(timestamp!), style: timestampStyle),
@@ -133,11 +150,15 @@ class TextBubble extends StatelessWidget {
   /// Measures the metadata width to reserve space as an invisible
   /// trailing spacer. Conservative estimate: ~6px per char for the
   /// timestamp text plus icon space when a status widget is present.
-  double _estimateMetaWidth(Widget? metaRow, String? editedHint) {
+  double _estimateMetaWidth(
+    BuildContext context,
+    Widget? metaRow,
+    String? editedHint,
+  ) {
     if (metaRow == null) return 0;
     var chars = 0;
     if (editedHint != null) chars += editedHint.length + 1;
-    if (adminSent && !isEdited) chars += theme.l10n.admin.length + 1;
+    if (adminSent && !isEdited) chars += theme.l10nOf(context).admin.length + 1;
     if (timestamp != null) chars += 5;
     return chars * 6.5 + (statusWidget != null ? 20 : 0) + 8;
   }
@@ -169,6 +190,17 @@ class TextBubble extends StatelessWidget {
     );
   }
 
+  /// Wraps [spans] in the widget that can actually render them: selection
+  /// when it was asked for AND nothing in the message needs a gesture
+  /// recognizer, `Text.rich` otherwise. See [enableSelection].
+  Widget _buildRichText(List<InlineSpan> spans) {
+    final textSpan = TextSpan(children: spans);
+    final selectable =
+        enableSelection &&
+        !spans.any((s) => s is TextSpan && s.recognizer != null);
+    return selectable ? SelectableText.rich(textSpan) : Text.rich(textSpan);
+  }
+
   Widget _buildTextWithMeta(
     BuildContext context,
     TextStyle textStyle,
@@ -179,23 +211,15 @@ class TextBubble extends StatelessWidget {
       ..._markdownSpans(context, textStyle),
       WidgetSpan(child: SizedBox(width: metaWidth, height: 1)),
     ];
-    final textSpan = TextSpan(children: spans);
     return Stack(
       children: [
-        if (enableSelection)
-          SelectableText.rich(textSpan)
-        else
-          Text.rich(textSpan),
+        _buildRichText(spans),
         Positioned(right: 0, bottom: 0, child: metaRow),
       ],
     );
   }
 
   Widget _buildTextOnly(BuildContext context, TextStyle textStyle) {
-    final textSpan = TextSpan(children: _markdownSpans(context, textStyle));
-    if (enableSelection) {
-      return SelectableText.rich(textSpan);
-    }
-    return Text.rich(textSpan);
+    return _buildRichText(_markdownSpans(context, textStyle));
   }
 }

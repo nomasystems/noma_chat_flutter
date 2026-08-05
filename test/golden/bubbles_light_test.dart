@@ -60,6 +60,7 @@ void main() {
       timestamp: ts,
       isOutgoing: true,
       theme: goldenLightTheme,
+      onTap: () {},
     ),
     size: const Size(360, 320),
   );

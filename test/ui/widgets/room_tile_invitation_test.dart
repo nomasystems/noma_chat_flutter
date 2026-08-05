@@ -8,7 +8,7 @@ void main() {
   );
 
   group('RoomTile invitation', () {
-    testWidgets('shows accept and reject buttons for invited room', (
+    testWidgets('shows accept and reject buttons when both are wired', (
       tester,
     ) async {
       const room = RoomListItem(
@@ -17,7 +17,15 @@ void main() {
         custom: {'invited': true, 'invitedBy': 'u2'},
       );
 
-      await tester.pumpWidget(wrap(const RoomTile(room: room)));
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: room,
+            onAcceptInvitation: () {},
+            onRejectInvitation: () {},
+          ),
+        ),
+      );
 
       expect(find.text('Accept'), findsOneWidget);
       expect(find.text('Reject'), findsOneWidget);
@@ -68,6 +76,71 @@ void main() {
       expect(find.text('Hello'), findsOneWidget);
       expect(find.text('Accept'), findsNothing);
       expect(find.text('Reject'), findsNothing);
+    });
+
+    testWidgets('paints no invitation buttons when neither is wired', (
+      tester,
+    ) async {
+      const room = RoomListItem(
+        id: 'r1',
+        name: 'Invited Room',
+        custom: {'invited': true},
+        lastMessage: 'Join us',
+      );
+
+      await tester.pumpWidget(wrap(const RoomTile(room: room)));
+
+      expect(find.text('Accept'), findsNothing);
+      expect(find.text('Reject'), findsNothing);
+      expect(find.text('Join us'), findsOneWidget);
+    });
+
+    testWidgets('paints only the button whose handler is wired', (
+      tester,
+    ) async {
+      const room = RoomListItem(
+        id: 'r1',
+        name: 'Invited Room',
+        custom: {'invited': true},
+      );
+
+      await tester.pumpWidget(
+        wrap(RoomTile(room: room, onAcceptInvitation: () {})),
+      );
+
+      expect(find.text('Accept'), findsOneWidget);
+      expect(find.text('Reject'), findsNothing);
+    });
+
+    testWidgets('a wired button does not let the tap reach the tile', (
+      tester,
+    ) async {
+      var accepted = false;
+      var rejected = false;
+      var openedRoom = false;
+      const room = RoomListItem(
+        id: 'r1',
+        name: 'Invited Room',
+        custom: {'invited': true},
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          RoomTile(
+            room: room,
+            onTap: () => openedRoom = true,
+            onAcceptInvitation: () => accepted = true,
+            onRejectInvitation: () => rejected = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Reject'));
+      await tester.pumpAndSettle();
+
+      expect(rejected, true);
+      expect(accepted, false);
+      expect(openedRoom, false);
     });
   });
 }

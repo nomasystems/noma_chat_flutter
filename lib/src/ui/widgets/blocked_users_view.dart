@@ -71,7 +71,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView> {
   }
 
   Future<void> _confirmUnblock(String userId) async {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final resolved = widget.displayNameResolver?.call(userId);
     final hasName = resolved != null && resolved.trim().isNotEmpty;
     final confirmed = await ChatRoomOptionsMenu.showConfirmation(
@@ -106,7 +106,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     if (_loading && _blocked == null) {
       return const Center(child: CircularProgressIndicator());
     }

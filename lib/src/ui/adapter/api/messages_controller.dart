@@ -277,6 +277,21 @@ interface class ChatMessagesController {
   /// longer stays blank for the whole upload. On upload failure the
   /// bubble is marked failed and visible ([ChatController.isFailed]);
   /// there is no silent drop.
+  ///
+  /// When the upload lands but the send that follows it does not, the
+  /// failed bubble keeps the uploaded blob's URL and `attachmentId`, so a
+  /// later [retrySend] reposts that same blob under the original
+  /// `clientMessageId` — no second upload, no duplicate attachment. The
+  /// cached pending copy is enriched as soon as the upload resolves, so
+  /// the blob survives the app being killed with the send in flight. When
+  /// the upload itself failed the bubble has no blob to repost and
+  /// [retrySend] refuses it; the offline queue replays the whole
+  /// upload + send instead, but only when the host configured a cache and
+  /// the failure proves the bytes never left.
+  ///
+  /// The optimistic row carries that same `clientMessageId`, so the
+  /// authoritative `new_message` event replaces it rather than painting a
+  /// second bubble when the send landed but its response did not.
   Future<ChatResult<ChatMessage>> sendAttachment(
     String roomIdOrDraftKey, {
     required Uint8List bytes,
@@ -323,6 +338,7 @@ interface class ChatMessagesController {
       from: _a.currentUser.id,
       timestamp: DateTime.now(),
       messageType: MessageType.attachment,
+      clientMessageId: tempId,
       attachmentUrl: '',
       mimeType: mimeType,
       fileName: fileName,
@@ -438,6 +454,17 @@ interface class ChatMessagesController {
       if (fileName != null) 'fileName': fileName,
       'fileSize': bytes.length.toString(),
     };
+    final uploaded = optimistic.copyWith(
+      attachmentUrl: url,
+      attachmentId: attachment.attachmentId,
+      metadata: metadata,
+    );
+    unawaited(
+      _a._cache
+              ?.savePendingMessage(roomId, uploaded)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
 
     final sendResult = await _a.client.messages.send(
       roomId,
@@ -462,6 +489,7 @@ interface class ChatMessagesController {
           controller.confirmSent(tempId, confirmed);
         }
       } else {
+        controller.updateMessage(uploaded);
         controller.markFailed(tempId);
       }
     }
@@ -482,7 +510,7 @@ interface class ChatMessagesController {
     } else {
       unawaited(
         _a._cache
-                ?.savePendingMessage(roomId, optimistic, isFailed: true)
+                ?.savePendingMessage(roomId, uploaded, isFailed: true)
                 .catchError(_swallowCacheThrow) ??
             Future.value(),
       );
@@ -508,6 +536,21 @@ interface class ChatMessagesController {
   }
 
   /// Sends a recorded voice clip to [roomIdOrDraftKey].
+  ///
+  /// When the upload lands but the send that follows it does not, the
+  /// failed bubble keeps the uploaded clip's URL and `attachmentId`, so a
+  /// later [retrySend] reposts that same clip under the original
+  /// `clientMessageId` — no second upload, no duplicate attachment. The
+  /// cached pending copy is enriched as soon as the upload resolves, so
+  /// the clip survives the app being killed with the send in flight. When
+  /// the upload itself failed the bubble has no clip to repost and
+  /// [retrySend] refuses it; the offline queue replays the whole
+  /// upload + send instead, but only when the host configured a cache and
+  /// the failure proves the bytes never left.
+  ///
+  /// The optimistic row carries that same `clientMessageId`, so the
+  /// authoritative `new_message` event replaces it rather than painting a
+  /// second bubble when the send landed but its response did not.
   Future<ChatResult<ChatMessage>> sendVoice(
     String roomIdOrDraftKey, {
     required Uint8List audioBytes,
@@ -524,6 +567,7 @@ interface class ChatMessagesController {
       from: _a.currentUser.id,
       timestamp: DateTime.now(),
       messageType: MessageType.audio,
+      clientMessageId: tempId,
       attachmentUrl: '',
       mimeType: mimeType,
       metadata: {
@@ -632,19 +676,31 @@ interface class ChatMessagesController {
     }
     final attachment = uploadResult.dataOrThrow;
     final url = attachment.url ?? attachment.attachmentId;
+    final metadata = <String, dynamic>{
+      'mimeType': mimeType,
+      'attachmentUrl': url,
+      'attachmentId': attachment.attachmentId,
+      'duration': duration.inMilliseconds,
+      'waveform': waveform,
+    };
+    final uploaded = optimistic.copyWith(
+      attachmentUrl: url,
+      attachmentId: attachment.attachmentId,
+      metadata: metadata,
+    );
+    unawaited(
+      _a._cache
+              ?.savePendingMessage(roomId, uploaded)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
 
     final sendResult = await _a.client.messages.send(
       roomId,
       messageType: MessageType.audio,
       attachmentUrl: url,
       attachmentId: attachment.attachmentId,
-      metadata: {
-        'mimeType': mimeType,
-        'attachmentUrl': url,
-        'attachmentId': attachment.attachmentId,
-        'duration': duration.inMilliseconds,
-        'waveform': waveform,
-      },
+      metadata: metadata,
       tempId: tempId,
       clientMessageId: tempId,
     );
@@ -661,6 +717,7 @@ interface class ChatMessagesController {
           controller.confirmSent(tempId, confirmedVoice);
         }
       } else {
+        controller.updateMessage(uploaded);
         controller.markFailed(tempId);
       }
     }
@@ -681,7 +738,7 @@ interface class ChatMessagesController {
     } else {
       unawaited(
         _a._cache
-                ?.savePendingMessage(roomId, optimistic, isFailed: true)
+                ?.savePendingMessage(roomId, uploaded, isFailed: true)
                 .catchError(_swallowCacheThrow) ??
             Future.value(),
       );
@@ -937,6 +994,12 @@ interface class ChatMessagesController {
   }
 
   /// Re-tries an optimistic send that previously failed.
+  ///
+  /// Refused with a [ValidationFailure] whose
+  /// `errors['reason'] == 'attachment_never_uploaded'` when the row is an
+  /// attachment or voice bubble whose upload never landed: it holds no
+  /// blob, so reposting it would publish an unrecoverable empty media
+  /// message. Ask the user for the file again on that failure.
   Future<ChatResult<ChatMessage>> retrySend(String roomId, String messageId) =>
       _a._optimistic.retrySend(roomId, messageId);
 

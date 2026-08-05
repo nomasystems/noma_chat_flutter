@@ -619,6 +619,48 @@ class OptimisticHandler {
     );
   }
 
+  /// True when [message] is a media row carrying no reference to an
+  /// uploaded blob, in any of the places this SDK writes one: the
+  /// `attachmentUrl` / `attachmentId` fields, or the `metadata` keys of the
+  /// same name that `sendVoice` and `ChatMessagesController.send` populate.
+  /// An empty string counts as no reference — a degenerate upload response
+  /// mints exactly that for `attachmentId`.
+  static bool _lacksUploadedBlob(ChatMessage message) {
+    if (!message.messageType.hasAttachment) return false;
+    if ((message.attachmentUrl ?? '').isNotEmpty) return false;
+    if ((message.attachmentId ?? '').isNotEmpty) return false;
+    final metadata = message.metadata;
+    if (metadata == null) return true;
+    return !_isBlobReference(metadata['attachmentUrl']) &&
+        !_isBlobReference(metadata['attachmentId']);
+  }
+
+  static bool _isBlobReference(Object? value) =>
+      value is String ? value.isNotEmpty : value != null;
+
+  /// Re-posts the failed row [messageId] under its own id, which doubles as
+  /// the server idempotency key, so a send that actually landed is returned
+  /// rather than duplicated.
+  ///
+  /// A media row whose upload never landed — [MessageType.hasAttachment]
+  /// with no blob reference in `attachmentUrl`, `attachmentId` or the
+  /// matching `metadata` keys — is refused instead, with a
+  /// [ValidationFailure] carrying
+  /// `errors['reason'] == 'attachment_never_uploaded'`. Re-posting it would
+  /// publish an attachment or voice bubble pointing at nothing, and no
+  /// later retry can take that message back out of the room. The bytes are
+  /// not retained here, so this call cannot re-drive the upload either: the
+  /// row stays failed and the only way forward is picking the file again.
+  /// `NomaChatView` says so out of the box: it mounts an
+  /// `OperationFeedbackListener` over the `operationErrors` stream this
+  /// failure is emitted on, which turns it into a localized snackbar. A
+  /// host driving `ChatView` (or this API) directly reads the returned
+  /// `ValidationFailure`, or mounts that listener itself.
+  ///
+  /// The offline queue recovers that upload on its own only when the host
+  /// configured a cache — without `cacheConfig` there is no queue — *and*
+  /// the upload failed in a way that proves the bytes never arrived. Every
+  /// other upload failure ends here.
   Future<ChatResult<ChatMessage>> retrySend(
     String roomIdOrDraftKey,
     String messageId,
@@ -633,6 +675,20 @@ class OptimisticHandler {
         .firstOrNull;
     if (message == null) {
       return const ChatFailureResult(NotFoundFailure('Message not found'));
+    }
+
+    if (_lacksUploadedBlob(message)) {
+      return _emitFailure<ChatMessage>(
+        const ChatFailureResult<ChatMessage>(
+          ValidationFailure(
+            message: 'Attachment was never uploaded; pick the file again',
+            errors: {'reason': 'attachment_never_uploaded'},
+          ),
+        ),
+        OperationKind.retrySend,
+        roomId: roomIdOrDraftKey,
+        messageId: messageId,
+      );
     }
 
     controller.markPending(messageId);

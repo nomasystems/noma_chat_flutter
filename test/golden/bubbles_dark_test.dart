@@ -58,6 +58,7 @@ void main() {
       timestamp: ts,
       isOutgoing: true,
       theme: theme,
+      onTap: () {},
     ),
     darkBackground: true,
     size: const Size(360, 320),

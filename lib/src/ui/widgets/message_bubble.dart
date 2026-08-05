@@ -5,6 +5,7 @@ import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
+import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
@@ -41,6 +42,7 @@ class MessageBubble extends StatelessWidget {
     this.onTapFile,
     this.onTapLocation,
     this.onTapLink,
+    this.onTapMention,
     this.onSwipeToReply,
     this.onLongPress,
     this.onReactionTap,
@@ -88,6 +90,13 @@ class MessageBubble extends StatelessWidget {
   final VoidCallback? onTapFile;
   final VoidCallback? onTapLocation;
   final ValueChanged<String>? onTapLink;
+
+  /// Opens the profile of the tapped `@mention`. There is no default —
+  /// where a profile lives is host navigation — so leaving it `null` makes
+  /// the parser render mentions as plain text instead of painting a
+  /// tappable-looking name that answers nothing.
+  final ValueChanged<String>? onTapMention;
+
   final VoidCallback? onSwipeToReply;
   final VoidCallback? onLongPress;
   final ValueChanged<String>? onReactionTap;
@@ -435,7 +444,8 @@ class MessageBubble extends StatelessWidget {
         );
       }
       return FileBubble(
-        fileName: message.fileName ?? message.text ?? theme.l10n.file,
+        fileName:
+            message.fileName ?? message.text ?? theme.l10nOf(context).file,
         fileSize: message.fileSize,
         mimeType: mimeType.isNotEmpty ? mimeType : null,
         timestamp: message.timestamp,
@@ -513,6 +523,8 @@ class MessageBubble extends StatelessWidget {
       replyPreview: replyWidget,
       linkPreview: linkPreview,
       enableSelection: onSwipeToReply == null,
+      onTapLink: onTapLink,
+      onTapMention: onTapMention,
       statusWidget: outgoingStatusWidget,
     );
 
@@ -535,8 +547,8 @@ class MessageBubble extends StatelessWidget {
     }
 
     final bubble = _buildBubble(context);
-    final semanticBubble = _wrapWithSemantics(bubble);
-    final body = _buildBubbleColumn(semanticBubble);
+    final semanticBubble = _wrapWithSemantics(context, bubble);
+    final body = _buildBubbleColumn(context, semanticBubble);
     final wrapped = _wrapWithSwipe(body);
     return _buildAlignedRow(wrapped);
   }
@@ -550,7 +562,10 @@ class MessageBubble extends StatelessWidget {
       );
     }
     final resolvedText =
-        systemMessageTextResolver?.call(message) ?? message.text ?? '';
+        systemMessageTextResolver?.call(message) ??
+        localizedSystemMessageText(message, theme.l10nOf(context)) ??
+        message.text ??
+        '';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Center(
@@ -613,7 +628,7 @@ class MessageBubble extends StatelessWidget {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (isPinned) _buildPinBadge(),
+                    if (isPinned) _buildPinBadge(context),
                     if (isPinned && _isStarred) const SizedBox(width: 6),
                     if (_isStarred) _buildStarBadge(),
                   ],
@@ -632,14 +647,16 @@ class MessageBubble extends StatelessWidget {
   /// dedicated pins drawer. Subtle by design — single icon +
   /// "Pinned" label, italic grey, in line with the existing
   /// "edited" / "admin" microcopy.
-  Widget _buildPinBadge() {
+  Widget _buildPinBadge(BuildContext context) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
         const SizedBox(width: 3),
         Text(
-          theme.l10n.pinned.isNotEmpty ? theme.l10n.pinned : 'Pinned',
+          theme.l10nOf(context).pinned.isNotEmpty
+              ? theme.l10nOf(context).pinned
+              : 'Pinned',
           style: TextStyle(
             fontSize: 11,
             fontStyle: FontStyle.italic,
@@ -674,7 +691,7 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildBubbleColumn(Widget bubble) {
+  Widget _buildBubbleColumn(BuildContext context, Widget bubble) {
     final alignment = isOutgoing
         ? CrossAxisAlignment.end
         : CrossAxisAlignment.start;
@@ -702,7 +719,7 @@ class MessageBubble extends StatelessWidget {
             child: GestureDetector(
               onTap: onTapThread,
               child: Text(
-                theme.l10n.replies(replyCount!),
+                theme.l10nOf(context).replies(replyCount!),
                 style: TextStyle(
                   fontSize: 12,
                   color: theme.input.sendButtonColor ?? Colors.blue,
@@ -730,13 +747,13 @@ class MessageBubble extends StatelessWidget {
   /// an attachment — have no announcement of their own to fall back on, so
   /// they're re-declared explicitly on this same node (mirrors the
   /// `MapButton` pattern: exclude descendants, keep the callbacks).
-  Widget _wrapWithSemantics(Widget content) {
+  Widget _wrapWithSemantics(BuildContext context, Widget content) {
     return Semantics(
-      label: _buildSemanticLabel(),
+      label: _buildSemanticLabel(context),
       excludeSemantics: true,
       onLongPress: onLongPress,
       onTap: _attachmentOpenAction,
-      customSemanticsActions: _retryCustomAction,
+      customSemanticsActions: _retryCustomAction(context),
       child: content,
     );
   }
@@ -765,29 +782,32 @@ class MessageBubble extends StatelessWidget {
   /// it's a bare 14x14px `GestureDetector` with no text of its own, so it
   /// has no other way to announce itself once nested under the excluded
   /// bubble semantics.
-  Map<CustomSemanticsAction, VoidCallback>? get _retryCustomAction {
+  Map<CustomSemanticsAction, VoidCallback>? _retryCustomAction(
+    BuildContext context,
+  ) {
     final retry = onRetry;
     if (!isFailed || retry == null) return null;
-    return {CustomSemanticsAction(label: theme.l10n.retry): retry};
+    return {CustomSemanticsAction(label: theme.l10nOf(context).retry): retry};
   }
 
-  String _buildSemanticLabel() {
-    final semanticSender = senderName ?? (isOutgoing ? theme.l10n.you : '');
+  String _buildSemanticLabel(BuildContext context) {
+    final semanticSender =
+        senderName ?? (isOutgoing ? theme.l10nOf(context).you : '');
     final semanticBody = message.isDeleted
-        ? theme.l10n.messageDeleted
+        ? theme.l10nOf(context).messageDeleted
         : (message.text ?? '');
     final announceSending = isOutgoing && !message.isDeleted && isPending;
     final statusForSemantics = isOutgoing && !message.isDeleted && !isPending
         ? _effectiveStatus
         : null;
     final statusSuffix = announceSending
-        ? ', ${theme.l10n.statusSending}'
+        ? ', ${theme.l10nOf(context).statusSending}'
         : statusForSemantics == null
         ? ''
         : ', ${switch (statusForSemantics) {
-            ReceiptStatus.sent => theme.l10n.statusSent,
-            ReceiptStatus.delivered => theme.l10n.statusDelivered,
-            ReceiptStatus.read => theme.l10n.statusRead,
+            ReceiptStatus.sent => theme.l10nOf(context).statusSent,
+            ReceiptStatus.delivered => theme.l10nOf(context).statusDelivered,
+            ReceiptStatus.read => theme.l10nOf(context).statusRead,
           }}';
     final semanticBodyWithStatus = '$semanticBody$statusSuffix';
     return semanticSender.isNotEmpty
@@ -872,7 +892,7 @@ class _DeletedBubbleContent extends StatelessWidget {
         ? theme.bubble.outgoingTextStyle
         : theme.bubble.incomingTextStyle;
     final color = baseStyle?.color?.withValues(alpha: 0.7) ?? Colors.grey;
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     final deletedText = adminDeleted
         ? l10n.messageDeletedByAdmin
         : (isOutgoing

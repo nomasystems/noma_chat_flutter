@@ -12,9 +12,9 @@ App Flutter
         │   ├── WebSocket  (WsTransport, primary)
         │   ├── SSE        (SseTransport, fallback)
         │   ├── TransportManager (coordinates WS/SSE + replay buffer)
-        │   └── Sub-APIs   (messages, rooms, users, contacts, presence,
-        │                   search, threads, pins, attachments, members,
-        │                   blocked, scheduledMessages, admin, internal)
+        │   └── Sub-APIs   (auth, users, rooms, members, messages,
+        │                   contacts, presence, attachments — threads,
+        │                   pins, receipts and search live on `messages`)
         ├── HiveChatDatasource (lib/src/cache/)
         │   └── Persistent local cache (Hive CE, transparent to consumer)
         └── ChatUiAdapter (lib/src/ui/adapter/)
@@ -30,26 +30,41 @@ Earlier in development the package was split into three (`noma_chat_sdk`, `noma_
 
 ```
 lib/
-├── noma_chat.dart              # Single barrel export (SDK + cache + UI)
+├── noma_chat.dart              # Primary barrel (SDK + cache + UI)
+├── noma_chat_advanced.dart     # Opt-in low-level surface (interceptors,
+│                               # MetricCallback, backoff, circuit breaker)
+├── noma_chat_testing.dart      # MockChatClient, for consumer tests
 └── src/
-    ├── _internal/              # Non-exported helpers
+    ├── _internal/              # Non-exported helpers (http/, transport/,
+    │                           # cache/, dto/, mappers/, util/)
     ├── api/                    # Sub-APIs (one class per domain)
     ├── cache/                  # HiveChatDatasource + serialization
-    ├── client/                 # ChatClient interface + NomaChatClient impl
-    ├── config/                 # ChatConfig, ChatUser, callbacks
-    ├── core/                   # Result type, Pagination, errors, helpers
-    ├── events/                 # ChatEvent (sealed union) + EventParser
-    ├── mock/                   # MockChatClient + MockDataStore (for tests)
-    ├── models/                 # 30+ Freezed models
+    ├── client/                 # ChatClient interface, NomaChatClient impl,
+    │                           # NomaChat facade
+    ├── config/                 # ChatConfig, RealtimeMode, lifecycle policy
+    ├── core/                   # ChatResult / ChatFailure + pagination types
+    ├── events/                 # ChatEvent (sealed union); the wire parser
+    │                           # lives in _internal/transport/
+    ├── mock/                   # MockChatClient (for tests)
+    ├── models/                 # Freezed domain models (message, room, user…)
+    ├── observability/          # ChatLogger, ChatLogExporter
+    ├── storage/                # AvatarStorage
+    ├── utils/                  # Export, invite links, stable user id
     └── ui/                     # Complete UI components
-        ├── adapter/            # ChatUiAdapter
-        ├── controllers/        # ChatController, RoomListController
+        ├── adapter/            # ChatUiAdapter + its api/, handlers/,
+        │                       # services/ collaborators
+        ├── controller/         # ChatController, RoomListController,
+        │                       # MessageSearchController, voice recording
         ├── widgets/            # ChatView, MessageList, MessageInput,
         │                       # bubbles/, ReactionBar, TypingIndicator,
         │                       # ImageViewer, voice recorder, etc.
-        ├── pages/              # MediaGalleryPage
-        ├── theme/              # ChatTheme (~50 properties)
-        ├── l10n/               # 7 locales (en, es, fr, de, it, pt, ca)
+        ├── models/             # UI-only models (RoomListItem, policies)
+        ├── services/           # Attachment pickers, link preview fetcher
+        ├── pages/              # MediaGalleryPage, StarredMessagesPage
+        ├── theme/              # ChatTheme + bubble / input / roomList /
+        │                       # markdown sub-themes (155+ fields)
+        ├── l10n/               # ChatUiLocalizations — every bundled locale
+        │                       # in a single file
         └── utils/              # Formatters, last_message_preview
 ```
 
@@ -86,19 +101,24 @@ final chat = NomaChat.fromClient(
 ## Real-time transports
 
 ```
-TransportManager
-  ├── WsTransport (primary)
-  │   └── /ws bidi   (backend port 8077)
-  └── SseTransport (fallback when WS keeps failing)
-      └── /events    (backend port 2081/2082 via NRTE)
+TransportManager               (picks the transport for ChatConfig.realtimeMode)
+  └── AutoFailoverTransport    (RealtimeMode.auto — the default)
+        ├── WsTransport (primary)
+        │   └── /ws bidi   (backend port 8077)
+        └── SseTransport (fallback when WS keeps failing)
+            └── /events    (backend port 2081/2082 via NRTE)
 ```
 
+The other `RealtimeMode` values bypass the failover wrapper and run a single
+transport: `webSocketOnly`, `serverSentEventsOnly`, `polling` (`PollingTransport`,
+interval clamped to a 5 s floor) and `manual` (`ManualTransport`).
+
 **Behavior:**
-- Connects WS first. After N attempts with exponential backoff + jitter, opens SSE as fallback.
-- `_wsHasConnected` flag prevents premature SSE activation.
-- Optional circular replay buffer (`eventBufferSize` in `ChatConfig`, default 0) for late subscribers.
+- Connects WS first. SSE is promoted when the WS drops after a first successful connection, or after 3 consecutive failed initial WS attempts (a proxy blocking WebSocket from the first handshake).
+- `_primaryHasConnected` in `AutoFailoverTransport` prevents premature SSE activation.
+- Circular replay buffer (`eventBufferSize` in `ChatConfig`, default 20) for late subscribers.
 - Opt-in reconnection catch-up (`enableReconnectCatchUp`): after reconnect, requests unread rooms and emits `UnreadUpdatedEvent` for each. `lastDisconnectedAt` exposed.
-- WS close 4003 (token_expired) and 4004 (token_revoked) — invalidate interceptor token cache + emit signal so the consumer can refresh.
+- WS close 4002 (auth_failed), 4003 (token_expired) and 4004 (token_revoked) — invalidate interceptor token cache + emit signal so the consumer can refresh. Three consecutive such closes with no successful auth in between stop the reconnect loop with a terminal auth error.
 - Opt-in frame `auth_refresh` (30s cooldown server-side) to rotate token without reconnecting.
 
 ## Cache (Hive CE)
@@ -131,14 +151,14 @@ Bridges SDK events to UI controllers.
 - `MessageUpdatedEvent`, `RoomCreatedEvent`, `RoomUpdatedEvent` carry only IDs (the server keeps real-time frames lean); the adapter fetches the full payload via API.
 
 **Initial load:**
-- `loadRooms(controller)` — populates `RoomListController` with `rooms.getUserRooms()` enriched + presence bootstrap.
-- `loadMessages(roomId, controller)` — cache-then-network.
-- `_enrichAndSetRooms` runs `presence.getAll()` to populate `RoomListItem.isOnline` from the first render.
+- `loadRooms({type, forceNetwork})` — populates the adapter's own `RoomListController` with `rooms.getUserRooms()` enriched + presence bootstrap.
+- `loadMessages(roomId, {limit})` — cache-then-network.
+- `RoomEnricher` awaits a presence bootstrap (`presence.getAll()`) before returning, so `RoomListItem.isOnline` is populated from the first render.
 
 **Actions exposed:**
 - `sendMessage`, `sendVoiceMessage` (optimistic + upload progress + send).
-- `editMessage`, `deleteMessage`, `addReaction`, `deleteReaction`, `pinMessage`, etc.
-- `markAsRead` on `dispose` (leaving the chat).
+- `editMessage`, `deleteMessage`, `sendReaction`, `deleteReaction`, `pinMessage`, etc.
+- `markAsRead` on `dispose` (leaving the chat), when `autoMarkAsRead` is on (default).
 
 **`isDmRoom` predicate**:
 
@@ -151,24 +171,26 @@ final chat = await NomaChat.create(
 );
 ```
 
-Distinguishes real DMs from conceptual groups with 2 participants (e.g. a plan with 2 members). Default predicate: `detail.type == RoomType.oneToOne`.
+Distinguishes real DMs from conceptual groups with 2 participants (e.g. a plan with 2 members). Default predicate: `detail.type == RoomType.oneToOne` **and** no user-assigned room name — a named 2-person room is treated as a group, not a DM.
 
 ## Offline queue
 
 `OfflineQueue` persists outbound operations that failed (no connection) and retries them on reconnect. Persists in Hive (`chat_offline_queue`).
 
-- **9 operation types**: send, edit, delete, addReaction, deleteReaction, createRoom, updateRoomConfig, addMember, removeMember.
-- 401 errors do NOT trigger immediate retry (wait for auth resolution).
-- Deduplication on enqueue.
-- Persists each successful operation atomically.
-- Configurable `logger` for deserialization errors.
+- One `PendingOperation` subclass per queued action: send message / attachment / direct message, edit, delete, add & delete reaction, pin & unpin, star & unstar, create room, update room config, add & remove member.
+- An `AuthFailure` (401) is never retried immediately: the drain executor reports failure, so the operation goes back to the queue under the standard exponential backoff + jitter instead of hammering a rejected token.
+- Deduplication by operation `id` on `restore()`, so a repeated restore (the background → foreground reconnect cycle) never double-queues a pending send.
+- Re-persists the queue after every successful operation, so a crash mid-drain never replays work already done.
+- Operations are dropped — with the reason handed to `onOperationDropped` — on `queue_full`, `ttl_expired` or `max_retries`.
+- Configurable `logger` for deserialization and persistence errors.
 
 ## Observability
 
-- Optional `logger` in `ChatConfig`, propagated to `BearerAuthInterceptor` and the 4 main APIs (users, rooms, messages, contacts).
+- Optional `logger` callback in `ChatConfig`, propagated by `ApiFactory` to `BearerAuthInterceptor` and to the sub-APIs that log (users, rooms, messages).
+- Structured logging pipeline alongside it — `ChatLogger` with `ChatLogTag` / `ChatLogLevel` and pluggable sinks (`lib/src/observability/`), plus `ChatLogExporter` for a one-tap file dump.
 - 11 `catch (_)` cache-best-effort sites replaced with `catch (e) { _logger?.call('warn', '...: $e'); }`.
 - `_openBoxSafe()` recovery logs + metrics `box_delete_failed` / `box_reopen_failed`.
-- `MetricCallback` (typedef `void Function(String metric, Map<String, dynamic> data)`) exported from `package:noma_chat/noma_chat_advanced.dart`. Events emitted today: `cache_hit`, `cache_miss`, `cache_stale_fallback`, `cache_eviction`, `cache_ttl_expired`, `box_corrupted`, `box_delete_failed`, `box_reopen_failed`, `schema_migration_wipe`.
+- `MetricCallback` (typedef `void Function(String metric, Map<String, dynamic> data)`) exported from `package:noma_chat/noma_chat_advanced.dart`. Metrics are emitted from the cache, the offline queue, the HTTP layer, the auth interceptor and the WebSocket transport — [TELEMETRY.md](./TELEMETRY.md) is the authoritative list of every metric name, its fields and when it fires.
 
 ## Backend integration
 

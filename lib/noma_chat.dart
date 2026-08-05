@@ -128,7 +128,10 @@ export 'src/ui/controller/message_search_controller.dart';
 export 'src/ui/controller/suggestion_bar_controller.dart';
 export 'src/ui/controller/voice_recording_controller.dart';
 export 'src/ui/widgets/_voice_recorder_gesture.dart'
-    show MessageInputVoiceController, VoiceGestureThresholds;
+    show
+        MessageInputVoiceController,
+        VoiceGestureThresholds,
+        VoiceRecordingControllerFactory;
 
 // === UI: Theme ===
 export 'src/ui/theme/chat_theme.dart';
@@ -140,6 +143,7 @@ export 'src/ui/theme/default_palette.dart';
 
 // === UI: Localization ===
 export 'src/ui/l10n/chat_ui_localizations.dart';
+export 'src/ui/l10n/system_message_text.dart';
 
 // === UI: Utils ===
 export 'src/ui/utils/date_formatter.dart';

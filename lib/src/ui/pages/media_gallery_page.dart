@@ -10,6 +10,7 @@ import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
 import '../utils/mime_classifier.dart';
+import '../utils/safe_url.dart';
 import '../widgets/docs_list_view.dart';
 import '../widgets/empty_state.dart';
 import '../widgets/image_viewer.dart';
@@ -244,13 +245,11 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     _defaultOpenDoc(item);
   }
 
+  /// Opens a shared link in the system browser. The row's URL is sender
+  /// content, so only `http` / `https` addresses are launched — see
+  /// [webUrlOrNull]. Anything else is dropped silently.
   Future<void> _defaultOpenLink(SharedLink link) async {
-    var raw = link.url.trim();
-    if (raw.isEmpty) return;
-    if (!raw.contains('://')) {
-      raw = 'https://$raw';
-    }
-    final uri = Uri.tryParse(raw);
+    final uri = webUrlOrNull(link.url);
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
   }
@@ -258,7 +257,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     return Scaffold(
       backgroundColor: theme.backgroundColor,
       appBar: AppBar(
@@ -336,7 +335,7 @@ class _DocsTab extends StatelessWidget {
     if (items.isEmpty) {
       return EmptyState(
         icon: Icons.insert_drive_file_outlined,
-        title: theme.l10n.galleryNoDocs,
+        title: theme.l10nOf(context).galleryNoDocs,
         theme: theme,
       );
     }
@@ -369,7 +368,7 @@ class _LinksTab extends StatelessWidget {
     if (links.isEmpty) {
       return EmptyState(
         icon: Icons.link_off,
-        title: theme.l10n.galleryNoLinks,
+        title: theme.l10nOf(context).galleryNoLinks,
         theme: theme,
       );
     }

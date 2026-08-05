@@ -105,7 +105,7 @@ class ChatUiAdapter {
   ChatUiAdapter({
     required this.client,
     required ChatUser currentUser,
-    this.l10n = ChatUiLocalizations.en,
+    ChatUiLocalizations l10n = ChatUiLocalizations.en,
     this.onRoomsLoaded,
     this.isDmRoom,
     this.roomTitleResolver,
@@ -121,6 +121,8 @@ class ChatUiAdapter {
     ChatLocalDatasource? cache,
     AvatarStorage? avatarStorage,
   }) : _cache = cache,
+       _l10n = l10n,
+       _l10nPinnedByHost = !identical(l10n, ChatUiLocalizations.en),
        _currentUser = currentUser,
        avatarStorage = avatarStorage ?? DefaultAvatarStorage(client),
        roomListController = RoomListController(),
@@ -233,7 +235,60 @@ class ChatUiAdapter {
     _roomMembersListenable.emit();
   }
 
-  final ChatUiLocalizations l10n;
+  /// Strings the adapter composes where no `BuildContext` is in reach:
+  /// membership banners and the self-chat title.
+  ///
+  /// Hot-swappable. Every handler reads it through this getter on each
+  /// use, so assigning a new bundle re-points the whole adapter at another
+  /// language in place — no teardown, no reconnect, nothing that can fail
+  /// and leave the runtime down. Widgets do not go through here at all:
+  /// they resolve their own strings with `ChatTheme.l10nOf(context)` and
+  /// rebuild themselves when the host's locale changes, and so do the
+  /// room-list previews, which `RoomTile` composes on every paint from the
+  /// row's structured fields.
+  ///
+  /// The setter re-stamps the one string a widget cannot recompute for
+  /// itself, because it is stored on a room row rather than derived at
+  /// paint time: the self-chat title. Only a row whose title is exactly
+  /// what the outgoing bundle would have produced is touched, so nothing a
+  /// person wrote is ever overwritten.
+  ///
+  /// Assigning this takes the language of the adapter into the host's own
+  /// hands: the SDK stops pushing the ambient bundle in (see
+  /// [adoptAmbientL10n]), and the host owns every later change.
+  ChatUiLocalizations get l10n => _l10n;
+
+  set l10n(ChatUiLocalizations value) {
+    _l10nPinnedByHost = true;
+    _setL10n(value);
+  }
+
+  /// Points the adapter at the bundle the widget tree resolved, unless the
+  /// host has taken the language into its own hands by assigning [l10n]
+  /// (or passing a non-default one to the constructor).
+  ///
+  /// This is what makes registering `ChatUiLocalizations.delegate` enough
+  /// on its own: `NomaChatView` and `RoomListView` call it with
+  /// `theme.l10nOf(context)` as their dependencies resolve, so the strings
+  /// composed off-screen follow the app locale exactly like the on-screen
+  /// ones — with the same precedence, an explicit `ChatTheme.l10n` first
+  /// and the `Localizations` ancestor otherwise.
+  @internal
+  void adoptAmbientL10n(ChatUiLocalizations value) {
+    if (_l10nPinnedByHost) return;
+    _setL10n(value);
+  }
+
+  void _setL10n(ChatUiLocalizations value) {
+    final previous = _l10n;
+    if (identical(previous, value)) return;
+    _l10n = value;
+    if (_disposed) return;
+    _roomListMutator.refreshSelfChatTitles(previous);
+  }
+
+  ChatUiLocalizations _l10n;
+  bool _l10nPinnedByHost;
   final IsDmRoomPredicate? isDmRoom;
   final RoomTitleResolver? roomTitleResolver;
   final ChatLocalDatasource? _cache;
@@ -472,7 +527,7 @@ class ChatUiAdapter {
     presence: _presence,
     currentUser: () => _currentUser,
     cache: _cache,
-    l10n: l10n,
+    l10n: () => _l10n,
     initializedNotifier: initializedNotifier,
     connectionStateNotifier: connectionStateNotifier,
     isDisposed: () => _disposed,
@@ -500,7 +555,7 @@ class ChatUiAdapter {
     roomListController: roomListController,
     cache: _cache,
     client: client,
-    l10n: l10n,
+    l10n: () => _l10n,
     currentUser: () => _currentUser,
     findCachedUser: findCachedUser,
     ensureUserCached: _ensureUserCached,
@@ -574,7 +629,7 @@ class ChatUiAdapter {
     cache: _cache,
     roomListController: roomListController,
     userCacheService: _userCacheService,
-    l10n: l10n,
+    l10n: () => _l10n,
     currentUser: () => _currentUser,
     displayNameFor: displayNameFor,
     ensureUserCached: _ensureUserCached,
@@ -760,9 +815,9 @@ class ChatUiAdapter {
 
   /// Broadcast stream of successful operations that have user-visible
   /// side effects worth confirming (pin/unpin a message, delete a
-  /// message, forward, mute/unmute, etc.). The default [ChatView]
-  /// subscribes when `showOperationFeedback: true` (default) and
-  /// shows localized SnackBars. Apps wanting fully custom UI can
+  /// message, forward, mute/unmute, etc.). [NomaChatView] subscribes
+  /// when `ChatViewBehaviors.showOperationFeedback` is true (default)
+  /// and shows localized SnackBars. Apps wanting fully custom UI can
   /// listen here directly and pass `showOperationFeedback: false`.
   Stream<OperationSuccess> get operationSuccesses => _operations.successes;
 
@@ -1463,6 +1518,13 @@ class ChatUiAdapter {
     int limit = 50,
   }) => messages.load(roomId, limit: limit);
 
+  /// Re-adds the cached pending rows that never confirmed and marks them
+  /// failed, so a send the previous session lost is still retriable after a
+  /// restart. Rows the room already holds are orphans from a lost
+  /// `deletePendingMessage` and are dropped from the cache instead of being
+  /// resurrected — see [_supersedesPendingRow] for how that is decided.
+  /// Without that guard a single failed cache delete would leak a ghost
+  /// bubble that re-appears on every reload.
   Future<void> _rehydratePendingMessages(
     String roomId,
     ChatController controller,
@@ -1474,18 +1536,8 @@ class ChatUiAdapter {
           (await cache.getPendingMessages(roomId)).dataOrNull ??
           const <PendingChatMessage>[];
       for (final p in pending) {
-        // If a server-confirmed message with the same sender/type/text and a
-        // near-identical timestamp already exists, treat the pending entry as
-        // an orphan from a lost deletePendingMessage and drop it. Without
-        // this, a single failed cache delete would leak a ghost bubble that
-        // re-appears on every reload.
         final superseded = controller.messages.any(
-          (m) =>
-              m.id != p.message.id &&
-              m.from == p.message.from &&
-              m.messageType == p.message.messageType &&
-              m.text == p.message.text &&
-              m.timestamp.difference(p.message.timestamp).inSeconds.abs() <= 60,
+          (m) => _supersedesPendingRow(m, p.message),
         );
         if (superseded) {
           unawaited(
@@ -1504,6 +1556,36 @@ class ChatUiAdapter {
     } catch (_) {
       // Best-effort: cache hydration must never block the chat.
     }
+  }
+
+  /// `true` when [loaded] — a row the controller already holds — *is* the
+  /// message the cached [pending] row stands for, so the pending row is an
+  /// orphan and not a send to resurrect.
+  ///
+  /// The idempotency key decides it whenever both rows carry one:
+  /// [ChatMessage.clientMessageId] round-trips through the backend inside
+  /// `metadata`, so the same key under a different id is proof the send
+  /// landed — and two different keys are proof of two different sends,
+  /// however identical their text (the user deliberately sending "ok"
+  /// twice, which the heuristic below cannot tell apart). Media rows are
+  /// what make this load-bearing: they are built with no `text` while the
+  /// send puts `''` on the wire, so `null != ''` hid the match, and since
+  /// the rows gained a `clientMessageId` the resurrected ghost resolved
+  /// onto the delivered message and repainted it as failed.
+  ///
+  /// When either side has no key — rows cached before media rows carried
+  /// one, or a backend that does not echo it back — the original
+  /// sender/type/text/timestamp heuristic stands, being the only signal
+  /// those rows have.
+  bool _supersedesPendingRow(ChatMessage loaded, ChatMessage pending) {
+    if (loaded.id == pending.id) return false;
+    final pendingKey = pending.clientMessageId;
+    final loadedKey = loaded.clientMessageId;
+    if (pendingKey != null && loadedKey != null) return pendingKey == loadedKey;
+    return loaded.from == pending.from &&
+        loaded.messageType == pending.messageType &&
+        loaded.text == pending.text &&
+        loaded.timestamp.difference(pending.timestamp).inSeconds.abs() <= 60;
   }
 
   /// Loads older messages for pagination using cache-then-network.
@@ -2073,7 +2155,6 @@ class ChatUiAdapter {
       presence: _presence,
       cache: _cache,
       connectionStateNotifier: connectionStateNotifier,
-      l10n: l10n,
       autoMarkAsRead: autoMarkAsRead,
       autoConfirmDelivery: autoConfirmDelivery,
       currentUser: () => _currentUser,

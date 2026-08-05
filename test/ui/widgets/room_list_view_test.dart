@@ -308,4 +308,92 @@ void main() {
       expect(alphaTile.statusIconBuilder, isNotNull);
     });
   });
+
+  group('RoomListView long press', () {
+    Future<void> pumpList(
+      WidgetTester tester, {
+      void Function(RoomListItem, RoomAction)? onContextMenuAction,
+      ValueChanged<RoomListItem>? onLongPressRoom,
+    }) async {
+      final controller = RoomListController();
+      controller.addRoom(const RoomListItem(id: 'r1', name: 'Alpha'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RoomListView(
+              controller: controller,
+              showHeader: false,
+              showSearch: false,
+              onContextMenuAction: onContextMenuAction,
+              onLongPressRoom: onLongPressRoom,
+            ),
+          ),
+        ),
+      );
+    }
+
+    Iterable<InkWell> tileInkWells(WidgetTester tester) =>
+        tester.widgetList<InkWell>(
+          find.descendant(
+            of: find.byType(RoomTile),
+            matching: find.byType(InkWell),
+          ),
+        );
+
+    testWidgets('opens no menu when nothing can answer the actions', (
+      tester,
+    ) async {
+      await pumpList(tester);
+
+      expect(tileInkWells(tester), isNotEmpty);
+      expect(tileInkWells(tester).every((w) => w.onLongPress == null), isTrue);
+
+      await tester.longPress(find.text('Alpha'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(RoomContextMenu), findsNothing);
+    });
+
+    testWidgets('opens the default menu and routes the picked action', (
+      tester,
+    ) async {
+      RoomAction? picked;
+      String? pickedRoomId;
+
+      await pumpList(
+        tester,
+        onContextMenuAction: (room, action) {
+          picked = action;
+          pickedRoomId = room.id;
+        },
+      );
+
+      expect(tileInkWells(tester).any((w) => w.onLongPress != null), isTrue);
+
+      await tester.longPress(find.text('Alpha'));
+      await tester.pumpAndSettle();
+      expect(find.byType(RoomContextMenu), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.delete_outline));
+      await tester.pumpAndSettle();
+
+      expect(picked, RoomAction.delete);
+      expect(pickedRoomId, 'r1');
+    });
+
+    testWidgets('onLongPressRoom alone keeps the gesture wired', (
+      tester,
+    ) async {
+      RoomListItem? pressed;
+
+      await pumpList(tester, onLongPressRoom: (room) => pressed = room);
+
+      await tester.longPress(find.text('Alpha'));
+      await tester.pumpAndSettle();
+
+      expect(pressed?.id, 'r1');
+      expect(find.byType(RoomContextMenu), findsNothing);
+    });
+  });
 }

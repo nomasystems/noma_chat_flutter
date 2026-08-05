@@ -24,7 +24,7 @@ class TypingStatusText extends StatelessWidget {
         final typingIds = controller.typingUserIds;
         if (typingIds.isEmpty) return const SizedBox.shrink();
 
-        final text = _buildText(typingIds);
+        final text = _buildText(context, typingIds);
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
           child: Text(
@@ -44,8 +44,8 @@ class TypingStatusText extends StatelessWidget {
     );
   }
 
-  String _buildText(List<String> typingIds) {
-    final l10n = theme.l10n;
+  String _buildText(BuildContext context, List<String> typingIds) {
+    final l10n = theme.l10nOf(context);
     final names = typingIds.map(_resolveName).toList();
 
     return switch (names.length) {

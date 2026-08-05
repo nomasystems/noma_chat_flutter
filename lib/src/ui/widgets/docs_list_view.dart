@@ -65,7 +65,7 @@ class DocsListView extends StatelessWidget {
     if (visible.isEmpty) {
       return EmptyState(
         icon: Icons.insert_drive_file_outlined,
-        title: theme.l10n.galleryNoDocs,
+        title: theme.l10nOf(context).galleryNoDocs,
         theme: theme,
       );
     }
@@ -80,7 +80,10 @@ class DocsListView extends StatelessWidget {
         final subtitleParts = <String>[];
         if (item.timestamp != null) {
           subtitleParts.add(
-            DateFormatter.formatRelative(item.timestamp!, l10n: theme.l10n),
+            DateFormatter.formatRelative(
+              item.timestamp!,
+              l10n: theme.l10nOf(context),
+            ),
           );
         }
         // Resolve the sender id to a friendly display name when a
@@ -106,7 +109,7 @@ class DocsListView extends StatelessWidget {
             child: Icon(_iconFor(item.mimeType)),
           ),
           title: Text(
-            item.fileName ?? theme.l10n.file,
+            item.fileName ?? theme.l10nOf(context).file,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

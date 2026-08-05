@@ -16,6 +16,14 @@ String formatVoiceDuration(int durationMs) {
 ///
 /// Returns `null` when there is nothing to show.
 ///
+/// Every label the preview can carry — the deleted marker, the per-type
+/// attachment labels, the voice note, the forward, the reaction sentence —
+/// is composed here, from [item]'s structured fields and [l10n], on the
+/// paint that shows it. Nothing is read back from a string composed
+/// earlier: [RoomListItem.lastMessage] holds the sender's own text and is
+/// used only as such, so the row follows the reader's language and no text
+/// a person wrote is ever rewritten.
+///
 /// The result does not include any sender prefix (`Tú: `, `Juan: `).
 /// `RoomTile` is responsible for applying the prefix based on group/DM context.
 String? buildLastMessagePreview(
@@ -38,15 +46,13 @@ String? buildLastMessagePreview(
               item.lastMessageFileName!.isNotEmpty))) {
     type = MessageType.attachment;
   }
-  if (type == null) {
-    final legacy = item.lastMessage;
-    return (legacy != null && legacy.isNotEmpty) ? legacy : null;
-  }
 
   final mime = item.lastMessageMimeType;
   final fileName = item.lastMessageFileName;
   final caption = item.lastMessage;
   final hasCaption = caption != null && caption.isNotEmpty;
+
+  if (type == null) return hasCaption ? caption : null;
 
   switch (type) {
     case MessageType.audio:
@@ -95,9 +101,7 @@ String? buildLastMessagePreview(
       return l10n.previewDocument(fileName ?? l10n.file);
 
     case MessageType.reaction:
-      return (caption != null && caption.isNotEmpty)
-          ? caption
-          : l10n.reactionPreview(item.lastMessageReactionEmoji ?? '');
+      return _reactionPreview(item, l10n, isMine: isMine);
 
     case MessageType.forward:
       return hasCaption ? caption : l10n.forwarded;
@@ -109,6 +113,41 @@ String? buildLastMessagePreview(
     case MessageType.regular:
       return hasCaption ? caption : null;
   }
+}
+
+/// The reaction sentence for [item], rebuilt from the row's own emoji,
+/// reactor and quoted-message fields.
+///
+/// Falls back to the bare "Reacted 👍" whenever a richer sentence cannot be
+/// built truthfully: no message was in reach when the reaction landed, or
+/// the reactor is someone the row cannot name (a third party whose display
+/// name has not been resolved yet — the adapter backfills it and the row
+/// repaints).
+String _reactionPreview(
+  RoomListItem item,
+  ChatUiLocalizations l10n, {
+  required bool isMine,
+}) {
+  final emoji = item.lastMessageReactionEmoji ?? '';
+  final quoted = _reactionTargetSnippet(item, l10n);
+  if (quoted == null) return l10n.reactionPreview(emoji);
+  if (isMine) return l10n.reactionPreviewSelf(emoji, quoted);
+  final reactor = item.lastMessageSenderName?.trim();
+  if (reactor == null || reactor.isEmpty) return l10n.reactionPreview(emoji);
+  return l10n.reactionPreviewOther(reactor, emoji, quoted);
+}
+
+/// What the reaction sentence quotes: the reacted-to message's own text
+/// when it had one, its type's label otherwise, `null` when neither is
+/// known.
+String? _reactionTargetSnippet(RoomListItem item, ChatUiLocalizations l10n) {
+  final text = item.lastMessageReactionTargetText;
+  if (text != null && text.isNotEmpty) return text;
+  return switch (item.lastMessageReactionTargetType) {
+    MessageType.attachment => l10n.attachmentPreview,
+    MessageType.audio => l10n.audioPreview,
+    _ => null,
+  };
 }
 
 /// WhatsApp-style preview for a single [ChatMessage] (used by the starred

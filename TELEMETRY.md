@@ -26,7 +26,7 @@ names) — see the "Do not emit metrics that include PII" rule in
 | `cache_hit` | `CacheManager.resolve()` | `key`, `policy` (`cacheOnly` / `networkFirst` / `cacheFirst`) | A cache read for `key` under the given `CachePolicy` returns a non-null cached value. |
 | `cache_miss` | `CacheManager.resolve()` | `key`, `policy` | A cache read for `key` finds nothing, under `cacheOnly` or `networkFirst`. |
 | `cache_stale_fallback` | `CacheManager.resolve()` | `key`, `policy` | Under `cacheFirst`, the network call failed and the resolver fell back to a stale (TTL-expired) cached value instead of surfacing the failure. |
-| `cache_eviction` | `HiveChatDatasource` (contacts, offline queue, rooms, users) | `entity` (`contacts` / `offlineQueue` / `rooms` / `users`), `count` | A per-entity cap (`maxContacts`, `maxOfflineQueueSize`, room/user caps) is exceeded and the oldest entries are evicted to make room. |
+| `cache_eviction` | `MessageEvictionPolicy` | `entity` (`messages`), `count` | A room's cached message count exceeds `maxMessagesPerRoom` and the oldest keys are deleted to make room. The room and user caps (`maxRooms` / `maxUsers`) evict silently — they do not emit a metric. |
 | `cache_ttl_expired` | `MessageEvictionPolicy` | `roomId`, `count` | Cached messages for a room age past their TTL and are pruned from the message cache. |
 | `schema_migration_wipe` | `SchemaMigrator` | `from`, `to`, `reason` (`no_migration_path` / `downgrade`) | The on-disk cache schema version has no forward migration path to the current version, or is newer than the running SDK (downgrade) — the cache is wiped and rebuilt from scratch instead of risking corrupt reads. |
 | `box_corrupted` | `_BoxRegistry` | `box`, `error` | Opening a Hive box throws (corrupt file on disk); the box is scheduled for deletion and recreation. |
@@ -63,6 +63,13 @@ max retries exhausted. See `doc/DEVELOPER_GUIDE.md` "Offline queue" section.
 |---|---|---|---|
 | `ws_auth_timeout` | `WsTransport._authenticate()` | `timeoutMs`, `attempts` | The WebSocket auth handshake does not receive `auth_ok` within `ChatConfig.authTimeout`. `attempts` is the current reconnect attempt count. |
 | `ws_disconnect` | `WsTransport` | `closeCode`, `reason`, `attempts` | The WebSocket connection closes, for any reason (server close, network drop, explicit `disconnect()`). Terminal server codes are visible here: `4005` (too many auth attempts) and `4007` (account deactivated) suspend reconnection and surface a terminal auth error; `4006` (`transport_disabled`) suspends WS for the session and lets `RealtimeMode.auto` fail over to SSE/polling. |
+| `ws_pong_timeout` | `WsTransport._onPongTimeout()` | `timeoutMs` | No pong arrived within `ChatConfig.wsPongTimeout`: the peer is presumed dead (half-open socket after a NAT timeout or network handoff) and the transport forces a teardown + reconnect. |
+
+## Event stream
+
+| Metric | Emission site | Fields | Fires when |
+|---|---|---|---|
+| `event_stream_backpressure_drop` | `TransportManager` (per-listener queue) | none | A listener consumes events slower than they arrive and its pending queue passes the 256-event cap, so the oldest buffered event is dropped instead of growing memory without bound. |
 
 ## Adding a new metric
 

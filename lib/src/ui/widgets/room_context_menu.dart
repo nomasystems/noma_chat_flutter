@@ -56,10 +56,10 @@ class RoomContextMenu extends StatelessWidget {
     );
   }
 
-  List<_MenuEntry> _buildEntries() {
+  List<_MenuEntry> _buildEntries(BuildContext context) {
     final entries = <_MenuEntry>[];
     final allowed = enabledActions;
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
 
     if (room.muted) {
       if (allowed == null || allowed.contains(RoomAction.unmute)) {
@@ -133,7 +133,7 @@ class RoomContextMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = _buildEntries();
+    final entries = _buildEntries(context);
 
     return SafeArea(
       child: Column(

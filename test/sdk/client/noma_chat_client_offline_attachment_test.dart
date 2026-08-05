@@ -168,6 +168,59 @@ void main() {
     expect(queued, isEmpty);
   });
 
+  test('a pre-response TimeoutFailure during upload IS queued — the bytes '
+      'provably never reached the server', () async {
+    final client = build();
+    await client.connect();
+
+    client.enqueueOfflineAttachment(
+      roomId: 'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      causeFailure: const TimeoutFailure(kind: TimeoutKind.connection),
+      tempId: 'temp-pre',
+      clientMessageId: 'temp-pre',
+    );
+    client.enqueueOfflineAttachment(
+      roomId: 'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      causeFailure: const TimeoutFailure(kind: TimeoutKind.send),
+      tempId: 'temp-pre-2',
+      clientMessageId: 'temp-pre-2',
+    );
+
+    final queued = (await store.getOfflineQueue()).dataOrNull ?? const [];
+    expect(queued, hasLength(2));
+  });
+
+  test('a receive-phase or unknown TimeoutFailure during upload is NOT '
+      'queued — POST /attachments has no idempotency key, so replaying an '
+      'upload that may already have landed duplicates the blob', () async {
+    final client = build();
+    await client.connect();
+
+    client.enqueueOfflineAttachment(
+      roomId: 'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      causeFailure: const TimeoutFailure(kind: TimeoutKind.receive),
+      tempId: 'temp-recv',
+      clientMessageId: 'temp-recv',
+    );
+    client.enqueueOfflineAttachment(
+      roomId: 'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      causeFailure: const TimeoutFailure(),
+      tempId: 'temp-unknown',
+      clientMessageId: 'temp-unknown',
+    );
+
+    final queued = (await store.getOfflineQueue()).dataOrNull ?? const [];
+    expect(queued, isEmpty);
+  });
+
   test('an attachment over offlineQueueMaxAttachmentBytes is NOT queued and '
       'reports attachment_too_large via onOperationDropped instead of '
       'discarding silently (C1)', () async {

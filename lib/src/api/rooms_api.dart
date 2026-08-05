@@ -545,31 +545,51 @@ class RoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+    String? lastMessageReactionTargetText,
+    MessageType? lastMessageReactionTargetType,
   }) async {
     if (_cache == null) return;
     try {
       final unreads =
           (await _cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
       final existing = unreads.where((u) => u.roomId == roomId).firstOrNull;
+      final replacesLastMessage = lastMessageType != null;
       final updated = UnreadRoom(
         roomId: roomId,
         unreadMessages: existing?.unreadMessages ?? 0,
         unreadMentions: existing?.unreadMentions ?? 0,
-        lastMessage: lastMessage ?? existing?.lastMessage,
+        lastMessage: replacesLastMessage
+            ? lastMessage
+            : (lastMessage ?? existing?.lastMessage),
         lastMessageTime: lastMessageTime ?? existing?.lastMessageTime,
         lastMessageUserId: lastMessageUserId ?? existing?.lastMessageUserId,
-        lastMessageId: lastMessageId ?? existing?.lastMessageId,
+        lastMessageId: replacesLastMessage
+            ? lastMessageId
+            : (lastMessageId ?? existing?.lastMessageId),
         lastMessageType: lastMessageType ?? existing?.lastMessageType,
-        lastMessageMimeType:
-            lastMessageMimeType ?? existing?.lastMessageMimeType,
-        lastMessageFileName:
-            lastMessageFileName ?? existing?.lastMessageFileName,
-        lastMessageDurationMs:
-            lastMessageDurationMs ?? existing?.lastMessageDurationMs,
-        lastMessageIsDeleted:
-            lastMessageIsDeleted ?? existing?.lastMessageIsDeleted ?? false,
-        lastMessageReactionEmoji:
-            lastMessageReactionEmoji ?? existing?.lastMessageReactionEmoji,
+        lastMessageMimeType: replacesLastMessage
+            ? lastMessageMimeType
+            : (lastMessageMimeType ?? existing?.lastMessageMimeType),
+        lastMessageFileName: replacesLastMessage
+            ? lastMessageFileName
+            : (lastMessageFileName ?? existing?.lastMessageFileName),
+        lastMessageDurationMs: replacesLastMessage
+            ? lastMessageDurationMs
+            : (lastMessageDurationMs ?? existing?.lastMessageDurationMs),
+        lastMessageIsDeleted: replacesLastMessage
+            ? (lastMessageIsDeleted ?? false)
+            : (lastMessageIsDeleted ?? existing?.lastMessageIsDeleted ?? false),
+        lastMessageReactionEmoji: replacesLastMessage
+            ? lastMessageReactionEmoji
+            : (lastMessageReactionEmoji ?? existing?.lastMessageReactionEmoji),
+        lastMessageReactionTargetText: replacesLastMessage
+            ? lastMessageReactionTargetText
+            : (lastMessageReactionTargetText ??
+                  existing?.lastMessageReactionTargetText),
+        lastMessageReactionTargetType: replacesLastMessage
+            ? lastMessageReactionTargetType
+            : (lastMessageReactionTargetType ??
+                  existing?.lastMessageReactionTargetType),
         lastMessageReceipt: existing?.lastMessageReceipt,
         name: existing?.name,
         avatarUrl: existing?.avatarUrl,

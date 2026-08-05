@@ -16,17 +16,17 @@ class ConnectionBanner extends StatelessWidget {
   final ChatTheme theme;
   final Map<ChatConnectionState, String> labels;
 
-  String _defaultLabel() {
+  String _defaultLabel(BuildContext context) {
     switch (state) {
       case ChatConnectionState.connecting:
       case ChatConnectionState.authenticating:
-        return theme.l10n.connecting;
+        return theme.l10nOf(context).connecting;
       case ChatConnectionState.reconnecting:
-        return theme.l10n.reconnecting;
+        return theme.l10nOf(context).reconnecting;
       case ChatConnectionState.disconnected:
-        return theme.l10n.disconnected;
+        return theme.l10nOf(context).disconnected;
       case ChatConnectionState.error:
-        return theme.l10n.connectionError;
+        return theme.l10nOf(context).connectionError;
       case ChatConnectionState.connected:
         return '';
     }
@@ -51,7 +51,7 @@ class ConnectionBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     if (state == ChatConnectionState.connected) return const SizedBox.shrink();
 
-    final label = labels[state] ?? _defaultLabel();
+    final label = labels[state] ?? _defaultLabel(context);
 
     return Semantics(
       liveRegion: true,

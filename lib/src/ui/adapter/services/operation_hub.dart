@@ -28,8 +28,8 @@ class OperationHub {
 
   /// Broadcast stream of successful operations with user-visible side
   /// effects worth confirming (pin/unpin, delete, forward, mute…).
-  /// `ChatView` subscribes when `showOperationFeedback: true`
-  /// (default).
+  /// `NomaChatView` subscribes when
+  /// `ChatViewBehaviors.showOperationFeedback` is true (default).
   Stream<OperationSuccess> get successes => _successes.stream;
 
   /// Adds [result]'s failure to [errors] when it failed, then returns

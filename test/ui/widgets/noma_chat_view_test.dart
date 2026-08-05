@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 
+import '../../_helpers/material_localizations_for_any_locale.dart';
+
 void main() {
   late MockChatClient mockClient;
   late ChatUiAdapter adapter;
@@ -50,6 +52,33 @@ void main() {
       expect(find.byType(ChatRoomAppBar), findsOneWidget);
       expect(find.byType(ChatView), findsOneWidget);
       expect(find.text('Team'), findsOneWidget);
+    });
+
+    testWidgets('hands the adapter the localizations the tree resolved', (
+      tester,
+    ) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Alice'),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          locale: const Locale('es'),
+          localizationsDelegates: const [
+            ChatUiLocalizations.delegate,
+            ...anyLocaleMaterialDelegates,
+          ],
+          supportedLocales: ChatUiLocalizations.supportedLocales,
+          home: NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(adapter.l10n.localeCode, 'es');
     });
 
     testWidgets('shows the composer for a normal room', (tester) async {
@@ -132,6 +161,57 @@ void main() {
         expect(observedDefaults!.contains(MessageAction.report), isTrue);
       },
     );
+
+    testWidgets('forward is not offered by default — the SDK has no room '
+        'picker to answer the tile with', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        chatViewOf(tester).behaviors.contextMenuActions,
+        isNot(contains(MessageAction.forward)),
+      );
+    });
+
+    testWidgets('a host that wires forwarding adds the action back', (
+      tester,
+    ) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            contextMenuActionsResolver: (room, defaults) => {
+              ...defaults,
+              MessageAction.forward,
+            },
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        chatViewOf(tester).behaviors.contextMenuActions,
+        contains(MessageAction.forward),
+      );
+    });
 
     testWidgets('admin in a group gets pin in the default actions', (
       tester,
@@ -296,7 +376,6 @@ void main() {
         final behaviors = chatViewOf(tester).behaviors;
         expect(behaviors.connectionState, ChatConnectionState.connecting);
         expect(behaviors.enableMentions, isTrue);
-        expect(behaviors.contextMenuActions, contains(MessageAction.forward));
         expect(behaviors.contextMenuActions, contains(MessageAction.star));
         expect(behaviors.showAttachButton, isTrue);
         expect(behaviors.showVoiceButton, isTrue);
@@ -626,6 +705,38 @@ void main() {
 
       expect(called, isTrue);
       expect(tapped?.id, 'room1');
+    });
+
+    testWidgets('the app bar title row claims no tap without onAppBarTap', (
+      tester,
+    ) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        tester.widget<ChatRoomAppBar>(find.byType(ChatRoomAppBar)).onTap,
+        isNull,
+      );
+      final inkWells = tester.widgetList<InkWell>(
+        find.descendant(
+          of: find.byType(ChatRoomAppBar),
+          matching: find.byType(InkWell),
+        ),
+      );
+      expect(inkWells, isNotEmpty);
+      expect(inkWells.every((w) => w.onTap == null), isTrue);
     });
 
     testWidgets('appBarActions are rendered in the default app bar', (
@@ -1059,6 +1170,179 @@ void main() {
 
       expect(tapped?.id, 'm1');
       expect(find.byType(ImageViewer), findsNothing);
+    });
+  });
+
+  group('NomaChatView — operation feedback', () {
+    final l10n = ChatTheme.defaults.l10n;
+
+    void addRoom() => adapter.roomListController.addRoom(
+      const RoomListItem(id: 'room1', name: 'Alice'),
+    );
+
+    Future<void> settleEvent(WidgetTester tester) async {
+      await tester.pump();
+      await tester.pump();
+    }
+
+    testWidgets('is mounted by default, wired to both adapter streams', (
+      tester,
+    ) async {
+      addRoom();
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(OperationFeedbackListener), findsOneWidget);
+      final listener = tester.widget<OperationFeedbackListener>(
+        find.byType(OperationFeedbackListener),
+      );
+      expect(listener.successes, adapter.operationSuccesses);
+      expect(listener.errors, adapter.operationErrors);
+
+      adapter.emitOperationSuccess(OperationKind.pinMessage);
+      await settleEvent(tester);
+
+      expect(find.text(l10n.feedbackMessagePinned), findsOneWidget);
+    });
+
+    testWidgets('speaks the localization the host put on the theme', (
+      tester,
+    ) async {
+      addRoom();
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            theme: const ChatTheme(l10n: ChatUiLocalizations.es),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      adapter.emitOperationSuccess(OperationKind.pinMessage);
+      await settleEvent(tester);
+
+      expect(
+        find.text(ChatUiLocalizations.es.feedbackMessagePinned),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('showOperationFeedback: false mounts nothing and stays quiet', (
+      tester,
+    ) async {
+      addRoom();
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            behaviors: const ChatViewBehaviors(showOperationFeedback: false),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(OperationFeedbackListener), findsNothing);
+
+      adapter.emitOperationSuccess(OperationKind.pinMessage);
+      await settleEvent(tester);
+
+      expect(find.byType(SnackBar), findsNothing);
+    });
+
+    testWidgets('a listener the host mounted above the view is not doubled', (
+      tester,
+    ) async {
+      addRoom();
+
+      await tester.pumpWidget(
+        wrap(
+          OperationFeedbackListener(
+            successes: adapter.operationSuccesses,
+            errors: adapter.operationErrors,
+            labelBuilder: (_, __, ___) => 'host feedback',
+            child: NomaChatView(
+              roomId: 'room1',
+              adapter: adapter,
+              hydrateGroupMembers: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(OperationFeedbackListener), findsOneWidget);
+
+      adapter.emitOperationSuccess(OperationKind.pinMessage);
+      await settleEvent(tester);
+
+      expect(find.text('host feedback'), findsOneWidget);
+      expect(find.text(l10n.feedbackMessagePinned), findsNothing);
+
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+
+      expect(find.text(l10n.feedbackMessagePinned), findsNothing);
+    });
+
+    testWidgets('a host listener mounted without errors keeps its successes '
+        'and still gets the failures covered', (tester) async {
+      addRoom();
+
+      await tester.pumpWidget(
+        wrap(
+          OperationFeedbackListener(
+            successes: adapter.operationSuccesses,
+            labelBuilder: (_, __, ___) => 'host feedback',
+            child: NomaChatView(
+              roomId: 'room1',
+              adapter: adapter,
+              hydrateGroupMembers: false,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final listeners = tester
+          .widgetList<OperationFeedbackListener>(
+            find.byType(OperationFeedbackListener),
+          )
+          .toList();
+      expect(listeners, hasLength(2));
+
+      final mounted = listeners.singleWhere((l) => l.errors != null);
+      expect(mounted.errors, adapter.operationErrors);
+      expect(mounted.successes, isNot(adapter.operationSuccesses));
+
+      adapter.emitOperationSuccess(OperationKind.pinMessage);
+      await settleEvent(tester);
+
+      expect(find.text('host feedback'), findsOneWidget);
+      expect(find.text(l10n.feedbackMessagePinned), findsNothing);
+
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump();
+
+      expect(find.byType(SnackBar), findsNothing);
     });
   });
 }

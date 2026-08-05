@@ -256,7 +256,7 @@ class _ImageBubbleState extends State<ImageBubble> {
     final uploadProgress = widget.uploadProgress;
     return Semantics(
       image: true,
-      label: caption ?? theme.l10n.imagePreview,
+      label: caption ?? theme.l10nOf(context).imagePreview,
       child: GestureDetector(
         // No tap-to-open while the upload is still in flight — there is
         // no usable URL yet.

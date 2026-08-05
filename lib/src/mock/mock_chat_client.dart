@@ -618,6 +618,8 @@ class MockRoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+    String? lastMessageReactionTargetText,
+    MessageType? lastMessageReactionTargetType,
   }) async {}
 
   final Set<String> _deletedRoomIds = {};
@@ -1258,12 +1260,19 @@ class MockAttachmentsApi implements ChatAttachmentsApi {
   /// bubble failed) without a bespoke fake.
   bool failNextUpload = false;
 
+  /// How many times [upload] has been called, failures included. Lets a
+  /// test assert that a path which re-posts an already-uploaded blob — a
+  /// `retrySend` on an attachment whose send failed — does not upload the
+  /// bytes a second time.
+  int uploadCount = 0;
+
   @override
   Future<ChatResult<AttachmentUploadResult>> upload(
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
   }) async {
+    uploadCount++;
     if (failNextUpload) {
       failNextUpload = false;
       return const ChatFailureResult(NetworkFailure('mock upload failure'));

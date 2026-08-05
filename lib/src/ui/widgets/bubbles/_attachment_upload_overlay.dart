@@ -33,7 +33,9 @@ class AttachmentUploadRing extends StatelessWidget {
       builder: (context, value, _) {
         final clamped = value.clamp(0.0, 1.0);
         return Semantics(
-          label: theme.l10n.attachmentUploadingLabel((clamped * 100).round()),
+          label: theme
+              .l10nOf(context)
+              .attachmentUploadingLabel((clamped * 100).round()),
           child: SizedBox(
             width: size,
             height: size,

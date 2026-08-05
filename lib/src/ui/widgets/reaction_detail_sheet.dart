@@ -164,7 +164,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
         height: height,
         child: Center(
           child: Text(
-            _error ?? widget.theme.l10n.error,
+            _error ?? widget.theme.l10nOf(context).error,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),
@@ -200,7 +200,10 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
             ).colorScheme.onSurfaceVariant,
             indicatorColor: Theme.of(context).colorScheme.primary,
             tabs: [
-              Tab(text: '${widget.theme.l10n.allReactions} $totalCount'),
+              Tab(
+                text:
+                    '${widget.theme.l10nOf(context).allReactions} $totalCount',
+              ),
               ...reactions.map((r) => Tab(text: '${r.emoji} ${r.count}')),
             ],
           ),
@@ -245,7 +248,9 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
             size: 40,
           ),
           title: Text(
-            isCurrentUser ? widget.theme.l10n.you : item.user.displayName,
+            isCurrentUser
+                ? widget.theme.l10nOf(context).you
+                : item.user.displayName,
             style: widget.theme.reactionDetailUserNameStyle,
           ),
           trailing: Row(
@@ -255,7 +260,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
               if (isCurrentUser) ...[
                 const SizedBox(width: 8),
                 Semantics(
-                  label: widget.theme.l10n.removeReaction,
+                  label: widget.theme.l10nOf(context).removeReaction,
                   button: true,
                   child: IconButton(
                     icon: Icon(

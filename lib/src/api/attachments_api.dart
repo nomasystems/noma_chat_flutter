@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:meta/meta.dart' show experimental;
 
+import '../_internal/http/chat_exception.dart';
 import '../_internal/http/exception_mapper.dart';
 import '../_internal/http/rest_client.dart';
 import '../_internal/mappers/message_mapper.dart';
@@ -41,9 +42,17 @@ class AttachmentsApi implements ChatAttachmentsApi {
       onProgress: onProgress,
     );
     final att = _asMap(json['attachment']) ?? json;
+    final attachmentId = (att['attachmentId'] ?? att['id'] ?? '') as String;
+    final url = (att['getUrl'] ?? att['url']) as String?;
+    if (attachmentId.isEmpty && (url ?? '').isEmpty) {
+      throw const ChatApiException(
+        statusCode: 502,
+        message: 'attachment upload returned neither an id nor a url',
+      );
+    }
     return AttachmentUploadResult(
-      attachmentId: (att['attachmentId'] ?? att['id'] ?? '') as String,
-      url: (att['getUrl'] ?? att['url']) as String?,
+      attachmentId: attachmentId,
+      url: url,
       metadata: att['metadata'] is String
           ? att['metadata'] as String
           : att['metadata'] != null

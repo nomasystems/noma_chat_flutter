@@ -106,7 +106,7 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
     return '';
   }
 
-  String? _resolveSubtitle() {
+  String? _resolveSubtitle(BuildContext context) {
     // Priority: typers → presence → member count.
     final typers = controller.typingUserIds.toList();
     if (typers.isNotEmpty) {
@@ -121,19 +121,24 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
           })
           .whereType<String>()
           .toList();
-      if (names.isEmpty) return theme.l10n.typing;
+      if (names.isEmpty) return theme.l10nOf(context).typing;
       if (names.length == 1) {
-        return theme.l10n.typingOneTemplate.replaceAll('{name}', names[0]);
+        return theme
+            .l10nOf(context)
+            .typingOneTemplate
+            .replaceAll('{name}', names[0]);
       }
       if (names.length == 2) {
-        return theme.l10n.typingTwoTemplate
+        return theme
+            .l10nOf(context)
+            .typingTwoTemplate
             .replaceAll('{name1}', names[0])
             .replaceAll('{name2}', names[1]);
       }
-      return theme.l10n.typingManyTemplate.replaceAll(
-        '{count}',
-        names.length.toString(),
-      );
+      return theme
+          .l10nOf(context)
+          .typingManyTemplate
+          .replaceAll('{count}', names.length.toString());
     }
 
     final r = room;
@@ -141,14 +146,19 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
       if (r.isGroup) {
         final count = r.memberCount;
         if (count != null && count > 0) {
-          return '$count ${theme.l10n.members}';
+          return '$count ${theme.l10nOf(context).members}';
         }
       } else if (r.isOnline == true) {
-        return theme.l10n.online;
+        return theme.l10nOf(context).online;
       } else if (r.lastSeen != null) {
-        return theme.l10n.lastSeen(
-          DateFormatter.formatRelative(r.lastSeen!, l10n: theme.l10n),
-        );
+        return theme
+            .l10nOf(context)
+            .lastSeen(
+              DateFormatter.formatRelative(
+                r.lastSeen!,
+                l10n: theme.l10nOf(context),
+              ),
+            );
       }
     }
     return null;
@@ -163,7 +173,7 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
       animation: animation,
       builder: (context, _) {
         final resolvedTitle = _resolveTitle();
-        final subtitle = _resolveSubtitle();
+        final subtitle = _resolveSubtitle(context);
         final avatar =
             avatarBuilder?.call(context) ??
             UserAvatar(
@@ -191,7 +201,7 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
               ? null
               : IconButton(
                   icon: const Icon(Icons.arrow_back),
-                  tooltip: theme.l10n.back,
+                  tooltip: theme.l10nOf(context).back,
                   onPressed: onBack,
                 ),
           titleSpacing: 0,
@@ -229,7 +239,7 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
                               color:
                                   theme.roomList.pinnedIconColor ??
                                   Colors.black54,
-                              semanticLabel: theme.l10n.pin,
+                              semanticLabel: theme.l10nOf(context).pin,
                             ),
                           ],
                           if (room?.muted == true) ...[
@@ -240,7 +250,7 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
                               color:
                                   theme.roomList.mutedIconColor ??
                                   Colors.black54,
-                              semanticLabel: theme.l10n.mute,
+                              semanticLabel: theme.l10nOf(context).mute,
                             ),
                           ],
                         ],

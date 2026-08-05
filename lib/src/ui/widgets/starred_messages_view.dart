@@ -120,7 +120,7 @@ class _StarredMessagesViewState extends State<StarredMessagesView> {
 
   Future<void> _confirmUnstar(StarredMessage starred) async {
     if (widget.onUnstar == null) return;
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final confirmed = await ChatRoomOptionsMenu.showConfirmation(
       context: context,
       confirmation: ChatRoomOptionConfirmation(
@@ -138,7 +138,7 @@ class _StarredMessagesViewState extends State<StarredMessagesView> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final df = widget.dateFormat ?? DateFormat.yMMMd().add_jm();
     return FutureBuilder<List<StarredMessage>>(
       future: _future,

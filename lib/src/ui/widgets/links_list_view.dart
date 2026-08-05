@@ -101,7 +101,7 @@ class LinksListView extends StatelessWidget {
     if (links.isEmpty) {
       return EmptyState(
         icon: Icons.link_off,
-        title: theme.l10n.galleryNoLinks,
+        title: theme.l10nOf(context).galleryNoLinks,
         theme: theme,
       );
     }
@@ -114,7 +114,10 @@ class LinksListView extends StatelessWidget {
         final subtitleParts = <String>[];
         if (link.timestamp != null) {
           subtitleParts.add(
-            DateFormatter.formatRelative(link.timestamp!, l10n: theme.l10n),
+            DateFormatter.formatRelative(
+              link.timestamp!,
+              l10n: theme.l10nOf(context),
+            ),
           );
         }
         // Resolve the sender id to a friendly display name when a

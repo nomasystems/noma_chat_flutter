@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -224,6 +225,133 @@ void main() {
       );
 
       expect(find.byType(ReadReceiptAvatars), findsNothing);
+    });
+  });
+
+  group('MessageBubble link taps', () {
+    const url = 'https://example.com/a';
+
+    /// Finds the recognizer attached to the rendered span whose text is
+    /// exactly `url`. `null` means the span was painted as a link but left
+    /// unclickable — the shape of the bug this group guards.
+    TapGestureRecognizer? linkRecognizer(WidgetTester tester) {
+      TapGestureRecognizer? found;
+      for (final rich in tester.widgetList<RichText>(find.byType(RichText))) {
+        rich.text.visitChildren((span) {
+          if (span is TextSpan && span.text == url) {
+            final recognizer = span.recognizer;
+            if (recognizer is TapGestureRecognizer) found = recognizer;
+            return false;
+          }
+          return true;
+        });
+        if (found != null) break;
+      }
+      return found;
+    }
+
+    testWidgets('forwards onTapLink to the text bubble it builds', (
+      tester,
+    ) async {
+      String? opened;
+
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: makeMessage(text: 'see $url now'),
+            isOutgoing: false,
+            onSwipeToReply: () {},
+            onTapLink: (value) => opened = value,
+          ),
+        ),
+      );
+
+      final recognizer = linkRecognizer(tester);
+      expect(recognizer, isNotNull);
+
+      recognizer!.onTap!();
+      expect(opened, url);
+    });
+
+    testWidgets('leaves the url span without a recognizer when unwired', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: makeMessage(text: 'see $url now'),
+            isOutgoing: false,
+            onSwipeToReply: () {},
+          ),
+        ),
+      );
+
+      expect(linkRecognizer(tester), isNull);
+    });
+  });
+
+  group('MessageBubble mention taps', () {
+    /// The rendered span for a given piece of the message text, reached
+    /// through the real chain: `MessageBubble` → `TextBubble` →
+    /// `parseMarkdown`.
+    TextSpan? spanFor(WidgetTester tester, String needle) {
+      TextSpan? found;
+      for (final rich in tester.widgetList<RichText>(find.byType(RichText))) {
+        rich.text.visitChildren((span) {
+          if (span is TextSpan && span.text == needle) {
+            found = span;
+            return false;
+          }
+          return true;
+        });
+        if (found != null) break;
+      }
+      return found;
+    }
+
+    testWidgets('forwards onTapMention to the text bubble it builds', (
+      tester,
+    ) async {
+      String? opened;
+
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: makeMessage(text: 'hi @alice!'),
+            isOutgoing: false,
+            onSwipeToReply: () {},
+            onTapMention: (value) => opened = value,
+          ),
+        ),
+      );
+
+      final mention = spanFor(tester, '@alice');
+      expect(mention, isNotNull);
+      expect(mention!.style?.fontWeight, FontWeight.w600);
+
+      (mention.recognizer! as TapGestureRecognizer).onTap!();
+      expect(opened, 'alice');
+    });
+
+    testWidgets('paints no tappable affordance when unwired', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: makeMessage(text: 'hi @alice!'),
+            isOutgoing: false,
+            onSwipeToReply: () {},
+          ),
+        ),
+      );
+
+      final mention = spanFor(tester, '@alice');
+      expect(mention, isNotNull);
+      expect(mention!.recognizer, isNull);
+      expect(
+        mention.style,
+        spanFor(tester, 'hi ')?.style,
+        reason: 'an unhandled mention reads exactly like the words around it',
+      );
     });
   });
 }

@@ -43,7 +43,7 @@ class LocationBubble extends StatelessWidget {
     final hasMapPreview = mapBuilder != null || staticMapUrl != null;
 
     return Semantics(
-      label: label ?? theme.l10n.locationMessage,
+      label: label ?? theme.l10nOf(context).locationMessage,
       button: onTap != null,
       child: GestureDetector(
         onTap: onTap,

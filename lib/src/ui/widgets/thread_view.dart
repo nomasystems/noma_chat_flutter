@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../controller/chat_controller.dart';
 import '../theme/chat_theme.dart';
+import '../utils/safe_url.dart';
 import 'message_bubble.dart';
 import 'message_input.dart';
 
@@ -18,6 +19,8 @@ class ThreadView extends StatelessWidget {
     this.theme = ChatTheme.defaults,
     this.currentUserId,
     this.messageBubbleBuilder,
+    this.onTapLink,
+    this.onTapMention,
   });
 
   final ChatMessage parentMessage;
@@ -29,6 +32,17 @@ class ThreadView extends StatelessWidget {
   final ChatTheme theme;
   final String? currentUserId;
   final Widget Function(BuildContext, ChatMessage, bool)? messageBubbleBuilder;
+
+  /// Opens a URL tapped inside a reply. Defaults to the same system-browser
+  /// handler `ChatView` uses for the timeline ([openWebUrl]), so a link in
+  /// a thread behaves like the identical-looking link one screen back
+  /// without the host wiring anything. Pass your own to take it over.
+  final ValueChanged<String>? onTapLink;
+
+  /// Opens the profile behind an `@mention` tapped inside a reply. No
+  /// default — same rule as `ChatViewCallbacks.onTapMention`: while it is
+  /// `null` mentions stay plain text rather than looking tappable.
+  final ValueChanged<String>? onTapMention;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +68,8 @@ class ThreadView extends StatelessWidget {
                     message: message,
                     isOutgoing: isOutgoing,
                     theme: theme,
+                    onTapLink: onTapLink ?? openWebUrl,
+                    onTapMention: onTapMention,
                   );
                 },
               );
@@ -64,7 +80,9 @@ class ThreadView extends StatelessWidget {
           controller: controller,
           onSendMessageRequest: (request) => onSendReply?.call(request.text),
           theme: theme.copyWith(
-            l10n: theme.l10n.copyWith(writeMessage: theme.l10n.replyInThread),
+            l10n: theme
+                .l10nOf(context)
+                .copyWith(writeMessage: theme.l10nOf(context).replyInThread),
           ),
           showAttachButton: false,
           showVoiceButton: false,
@@ -83,7 +101,7 @@ class ThreadView extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  theme.l10n.thread,
+                  theme.l10nOf(context).thread,
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -91,11 +109,13 @@ class ThreadView extends StatelessWidget {
                 ),
                 if (replies.isNotEmpty || controller.messages.isNotEmpty)
                   Text(
-                    theme.l10n.replies(
-                      replies.isNotEmpty
-                          ? replies.length
-                          : controller.messages.length,
-                    ),
+                    theme
+                        .l10nOf(context)
+                        .replies(
+                          replies.isNotEmpty
+                              ? replies.length
+                              : controller.messages.length,
+                        ),
                     style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
                   ),
               ],
@@ -104,7 +124,7 @@ class ThreadView extends StatelessWidget {
           if (onClose != null)
             IconButton(
               icon: const Icon(Icons.close),
-              tooltip: theme.l10n.close,
+              tooltip: theme.l10nOf(context).close,
               onPressed: onClose,
             ),
         ],

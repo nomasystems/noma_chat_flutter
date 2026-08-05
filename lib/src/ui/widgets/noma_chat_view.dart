@@ -7,6 +7,7 @@ import '../../models/reaction.dart';
 import '../../models/room_user.dart';
 import '../../models/user.dart';
 import '../adapter/chat_ui_adapter.dart';
+import '../adapter/operation_error.dart';
 import '../controller/chat_controller.dart';
 import '../models/reaction_user.dart';
 import '../models/room_list_item.dart';
@@ -15,11 +16,13 @@ import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
 import '../utils/platform_support.dart';
+import '_ambient_l10n_adopter.dart';
 import 'chat_room_app_bar.dart';
 import 'chat_view.dart';
 import 'image_viewer.dart';
 import 'message_context_menu.dart';
 import 'message_info_sheet.dart';
+import 'operation_feedback_listener.dart';
 import 'report_message_dialog.dart';
 
 /// Signature for [NomaChatView.appBarBuilder] — builds the screen's app bar
@@ -68,6 +71,16 @@ typedef ContextMenuActionsResolver =
 /// The widget owns the active-room lifecycle: it marks [roomId] as the
 /// foregrounded conversation on mount (so incoming messages auto-mark read)
 /// and clears it on dispose.
+///
+/// It also mounts an [OperationFeedbackListener] over its own subtree, so
+/// operation feedback works with no host wiring: pin / unpin / delete
+/// confirm themselves, and the failures a bubble cannot express — a
+/// moderation rejection, a retry refused because the file was never
+/// uploaded — surface as a soft snackbar in [theme]'s language. A host
+/// that already wraps the view in a listener wired to both streams keeps
+/// exactly that one; a host with a different feedback pipeline turns the
+/// bundled one off with
+/// `ChatViewBehaviors(showOperationFeedback: false)`.
 class NomaChatView extends StatefulWidget {
   const NomaChatView({
     super.key,
@@ -133,7 +146,9 @@ class NomaChatView extends StatefulWidget {
 
   /// Invoked when the user taps the default app bar's title row. Typically
   /// opens a room-info / user-info screen. Ignored when [appBarBuilder] is
-  /// supplied.
+  /// supplied. When `null` the title row is not tappable at all — no ripple,
+  /// no consumed tap — because opening a room profile is the host's call and
+  /// the SDK has no default screen to route to.
   final void Function(RoomListItem? room)? onAppBarTap;
 
   /// Invoked when the room is removed out from under the view — either the
@@ -182,6 +197,12 @@ class _NomaChatViewState extends State<NomaChatView> {
   void initState() {
     super.initState();
     _bind();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    adoptAmbientL10nAfterFrame(widget.adapter, _theme, context);
   }
 
   void _bind() {
@@ -381,6 +402,16 @@ class _NomaChatViewState extends State<NomaChatView> {
   /// Default role-aware context-menu actions. `pin` is hidden when the
   /// current user lacks permission (owner/admin in any room; either member in
   /// a 2-person DM) so a tap never triggers a 403.
+  ///
+  /// `forward` is absent on purpose: picking the target rooms is a product
+  /// decision the package cannot make for the host, so the tile would open
+  /// the menu, close it and do nothing. A host that wires it adds it back
+  /// through [contextMenuActionsResolver] —
+  /// `(room, defaults) => {...defaults, MessageAction.forward}` — and
+  /// handles it in `ChatViewCallbacks.onContextMenuAction`, typically by
+  /// showing `MessageForwardSheet` and calling `adapter.messages.forward`,
+  /// whose confirmation snackbar the bundled [OperationFeedbackListener]
+  /// then shows on its own.
   Set<MessageAction> _defaultContextMenuActions(RoomListItem? room) {
     final role = room?.userRole;
     final isAdminOrOwner = role == RoomRole.owner || role == RoomRole.admin;
@@ -398,7 +429,6 @@ class _NomaChatViewState extends State<NomaChatView> {
       if (canPin) MessageAction.unpin,
       // Private per-user bookmark — available on any message.
       MessageAction.star,
-      MessageAction.forward,
       MessageAction.report,
     };
   }
@@ -438,7 +468,9 @@ class _NomaChatViewState extends State<NomaChatView> {
     final messenger = ScaffoldMessenger.of(context);
     await adapter.client.messages.report(roomId, message.id, reason: reason);
     if (!mounted) return;
-    messenger.showSnackBar(SnackBar(content: Text(_theme.l10n.reported)));
+    messenger.showSnackBar(
+      SnackBar(content: Text(_theme.l10nOf(context).reported)),
+    );
   }
 
   Future<void> _showMessageInfo(String roomId, ChatMessage message) async {
@@ -529,6 +561,7 @@ class _NomaChatViewState extends State<NomaChatView> {
           },
       onTapLocation: user.onTapLocation,
       onTapLink: user.onTapLink,
+      onTapMention: user.onTapMention,
       onShareLocation: user.onShareLocation,
       onAttachTap: user.onAttachTap,
       onPermissionDenied: user.onPermissionDenied,
@@ -711,10 +744,47 @@ class _NomaChatViewState extends State<NomaChatView> {
           isParticipating: room?.isParticipating ?? true,
           readOnly: room?.isReadOnly ?? false,
           readOnlyLabel: (room?.selfMuted ?? false)
-              ? _theme.l10n.mutedByAdmin
+              ? _theme.l10nOf(context).mutedByAdmin
               : null,
           isGroup: room?.isGroup ?? false,
         );
+  }
+
+  /// Wraps [child] in the bundled [OperationFeedbackListener] so operation
+  /// feedback reaches the user without any host wiring: the success
+  /// confirmations (pin, unpin, delete) and the failures a bubble cannot
+  /// express on its own — a moderation rejection, a retry refused because
+  /// the file was never uploaded.
+  ///
+  /// Mounts nothing when the host opted out via
+  /// `ChatViewBehaviors(showOperationFeedback: false)`, and mounts only
+  /// what a listener above this view is not already delivering: one wired
+  /// to both streams leaves nothing to add, one mounted without `errors`
+  /// keeps its success confirmations and gets the failures covered here.
+  /// No route ends up showing an event twice, and none leaves the
+  /// failures unheard.
+  Widget _withOperationFeedback(BuildContext context, Widget child) {
+    final behaviors = widget.behaviors;
+    if (behaviors != null && !behaviors.showOperationFeedback) return child;
+    final adapter = widget.adapter;
+    switch (OperationFeedbackListener.coverageAbove(context)) {
+      case OperationFeedbackCoverage.everything:
+        return child;
+      case OperationFeedbackCoverage.successesOnly:
+        return OperationFeedbackListener(
+          successes: const Stream<OperationSuccess>.empty(),
+          errors: adapter.operationErrors,
+          theme: _theme,
+          child: child,
+        );
+      case OperationFeedbackCoverage.none:
+        return OperationFeedbackListener(
+          successes: adapter.operationSuccesses,
+          errors: adapter.operationErrors,
+          theme: _theme,
+          child: child,
+        );
+    }
   }
 
   @override
@@ -728,9 +798,12 @@ class _NomaChatViewState extends State<NomaChatView> {
     // `ListenableBuilder` would re-subscribe to a dead notifier. Render the
     // neutral placeholder for the single frame until the deferred pop lands.
     if (controller == null || _autoLeft) {
-      return Scaffold(
-        appBar: AppBar(title: Text(widget.title ?? '')),
-        body: const Center(child: CircularProgressIndicator()),
+      return _withOperationFeedback(
+        context,
+        Scaffold(
+          appBar: AppBar(title: Text(widget.title ?? '')),
+          body: const Center(child: CircularProgressIndicator()),
+        ),
       );
     }
 
@@ -788,22 +861,27 @@ class _NomaChatViewState extends State<NomaChatView> {
                         id: peerId,
                         displayName: appBarRoom?.displayName,
                       ),
-            onTap: () => widget.onAppBarTap?.call(appBarRoom),
+            onTap: widget.onAppBarTap == null
+                ? null
+                : () => widget.onAppBarTap!(appBarRoom),
             actions: widget.appBarActions ?? const [],
           );
 
-    return Scaffold(
-      appBar: appBar,
-      body: ChatView(
-        controller: controller,
-        theme: _theme,
-        backgroundWidget: widget.backgroundWidget,
-        behaviors: _resolveBehaviors(room: room, isBlocked: isBlocked),
-        builders: _resolveBuilders(),
-        callbacks: _resolveCallbacks(
-          sendKey: sendKey,
-          isBlocked: isBlocked,
-          blockOtherUserId: blockOtherUserId,
+    return _withOperationFeedback(
+      context,
+      Scaffold(
+        appBar: appBar,
+        body: ChatView(
+          controller: controller,
+          theme: _theme,
+          backgroundWidget: widget.backgroundWidget,
+          behaviors: _resolveBehaviors(room: room, isBlocked: isBlocked),
+          builders: _resolveBuilders(),
+          callbacks: _resolveCallbacks(
+            sendKey: sendKey,
+            isBlocked: isBlocked,
+            blockOtherUserId: blockOtherUserId,
+          ),
         ),
       ),
     );

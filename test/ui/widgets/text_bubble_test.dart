@@ -62,5 +62,37 @@ void main() {
       expect(find.byType(Text), findsOneWidget);
       expect(find.byType(SelectableText), findsNothing);
     });
+
+    testWidgets('selection yields to a tap target so the link can fire', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          TextBubble(
+            text: 'see https://example.com now',
+            isOutgoing: true,
+            onTapLink: (_) {},
+          ),
+        ),
+      );
+
+      expect(
+        find.byType(SelectableText),
+        findsNothing,
+        reason: 'SelectableText.rich never dispatches TextSpan.recognizer',
+      );
+    });
+
+    testWidgets('a message with no tap target keeps selection', (tester) async {
+      await tester.pumpWidget(
+        wrap(TextBubble(text: 'Hello', isOutgoing: true, onTapLink: (_) {})),
+      );
+
+      expect(
+        find.byType(SelectableText),
+        findsOneWidget,
+        reason: 'the trade-off is per message, not per wired handler',
+      );
+    });
   });
 }
