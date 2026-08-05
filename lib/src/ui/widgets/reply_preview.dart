@@ -47,28 +47,37 @@ class ReplyPreview extends StatelessWidget {
         mimeType.startsWith('image/');
   }
 
-  (IconData?, String) _resolveContent() {
+  (IconData?, String) _resolveContent(BuildContext context) {
     final mimeType = message.mimeType?.toLowerCase() ?? '';
     final hasText = message.text != null && message.text!.isNotEmpty;
 
     if (message.messageType == MessageType.audio ||
         (message.messageType == MessageType.attachment &&
             mimeType.startsWith('audio/'))) {
-      return (Icons.mic, hasText ? message.text! : theme.l10n.audioPreview);
+      return (
+        Icons.mic,
+        hasText ? message.text! : theme.l10nOf(context).audioPreview,
+      );
     }
 
     if (message.messageType == MessageType.attachment) {
       if (mimeType.startsWith('image/')) {
-        return (Icons.image, hasText ? message.text! : theme.l10n.imagePreview);
+        return (
+          Icons.image,
+          hasText ? message.text! : theme.l10nOf(context).imagePreview,
+        );
       }
       if (mimeType.startsWith('video/')) {
         return (
           Icons.videocam,
-          hasText ? message.text! : theme.l10n.videoPreview,
+          hasText ? message.text! : theme.l10nOf(context).videoPreview,
         );
       }
       final fileName = message.fileName ?? message.text;
-      return (Icons.attach_file, fileName ?? theme.l10n.attachmentPreview);
+      return (
+        Icons.attach_file,
+        fileName ?? theme.l10nOf(context).attachmentPreview,
+      );
     }
 
     return (null, message.text ?? '');
@@ -111,7 +120,7 @@ class ReplyPreview extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (icon, text) = _resolveContent();
+    final (icon, text) = _resolveContent(context);
     final textStyle =
         theme.input.replyPreviewTextStyle ??
         const TextStyle(fontSize: 12, color: Colors.black54);
@@ -172,7 +181,7 @@ class ReplyPreview extends StatelessWidget {
             ),
           if (onDismiss != null)
             Semantics(
-              label: theme.l10n.close,
+              label: theme.l10nOf(context).close,
               button: true,
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,

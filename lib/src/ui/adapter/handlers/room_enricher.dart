@@ -48,7 +48,7 @@ class RoomEnricher {
     required this.presence,
     required ChatUser Function() currentUser,
     required this.cache,
-    required ChatUiLocalizations l10n,
+    required ChatUiLocalizations Function() l10n,
     required ValueNotifier<bool> initializedNotifier,
     required ValueNotifier<ChatConnectionState> connectionStateNotifier,
     required bool Function() isDisposed,
@@ -95,7 +95,7 @@ class RoomEnricher {
   final ChatLocalDatasource? cache;
 
   final ChatUser Function() _currentUser;
-  final ChatUiLocalizations _l10n;
+  final ChatUiLocalizations Function() _l10n;
   final ValueNotifier<bool> _initializedNotifier;
   final ValueNotifier<ChatConnectionState> _connectionStateNotifier;
   final bool Function() _isDisposed;
@@ -413,6 +413,12 @@ class RoomEnricher {
         lastMessageReactionEmoji: isCleared
             ? null
             : unread.lastMessageReactionEmoji,
+        lastMessageReactionTargetText: isCleared
+            ? null
+            : unread.lastMessageReactionTargetText,
+        lastMessageReactionTargetType: isCleared
+            ? null
+            : unread.lastMessageReactionTargetType,
         // Own last message → 0 unread (sending implies reading). Guards
         // the cold-load path against the backend counting the sender's own
         // message; the RefreshEngine has the polling-path twin.
@@ -907,10 +913,15 @@ class RoomEnricher {
       userRole: detail.userRole,
       memberCount: detail.memberCount,
       custom: detail.custom,
-      lastMessage: lastMessage?.text,
+      lastMessage: lastMessage?.isDeleted == true ? null : lastMessage?.text,
       lastMessageTime: lastMessage?.timestamp,
       lastMessageUserId: lastMessage?.from,
       lastMessageId: lastMessage?.id,
+      lastMessageType: lastMessage?.messageType,
+      lastMessageMimeType: lastMessage?.mimeType,
+      lastMessageFileName: lastMessage?.fileName,
+      lastMessageDurationMs: _durationMsOf(lastMessage),
+      lastMessageIsDeleted: lastMessage?.isDeleted ?? false,
       // A room added from an incoming message starts with 1 unread
       // when that message is from someone else (e.g. you were just
       // added to a group and the creator's first message arrives).
@@ -1167,7 +1178,7 @@ class RoomEnricher {
       final base = (ownName == null || ownName.isEmpty)
           ? _currentUser().id
           : ownName;
-      return _l10n.selfChatTitle(base);
+      return _l10n().selfChatTitle(base);
     }
     return null;
   }
@@ -1222,6 +1233,8 @@ class RoomEnricher {
       lastMessageDurationMs: unread?.lastMessageDurationMs,
       lastMessageIsDeleted: unread?.lastMessageIsDeleted ?? false,
       lastMessageReactionEmoji: unread?.lastMessageReactionEmoji,
+      lastMessageReactionTargetText: unread?.lastMessageReactionTargetText,
+      lastMessageReactionTargetType: unread?.lastMessageReactionTargetType,
       muted: unread?.muted ?? false,
       muteUntil: unread?.muteUntil,
       pinned: unread?.pinned ?? false,
@@ -1235,5 +1248,14 @@ class RoomEnricher {
     return effective == null
         ? base
         : base.copyWith(effectiveDisplayName: effective);
+  }
+
+  /// Recorded length of a voice note, in milliseconds, as the transport
+  /// carries it in the message metadata. `null` for anything else.
+  static int? _durationMsOf(ChatMessage? message) {
+    final raw = message?.metadata?['duration'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return null;
   }
 }

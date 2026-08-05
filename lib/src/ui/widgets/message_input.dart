@@ -50,6 +50,7 @@ class MessageInput extends StatefulWidget {
     this.enableMentions = false,
     this.mentionUsers = const [],
     this.attachmentMediaLoader,
+    @visibleForTesting this.voiceRecordingControllerFactory,
   });
 
   final ChatController controller;
@@ -126,6 +127,13 @@ class MessageInput extends StatefulWidget {
   /// `null` (default) keeps the plain-URL thumbnail unchanged.
   final AttachmentMediaLoader? attachmentMediaLoader;
 
+  /// Replaces the [VoiceRecordingController] the composer builds for each
+  /// capture. Test-only seam: it is what lets a widget test hold the
+  /// arming window open across frames instead of racing the platform
+  /// recorder.
+  @visibleForTesting
+  final VoiceRecordingControllerFactory? voiceRecordingControllerFactory;
+
   @override
   State<MessageInput> createState() => _MessageInputState();
 }
@@ -165,6 +173,7 @@ class _MessageInputState extends State<MessageInput> {
     widget.controller.addListener(_onControllerChanged);
     _voice = MessageInputVoiceController(
       maxRecordingDuration: widget.maxRecordingDuration,
+      recordingControllerFactory: widget.voiceRecordingControllerFactory,
     )..addListener(_onVoiceChanged);
     if (widget.enableLinkPreview) {
       _linkFetcher = widget.linkPreviewFetcher ?? LinkPreviewFetcher();
@@ -521,10 +530,10 @@ class _MessageInputState extends State<MessageInput> {
         onPickFile: widget.onPickFile,
         onShareLocation: widget.onShareLocation,
         extraOptions: widget.attachmentExtraOptions,
-        cameraLabel: widget.theme.l10n.camera,
-        galleryLabel: widget.theme.l10n.gallery,
-        fileLabel: widget.theme.l10n.file,
-        locationLabel: widget.theme.l10n.location,
+        cameraLabel: widget.theme.l10nOf(context).camera,
+        galleryLabel: widget.theme.l10nOf(context).gallery,
+        fileLabel: widget.theme.l10nOf(context).file,
+        locationLabel: widget.theme.l10nOf(context).location,
         theme: widget.theme,
       ),
     );
@@ -579,7 +588,7 @@ class _MessageInputState extends State<MessageInput> {
     if (_voice.isLockedOrPreListen) {
       child = _buildRecordingArea();
       key = 'locked';
-    } else if (_voice.isRecording) {
+    } else if (_voice.isRecording || _voice.isPreparing) {
       child = _buildActiveRecordingRow();
       key = 'recording';
     } else {
@@ -600,9 +609,9 @@ class _MessageInputState extends State<MessageInput> {
       ),
     );
 
-    Widget inputArea = content;
+    Widget inputArea = _withPersistentVoiceButton(content);
 
-    // Wrap in a long-press detector that persists across recording state
+    // Wrap in a pointer listener that persists across recording state
     // changes so slide-to-cancel and slide-to-lock gestures keep working
     // even after the UI switches from mic button to recording overlay.
     if (widget.showVoiceButton && widget.onVoiceMessageReady != null) {
@@ -684,7 +693,7 @@ class _MessageInputState extends State<MessageInput> {
             ),
           ),
           Semantics(
-            label: widget.theme.l10n.close,
+            label: widget.theme.l10nOf(context).close,
             button: true,
             child: GestureDetector(
               behavior: HitTestBehavior.opaque,
@@ -749,7 +758,7 @@ class _MessageInputState extends State<MessageInput> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        widget.theme.l10n.editing,
+                        widget.theme.l10nOf(context).editing,
                         style:
                             widget.theme.input.editingLabelStyle ??
                             const TextStyle(
@@ -773,7 +782,7 @@ class _MessageInputState extends State<MessageInput> {
                   ),
                 ),
                 Semantics(
-                  label: widget.theme.l10n.close,
+                  label: widget.theme.l10nOf(context).close,
                   button: true,
                   child: GestureDetector(
                     behavior: HitTestBehavior.opaque,
@@ -825,18 +834,31 @@ class _MessageInputState extends State<MessageInput> {
     );
   }
 
+  /// Whether the host's `recordingComposerBuilder` is what paints the
+  /// composer right now.
+  ///
+  /// It is documented as the layout "while voice recording is active", so
+  /// it is only called once capture really is live. During the arming
+  /// window the SDK's own [ActiveRecordingRow] stands in: a host builder
+  /// is entitled to assume `controller.state == recording`, and handing it
+  /// an idle controller with a zero duration and an empty waveform would
+  /// blank or flicker its composer on every touch.
+  bool get _usesCustomRecordingComposer =>
+      _voice.isRecording && widget.theme.input.recordingComposerBuilder != null;
+
   Widget _buildActiveRecordingRow() {
     final controller = _voice.recording!;
-    final custom = widget.theme.input.recordingComposerBuilder?.call(
-      context,
-      controller,
-      _sendVoiceMessage,
-    );
-    if (custom != null) return custom;
+    if (_usesCustomRecordingComposer) {
+      return widget.theme.input.recordingComposerBuilder!(
+        context,
+        controller,
+        _sendVoiceMessage,
+      );
+    }
     return ActiveRecordingRow(
       controller: controller,
       theme: widget.theme,
-      voiceButton: _buildVoiceButtonForRecording(),
+      voiceButtonSlot: _voiceButtonSlot,
     );
   }
 
@@ -861,7 +883,7 @@ class _MessageInputState extends State<MessageInput> {
               textAlignVertical: TextAlignVertical.center,
               style: widget.theme.input.textStyle,
               decoration: InputDecoration(
-                hintText: widget.theme.l10n.writeMessage,
+                hintText: widget.theme.l10nOf(context).writeMessage,
                 hintStyle: widget.theme.input.hintStyle,
                 hintMaxLines: 1,
                 border: _composerBorder(),
@@ -886,7 +908,7 @@ class _MessageInputState extends State<MessageInput> {
               _buildCameraButton(),
               const SizedBox(width: 12),
             ],
-            _buildVoiceButton(),
+            _voiceButtonSlot,
           ],
         ],
       ),
@@ -909,7 +931,7 @@ class _MessageInputState extends State<MessageInput> {
 
   Widget _buildSendButton() {
     return Semantics(
-      label: widget.theme.l10n.send,
+      label: widget.theme.l10nOf(context).send,
       button: true,
       enabled: _hasText,
       child: GestureDetector(
@@ -948,7 +970,7 @@ class _MessageInputState extends State<MessageInput> {
 
   Widget _buildAttachButton() {
     return Semantics(
-      label: widget.theme.l10n.gallery,
+      label: widget.theme.l10nOf(context).gallery,
       button: true,
       child: GestureDetector(
         onTap: widget.onAttachTap ?? _showAttachmentPicker,
@@ -970,7 +992,7 @@ class _MessageInputState extends State<MessageInput> {
 
   Widget _buildCameraButton() {
     return Semantics(
-      label: widget.theme.l10n.camera,
+      label: widget.theme.l10nOf(context).camera,
       button: true,
       child: GestureDetector(
         onTap: widget.onPickCamera,
@@ -1006,26 +1028,70 @@ class _MessageInputState extends State<MessageInput> {
     );
   }
 
-  /// Idle mic button — NO LayerLink target. Used by `_buildInputRow`
-  /// when the composer is in resting state. Wrapping it in a
-  /// `CompositedTransformTarget` here would collide with the same
-  /// target inside [ActiveRecordingRow] during the `AnimatedSwitcher`
-  /// cross-fade (both are alive for ~200 ms) and trip the Flutter
-  /// `_debugPreviousLeaders!.isEmpty` assertion on the shared
-  /// `_voiceButtonLink`. The lock-hint overlay only needs the link
-  /// while recording, so attaching it exclusively in the recording
-  /// row is enough.
-  Widget _buildVoiceButton() => KeyedSubtree(
-    key: _voiceButtonKey,
-    child: VoiceRecorderButton(theme: widget.theme),
-  );
+  /// Reserves the footprint of the mic button inside a composer row. The
+  /// button itself is painted over the rows — see
+  /// [_withPersistentVoiceButton].
+  static const Widget _voiceButtonSlot = SizedBox(width: 40, height: 40);
 
-  /// Active-recording mic button — wraps the idle button in a
-  /// `CompositedTransformTarget` so the lock-hint `OverlayEntry` can
-  /// position itself above the mic via `_voiceButtonLink`. Only used
-  /// from [ActiveRecordingRow].
-  Widget _buildVoiceButtonForRecording() => CompositedTransformTarget(
-    link: _voiceButtonLink,
-    child: VoiceRecorderButton(theme: widget.theme),
-  );
+  /// Trailing inset of the persistent mic button. Matches the horizontal
+  /// padding of the composer rows, so the floating button lands exactly on
+  /// the slot each row reserves for it. Directional, like the rows
+  /// themselves: the slot is the last child of a `Row`, so it swaps sides
+  /// under an RTL [Directionality] and the button has to follow.
+  static const EdgeInsetsDirectional _voiceButtonInset =
+      EdgeInsetsDirectional.only(end: 16);
+
+  /// Whether the persistent mic button paints anything for the row that is
+  /// on screen. It stays mounted either way (see
+  /// [_withPersistentVoiceButton]); this only decides whether it takes up
+  /// any space.
+  bool get _voiceButtonVisible {
+    if (!widget.showVoiceButton) return false;
+    if (_voice.isLockedOrPreListen) return false;
+    if (_voice.isRecording || _voice.isPreparing) {
+      return !_usesCustomRecordingComposer;
+    }
+    return !_hasText;
+  }
+
+  /// Paints the one and only mic button over the swapping composer rows.
+  ///
+  /// It lives OUTSIDE the `AnimatedSwitcher` on purpose. The switcher keeps
+  /// the outgoing row mounted for the whole 200 ms cross-fade, so a mic
+  /// button built inside the rows exists twice whenever the composer swaps
+  /// back and forth inside that window — which is precisely what a short
+  /// touch does now that the recording row goes up on touch down. Two live
+  /// copies means two widgets holding [_voiceButtonKey] (Flutter throws
+  /// "Multiple widgets used the same GlobalKey") and two leaders on
+  /// [_voiceButtonLink] (the `_debugPreviousLeaders` assertion, which is
+  /// what the previous split between an idle button and a recording one
+  /// was dodging). The key is held unconditionally so there is exactly one
+  /// holder at every instant, whatever the composer is showing.
+  ///
+  /// The leader on [_voiceButtonLink], on the other hand, only exists while
+  /// there is a button to lead: a leader over an empty rectangle would
+  /// anchor the "slide up to lock" pill to a zero-sized point at the very
+  /// edge of the screen, and `showWhenUnlinked: false` — the follower's own
+  /// safety net — would have nothing left to catch. That is what a host
+  /// painting its own recording composer would get.
+  Widget _withPersistentVoiceButton(Widget content) {
+    return Stack(
+      alignment: AlignmentDirectional.centerEnd,
+      children: [
+        content,
+        Padding(
+          padding: _voiceButtonInset,
+          child: KeyedSubtree(
+            key: _voiceButtonKey,
+            child: _voiceButtonVisible
+                ? CompositedTransformTarget(
+                    link: _voiceButtonLink,
+                    child: VoiceRecorderButton(theme: widget.theme),
+                  )
+                : const SizedBox.shrink(),
+          ),
+        ),
+      ],
+    );
+  }
 }

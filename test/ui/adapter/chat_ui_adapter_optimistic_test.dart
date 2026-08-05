@@ -124,7 +124,8 @@ void main() {
   });
 
   group('_updateRoomLastMessage', () {
-    test('uses emoji preview for attachment messages with null text', () async {
+    test('a text-less attachment leaves the text slot empty and is '
+        'previewed from its type', () async {
       await adapter.connect();
       adapter.roomListController.addRoom(
         const RoomListItem(id: 'room1', name: 'Test'),
@@ -145,10 +146,15 @@ void main() {
 
       final room = adapter.roomListController.getRoomById('room1');
       expect(room, isNotNull);
-      expect(room!.lastMessage, ChatUiLocalizations.en.attachmentPreview);
+      expect(room!.lastMessage, isNull);
+      expect(
+        buildLastMessagePreview(room, ChatUiLocalizations.es),
+        ChatUiLocalizations.es.previewDocument(ChatUiLocalizations.es.file),
+      );
     });
 
-    test('uses emoji preview for audio messages with null text', () async {
+    test('a text-less voice note leaves the text slot empty and is '
+        'previewed from its type', () async {
       await adapter.connect();
       adapter.roomListController.addRoom(
         const RoomListItem(id: 'room1', name: 'Test'),
@@ -168,7 +174,11 @@ void main() {
 
       final room = adapter.roomListController.getRoomById('room1');
       expect(room, isNotNull);
-      expect(room!.lastMessage, ChatUiLocalizations.en.audioPreview);
+      expect(room!.lastMessage, isNull);
+      expect(
+        buildLastMessagePreview(room, ChatUiLocalizations.es),
+        ChatUiLocalizations.es.audioPreview,
+      );
     });
   });
 

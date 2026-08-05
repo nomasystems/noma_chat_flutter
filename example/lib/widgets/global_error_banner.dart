@@ -38,10 +38,16 @@ class _GlobalErrorBannerState extends State<GlobalErrorBanner> {
   }
 
   void _onError(OperationError err) {
-    // Content-filter blocks are already surfaced by the in-room
-    // OperationFeedbackListener with a clean localized message, so skip them
-    // here to avoid a duplicate SnackBar.
-    if (err.failure is ContentFilterFailure) return;
+    // Failures the in-room OperationFeedbackListener already surfaces with
+    // a clean localized message are skipped here to avoid a duplicate
+    // SnackBar: content-filter blocks, and a retry refused because the
+    // row's file was never uploaded.
+    final failure = err.failure;
+    if (failure is ContentFilterFailure) return;
+    if (failure is ValidationFailure &&
+        failure.errors?['reason'] == 'attachment_never_uploaded') {
+      return;
+    }
     // The SDK emits these via `adapter.operationErrors` whenever an SDK call
     // from controllers (ChatController.send, RoomListController.refresh, …)
     // fails. Surface each one to the user as a SnackBar.

@@ -99,7 +99,7 @@ class MessageInfoSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     final readers = readersFor(
       message,
       receipts,

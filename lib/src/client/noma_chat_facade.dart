@@ -335,7 +335,12 @@ class NomaChat {
   ///
   /// [currentUser] — the authenticated user who owns this session.
   ///
-  /// [l10n] — UI string overrides. Defaults to English.
+  /// [l10n] — the bundle the adapter composes its off-screen strings with.
+  /// Defaults to English, and leaving it at that default is the usual
+  /// choice: the SDK's own views then hand the adapter whatever
+  /// `ChatUiLocalizations.delegate` resolves for the app locale. Passing
+  /// anything else takes the adapter's language into your own hands — the
+  /// views stop pushing, and `ChatUiAdapter.l10n` is yours to set.
   ///
   /// [isDmRoom] — predicate used by the adapter to classify rooms as DMs.
   /// When `null`, the UI cannot distinguish DMs from group rooms.

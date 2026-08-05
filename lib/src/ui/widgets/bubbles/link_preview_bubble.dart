@@ -2,9 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../theme/chat_theme.dart';
+import '../../utils/safe_url.dart';
 
 /// Bubble decoration that renders the OpenGraph-style preview of a link
 /// (image, title, description) above the underlying text bubble.
+///
+/// [url] is sender content — it arrives on the message `metadata`, which
+/// the transport copies through verbatim — so the card is painted only
+/// when that URL is an `http` / `https` address (see [webUrlOrNull]).
+/// A card carrying any other scheme renders nothing at all: it cannot be
+/// opened, and its title, description and image are chosen by whoever
+/// sent it, so showing it would offer a tap target that lies about where
+/// it goes.
 class LinkPreviewBubble extends StatelessWidget {
   const LinkPreviewBubble({
     super.key,
@@ -23,24 +32,20 @@ class LinkPreviewBubble extends StatelessWidget {
   final bool isOutgoing;
   final ChatTheme theme;
 
-  String get _domain {
-    try {
-      return Uri.parse(url).host;
-    } catch (_) {
-      return url;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
+    final uri = webUrlOrNull(url);
+    if (uri == null) return const SizedBox.shrink();
+    final domain = uri.host;
     return Semantics(
       link: true,
-      label: title ?? _domain,
+      label: title ?? domain,
       child: GestureDetector(
         onTap: () {
-          try {
-            launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-          } catch (_) {}
+          launchUrl(
+            uri,
+            mode: LaunchMode.externalApplication,
+          ).catchError((Object _) => false);
         },
         child: Container(
           decoration: BoxDecoration(
@@ -98,7 +103,7 @@ class LinkPreviewBubble extends StatelessWidget {
                     ],
                     const SizedBox(height: 4),
                     Text(
-                      _domain,
+                      domain,
                       style:
                           theme.linkPreviewDomainStyle ??
                           TextStyle(fontSize: 11, color: Colors.grey.shade500),

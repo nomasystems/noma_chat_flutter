@@ -442,7 +442,7 @@ class _AudioBubbleState extends State<AudioBubble> {
           Icon(Icons.error_outline, color: Colors.red.shade400, size: 20),
           const SizedBox(width: 8),
           Text(
-            widget.theme.l10n.audioError,
+            widget.theme.l10nOf(context).audioError,
             style: TextStyle(fontSize: 13, color: Colors.red.shade400),
           ),
         ],
@@ -564,9 +564,9 @@ class _AudioBubbleState extends State<AudioBubble> {
           final clamped = value.clamp(0.0, 1.0);
           final iconColor = widget.theme.audioPlayIconColor ?? Colors.white;
           return Semantics(
-            label: widget.theme.l10n.audioUploadingLabel(
-              (clamped * 100).round(),
-            ),
+            label: widget.theme
+                .l10nOf(context)
+                .audioUploadingLabel((clamped * 100).round()),
             child: SizedBox(
               width: 40,
               height: 40,
@@ -602,8 +602,8 @@ class _AudioBubbleState extends State<AudioBubble> {
     final playing = _playerState == PlayerState.playing;
     return Semantics(
       label: playing
-          ? widget.theme.l10n.audioPauseLabel
-          : widget.theme.l10n.audioPlayLabel,
+          ? widget.theme.l10nOf(context).audioPauseLabel
+          : widget.theme.l10nOf(context).audioPlayLabel,
       button: true,
       child: GestureDetector(
         onTap: _togglePlayPause,
@@ -761,7 +761,7 @@ class _AudioBubbleState extends State<AudioBubble> {
         ? outgoingText.withValues(alpha: 0.35)
         : (widget.theme.audioSpeedButtonColor ?? Colors.grey.shade400);
     return Semantics(
-      label: widget.theme.l10n.audioPlaybackSpeedLabel(_speedLabel),
+      label: widget.theme.l10nOf(context).audioPlaybackSpeedLabel(_speedLabel),
       button: true,
       child: GestureDetector(
         onTap: _cycleSpeed,

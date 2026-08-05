@@ -141,9 +141,9 @@ class MessageContextMenu extends StatelessWidget {
     );
   }
 
-  List<_MenuEntry> _buildEntries() {
+  List<_MenuEntry> _buildEntries(BuildContext context) {
     final entries = <_MenuEntry>[];
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     // Deleted tombstone: WhatsApp-style, the ONLY action available is
     // "Delete for me" — hide the placeholder from this client.
     // No edit/reply/forward/copy/react/pin/report because the message
@@ -303,7 +303,7 @@ class MessageContextMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final entries = _buildEntries();
+    final entries = _buildEntries(context);
 
     return SafeArea(
       child: SingleChildScrollView(

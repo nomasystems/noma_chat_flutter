@@ -11,13 +11,40 @@ import 'package:flutter/widgets.dart';
 /// English default (see the comment above the [sv] declaration for the
 /// exact rationale and scope).
 ///
-/// ## Integration with `MaterialApp`
+/// ## How the widgets pick their strings
 ///
-/// Register [delegate] in `MaterialApp.localizationsDelegates` to let the
-/// host app's locale drive the widget translations automatically. The
-/// SDK's widgets resolve the active instance via [of] / `Localizations.of`,
-/// falling back to English when the delegate is not registered (handy in
-/// tests and quick demos).
+/// Every widget in this package resolves its strings through
+/// `ChatTheme.l10nOf(context)`, which honours two wiring routes — pick
+/// either one.
+///
+/// **Through the theme.** Hand the view a theme carrying the instance you
+/// want; it always wins over the ambient locale:
+///
+/// ```dart
+/// NomaChatView(
+///   roomId: roomId,
+///   adapter: adapter,
+///   theme: ChatTheme.defaults.copyWith(
+///     l10n: ChatUiLocalizations.forLanguageCode(languageCode),
+///   ),
+/// );
+/// ```
+///
+/// **Through Flutter's `Localizations`.** Register [delegate] (or
+/// [override]) on your `MaterialApp` and leave `ChatTheme.l10n` alone: the
+/// widgets read the ancestor themselves and follow app-locale changes at
+/// runtime. See [delegate] for the snippet.
+///
+/// Without either, the UI renders the English defaults on this class.
+/// `ChatTheme.l10nOf` documents the one caveat of the theme route: a theme
+/// carrying the [en] constant verbatim is indistinguishable from an
+/// untouched default, so it resolves from the ancestor.
+///
+/// `NomaChat.create(l10n: …)` covers a different surface: the strings the
+/// adapter itself produces (room-list previews, system messages). Neither
+/// route reaches those — pass them to the adapter. `ChatUiAdapter.l10n` is
+/// settable and read on every use, so a language change is one assignment
+/// on the live adapter, with no teardown and no reconnect.
 class ChatUiLocalizations {
   const ChatUiLocalizations({
     this.localeCode = 'en',
@@ -66,7 +93,7 @@ class ChatUiLocalizations {
     this.pinnedByTemplate = 'Pinned by {user}',
     this.reported = 'Reported',
     this.reportMessageTitle = 'Report message',
-    // Operation feedback (snackbars emitted by ChatView when
+    // Operation feedback (snackbars emitted by NomaChatView when
     // `showOperationFeedback: true`). Each string maps to a successful
     // adapter operation. Override per-locale or per-theme to match the
     // host app's voice; set to empty string to suppress the snackbar
@@ -132,6 +159,8 @@ class ChatUiLocalizations {
     this.audioError = 'Audio unavailable',
     this.slideToCancel = 'Slide to cancel',
     this.slideUpToLock = 'Slide up to lock',
+    this.holdToRecord = 'Hold to record, release to send',
+    this.recordingFailed = 'Could not record, try again',
     this.voiceRecording = 'Recording...',
     this.preListenLabel = 'Preview',
     this.pauseRecording = 'Pause recording',
@@ -205,6 +234,8 @@ class ChatUiLocalizations {
     this.mutedByAdmin = 'An admin has muted you',
     this.messageBlockedByModeration =
         'Your message couldn\'t be sent — it was flagged by moderation.',
+    this.attachmentNeverUploaded =
+        'That file was never uploaded — pick it again to send it.',
     this.scrollToBottom = 'Scroll to bottom',
     // Accessibility tooltips / semantic labels for icon-only buttons.
     this.close = 'Close',
@@ -492,6 +523,20 @@ class ChatUiLocalizations {
   final String audioError;
   final String slideToCancel;
   final String slideUpToLock;
+
+  /// Prompt floated over the mic button when a touch ends without
+  /// producing a sendable recording — released before the recorder was
+  /// armed, or released before the capture was long enough to send. Set
+  /// it to the empty string to suppress the prompt entirely.
+  final String holdToRecord;
+
+  /// Prompt floated over the mic button when the recorder itself is what
+  /// failed: the platform refused to arm it, the capture never came up
+  /// before the finger was gone, or it came back with no audio in it. Kept
+  /// apart from [holdToRecord] so a user who did hold the button long
+  /// enough is never told to hold it longer. Set it to the empty string to
+  /// suppress the prompt entirely.
+  final String recordingFailed;
   final String voiceRecording;
   final String preListenLabel;
   final String pauseRecording;
@@ -620,6 +665,13 @@ class ChatUiLocalizations {
   /// `OperationFeedbackListener` error path instead of a raw error so the
   /// user gets a gentle explanation rather than a stack-trace toast.
   final String messageBlockedByModeration;
+
+  /// Soft notice shown when a retry is refused because the media row it
+  /// targets never got its file uploaded (`ValidationFailure` with
+  /// `errors['reason'] == 'attachment_never_uploaded'`). Surfaced via the
+  /// `OperationFeedbackListener` error path, since re-picking the file is
+  /// the only way forward and a silent no-op reads as a dead button.
+  final String attachmentNeverUploaded;
   final String scrollToBottom;
   final String close;
   final String back;
@@ -1010,6 +1062,8 @@ class ChatUiLocalizations {
     String? audioError,
     String? slideToCancel,
     String? slideUpToLock,
+    String? holdToRecord,
+    String? recordingFailed,
     String? voiceRecording,
     String? preListenLabel,
     String? pauseRecording,
@@ -1075,6 +1129,7 @@ class ChatUiLocalizations {
     String? readOnlyChannel,
     String? mutedByAdmin,
     String? messageBlockedByModeration,
+    String? attachmentNeverUploaded,
     String? scrollToBottom,
     String? close,
     String? back,
@@ -1267,6 +1322,8 @@ class ChatUiLocalizations {
       audioError: audioError ?? this.audioError,
       slideToCancel: slideToCancel ?? this.slideToCancel,
       slideUpToLock: slideUpToLock ?? this.slideUpToLock,
+      holdToRecord: holdToRecord ?? this.holdToRecord,
+      recordingFailed: recordingFailed ?? this.recordingFailed,
       voiceRecording: voiceRecording ?? this.voiceRecording,
       preListenLabel: preListenLabel ?? this.preListenLabel,
       pauseRecording: pauseRecording ?? this.pauseRecording,
@@ -1344,6 +1401,8 @@ class ChatUiLocalizations {
       mutedByAdmin: mutedByAdmin ?? this.mutedByAdmin,
       messageBlockedByModeration:
           messageBlockedByModeration ?? this.messageBlockedByModeration,
+      attachmentNeverUploaded:
+          attachmentNeverUploaded ?? this.attachmentNeverUploaded,
       scrollToBottom: scrollToBottom ?? this.scrollToBottom,
       close: close ?? this.close,
       back: back ?? this.back,
@@ -1656,6 +1715,8 @@ class ChatUiLocalizations {
     audioError: 'Audio no disponible',
     slideToCancel: 'Desliza para cancelar',
     slideUpToLock: 'Desliza arriba para bloquear',
+    holdToRecord: 'Mantén pulsado para grabar, suelta para enviar',
+    recordingFailed: 'No se pudo grabar, inténtalo de nuevo',
     voiceRecording: 'Grabando...',
     preListenLabel: 'Vista previa',
     pauseRecording: 'Pausar grabación',
@@ -1721,6 +1782,8 @@ class ChatUiLocalizations {
     mutedByAdmin: 'Un administrador te ha silenciado',
     messageBlockedByModeration:
         'No se ha podido enviar tu mensaje — lo ha bloqueado la moderación.',
+    attachmentNeverUploaded:
+        'Ese archivo no llegó a subirse — vuelve a elegirlo para enviarlo.',
     scrollToBottom: 'Bajar al final',
     close: 'Cerrar',
     back: 'Atrás',
@@ -1986,6 +2049,8 @@ class ChatUiLocalizations {
     audioError: 'Audio indisponible',
     slideToCancel: 'Glisser pour annuler',
     slideUpToLock: 'Glisser vers le haut pour verrouiller',
+    holdToRecord: 'Maintenez pour enregistrer, relâchez pour envoyer',
+    recordingFailed: 'Enregistrement impossible, réessayez',
     pauseRecording: 'Mettre en pause',
     resumeRecording: 'Reprendre l\'enregistrement',
     voiceRecording: 'Enregistrement...',
@@ -2042,6 +2107,8 @@ class ChatUiLocalizations {
     mutedByAdmin: 'Un administrateur vous a réduit au silence',
     messageBlockedByModeration:
         'Votre message n\'a pas pu être envoyé — il a été signalé par la modération.',
+    attachmentNeverUploaded:
+        'Ce fichier n\'a jamais été envoyé — sélectionnez-le à nouveau.',
     scrollToBottom: 'Aller en bas',
     close: 'Fermer',
     back: 'Retour',
@@ -2270,6 +2337,8 @@ class ChatUiLocalizations {
     audioError: 'Audio nicht verfügbar',
     slideToCancel: 'Zum Abbrechen wischen',
     slideUpToLock: 'Nach oben wischen zum Sperren',
+    holdToRecord: 'Zum Aufnehmen halten, zum Senden loslassen',
+    recordingFailed: 'Aufnahme fehlgeschlagen, versuche es erneut',
     pauseRecording: 'Aufnahme pausieren',
     resumeRecording: 'Aufnahme fortsetzen',
     voiceRecording: 'Aufnahme...',
@@ -2326,6 +2395,8 @@ class ChatUiLocalizations {
     mutedByAdmin: 'Ein Administrator hat dich stummgeschaltet',
     messageBlockedByModeration:
         'Deine Nachricht konnte nicht gesendet werden — sie wurde von der Moderation blockiert.',
+    attachmentNeverUploaded:
+        'Diese Datei wurde nie hochgeladen — wähle sie erneut aus.',
     scrollToBottom: 'Zum Ende scrollen',
     close: 'Schließen',
     back: 'Zurück',
@@ -2550,6 +2621,8 @@ class ChatUiLocalizations {
     audioError: 'Audio non disponibile',
     slideToCancel: 'Scorri per annullare',
     slideUpToLock: 'Scorri verso l\'alto per bloccare',
+    holdToRecord: 'Tieni premuto per registrare, rilascia per inviare',
+    recordingFailed: 'Registrazione non riuscita, riprova',
     pauseRecording: 'Metti in pausa',
     resumeRecording: 'Riprendi registrazione',
     voiceRecording: 'Registrazione...',
@@ -2606,6 +2679,8 @@ class ChatUiLocalizations {
     mutedByAdmin: 'Un amministratore ti ha silenziato',
     messageBlockedByModeration:
         'Impossibile inviare il messaggio — è stato bloccato dalla moderazione.',
+    attachmentNeverUploaded:
+        'Quel file non è mai stato caricato — selezionalo di nuovo.',
     scrollToBottom: 'Vai in fondo',
     close: 'Chiudi',
     back: 'Indietro',
@@ -2830,6 +2905,8 @@ class ChatUiLocalizations {
     audioError: 'Áudio indisponível',
     slideToCancel: 'Deslizar para cancelar',
     slideUpToLock: 'Deslizar para cima para bloquear',
+    holdToRecord: 'Mantém premido para gravar, solta para enviar',
+    recordingFailed: 'Não foi possível gravar, tenta de novo',
     pauseRecording: 'Pausar gravação',
     resumeRecording: 'Retomar gravação',
     voiceRecording: 'A gravar...',
@@ -2886,6 +2963,8 @@ class ChatUiLocalizations {
     mutedByAdmin: 'Um administrador silenciou você',
     messageBlockedByModeration:
         'Não foi possível enviar a sua mensagem — foi bloqueada pela moderação.',
+    attachmentNeverUploaded:
+        'Esse ficheiro nunca chegou a ser enviado — escolha-o de novo.',
     scrollToBottom: 'Ir para o final',
     close: 'Fechar',
     back: 'Voltar',
@@ -3104,6 +3183,8 @@ class ChatUiLocalizations {
     audioError: 'Àudio no disponible',
     slideToCancel: 'Llisca per cancel·lar',
     slideUpToLock: 'Llisca amunt per bloquejar',
+    holdToRecord: 'Mantén premut per gravar, deixa anar per enviar',
+    recordingFailed: 'No s\'ha pogut gravar, torna-ho a provar',
     pauseRecording: 'Pausar gravació',
     resumeRecording: 'Reprendre la gravació',
     voiceRecording: 'Gravant...',
@@ -3160,6 +3241,8 @@ class ChatUiLocalizations {
     mutedByAdmin: 'Un administrador t\'ha silenciat',
     messageBlockedByModeration:
         'No s\'ha pogut enviar el teu missatge — l\'ha bloquejat la moderació.',
+    attachmentNeverUploaded:
+        'Aquest fitxer no s\'ha arribat a pujar — torna a triar-lo.',
     scrollToBottom: 'Anar al final',
     close: 'Tancar',
     back: 'Enrere',
@@ -3301,6 +3384,8 @@ class ChatUiLocalizations {
     audioError: 'Ljud otillgängligt',
     slideToCancel: 'Dra för att avbryta',
     slideUpToLock: 'Dra upp för att låsa',
+    holdToRecord: 'Håll in för att spela in, släpp för att skicka',
+    recordingFailed: 'Inspelningen misslyckades, försök igen',
     voiceRecording: 'Spelar in...',
     microphonePermissionDenied: 'Mikrofonbehörighet nekad',
     statusSent: 'Skickat',
@@ -3465,6 +3550,8 @@ class ChatUiLocalizations {
     audioError: 'Lyd utilgjengelig',
     slideToCancel: 'Dra for å avbryte',
     slideUpToLock: 'Dra opp for å låse',
+    holdToRecord: 'Hold inne for å ta opp, slipp for å sende',
+    recordingFailed: 'Opptaket mislyktes, prøv igjen',
     voiceRecording: 'Tar opp...',
     microphonePermissionDenied: 'Mikrofontilgang avslått',
     statusSent: 'Sendt',
@@ -3629,6 +3716,8 @@ class ChatUiLocalizations {
     audioError: 'Lyd utilgængelig',
     slideToCancel: 'Træk for at annullere',
     slideUpToLock: 'Træk op for at låse',
+    holdToRecord: 'Hold nede for at optage, slip for at sende',
+    recordingFailed: 'Optagelsen mislykkedes, prøv igen',
     voiceRecording: 'Optager...',
     microphonePermissionDenied: 'Mikrofonadgang nægtet',
     statusSent: 'Sendt',
@@ -3793,6 +3882,8 @@ class ChatUiLocalizations {
     audioError: 'Dźwięk niedostępny',
     slideToCancel: 'Przesuń, aby anulować',
     slideUpToLock: 'Przesuń w górę, aby zablokować',
+    holdToRecord: 'Przytrzymaj, aby nagrać, puść, aby wysłać',
+    recordingFailed: 'Nie udało się nagrać, spróbuj ponownie',
     voiceRecording: 'Nagrywanie...',
     microphonePermissionDenied: 'Odmowa dostępu do mikrofonu',
     statusSent: 'Wysłano',
@@ -3957,6 +4048,8 @@ class ChatUiLocalizations {
     audioError: 'Zvuk není k dispozici',
     slideToCancel: 'Přejetím zrušíte',
     slideUpToLock: 'Přejetím nahoru zamknete',
+    holdToRecord: 'Podržte pro nahrávání, uvolněte pro odeslání',
+    recordingFailed: 'Nahrávání se nezdařilo, zkuste to znovu',
     voiceRecording: 'Nahrávání...',
     microphonePermissionDenied: 'Přístup k mikrofonu odepřen',
     statusSent: 'Odesláno',
@@ -4111,9 +4204,13 @@ class ChatUiLocalizations {
   // ----------------------------------------------------------------
 
   /// `LocalizationsDelegate` to register in `MaterialApp.localizationsDelegates`
-  /// so widgets can resolve the active [ChatUiLocalizations] via
-  /// `Localizations.of<ChatUiLocalizations>(context, ChatUiLocalizations)`
-  /// (or the more convenient [of] helper).
+  /// so the chat UI — and your own code, via [of] — resolves the bundled
+  /// translation for the active locale.
+  ///
+  /// Registering it is enough on its own, as long as `ChatTheme.l10n` is
+  /// left at its default: every widget resolves through
+  /// `ChatTheme.l10nOf(context)`, which reads this ancestor and rebuilds
+  /// when the app locale changes.
   ///
   /// ```dart
   /// MaterialApp(
@@ -4124,9 +4221,14 @@ class ChatUiLocalizations {
   ///     GlobalCupertinoLocalizations.delegate,
   ///   ],
   ///   supportedLocales: ChatUiLocalizations.supportedLocales,
-  ///   ...
+  ///   home: NomaChatView(roomId: roomId, adapter: adapter),
   /// );
   /// ```
+  ///
+  /// Skipping the delegate entirely and passing
+  /// `ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.forLanguageCode(code))`
+  /// to the view is equally supported, and is what the example app does. A
+  /// theme that carries an explicit instance wins over this delegate.
   ///
   /// When the active locale's `languageCode` is not in
   /// [supportedLanguageCodes], the delegate falls back to English.
@@ -4151,11 +4253,14 @@ class ChatUiLocalizations {
     Locale('cs'),
   ];
 
-  /// Idiomatic accessor for widgets nested under a `MaterialApp` (or any
+  /// Idiomatic accessor for code nested under a `MaterialApp` (or any
   /// `Localizations` ancestor) that registered [delegate]. Returns the
   /// active [ChatUiLocalizations] instance, falling back to [en] if the
-  /// delegate has not been registered (so widgets remain functional in
-  /// tests / quick demos without forcing the consumer to wire l10n).
+  /// delegate has not been registered.
+  ///
+  /// This is what `ChatTheme.l10nOf(context)` calls when the theme carries
+  /// no explicit instance, so hosts rarely need it directly — reach for it
+  /// to localize your own chrome around the chat with the same strings.
   static ChatUiLocalizations of(BuildContext context) =>
       Localizations.of<ChatUiLocalizations>(context, ChatUiLocalizations) ?? en;
 
@@ -4164,20 +4269,30 @@ class ChatUiLocalizations {
   /// applies the supplied string overrides on top (via [copyWith]).
   ///
   /// Register it in place of [delegate] to customise individual strings
-  /// while keeping the seven built-in locales working:
+  /// while keeping the built-in locales working. Like [delegate], it
+  /// reaches the chat UI as long as `ChatTheme.l10n` is left at its
+  /// default:
   ///
   /// ```dart
   /// MaterialApp(
   ///   localizationsDelegates: [
   ///     ChatUiLocalizations.override(
   ///       send: 'Submit',
-  ///       typeAMessage: 'Write a message…',
+  ///       writeMessage: 'Write a message…',
   ///     ),
   ///     GlobalMaterialLocalizations.delegate,
   ///   ],
   ///   supportedLocales: ChatUiLocalizations.supportedLocales,
+  ///   home: NomaChatView(roomId: roomId, adapter: adapter),
   /// );
   /// ```
+  ///
+  /// A host that routes the instance through the theme anyway gets the
+  /// same result with less machinery from
+  /// `ChatUiLocalizations.forLanguageCode(code).copyWith(send: 'Submit')`.
+  ///
+  /// Every string on this class can be overridden here; the parameter list
+  /// mirrors [copyWith] one for one.
   ///
   /// The same overrides apply to every supported locale. Pass [locale]
   /// to scope the override to a single language — the delegate then only
@@ -4287,6 +4402,8 @@ class ChatUiLocalizations {
     String? audioError,
     String? slideToCancel,
     String? slideUpToLock,
+    String? holdToRecord,
+    String? recordingFailed,
     String? voiceRecording,
     String? preListenLabel,
     String? pauseRecording,
@@ -4357,10 +4474,12 @@ class ChatUiLocalizations {
     String? readOnlyChannel,
     String? mutedByAdmin,
     String? messageBlockedByModeration,
+    String? attachmentNeverUploaded,
     String? scrollToBottom,
     String? close,
     String? back,
     String? moreOptions,
+    String? retry,
     String? clearText,
     String? playPreview,
     String? cancel,
@@ -4420,6 +4539,42 @@ class ChatUiLocalizations {
     String? next,
     String? minCharsTemplate,
     String? nameTooShortTemplate,
+    String? messageInfo,
+    String? readBy,
+    String? deliveredTo,
+    String? noReceiptsYet,
+    String? exportChat,
+    String? inviteViaLink,
+    String? inviteLinkCopied,
+    String? star,
+    String? unstar,
+    String? unstarConfirmTitle,
+    String? unstarConfirmBody,
+    String? starredMessages,
+    String? noStarredMessages,
+    String? muteDuration,
+    String? mute8Hours,
+    String? mute1Week,
+    String? muteAlways,
+    String? archived,
+    String? archiveChat,
+    String? unarchiveChat,
+    String? presenceAvailable,
+    String? presenceAway,
+    String? presenceBusy,
+    String? presenceDnd,
+    String? presenceOffline,
+    String? email,
+    String? searchEmoji,
+    String? unblockFailed,
+    String? updateRoleFailed,
+    String? removeMemberFailed,
+    String? error,
+    String? reason,
+    String? dismissReactionPicker,
+    String? locationMessage,
+    String? avatar,
+    String? loadMore,
   }) {
     return _OverrideChatUiLocalizationsDelegate(
       onlyLocale: locale,
@@ -4525,6 +4680,8 @@ class ChatUiLocalizations {
         audioError: audioError,
         slideToCancel: slideToCancel,
         slideUpToLock: slideUpToLock,
+        holdToRecord: holdToRecord,
+        recordingFailed: recordingFailed,
         voiceRecording: voiceRecording,
         preListenLabel: preListenLabel,
         pauseRecording: pauseRecording,
@@ -4541,6 +4698,7 @@ class ChatUiLocalizations {
         audioPlayLabel: audioPlayLabel,
         audioPauseLabel: audioPauseLabel,
         audioUploadingTemplate: audioUploadingTemplate,
+        attachmentUploadingTemplate: attachmentUploadingTemplate,
         audioPlaybackSpeedTemplate: audioPlaybackSpeedTemplate,
         typing: typing,
         online: online,
@@ -4594,10 +4752,12 @@ class ChatUiLocalizations {
         readOnlyChannel: readOnlyChannel,
         mutedByAdmin: mutedByAdmin,
         messageBlockedByModeration: messageBlockedByModeration,
+        attachmentNeverUploaded: attachmentNeverUploaded,
         scrollToBottom: scrollToBottom,
         close: close,
         back: back,
         moreOptions: moreOptions,
+        retry: retry,
         clearText: clearText,
         playPreview: playPreview,
         cancel: cancel,
@@ -4657,6 +4817,42 @@ class ChatUiLocalizations {
         next: next,
         minCharsTemplate: minCharsTemplate,
         nameTooShortTemplate: nameTooShortTemplate,
+        messageInfo: messageInfo,
+        readBy: readBy,
+        deliveredTo: deliveredTo,
+        noReceiptsYet: noReceiptsYet,
+        exportChat: exportChat,
+        inviteViaLink: inviteViaLink,
+        inviteLinkCopied: inviteLinkCopied,
+        star: star,
+        unstar: unstar,
+        unstarConfirmTitle: unstarConfirmTitle,
+        unstarConfirmBody: unstarConfirmBody,
+        starredMessages: starredMessages,
+        noStarredMessages: noStarredMessages,
+        muteDuration: muteDuration,
+        mute8Hours: mute8Hours,
+        mute1Week: mute1Week,
+        muteAlways: muteAlways,
+        archived: archived,
+        archiveChat: archiveChat,
+        unarchiveChat: unarchiveChat,
+        presenceAvailable: presenceAvailable,
+        presenceAway: presenceAway,
+        presenceBusy: presenceBusy,
+        presenceDnd: presenceDnd,
+        presenceOffline: presenceOffline,
+        email: email,
+        searchEmoji: searchEmoji,
+        unblockFailed: unblockFailed,
+        updateRoleFailed: updateRoleFailed,
+        removeMemberFailed: removeMemberFailed,
+        error: error,
+        reason: reason,
+        dismissReactionPicker: dismissReactionPicker,
+        locationMessage: locationMessage,
+        avatar: avatar,
+        loadMore: loadMore,
       ),
     );
   }

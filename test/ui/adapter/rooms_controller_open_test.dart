@@ -121,6 +121,8 @@ class _StubRoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+    String? lastMessageReactionTargetText,
+    MessageType? lastMessageReactionTargetType,
   }) => _delegate.updateCachedRoomPreview(
     roomId,
     lastMessage: lastMessage,
@@ -133,6 +135,8 @@ class _StubRoomsApi implements ChatRoomsApi {
     lastMessageDurationMs: lastMessageDurationMs,
     lastMessageIsDeleted: lastMessageIsDeleted,
     lastMessageReactionEmoji: lastMessageReactionEmoji,
+    lastMessageReactionTargetText: lastMessageReactionTargetText,
+    lastMessageReactionTargetType: lastMessageReactionTargetType,
   );
 
   @override

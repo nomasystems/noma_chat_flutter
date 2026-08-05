@@ -741,11 +741,13 @@ void _seedGroupTennis(MockChatClient client, DateTime Function(int) t) {
       from: 'bob',
       timestamp: t(240),
       // `@alice` triggers the SDK's mention parser (see
-      // `markdown_parser.dart`): the token is highlighted with
-      // `theme.bubble.mentionColor` and can be tapped via
-      // `onTapMention`. Kept on a real conversational message so
-      // the demo shows mentions without dedicating a paragraph to
-      // them.
+      // `markdown_parser.dart`): wire `ChatViewCallbacks.onTapMention`
+      // and the token is highlighted with `theme.bubble.mentionColor`
+      // and tappable; leave it unwired — as this demo does — and it
+      // renders as plain text, because a mention that opens nothing
+      // must not look like a control. Kept on a real conversational
+      // message so the demo shows mentions without dedicating a
+      // paragraph to them.
       text: '@alice practice on Wednesday before the match?',
     ),
   );

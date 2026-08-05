@@ -183,7 +183,9 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
         if (!mounted) return;
         setState(() => _saving = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(widget.theme.l10n.photoUploadFailed)),
+          SnackBar(
+            content: Text(widget.theme.l10nOf(context).photoUploadFailed),
+          ),
         );
         return;
       }
@@ -203,7 +205,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
       await _loadDetail();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.theme.l10n.photoUploadFailed)),
+        SnackBar(content: Text(widget.theme.l10nOf(context).photoUploadFailed)),
       );
     }
   }
@@ -235,11 +237,12 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
   }
 
   String _failureMessage(ChatResult<void> r) =>
-      r.failureOrNull?.message ?? widget.theme.l10n.photoUploadFailed;
+      r.failureOrNull?.message ??
+      widget.theme.l10nOf(context).photoUploadFailed;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     return Scaffold(
       appBar: AppBar(title: Text(l10n.groupInfo)),
       body: _loading
@@ -309,7 +312,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
   }
 
   Widget _buildDescriptionRow() {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     final raw = _detail?.subject?.trim() ?? '';
     if (!_editingDescription) {
       return Padding(
@@ -369,7 +372,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
   }
 
   Widget _buildNameRow() {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     if (!_editingName) {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 24),

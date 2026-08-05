@@ -5,6 +5,7 @@ import '../controller/audio_playback_coordinator.dart';
 import '../controller/chat_controller.dart';
 import '../theme/chat_theme.dart';
 import '../theme/default_palette.dart';
+import '../utils/safe_url.dart';
 import 'blocked_chat_banner.dart';
 import 'chat_view_config.dart';
 import 'connection_banner.dart';
@@ -165,7 +166,7 @@ class _ChatViewState extends State<ChatView> {
       }
       return EmptyState(
         icon: behaviors.emptyIcon ?? Icons.chat_bubble_outline,
-        title: behaviors.emptyTitle ?? widget.theme.l10n.noMessages,
+        title: behaviors.emptyTitle ?? widget.theme.l10nOf(context).noMessages,
         subtitle: behaviors.emptySubtitle,
         theme: widget.theme,
       );
@@ -187,7 +188,8 @@ class _ChatViewState extends State<ChatView> {
       onTapVideo: callbacks.onTapVideo,
       onTapFile: callbacks.onTapFile,
       onTapLocation: callbacks.onTapLocation ?? _defaultOpenLocationInMaps,
-      onTapLink: callbacks.onTapLink ?? _defaultOpenLink,
+      onTapLink: callbacks.onTapLink ?? openWebUrl,
+      onTapMention: callbacks.onTapMention,
       onSwipeToReply: (msg) => widget.controller.setReplyTo(msg),
       onMessageLongPress: (msg, rect) => _handleLongPress(context, msg, rect),
       onReactionTap: callbacks.onReactionSelected,
@@ -284,7 +286,8 @@ class _ChatViewState extends State<ChatView> {
         ),
       ),
       child: Text(
-        widget.behaviors.readOnlyLabel ?? widget.theme.l10n.readOnlyChannel,
+        widget.behaviors.readOnlyLabel ??
+            widget.theme.l10nOf(context).readOnlyChannel,
         textAlign: TextAlign.center,
         style: TextStyle(
           color: widget.theme.systemMessageBackgroundColor != null
@@ -380,23 +383,5 @@ Future<void> _defaultOpenLocationInMaps(ChatMessage message) async {
   final lng = (meta['lng'] as num?)?.toDouble();
   if (lat == null || lng == null) return;
   final uri = Uri.parse('https://maps.google.com/?q=$lat,$lng');
-  await launchUrl(uri, mode: LaunchMode.externalApplication);
-}
-
-/// Fallback handler used when `callbacks.onTapLink` is left `null`. Opens
-/// the tapped URL in the system browser via `url_launcher`. Best effort:
-/// bad URLs / missing schemes are silently skipped. Apps wanting custom
-/// behaviour (in-app webview, deep-link router, confirmation dialog)
-/// pass their own `onTapLink`. Keeping a sensible default means tapping
-/// a link in a chat bubble does the obvious thing out of the box.
-Future<void> _defaultOpenLink(String url) async {
-  Uri? uri = Uri.tryParse(url);
-  if (uri == null) return;
-  // Markdown parser hands raw bare URLs without scheme (e.g. "google.com").
-  // Prefix `https://` so `launchUrl` doesn't reject them.
-  if (!uri.hasScheme) {
-    uri = Uri.tryParse('https://$url');
-    if (uri == null) return;
-  }
   await launchUrl(uri, mode: LaunchMode.externalApplication);
 }

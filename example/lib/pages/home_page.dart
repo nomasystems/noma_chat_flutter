@@ -618,6 +618,7 @@ class _HomePageState extends State<HomePage> {
           Expanded(
             child: RoomListView(
               controller: chat.roomListController,
+              adapter: chat.adapter,
               // Drives the "own message" gates in each tile (the
               // sent/delivered/read tick on the preview row + the
               // "You: …" prefix in groups). Without this id the tile

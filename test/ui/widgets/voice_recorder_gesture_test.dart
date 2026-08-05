@@ -6,6 +6,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/ui/widgets/_recording_indicators.dart'
+    show HoldToRecordHintPill;
 import 'package:noma_chat/src/ui/widgets/_voice_recorder_gesture.dart'
     show VoiceRecorderGesture;
 import 'package:record/record.dart';
@@ -13,6 +15,8 @@ import 'package:record/record.dart';
 class _MockAudioRecorder extends Mock implements AudioRecorder {}
 
 class _MockAudioPlayer extends Mock implements AudioPlayer {}
+
+class _FakeRecordConfig extends Fake implements RecordConfig {}
 
 class _FakeVoiceController extends VoiceRecordingController {
   _FakeVoiceController({
@@ -42,8 +46,23 @@ class _FakeVoiceController extends VoiceRecordingController {
   VoiceMessageData? stopReturns;
   VoiceMessageData? confirmReturns;
 
+  /// Models a platform recorder that throws instead of resolving — an iOS
+  /// audio session that cannot be activated, a missing plugin.
+  bool throwsOnStart = false;
+
+  /// Models a stop that produced no usable audio: the capture never
+  /// outlived the audio floor, or the file came back empty.
+  bool stopFailedToCapture = false;
+
+  /// The span the composer measured for the touch and handed to the send
+  /// gate. Null until a release actually stops a capture.
+  Duration? lastHeldFor;
+
   @override
   VoiceRecordingState get state => _fakeState;
+
+  @override
+  bool get lastCaptureFailed => stopFailedToCapture;
 
   void setState(VoiceRecordingState next) {
     _fakeState = next;
@@ -55,6 +74,7 @@ class _FakeVoiceController extends VoiceRecordingController {
     bool Function()? isStillWanted,
   }) async {
     if (startGate != null) await startGate!.future;
+    if (throwsOnStart) throw StateError('platform recorder unavailable');
     if (honoursAbort && isStillWanted != null && !isStillWanted()) {
       return StartRecordingResult.aborted;
     }
@@ -81,8 +101,9 @@ class _FakeVoiceController extends VoiceRecordingController {
   }
 
   @override
-  Future<VoiceMessageData?> stopRecording() async {
+  Future<VoiceMessageData?> stopRecording({Duration? heldFor}) async {
     stopCalls++;
+    lastHeldFor = heldFor;
     _fakeState = VoiceRecordingState.idle;
     notifyListeners();
     return stopReturns;
@@ -146,6 +167,10 @@ void main() {
 
   late _FakeVoiceController fake;
   late MessageInputVoiceController controller;
+
+  setUpAll(() {
+    registerFallbackValue(_FakeRecordConfig());
+  });
 
   setUp(() {
     fake = _buildFake();
@@ -325,6 +350,83 @@ void main() {
 
       expect(notifyCount, 1);
     });
+
+    test('isPreparing covers the whole arming window', () async {
+      fake.startGate = Completer<void>();
+      final announced = <bool>[];
+      controller.addListener(() => announced.add(controller.isPreparing));
+
+      final pending = controller.onLongPressStart();
+
+      expect(controller.isPreparing, isTrue);
+      expect(controller.isRecording, isFalse);
+      expect(controller.recording, isNotNull);
+      expect(announced, contains(true));
+
+      fake.startGate!.complete();
+      await pending;
+
+      expect(controller.isPreparing, isFalse);
+      expect(controller.isRecording, isTrue);
+    });
+
+    test('isPreparing drops back when the start is refused', () async {
+      fake.nextStartResult = StartRecordingResult.permissionDenied;
+
+      await controller.onLongPressStart();
+
+      expect(controller.isPreparing, isFalse);
+      expect(controller.isRecording, isFalse);
+    });
+
+    test('a recorder that throws never strands isPreparing', () async {
+      fake.throwsOnStart = true;
+
+      final result = await controller.onLongPressStart();
+
+      // The composer paints its recording row on isPreparing: leaving it
+      // raised would strand recording chrome on screen with no capture
+      // behind it and no text field to go back to.
+      expect(result, StartRecordingResult.failed);
+      expect(controller.isPreparing, isFalse);
+      expect(controller.isRecording, isFalse);
+      expect(controller.isAnyRecordingState, isFalse);
+    });
+
+    test('the send gate is told how long the touch lasted', () async {
+      fake.stopReturns = VoiceMessageData(
+        audioBytes: Uint8List(0),
+        duration: const Duration(seconds: 2),
+        waveform: const [],
+      );
+      await controller.onLongPressStart();
+
+      await controller.onLongPressEnd(
+        heldFor: const Duration(milliseconds: 1200),
+      );
+
+      expect(fake.lastHeldFor, const Duration(milliseconds: 1200));
+      expect(controller.lastReleaseWasTooShort, isFalse);
+    });
+
+    test('a release under the minimum is flagged as too short', () async {
+      await controller.onLongPressStart();
+
+      await controller.onLongPressEnd(
+        heldFor: const Duration(milliseconds: 300),
+      );
+
+      expect(controller.lastReleaseWasTooShort, isTrue);
+    });
+
+    test('releasing a locked recording is not flagged as too short', () async {
+      await controller.onLongPressStart();
+      fake.setState(VoiceRecordingState.locked);
+
+      await controller.onLongPressEnd(heldFor: Duration.zero);
+
+      expect(controller.lastReleaseWasTooShort, isFalse);
+    });
   });
 
   group('VoiceRecorderGesture widget', () {
@@ -454,6 +556,34 @@ void main() {
 
       expect(permissionDeniedCalls, 1);
       expect(unsupportedCalls, 0);
+    });
+
+    testWidgets('a denied microphone with no callback still says something', (
+      tester,
+    ) async {
+      fake.nextStartResult = StartRecordingResult.permissionDenied;
+      final link = LayerLink();
+
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(Container));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(ChatUiLocalizations.en.microphonePermissionDenied),
+        findsOneWidget,
+      );
     });
 
     testWidgets('recording starts on touch down, without a long press', (
@@ -799,6 +929,623 @@ void main() {
 
       expect(micTaps, 1);
       expect(fake.stopCalls, 1);
+    });
+
+    testWidgets('the recording row is on screen before the recorder arms', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          ListenableBuilder(
+            listenable: controller,
+            builder: (context, _) => VoiceRecorderGesture(
+              controller: controller,
+              layerLink: link,
+              theme: ChatTheme.defaults,
+              onPermissionDenied: null,
+              onVoiceMessageReady: (_) {},
+              child: controller.isRecording || controller.isPreparing
+                  ? const Text('recording-row')
+                  : Container(color: Colors.blue, width: 40, height: 40),
+            ),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+
+      expect(controller.isRecording, isFalse);
+      expect(find.text('recording-row'), findsOneWidget);
+
+      fake.startGate!.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.isRecording, isTrue);
+      expect(find.text('recording-row'), findsOneWidget);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a touch too brief to be a recording prompts the user', (
+      tester,
+    ) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(fake.stopCalls, 1);
+      expect(find.byType(HoldToRecordHintPill), findsOneWidget);
+
+      await tester.pump(const VoiceGestureThresholds().holdHintDuration);
+      await tester.pump();
+
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a release before the recorder arms prompts the user', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(fake.armed, isFalse);
+      expect(find.byType(HoldToRecordHintPill), findsOneWidget);
+    });
+
+    testWidgets('a recording armed after the release prompts the user', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      fake.honoursAbort = false;
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(fake.cancelCalled, isTrue);
+      expect(find.byType(HoldToRecordHintPill), findsOneWidget);
+    });
+
+    testWidgets('a pointer cancelled while arming prompts nothing', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.cancel();
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(fake.armed, isFalse);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a deliberate slide-to-cancel prompts nothing', (tester) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.moveBy(const Offset(-400, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(fake.cancelCalled, isTrue);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a slide-to-cancel still draining prompts nothing', (
+      tester,
+    ) async {
+      final recorder = _MockAudioRecorder();
+      final player = _MockAudioPlayer();
+      final drain = Completer<String?>();
+      when(() => recorder.dispose()).thenAnswer((_) async {});
+      when(() => recorder.hasPermission()).thenAnswer((_) async => true);
+      when(
+        () => recorder.start(any(), path: any(named: 'path')),
+      ).thenAnswer((_) async {});
+      when(
+        () => recorder.getAmplitude(),
+      ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+      when(() => recorder.isRecording()).thenAnswer((_) async => true);
+      when(() => recorder.isPaused()).thenAnswer((_) async => false);
+      when(() => recorder.stop()).thenAnswer((_) => drain.future);
+      when(() => player.dispose()).thenAnswer((_) async {});
+      when(() => player.stop()).thenAnswer((_) async {});
+      when(
+        () => player.onPositionChanged,
+      ).thenAnswer((_) => const Stream<Duration>.empty());
+      when(
+        () => player.onDurationChanged,
+      ).thenAnswer((_) => const Stream<Duration>.empty());
+      when(
+        () => player.onPlayerStateChanged,
+      ).thenAnswer((_) => const Stream<PlayerState>.empty());
+
+      controller.dispose();
+      controller = MessageInputVoiceController(
+        maxRecordingDuration: const Duration(minutes: 1),
+        recordingControllerFactory: (max) => VoiceRecordingController(
+          maxDuration: max,
+          revealDelay: Duration.zero,
+          recorder: recorder,
+          preListenPlayer: player,
+          tempDirectoryPath: '/tmp/noma_chat_voice_gesture_test',
+        ),
+      );
+
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.createGesture();
+      await gesture.down(tester.getCenter(find.byType(Container)));
+      await tester.pump();
+      await tester.pump();
+
+      expect(controller.isRecording, isTrue);
+
+      await gesture.moveBy(const Offset(-400, 0));
+      await tester.pump();
+
+      expect(controller.isAnyRecordingState, isFalse);
+
+      await gesture.up(timeStamp: const Duration(milliseconds: 1500));
+      await tester.pump();
+
+      expect(find.text(ChatUiLocalizations.en.recordingFailed), findsNothing);
+      expect(find.text(ChatUiLocalizations.en.holdToRecord), findsNothing);
+
+      drain.complete(null);
+      await tester.pumpAndSettle();
+
+      expect(find.text(ChatUiLocalizations.en.recordingFailed), findsNothing);
+      expect(find.text(ChatUiLocalizations.en.holdToRecord), findsNothing);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+      verify(() => recorder.stop()).called(1);
+    });
+
+    testWidgets('an empty holdToRecord string suppresses the prompt', (
+      tester,
+    ) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults.copyWith(
+              l10n: ChatUiLocalizations.en.copyWith(holdToRecord: ''),
+            ),
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(fake.stopCalls, 1);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('an upward flick thrown while arming still locks', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, -80));
+      await tester.pump();
+
+      expect(fake.lockCalled, isFalse);
+
+      fake.startGate!.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(fake.lockCalled, isTrue);
+      expect(controller.isLocked, isTrue);
+
+      await gesture.up();
+      await tester.pump();
+
+      expect(fake.stopCalls, 0);
+
+      await controller.cancel();
+    });
+
+    testWidgets('the hold is measured from the touch, not from the arming', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      fake.stopReturns = VoiceMessageData(
+        audioBytes: Uint8List(0),
+        duration: const Duration(seconds: 1),
+        waveform: const [],
+      );
+      var delivered = 0;
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (_) => delivered++,
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.createGesture();
+      await gesture.down(tester.getCenter(find.byType(Container)));
+      await tester.pump();
+      fake.startGate!.complete();
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 1200));
+      await tester.pumpAndSettle();
+
+      expect(fake.lastHeldFor, const Duration(milliseconds: 1200));
+      expect(delivered, 1);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a capture that comes back empty is not blamed on the user', (
+      tester,
+    ) async {
+      fake.stopReturns = null;
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.createGesture();
+      await gesture.down(tester.getCenter(find.byType(Container)));
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(fake.stopCalls, 1);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a hold the recorder never answered is told apart', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.createGesture();
+      await gesture.down(tester.getCenter(find.byType(Container)));
+      await tester.pump();
+      // Held well past the minimum — the permission dialog case, where the
+      // arming resolves long after the finger is gone.
+      await gesture.up(timeStamp: const Duration(milliseconds: 1500));
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(fake.armed, isFalse);
+      expect(find.text(ChatUiLocalizations.en.recordingFailed), findsOneWidget);
+      expect(find.text(ChatUiLocalizations.en.holdToRecord), findsNothing);
+    });
+
+    testWidgets('a recorder that refuses to arm says so', (tester) async {
+      fake.nextStartResult = StartRecordingResult.failed;
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+
+      expect(controller.isAnyRecordingState, isFalse);
+      expect(find.text(ChatUiLocalizations.en.recordingFailed), findsOneWidget);
+    });
+
+    testWidgets('a capture the recorder failed to deliver says so', (
+      tester,
+    ) async {
+      fake.stopReturns = null;
+      fake.stopFailedToCapture = true;
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.createGesture();
+      await gesture.down(tester.getCenter(find.byType(Container)));
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+
+      expect(fake.stopCalls, 1);
+      expect(find.text(ChatUiLocalizations.en.recordingFailed), findsOneWidget);
+      expect(find.text(ChatUiLocalizations.en.holdToRecord), findsNothing);
+    });
+
+    testWidgets('a recorder that throws leaves the mic usable', (tester) async {
+      fake.throwsOnStart = true;
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final failed = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await failed.up();
+      await tester.pumpAndSettle();
+
+      expect(controller.isPreparing, isFalse);
+      expect(controller.isAnyRecordingState, isFalse);
+
+      fake.throwsOnStart = false;
+      final second = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+
+      expect(controller.isRecording, isTrue);
+
+      await second.up();
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('a sideways drag while arming prompts nothing', (tester) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.moveBy(const Offset(-400, 0));
+      await tester.pump();
+      await gesture.up();
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(fake.armed, isFalse);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a downward drag thrown while arming stays inert', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (_) {},
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.moveBy(const Offset(0, 60));
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pump();
+      await tester.pump();
+
+      expect(fake.lockCalled, isFalse);
+      expect(fake.cancelCalled, isFalse);
+      expect(controller.isRecording, isTrue);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
     });
   });
 }

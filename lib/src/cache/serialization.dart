@@ -280,6 +280,10 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.lastMessageIsDeleted) 'lastMessageIsDeleted': true,
   if (unread.lastMessageReactionEmoji != null)
     'lastMessageReactionEmoji': unread.lastMessageReactionEmoji,
+  if (unread.lastMessageReactionTargetText != null)
+    'lastMessageReactionTargetText': unread.lastMessageReactionTargetText,
+  if (unread.lastMessageReactionTargetType != null)
+    'lastMessageReactionTargetType': unread.lastMessageReactionTargetType!.name,
   if (unread.lastMessageReceipt != null)
     'lastMessageReceipt': unread.lastMessageReceipt!.name,
   if (unread.name != null) 'name': unread.name,
@@ -319,6 +323,14 @@ UnreadRoom unreadRoomFromMap(
   lastMessageDurationMs: (map['lastMessageDurationMs'] as num?)?.toInt(),
   lastMessageIsDeleted: map['lastMessageIsDeleted'] as bool? ?? false,
   lastMessageReactionEmoji: map['lastMessageReactionEmoji'] as String?,
+  lastMessageReactionTargetText:
+      map['lastMessageReactionTargetText'] as String?,
+  lastMessageReactionTargetType: map['lastMessageReactionTargetType'] != null
+      ? _parseMessageType(
+          map['lastMessageReactionTargetType'] as String?,
+          onWarning: onWarning,
+        )
+      : null,
   lastMessageReceipt: _parseReceiptStatus(
     map['lastMessageReceipt'] as String?,
     onWarning: onWarning,

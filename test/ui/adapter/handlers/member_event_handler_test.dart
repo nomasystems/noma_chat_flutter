@@ -40,7 +40,7 @@ void main() {
       cache: null,
       roomListController: roomList,
       userCacheService: userCache,
-      l10n: ChatUiLocalizations.en,
+      l10n: () => ChatUiLocalizations.en,
       currentUser: () => me,
       displayNameFor: (userId) {
         if (userId == me.id) return me.displayName ?? userId;
@@ -214,6 +214,39 @@ void main() {
     test('triggers ensureUserCached for unknown user', () {
       handler.addSystemMessage('r1', 'user_joined', alice.id);
       expect(ensuredUsers, contains(alice.id));
+    });
+
+    test('carries the ingredients that let the banner be re-localized', () {
+      userCache.insert(alice);
+      handler.addSystemMessage('r1', 'user_joined', alice.id);
+      final metadata = controller.messages.last.metadata;
+      expect(metadata?[SystemMessageMetadataKeys.event], 'user_joined');
+      expect(metadata?[SystemMessageMetadataKeys.userId], alice.id);
+      expect(metadata?[SystemMessageMetadataKeys.userLabel], 'Alice');
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          metadata,
+          ChatUiLocalizations.es,
+        ),
+        'Alice se ha unido',
+      );
+    });
+
+    test('marks who is the local user on a kick', () {
+      userCache.insert(alice);
+      handler.addSystemMessage('r1', 'user_left', me.id, actorUserId: alice.id);
+      final metadata = controller.messages.last.metadata;
+      expect(metadata?[SystemMessageMetadataKeys.actorUserId], alice.id);
+      expect(metadata?[SystemMessageMetadataKeys.actorLabel], 'Alice');
+      expect(metadata?[SystemMessageMetadataKeys.userIsSelf], isTrue);
+      expect(metadata?[SystemMessageMetadataKeys.actorIsSelf], isNull);
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          metadata,
+          ChatUiLocalizations.es,
+        ),
+        'Alice te ha eliminado',
+      );
     });
 
     test('produces unique system message ids when called repeatedly', () {

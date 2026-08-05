@@ -31,18 +31,18 @@ class BlockedChatBanner extends StatelessWidget {
   final ChatTheme theme;
 
   /// Override for the primary line. Defaults to
-  /// `theme.l10n.blockedContactBannerText`.
+  /// `theme.l10nOf(context).blockedContactBannerText`.
   final String? label;
 
   /// Override for the action hint. Defaults to
-  /// `theme.l10n.tapToUnblock`. Set to an empty string to suppress
+  /// `theme.l10nOf(context).tapToUnblock`. Set to an empty string to suppress
   /// the second line entirely (the bar then becomes a single-line
   /// banner that still triggers `onUnblock` on tap).
   final String? actionLabel;
 
   @override
   Widget build(BuildContext context) {
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     final resolvedLabel = label ?? l10n.blockedContactBannerText;
     final resolvedAction = actionLabel ?? l10n.tapToUnblock;
     return Material(

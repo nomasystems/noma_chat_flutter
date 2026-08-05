@@ -78,7 +78,7 @@ class VoiceRecorderOverlay extends StatelessWidget {
   }
 
   Widget _buildRecording(BuildContext context) {
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     final activeColor = theme.voiceRecorderActiveColor ?? Colors.red;
     final hintColor = theme.voiceRecorderLockIconColor ?? Colors.grey.shade500;
     final hintStyle =
@@ -181,7 +181,7 @@ class VoiceRecorderOverlay extends StatelessWidget {
   }
 
   Widget _buildLocked(BuildContext context) {
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
     final activeColor = theme.voiceRecorderActiveColor ?? Colors.red;
 
     return Container(
@@ -268,7 +268,7 @@ class VoiceRecorderOverlay extends StatelessWidget {
   }
 
   Widget _buildPreListen(BuildContext context) {
-    final l10n = theme.l10n;
+    final l10n = theme.l10nOf(context);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -287,8 +287,8 @@ class VoiceRecorderOverlay extends StatelessWidget {
                   color: theme.audioPlayButtonColor ?? Colors.blue,
                 ),
                 tooltip: controller.isPreListening
-                    ? theme.l10n.pauseRecording
-                    : theme.l10n.playPreview,
+                    ? theme.l10nOf(context).pauseRecording
+                    : theme.l10nOf(context).playPreview,
                 onPressed: controller.isPreListening
                     ? controller.stopPreListen
                     : controller.startPreListen,

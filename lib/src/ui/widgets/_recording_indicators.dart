@@ -3,11 +3,16 @@ import 'package:flutter/material.dart';
 import '../controller/voice_recording_controller.dart';
 import '../theme/chat_theme.dart';
 
-/// Inline row rendered inside the composer while the user is actively
-/// recording a voice message: pulsing mic icon on the left, animated
-/// "slide to cancel" hint in the middle, the voice button itself on
-/// the right (which the parent keeps live so the existing pan gesture
-/// stays attached to the same widget instance).
+/// Inline row rendered inside the composer from the instant the finger
+/// touches the mic button — through the arming window and for as long as
+/// capture stays live: pulsing mic icon on the left, animated
+/// "slide to cancel" hint in the middle, and on the right the slot where
+/// the composer's own mic button is painted.
+///
+/// It goes up before [controller] reports `recording` on purpose. Arming
+/// costs a permission round-trip plus `record.start`, and leaving the
+/// idle row on screen for that long is what makes a touch feel like it
+/// needs to be held.
 ///
 /// Lives in `_recording_indicators.dart` (private-by-convention, not
 /// exported from the package barrel) because it has no use outside the
@@ -17,12 +22,17 @@ class ActiveRecordingRow extends StatelessWidget {
     super.key,
     required this.controller,
     required this.theme,
-    required this.voiceButton,
+    required this.voiceButtonSlot,
   });
 
   final VoiceRecordingController controller;
   final ChatTheme theme;
-  final Widget voiceButton;
+
+  /// Empty box the size of the mic button. The button itself is a single
+  /// persistent widget floated above every composer row by `MessageInput`,
+  /// so that swapping rows can never leave two of them alive at once; this
+  /// row only reserves the room it lands on.
+  final Widget voiceButtonSlot;
 
   @override
   Widget build(BuildContext context) {
@@ -45,11 +55,11 @@ class ActiveRecordingRow extends StatelessWidget {
               child: _SlideToCancelHint(
                 color: hintColor,
                 style: hintStyle,
-                text: theme.l10n.slideToCancel,
+                text: theme.l10nOf(context).slideToCancel,
               ),
             ),
             const SizedBox(width: 8),
-            voiceButton,
+            voiceButtonSlot,
           ],
         ),
       ),
@@ -147,6 +157,60 @@ class _SlideToCancelHintState extends State<_SlideToCancelHint>
           ),
         );
       },
+    );
+  }
+}
+
+/// Transient prompt floated above the voice button when a touch ends
+/// without producing sendable audio.
+///
+/// Carries whichever message fits what actually went wrong: hold the
+/// button longer when the touch was shorter than
+/// [VoiceRecordingController.minSendDuration], or the recorder failed
+/// when the capture never came up or came back empty.
+///
+/// Deliberately static: it lives inside an `OverlayEntry` that outlives
+/// the gesture, and a repeating animation there would keep the frame
+/// scheduler busy for as long as the prompt is up.
+class HoldToRecordHintPill extends StatelessWidget {
+  const HoldToRecordHintPill({
+    super.key,
+    required this.theme,
+    required this.text,
+  });
+
+  final ChatTheme theme;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final style =
+        theme.voiceRecorderHintStyle ??
+        TextStyle(color: Colors.grey.shade700, fontSize: 14);
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: theme.input.backgroundColor ?? Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.12),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Text(
+            text,
+            style: style,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
     );
   }
 }

@@ -19,7 +19,11 @@ Future<String> voiceRecorderTempPath() async {
   );
 }
 
-void voiceRecorderCleanupResidualFiles(String dirPath) {
+Future<void> voiceRecorderCleanupResidualFiles(
+  String dirPath, {
+  String? except,
+  Duration minimumAge = const Duration(minutes: 5),
+}) async {
   // No-op on Web.
 }
 

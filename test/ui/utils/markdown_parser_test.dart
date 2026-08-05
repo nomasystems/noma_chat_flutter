@@ -87,6 +87,34 @@ void main() {
       expect(tapped, anyOf('alice', '@alice'));
     });
 
+    test('mention without a handler renders as plain body text', () {
+      final spans = parse('hello @alice!');
+
+      final mention = spans.firstWhere((s) => s.text == '@alice');
+      expect(
+        mention.style,
+        base,
+        reason: 'no handler, no affordance: it must read as body text',
+      );
+      expect(mention.recognizer, isNull);
+    });
+
+    test('an explicit mentionStyle is ignored while unwired', () {
+      const loud = TextStyle(color: Colors.purple, fontWeight: FontWeight.w900);
+      final spans = parseMarkdown(
+        'hello @alice!',
+        baseStyle: base,
+        mentionStyle: loud,
+      );
+
+      final mention = spans.firstWhere((s) => s.text == '@alice');
+      expect(
+        mention.style,
+        base,
+        reason: 'styling a mention must not resurrect the tappable look',
+      );
+    });
+
     test('unmatched bold start falls back through italic check', () {
       // `use ** safely` has no closing `**` so the bold block is skipped;
       // the italic check then consumes the two `*` as an empty italic span.

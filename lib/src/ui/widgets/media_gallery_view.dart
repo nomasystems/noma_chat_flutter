@@ -77,7 +77,7 @@ class MediaGalleryView extends StatelessWidget {
     if (visible.isEmpty) {
       return EmptyState(
         icon: Icons.photo_library_outlined,
-        title: theme.l10n.noMedia,
+        title: theme.l10nOf(context).noMedia,
         theme: theme,
       );
     }
@@ -157,7 +157,7 @@ class _MediaCell extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  item.fileName ?? theme.l10n.file,
+                  item.fileName ?? theme.l10nOf(context).file,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   textAlign: TextAlign.center,
@@ -174,8 +174,8 @@ class _MediaCell extends StatelessWidget {
       borderRadius: BorderRadius.circular(4),
       child: Semantics(
         label: item.type == MediaItemType.video
-            ? theme.l10n.videoPreview
-            : theme.l10n.imagePreview,
+            ? theme.l10nOf(context).videoPreview
+            : theme.l10nOf(context).imagePreview,
         button: onTap != null,
         child: InkWell(
           onTap: onTap,

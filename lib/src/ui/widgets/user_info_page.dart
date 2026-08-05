@@ -92,17 +92,17 @@ class _UserInfoPageState extends State<UserInfoPage> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     return Scaffold(
       appBar: AppBar(title: Text(l10n.profile)),
       body: ListenableBuilder(
         listenable: widget.adapter.userCacheListenable,
-        builder: (context, _) => _buildBody(),
+        builder: (context, _) => _buildBody(context),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(BuildContext context) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -149,7 +149,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  widget.theme.l10n.about,
+                  widget.theme.l10nOf(context).about,
                   style: TextStyle(
                     fontSize: 16,
                     color: Theme.of(context).colorScheme.onSurfaceVariant,

@@ -131,7 +131,7 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 **Security & observability**
 - Standard TLS transport — the SDK relies on the operating system's CA trust store to validate server certificates; it does **not** pin certificates
 - Optional at-rest cache encryption — hand `NomaChat.create` a Hive AES cipher and the offline message / room store is encrypted on device
-- Structured logging pipeline (`ChatLogTag`/`ChatLogLevel`, pluggable `ChatLogSink`s, one-tap file export via `ChatLogExporter`) alongside the classic `logger` callback + `metricCallback` hook; an official OpenTelemetry adapter, `noma_chat_otel`, turns every WebSocket / HTTP / cache event into a span with zero boilerplate
+- Structured logging pipeline (`ChatLogTag`/`ChatLogLevel`, pluggable `ChatLogSink`s, one-tap file export via `ChatLogExporter`) alongside the classic `logger` callback + `metricCallback` hook — every metric name and when it fires is documented in [TELEMETRY.md](./TELEMETRY.md), and nothing leaves the device unless you wire a sink yourself
 
 **UI components — messages**
 - Text, image, audio, video, file and link-preview bubbles — media bubbles
@@ -167,7 +167,7 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - `ChatTheme` with 155+ fields
 - `ChatTheme.branded(accent:)` — derives ~12 accent slots from one colour
 - Light / dark presets, high-contrast WCAG-AAA mode
-- 7 locales out of the box: `en`, `es`, `fr`, `de`, `it`, `pt`, `ca`
+- Localized out of the box: `en`, `es`, `fr`, `de`, `it`, `pt`, `ca`, `sv`, `no`, `da`, `pl`, `cs`
 
 ---
 

@@ -18,8 +18,8 @@ class DateSeparator extends StatelessWidget {
     return Semantics(
       label: DateFormatter.formatSeparator(
         date,
-        todayLabel: theme.l10n.today,
-        yesterdayLabel: theme.l10n.yesterday,
+        todayLabel: theme.l10nOf(context).today,
+        yesterdayLabel: theme.l10nOf(context).yesterday,
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -33,8 +33,8 @@ class DateSeparator extends StatelessWidget {
             child: Text(
               DateFormatter.formatSeparator(
                 date,
-                todayLabel: theme.l10n.today,
-                yesterdayLabel: theme.l10n.yesterday,
+                todayLabel: theme.l10nOf(context).today,
+                yesterdayLabel: theme.l10nOf(context).yesterday,
               ),
               style:
                   theme.dateSeparatorTextStyle ??

@@ -43,11 +43,11 @@ class MemberListView extends StatelessWidget {
     return true;
   }
 
-  String _roleLabel(RoomRole role) {
+  String _roleLabel(BuildContext context, RoomRole role) {
     return switch (role) {
-      RoomRole.owner => theme.l10n.owner,
-      RoomRole.admin => theme.l10n.admin,
-      RoomRole.member => theme.l10n.member,
+      RoomRole.owner => theme.l10nOf(context).owner,
+      RoomRole.admin => theme.l10nOf(context).admin,
+      RoomRole.member => theme.l10nOf(context).member,
     };
   }
 
@@ -97,7 +97,7 @@ class MemberListView extends StatelessWidget {
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
-                  _roleLabel(entry.role),
+                  _roleLabel(context, entry.role),
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w500,
@@ -126,15 +126,18 @@ class MemberListView extends StatelessWidget {
                     if (onRemoveMember != null)
                       PopupMenuItem(
                         value: 'remove',
-                        child: Text(theme.l10n.removeMember),
+                        child: Text(theme.l10nOf(context).removeMember),
                       ),
                     if (onChangeRole != null)
                       PopupMenuItem(
                         value: 'change_role',
-                        child: Text(theme.l10n.changeRole),
+                        child: Text(theme.l10nOf(context).changeRole),
                       ),
                     if (onBanMember != null)
-                      PopupMenuItem(value: 'ban', child: Text(theme.l10n.ban)),
+                      PopupMenuItem(
+                        value: 'ban',
+                        child: Text(theme.l10nOf(context).ban),
+                      ),
                   ],
                 )
               : null,

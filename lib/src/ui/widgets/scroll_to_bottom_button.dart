@@ -20,7 +20,7 @@ class ScrollToBottomButton extends StatelessWidget {
   final ChatTheme theme;
 
   /// Optional Semantics label. When omitted, falls back to the localised
-  /// `theme.l10n.scrollToBottom` (shipped in 7 locales).
+  /// `theme.l10nOf(context).scrollToBottom` (shipped in 7 locales).
   final String? semanticLabel;
 
   @override
@@ -36,7 +36,7 @@ class ScrollToBottomButton extends StatelessWidget {
             child: UnreadBadge(count: unreadCount, theme: theme),
           ),
         Semantics(
-          label: semanticLabel ?? theme.l10n.scrollToBottom,
+          label: semanticLabel ?? theme.l10nOf(context).scrollToBottom,
           button: true,
           child: FloatingActionButton.small(
             onPressed: onPressed,

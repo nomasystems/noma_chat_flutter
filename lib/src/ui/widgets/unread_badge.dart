@@ -22,7 +22,7 @@ class UnreadBadge extends StatelessWidget {
     final label = count > maxCount ? '$maxCount+' : '$count';
 
     return Semantics(
-      label: '$count ${theme.l10n.unreadMessages}',
+      label: '$count ${theme.l10nOf(context).unreadMessages}',
       child: Container(
         width: 24,
         height: 24,

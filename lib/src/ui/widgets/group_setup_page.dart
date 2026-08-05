@@ -260,7 +260,7 @@ class _GroupSetupPageState extends State<GroupSetupPage> {
         SnackBar(
           content: Text(
             result.failureOrNull?.message ??
-                widget.theme.l10n.photoUploadFailed,
+                widget.theme.l10nOf(context).photoUploadFailed,
           ),
         ),
       );
@@ -274,7 +274,7 @@ class _GroupSetupPageState extends State<GroupSetupPage> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10n;
+    final l10n = widget.theme.l10nOf(context);
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.newGroup),

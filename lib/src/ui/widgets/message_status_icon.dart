@@ -53,9 +53,9 @@ class MessageStatusIcon extends StatelessWidget {
         : (theme.bubble.statusColor ?? Colors.grey);
 
     final label = switch (status) {
-      ReceiptStatus.sent => theme.l10n.statusSent,
-      ReceiptStatus.delivered => theme.l10n.statusDelivered,
-      ReceiptStatus.read => theme.l10n.statusRead,
+      ReceiptStatus.sent => theme.l10nOf(context).statusSent,
+      ReceiptStatus.delivered => theme.l10nOf(context).statusDelivered,
+      ReceiptStatus.read => theme.l10nOf(context).statusRead,
     };
 
     final isDouble =

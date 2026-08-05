@@ -541,7 +541,17 @@ abstract class ChatRoomsApi {
   /// Updates the cached room preview (last message, timestamp, type metadata, etc.)
   /// so it survives app restarts. Type-aware fields ([lastMessageType], [lastMessageMimeType],
   /// [lastMessageFileName], [lastMessageDurationMs], [lastMessageIsDeleted],
-  /// [lastMessageReactionEmoji]) feed the WhatsApp-style preview rendered by `RoomTile`.
+  /// [lastMessageReactionEmoji], [lastMessageReactionTargetText],
+  /// [lastMessageReactionTargetType]) feed the WhatsApp-style preview
+  /// `RoomTile` composes at paint time. [lastMessage] is the sender's own
+  /// text and nothing else — never a label or a sentence composed for them.
+  ///
+  /// Passing [lastMessageType] states which message the row is now showing,
+  /// so every field describing that message is replaced outright instead of
+  /// falling back to what the row held before: a plain message landing after
+  /// a photo clears the mime type rather than inheriting it and rendering
+  /// as one. Calls that omit the type patch a single field (a receipt, a
+  /// deletion) and leave the rest of the block alone.
   ///
   /// Pure-local operation — does NOT hit the network. Called by the UI
   /// adapter every time a new message lands so the preview stays in
@@ -560,6 +570,8 @@ abstract class ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+    String? lastMessageReactionTargetText,
+    MessageType? lastMessageReactionTargetType,
   });
 
   /// Marks [roomId] deleted for the current user (WhatsApp "Delete chat"
@@ -1335,6 +1347,11 @@ abstract class ChatAttachmentsApi {
   /// `MessageType.attachment` metadata for you. [onProgress] fires on
   /// every chunk — useful for the progress bar; total may be -1 if
   /// the backend cannot determine the upload size up front.
+  ///
+  /// A 2xx that resolves neither an id nor a url is reported as a failure
+  /// rather than an empty [AttachmentUploadResult]: there is nothing to
+  /// link a message to, and sending one anyway publishes a bubble pointing
+  /// at nothing that no retry can take back.
   ///
   /// ```dart
   /// final upload = await client.attachments.upload(bytes, mimeType);

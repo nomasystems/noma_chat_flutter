@@ -144,5 +144,129 @@ void main() {
 
       expect(find.byType(SnackBar), findsNothing);
     });
+
+    testWidgets('a retry refused because the file was never uploaded '
+        'explains itself instead of doing nothing', (tester) async {
+      await tester.pumpWidget(wrap(errorStream: errors.stream));
+
+      errors.add(
+        const OperationError(
+          kind: OperationKind.retrySend,
+          failure: ValidationFailure(
+            message: 'Attachment was never uploaded; pick the file again',
+            errors: {'reason': 'attachment_never_uploaded'},
+          ),
+        ),
+      );
+      await settleEvent(tester);
+
+      expect(find.text(l10n.attachmentNeverUploaded), findsOneWidget);
+    });
+
+    testWidgets('an unrelated ValidationFailure stays silent', (tester) async {
+      await tester.pumpWidget(wrap(errorStream: errors.stream));
+
+      errors.add(
+        const OperationError(
+          kind: OperationKind.sendMessage,
+          failure: ValidationFailure(
+            message: 'attachment policy violation: tooLarge',
+            errors: {'kind': 'tooLarge'},
+          ),
+        ),
+      );
+      await settleEvent(tester);
+
+      expect(find.byType(SnackBar), findsNothing);
+    });
+  });
+
+  group('OperationFeedbackListener — coverageAbove', () {
+    late OperationFeedbackCoverage seen;
+
+    Widget probe() => Builder(
+      builder: (context) {
+        seen = OperationFeedbackListener.coverageAbove(context);
+        return const Text('probe');
+      },
+    );
+
+    Future<void> pumpProbe(
+      WidgetTester tester, {
+      required Widget Function(Widget child) around,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(home: Scaffold(body: around(probe()))),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('reports none with no listener above', (tester) async {
+      await pumpProbe(tester, around: (child) => child);
+
+      expect(seen, OperationFeedbackCoverage.none);
+    });
+
+    testWidgets('reports successesOnly when the listener above was given no '
+        'errors stream — presence alone must not claim failures', (
+      tester,
+    ) async {
+      await pumpProbe(
+        tester,
+        around: (child) => OperationFeedbackListener(
+          successes: successes.stream,
+          child: child,
+        ),
+      );
+
+      expect(seen, OperationFeedbackCoverage.successesOnly);
+    });
+
+    testWidgets('reports everything when the listener above covers both', (
+      tester,
+    ) async {
+      await pumpProbe(
+        tester,
+        around: (child) => OperationFeedbackListener(
+          successes: successes.stream,
+          errors: errors.stream,
+          child: child,
+        ),
+      );
+
+      expect(seen, OperationFeedbackCoverage.everything);
+    });
+
+    testWidgets('a disabled listener claims the subtree outright', (
+      tester,
+    ) async {
+      await pumpProbe(
+        tester,
+        around: (child) => OperationFeedbackListener(
+          successes: successes.stream,
+          enabled: false,
+          child: child,
+        ),
+      );
+
+      expect(seen, OperationFeedbackCoverage.everything);
+    });
+
+    testWidgets('the nearest listener wins, so a failures-only one nested '
+        'under a success-only one reports everything', (tester) async {
+      await pumpProbe(
+        tester,
+        around: (child) => OperationFeedbackListener(
+          successes: successes.stream,
+          child: OperationFeedbackListener(
+            successes: const Stream<OperationSuccess>.empty(),
+            errors: errors.stream,
+            child: child,
+          ),
+        ),
+      );
+
+      expect(seen, OperationFeedbackCoverage.everything);
+    });
   });
 }

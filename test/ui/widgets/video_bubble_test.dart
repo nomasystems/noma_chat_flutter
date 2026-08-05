@@ -5,12 +5,53 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
+  /// Outermost [Semantics] the bubble itself builds — the node that tells
+  /// assistive tech whether the video is pressable.
+  Semantics semanticsOf(WidgetTester tester) => tester.widget<Semantics>(
+    find
+        .descendant(
+          of: find.byType(VideoBubble),
+          matching: find.byType(Semantics),
+        )
+        .first,
+  );
+
   group('VideoBubble', () {
-    testWidgets('shows play icon overlay', (tester) async {
+    testWidgets('shows play icon overlay when a tap handler is wired', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          VideoBubble(videoUrl: 'https://example.com/video.mp4', onTap: () {}),
+        ),
+      );
+      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    });
+
+    testWidgets('paints no play affordance without a tap handler', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         wrap(const VideoBubble(videoUrl: 'https://example.com/video.mp4')),
       );
-      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+
+      expect(find.byIcon(Icons.play_arrow), findsNothing);
+      expect(semanticsOf(tester).properties.button, isFalse);
+    });
+
+    testWidgets('the wired overlay opens the video', (tester) async {
+      var opened = false;
+      await tester.pumpWidget(
+        wrap(
+          VideoBubble(
+            videoUrl: 'https://example.com/video.mp4',
+            onTap: () => opened = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      expect(opened, isTrue);
     });
 
     testWidgets('shows caption when provided', (tester) async {
@@ -44,11 +85,12 @@ void main() {
       final progress = ValueNotifier<double>(0.2);
       addTearDown(progress.dispose);
       await tester.pumpWidget(
-        wrap(VideoBubble(videoUrl: '', uploadProgress: progress)),
+        wrap(VideoBubble(videoUrl: '', uploadProgress: progress, onTap: () {})),
       );
 
       expect(find.byIcon(Icons.play_arrow), findsNothing);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(semanticsOf(tester).properties.button, isFalse);
     });
 
     testWidgets('disables tap-to-open while uploading', (tester) async {
@@ -74,9 +116,10 @@ void main() {
     ) async {
       await tester.pumpWidget(
         wrap(
-          const VideoBubble(
+          VideoBubble(
             videoUrl: 'https://example.com/video.mp4',
             uploadProgress: null,
+            onTap: () {},
           ),
         ),
       );

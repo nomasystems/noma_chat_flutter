@@ -33,6 +33,7 @@ class MessageList extends StatefulWidget {
     this.onTapFile,
     this.onTapLocation,
     this.onTapLink,
+    this.onTapMention,
     this.onSwipeToReply,
     this.onMessageLongPress,
     this.onReactionTap,
@@ -75,6 +76,11 @@ class MessageList extends StatefulWidget {
   final ValueChanged<ChatMessage>? onTapFile;
   final ValueChanged<ChatMessage>? onTapLocation;
   final ValueChanged<String>? onTapLink;
+
+  /// Receives the user id of a tapped `@mention`. `null` (the default)
+  /// keeps mentions styled as plain text — see [MessageBubble.onTapMention].
+  final ValueChanged<String>? onTapMention;
+
   final ValueChanged<ChatMessage>? onSwipeToReply;
   final void Function(ChatMessage message, Rect messageRect)?
   onMessageLongPress;
@@ -519,7 +525,7 @@ class _MessageListState extends State<MessageList> {
     if (msg.messageType == MessageType.reaction) return;
 
     final senderName = _senderName(msg.from);
-    final preview = previewForMessage(msg, widget.theme.l10n);
+    final preview = previewForMessage(msg, widget.theme.l10nOf(context));
     _liveMessageAnnouncement = (senderName != null && senderName.isNotEmpty)
         ? '$senderName: $preview'
         : preview;
@@ -879,6 +885,7 @@ class _MessageListState extends State<MessageList> {
           ? () => widget.onTapLocation!(msg)
           : null,
       onTapLink: widget.onTapLink,
+      onTapMention: widget.onTapMention,
       onSwipeToReply: widget.onSwipeToReply != null
           ? () => widget.onSwipeToReply!(msg)
           : null,

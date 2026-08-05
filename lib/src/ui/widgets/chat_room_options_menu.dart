@@ -428,11 +428,11 @@ class ChatRoomOption {
 ///     theme: theme,
 ///     options: [
 ///       ChatRoomOption.clearChat(
-///         l10n: theme.l10n,
+///         l10n: theme.l10nOf(context),
 ///         onConfirm: () => adapter.messages.clearChat(roomId),
 ///       ),
 ///       ChatRoomOption.deleteChat(
-///         l10n: theme.l10n,
+///         l10n: theme.l10nOf(context),
 ///         onConfirm: () async {
 ///           await adapter.rooms.delete(roomId);
 ///           if (context.mounted) Navigator.of(context).pop();

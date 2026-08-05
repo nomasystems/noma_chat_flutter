@@ -22,6 +22,11 @@ abstract class UnreadRoom with _$UnreadRoom {
     /// `0` when there are none. Drives the "@" badge on the room tile
     /// without fetching message bodies.
     @Default(0) int unreadMentions,
+
+    /// Text of the last message as its sender wrote it. Never a label or a
+    /// sentence composed by the SDK — it feeds `RoomListItem.lastMessage`
+    /// on rehydration, and the room-list preview is built from there at
+    /// paint time.
     String? lastMessage,
     DateTime? lastMessageTime,
     String? lastMessageUserId,
@@ -32,6 +37,14 @@ abstract class UnreadRoom with _$UnreadRoom {
     int? lastMessageDurationMs,
     @Default(false) bool lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+
+    /// Text of the message the last reaction was aimed at, truncated to 30
+    /// grapheme clusters, quoted inside the reaction preview.
+    String? lastMessageReactionTargetText,
+
+    /// Type of the message the last reaction was aimed at, so a text-less
+    /// one can be quoted by its label in the reader's own language.
+    MessageType? lastMessageReactionTargetType,
     ReceiptStatus? lastMessageReceipt,
     String? name,
     String? avatarUrl,

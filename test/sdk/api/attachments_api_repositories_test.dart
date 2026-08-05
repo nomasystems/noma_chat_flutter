@@ -146,6 +146,51 @@ void main() {
       expect(result.dataOrNull!.attachmentId, 'att-top');
     });
 
+    test('upload() fails when the body resolves neither an id nor a '
+        'url', () async {
+      for (final body in <Map<String, dynamic>>[
+        <String, dynamic>{},
+        <String, dynamic>{'attachmentId': '', 'url': ''},
+      ]) {
+        when(
+          () => rest.uploadBinary(
+            any(),
+            any(),
+            any(),
+            onProgress: any(named: 'onProgress'),
+          ),
+        ).thenAnswer((_) async => body);
+
+        final result = await api.upload(Uint8List.fromList([1]), 'image/png');
+
+        expect(
+          result.isFailure,
+          isTrue,
+          reason: 'body $body must not mint an empty attachment',
+        );
+        expect(result.failureOrNull, isA<ServerFailure>());
+      }
+    });
+
+    test('upload() accepts a body carrying only a url', () async {
+      when(
+        () => rest.uploadBinary(
+          any(),
+          any(),
+          any(),
+          onProgress: any(named: 'onProgress'),
+        ),
+      ).thenAnswer(
+        (_) async => {'getUrl': 'https://cdn.example.com/att-9.png'},
+      );
+
+      final result = await api.upload(Uint8List.fromList([1]), 'image/png');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrNull!.attachmentId, isEmpty);
+      expect(result.dataOrNull!.url, 'https://cdn.example.com/att-9.png');
+    });
+
     test('download() without roomId logs a deprecation warning', () async {
       final sink = BufferChatLogSink();
       final loggedApi = AttachmentsApi(

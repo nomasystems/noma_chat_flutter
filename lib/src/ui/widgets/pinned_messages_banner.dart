@@ -50,7 +50,7 @@ class PinnedMessagesBanner extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    theme.l10n.pinnedMessage,
+                    theme.l10nOf(context).pinnedMessage,
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -72,7 +72,7 @@ class PinnedMessagesBanner extends StatelessWidget {
             ),
             if (onClose != null)
               Semantics(
-                label: theme.l10n.close,
+                label: theme.l10nOf(context).close,
                 button: true,
                 child: GestureDetector(
                   onTap: onClose,

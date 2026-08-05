@@ -40,6 +40,32 @@ void main() {
       expect(restored.unreadMentions, 1);
       expect(restored.muteUntil, DateTime.utc(2026, 6, 15, 18));
     });
+
+    test('toMap/fromMap keep what a reaction row quotes', () {
+      const original = UnreadRoom(
+        roomId: 'r1',
+        unreadMessages: 0,
+        lastMessageType: MessageType.reaction,
+        lastMessageReactionEmoji: '🔥',
+        lastMessageReactionTargetText: 'hasta mañana',
+        lastMessageReactionTargetType: MessageType.regular,
+      );
+
+      final restored = unreadRoomFromMap(unreadRoomToMap(original));
+
+      expect(restored.lastMessageReactionEmoji, '🔥');
+      expect(restored.lastMessageReactionTargetText, 'hasta mañana');
+      expect(restored.lastMessageReactionTargetType, MessageType.regular);
+    });
+
+    test('a row that quotes nothing restores as quoting nothing', () {
+      const original = UnreadRoom(roomId: 'r1', unreadMessages: 0);
+
+      final restored = unreadRoomFromMap(unreadRoomToMap(original));
+
+      expect(restored.lastMessageReactionTargetText, isNull);
+      expect(restored.lastMessageReactionTargetType, isNull);
+    });
   });
 
   group('RoomDetail — muteUntil parsing', () {

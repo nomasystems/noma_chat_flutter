@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import '../adapter/chat_ui_adapter.dart';
 import '../controller/room_list_controller.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
+import '_ambient_l10n_adopter.dart';
 import 'empty_state.dart';
 import 'message_status_icon.dart';
 import 'room_context_menu.dart';
@@ -15,6 +17,7 @@ class RoomListView extends StatelessWidget {
   const RoomListView({
     super.key,
     required this.controller,
+    this.adapter,
     this.theme = ChatTheme.defaults,
     this.onTapRoom,
     this.onLongPressRoom,
@@ -46,6 +49,15 @@ class RoomListView extends StatelessWidget {
   });
 
   final RoomListController controller;
+
+  /// The adapter behind [controller], when the host has one. Wiring it lets
+  /// the view hand the adapter the localizations the widget tree resolved,
+  /// so the few strings composed off-screen — the self-chat title, the
+  /// membership banners — follow the app locale without the host assigning
+  /// `ChatUiAdapter.l10n` itself. A host that does assign it keeps control:
+  /// see `ChatUiAdapter.adoptAmbientL10n`. The view stays adapter-free for
+  /// everything else it renders.
+  final ChatUiAdapter? adapter;
   final ChatTheme theme;
 
   final ValueChanged<RoomListItem>? onTapRoom;
@@ -67,6 +79,12 @@ class RoomListView extends StatelessWidget {
 
   final Widget Function(BuildContext, RoomListItem)? contextMenuBuilder;
   final Set<RoomAction>? contextMenuActions;
+
+  /// Sink for the [RoomAction] picked in the room long-press menu. Unlike
+  /// the bubble menu, [RoomListView] is adapter-free and cannot resolve a
+  /// single one of those actions on its own, so without this callback —
+  /// or [onLongPressRoom], or a [contextMenuBuilder] that owns the sheet —
+  /// the long press stays unwired and no menu opens.
   final void Function(RoomListItem room, RoomAction action)?
   onContextMenuAction;
 
@@ -86,13 +104,16 @@ class RoomListView extends StatelessWidget {
   /// Invoked with the [RoomListItem] when the user taps the green
   /// "Accept" button on an invitation row. Typically the consumer
   /// calls `adapter.rooms.acceptInvitation(room.id)` here. Only relevant
-  /// for rows where `room.isInvitation == true` (the buttons don't
-  /// render otherwise).
+  /// for rows where `room.isInvitation == true`, and the button is only
+  /// painted when this is wired — answering an invitation is host work,
+  /// so an unwired row shows its ordinary preview instead of a control
+  /// nothing can answer.
   final ValueChanged<RoomListItem>? onAcceptInvitation;
 
   /// Invoked with the [RoomListItem] when the user taps the red
   /// "Reject" button on an invitation row. Typical impl:
-  /// `adapter.rooms.rejectInvitation(room.id)`.
+  /// `adapter.rooms.rejectInvitation(room.id)`. Painted only when wired,
+  /// like [onAcceptInvitation].
   final ValueChanged<RoomListItem>? onRejectInvitation;
 
   /// Id of the room to visually highlight as "currently open" — typically
@@ -116,6 +137,16 @@ class RoomListView extends StatelessWidget {
   /// `ChatViewBuilders.statusIconBuilder` for the equivalent bubble-side
   /// override.
   final MessageStatusIconBuilder? statusIconBuilder;
+
+  /// `true` when a room long press has somewhere to land: the host's own
+  /// [onLongPressRoom], the [onContextMenuAction] sink that answers the
+  /// default menu, or a [contextMenuBuilder] that owns the sheet outright.
+  /// When `false` the gesture is left unwired so the tile never claims a
+  /// long press it cannot act on.
+  bool get _hasLongPressHandler =>
+      onLongPressRoom != null ||
+      onContextMenuAction != null ||
+      contextMenuBuilder != null;
 
   Future<void> _handleLongPress(BuildContext context, RoomListItem room) async {
     if (onLongPressRoom != null) {
@@ -159,7 +190,9 @@ class RoomListView extends StatelessWidget {
           onSelectionChanged?.call(room);
         }
       },
-      onLongPress: () => _handleLongPress(context, room),
+      onLongPress: _hasLongPressHandler
+          ? () => _handleLongPress(context, room)
+          : null,
       onAcceptInvitation: onAcceptInvitation == null
           ? null
           : () => onAcceptInvitation!(room),
@@ -171,6 +204,13 @@ class RoomListView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final list = _buildList(context);
+    final chatAdapter = adapter;
+    if (chatAdapter == null) return list;
+    return AmbientL10nAdopter(adapter: chatAdapter, theme: theme, child: list);
+  }
+
+  Widget _buildList(BuildContext context) {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
@@ -187,7 +227,7 @@ class RoomListView extends StatelessWidget {
               emptyBuilder?.call(context) ??
               EmptyState(
                 icon: emptyIcon,
-                title: emptyTitle ?? theme.l10n.noChatsYet,
+                title: emptyTitle ?? theme.l10nOf(context).noChatsYet,
                 subtitle: emptySubtitle,
                 action: emptyAction,
                 theme: theme,
@@ -214,7 +254,9 @@ class RoomListView extends StatelessWidget {
                   return ExpansionTile(
                     key: const PageStorageKey('noma_chat_archived_section'),
                     leading: const Icon(Icons.archive_outlined),
-                    title: Text('${theme.l10n.archived} (${archived.length})'),
+                    title: Text(
+                      '${theme.l10nOf(context).archived} (${archived.length})',
+                    ),
                     children: [
                       for (final room in archived) _buildTile(context, room),
                     ],
@@ -246,7 +288,7 @@ class RoomListView extends StatelessWidget {
           children: [
             if (showHeader)
               RoomListHeader(
-                title: headerTitle ?? theme.l10n.chats,
+                title: headerTitle ?? theme.l10nOf(context).chats,
                 isSelecting: controller.isSelecting,
                 selectedCount: controller.selectedIds.length,
                 onNewChat: onNewChat,
@@ -257,7 +299,7 @@ class RoomListView extends StatelessWidget {
             if (showSearch)
               RoomSearchBar(
                 onChanged: controller.setFilter,
-                hintText: searchHint ?? theme.l10n.search,
+                hintText: searchHint ?? theme.l10nOf(context).search,
                 theme: theme,
               ),
             Expanded(child: list),

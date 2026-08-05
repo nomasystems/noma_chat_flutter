@@ -78,7 +78,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
             // (filled + rounded 24 + borderSide.none) was inconsistent
             // with the rest of the surface and felt out of place.
             decoration: InputDecoration(
-              hintText: widget.theme.l10n.searchMessages,
+              hintText: widget.theme.l10nOf(context).searchMessages,
               prefixIcon: const Icon(Icons.search, size: 20),
               suffixIcon: ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _textController,
@@ -86,7 +86,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   if (value.text.isEmpty) return const SizedBox.shrink();
                   return IconButton(
                     icon: const Icon(Icons.close, size: 18),
-                    tooltip: widget.theme.l10n.clearText,
+                    tooltip: widget.theme.l10nOf(context).clearText,
                     onPressed: () {
                       _textController.clear();
                       _onQueryChanged('');
@@ -121,7 +121,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   !widget.controller.isLoading) {
                 return Center(
                   child: Text(
-                    widget.theme.l10n.noResults,
+                    widget.theme.l10nOf(context).noResults,
                     style:
                         widget.theme.emptyStateTitleStyle ??
                         TextStyle(fontSize: 16, color: Colors.grey.shade500),
@@ -149,6 +149,10 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                       : DateFormatter.formatSeparator(
                           message.timestamp,
                           now: now,
+                          todayLabel: widget.theme.l10nOf(context).today,
+                          yesterdayLabel: widget.theme
+                              .l10nOf(context)
+                              .yesterday,
                         );
                   return ListTile(
                     title: Text(

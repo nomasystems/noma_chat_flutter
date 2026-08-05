@@ -77,12 +77,20 @@ class ChatViewBuilders {
   final ValueListenable<double>? Function(String messageId)?
   attachmentUploadProgressFor;
 
-  /// Custom text for system messages. When `null`, the SDK uses
-  /// [ChatMessage.text] as-is.
+  /// Custom text for system messages. Wins over the default text when it
+  /// returns a string, but [systemMessageBuilder] is consulted first and
+  /// replaces the row entirely when it returns a widget — the full
+  /// precedence is [systemMessageBuilder] > this > `localizedSystemMessageText`
+  /// > [ChatMessage.text]. When `null`, the SDK rebuilds the text of its own
+  /// membership banners in the language being rendered
+  /// (`localizedSystemMessageText`) and uses [ChatMessage.text] as-is for
+  /// every other system row.
   final String Function(ChatMessage message)? systemMessageTextResolver;
 
   /// Replaces the default system-message row entirely. Returning `null`
-  /// from this builder falls back to the SDK's default rendering.
+  /// from this builder falls back to the SDK's default rendering, which
+  /// starts with [systemMessageTextResolver] — this builder is consulted
+  /// first, so wiring both means this one decides.
   final Widget? Function(BuildContext context, ChatMessage message)?
   systemMessageBuilder;
 
@@ -182,6 +190,7 @@ class ChatViewCallbacks {
     this.onTapFile,
     this.onTapLocation,
     this.onTapLink,
+    this.onTapMention,
     this.onPickCamera,
     this.onPickGallery,
     this.onPickFile,
@@ -214,10 +223,24 @@ class ChatViewCallbacks {
   final ValueChanged<ChatMessage>? onReportMessage;
 
   final ValueChanged<ChatMessage>? onTapImage;
+
+  /// Plays the tapped video. Unlike `onTapImage` and `onTapFile`, this one
+  /// has no default: the package bundles no video player, and guessing one
+  /// is the host's call. Left `null`, the video bubble paints no play
+  /// overlay at all rather than offering a button that goes nowhere — wire
+  /// it to get the affordance back.
   final ValueChanged<ChatMessage>? onTapVideo;
   final ValueChanged<ChatMessage>? onTapFile;
   final ValueChanged<ChatMessage>? onTapLocation;
   final ValueChanged<String>? onTapLink;
+
+  /// Opens the profile behind a tapped `@mention`, receiving the user id
+  /// written after the `@`. Like [onTapVideo] this one has no default:
+  /// where a profile lives is host navigation the package cannot guess.
+  /// Left `null`, mentions render as plain body text instead of borrowing
+  /// the mention colour and weight for something that answers no tap —
+  /// wire it to get the affordance.
+  final ValueChanged<String>? onTapMention;
 
   final VoidCallback? onPickCamera;
   final VoidCallback? onPickGallery;
@@ -307,6 +330,7 @@ class ChatViewBehaviors {
     this.readOnlyLabel,
     bool? enableLinkPreview,
     bool? enableMentions,
+    bool? showOperationFeedback,
     this.initialMessageId,
     this.unreadBoundaryMessageId,
     int? unreadCount,
@@ -334,6 +358,7 @@ class ChatViewBehaviors {
        _readOnly = readOnly,
        _enableLinkPreview = enableLinkPreview,
        _enableMentions = enableMentions,
+       _showOperationFeedback = showOperationFeedback,
        _unreadCount = unreadCount,
        _isBlocked = isBlocked,
        _isParticipating = isParticipating,
@@ -359,6 +384,7 @@ class ChatViewBehaviors {
   final bool? _readOnly;
   final bool? _enableLinkPreview;
   final bool? _enableMentions;
+  final bool? _showOperationFeedback;
   final int? _unreadCount;
   final bool? _isBlocked;
   final bool? _isParticipating;
@@ -437,6 +463,22 @@ class ChatViewBehaviors {
   /// input when the user types `@<query>`. Candidate list is read from
   /// `controller.otherUsers` automatically — no extra wiring.
   bool get enableMentions => _enableMentions ?? false;
+
+  /// When `true` (default), `NomaChatView` wraps itself in an
+  /// `OperationFeedbackListener` fed from `adapter.operationSuccesses` and
+  /// `adapter.operationErrors`, so pinning, unpinning and deleting confirm
+  /// themselves and the failures a bubble cannot express — a moderation
+  /// rejection, a retry refused because the file was never uploaded —
+  /// reach the user as a soft snackbar with no host wiring.
+  ///
+  /// Set it to `false` when the host routes those streams into feedback
+  /// UI of its own, or when two chat views are on screen at once and only
+  /// one of them should speak.
+  ///
+  /// A host that wraps the view in its own `OperationFeedbackListener`
+  /// needs no flag: the view reads what that listener already delivers and
+  /// adds only the rest — nothing at all when it was handed both streams.
+  bool get showOperationFeedback => _showOperationFeedback ?? true;
 
   /// Message id to scroll to and highlight once messages are rendered.
   /// The intent is fired once; pass a new value to re-trigger.
@@ -520,6 +562,8 @@ class ChatViewBehaviors {
     readOnlyLabel: readOnlyLabel ?? base.readOnlyLabel,
     enableLinkPreview: _enableLinkPreview ?? base._enableLinkPreview,
     enableMentions: _enableMentions ?? base._enableMentions,
+    showOperationFeedback:
+        _showOperationFeedback ?? base._showOperationFeedback,
     initialMessageId: initialMessageId ?? base.initialMessageId,
     unreadBoundaryMessageId:
         unreadBoundaryMessageId ?? base.unreadBoundaryMessageId,
@@ -566,6 +610,7 @@ class ChatViewBehaviors {
     emptySubtitle: emptySubtitle,
     enableLinkPreview: _enableLinkPreview,
     enableMentions: _enableMentions,
+    showOperationFeedback: _showOperationFeedback,
     roomReceipts: _roomReceipts,
     roomMembers: _roomMembers,
     showReadReceiptsInGroups: _showReadReceiptsInGroups,

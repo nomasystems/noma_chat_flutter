@@ -82,8 +82,9 @@ class OperationError {
 /// user-visible side effects (pin a message, delete a message, forward,
 /// mute a room, report, …) completes successfully.
 ///
-/// The default `ChatView` listens to this stream and shows localized
-/// SnackBars when `showOperationFeedback: true` (default). Consumers
+/// `NomaChatView` listens to this stream and shows localized SnackBars
+/// when `ChatViewBehaviors.showOperationFeedback` is true (default),
+/// through the bundled `OperationFeedbackListener`. Consumers
 /// wanting custom UI can either subscribe to the stream directly and
 /// disable the built-in feedback, or override individual strings via
 /// `ChatUiLocalizations`.

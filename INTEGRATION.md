@@ -93,7 +93,7 @@ This eliminates blank screens after navigation and keeps bandwidth low.
 
 ## Offline behavior
 
-- Outbound operations that fail with network errors enqueue in `OfflineQueue` (Hive-persistent, 9 types).
+- Outbound operations that fail with network errors enqueue in `OfflineQueue` (Hive-persistent, one `PendingOperation` subclass per queued action — sends, edits, deletes, reactions, pins, stars, room creation/config and membership changes).
 - The queue drains with backoff on **every** connection, the first one of a session included — an operation queued before the socket was ever up does not have to wait for a reconnect. 401 errors do not trigger immediate retry (the consumer's refresh flow handles them).
 - `client.pendingOperationCount` reports the queue depth (`0` when no cache is configured) and `client.flushPendingOperations()` forces a drain attempt on demand, for a manual "retry sending" affordance.
 - `OfflineQueue.restore()` runs on boot; persisted operations resume after app restart.

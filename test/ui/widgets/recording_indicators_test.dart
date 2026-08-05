@@ -27,4 +27,30 @@ void main() {
       expect(find.byType(LockHintPill), findsOneWidget);
     });
   });
+
+  group('HoldToRecordHintPill', () {
+    testWidgets('renders the prompt text and swallows no pointers', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const HoldToRecordHintPill(
+            theme: ChatTheme.defaults,
+            text: 'Hold to record',
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hold to record'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(HoldToRecordHintPill),
+          matching: find.byType(IgnorePointer),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
 }

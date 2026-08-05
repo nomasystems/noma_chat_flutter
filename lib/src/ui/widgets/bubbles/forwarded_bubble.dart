@@ -28,10 +28,15 @@ class ForwardedBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final timestamp = sourceTimestamp;
-    final label = sourceLabel ?? theme.l10n.forwarded;
-    final headerText = timestamp == null
-        ? label
-        : '$label · ${DateFormatter.formatSeparator(timestamp)}';
+    final label = sourceLabel ?? theme.l10nOf(context).forwarded;
+    final separator = timestamp == null
+        ? null
+        : DateFormatter.formatSeparator(
+            timestamp,
+            todayLabel: theme.l10nOf(context).today,
+            yesterdayLabel: theme.l10nOf(context).yesterday,
+          );
+    final headerText = separator == null ? label : '$label · $separator';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,

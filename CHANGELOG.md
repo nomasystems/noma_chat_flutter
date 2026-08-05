@@ -6,6 +6,429 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.17.0
+
+### Security
+
+- **A URL that came in a message is launched only when it is `http` or `https`.** Three places hand
+  a message's URL to the platform launcher: the tap handler `ChatView` installs when the host wires
+  no `onTapLink`, the OpenGraph card `LinkPreviewBubble` paints, and the Links tab of the media
+  gallery. None of them looked at the scheme. Message *text* is filtered upstream — the markdown
+  parser only ever linkifies `http://` and `https://` — but the preview card is not: its `url` is
+  read from the message `metadata`, which the transport copies through verbatim from whoever sent
+  the message. A third party could therefore send an ordinary-looking card, with a title and a
+  domain line of their choosing, whose tap opened `javascript:`, `file:`, `intent://…` or a deep
+  link into the host app. The SDK passed the string to `url_launcher` as it arrived.
+
+  All three now resolve the URL through one allowlist: `http` and `https` only, a bare domain read
+  as `https`, everything else refused. A refused URL launches nothing and says nothing — at the tap
+  site a hostile scheme is indistinguishable from a typo, and a warning dialog on every miss only
+  teaches people to dismiss warnings. `LinkPreviewBubble` goes one step further and paints no card
+  at all for a URL it would refuse to open: the whole card is a tap target whose title, description
+  and domain line are chosen by the sender, so leaving it on screen would be an affordance that
+  lies about where it goes. Ordinary web links are unaffected — every link the parser has ever
+  produced is one, as is every preview card built from a real page. Hosts that pass their own
+  `onTapLink` are unaffected too, and own the filtering of whatever they choose to open.
+
+### Fixed
+
+- **A failed attachment or voice send keeps the blob it already uploaded.** `sendAttachment` and
+  `sendVoice` upload first and post the message second. When the upload landed but the post did
+  not — the room not settled yet and answering 404 is the common case, right after a DM is created
+  — the optimistic bubble was marked failed still holding the placeholder it was painted with: an
+  empty `attachmentUrl`, no `attachmentId`, and metadata without either. `retrySend` re-posts that
+  row verbatim, so retrying a failed photo, file, camera capture or voice note published a message
+  pointing at nothing, and the sender saw it as delivered. Hosts that noticed had to fall back to
+  re-picking the file, which uploads a second copy of the same bytes.
+
+  Both methods now patch the row with the URL, the `attachmentId` and the enriched metadata the
+  upload resolved, in the controller and in the pending-message cache alike. The cached copy is
+  written as soon as the upload resolves, *before* the send is attempted, so a process killed with
+  the send in flight still rehydrates a row that carries the blob and can be retried without
+  uploading the bytes again. Retrying re-posts the blob that is already on the server under the
+  original `clientMessageId`, so a retry can neither re-upload nor duplicate the message —
+  including a retry that fails again and is retried once more. Nothing changes when the send
+  succeeds, and an upload that itself failed has nothing to patch — see the entries below for what
+  happens to that bubble.
+
+- **Retrying an attachment or voice bubble whose upload never landed no longer publishes an empty
+  media message.** The bubble painted for a failed *upload* holds no blob at all, and the bundled
+  chat view offers a retry on every failed bubble. Taking it re-posted the row verbatim, so an
+  attachment or voice message pointing at nothing landed in the room, shown as delivered to the
+  sender and impossible to take back. `messages.retrySend` now refuses that row: it posts nothing,
+  leaves the bubble failed and returns a `ValidationFailure` whose `errors['reason']` is
+  `attachment_never_uploaded`.
+
+  A row counts as having a blob when *any* of `attachmentUrl`, `attachmentId` or the
+  `attachmentUrl` / `attachmentId` keys of `metadata` carries a non-empty value — `metadata` is
+  where `sendVoice` puts them, and where a host driving `messages.send` itself may put them, so
+  those rows keep retrying as they did in 0.16.0. An empty string counts as absent.
+
+  **What the user can actually do about it**: pick the file again. Nothing else recovers that
+  bubble on its own, and this release deliberately narrows the one path that used to look like it
+  did (see the offline-queue entry below). Automatic replay happens only when the host configured
+  a cache — no `cacheConfig`, no offline queue — *and* the upload failed in a way that proves the
+  bytes never left the device. Every other upload failure ends with a failed bubble whose retry is
+  refused. The bundled chat view now says so out of the box: `NomaChatView` mounts an
+  `OperationFeedbackListener` over `adapter.operationErrors` itself (see **Changed**), so the
+  refusal reaches the user as a localized snackbar with no host wiring. Hosts with their own
+  `errorLabelBuilder` should route that `reason` to a "pick the file again" message of their own.
+
+- **An upload whose 2xx carries neither an id nor a url is reported as a failure.** `POST
+  /attachments` was parsed leniently: a response body with no `attachmentId`/`id` and no
+  `getUrl`/`url` produced an `AttachmentUploadResult` with an empty id and a null url, and
+  `sendAttachment` / `sendVoice` then posted a perfectly ordinary-looking media message pointing at
+  nothing — no retry needed, first attempt. `attachments.upload` now returns a `ServerFailure` for
+  that body, which routes the bubble through the existing upload-failure branch instead.
+
+- **An attachment or voice send that reached the server without answering no longer paints a
+  second bubble.** The optimistic rows of `sendAttachment` and `sendVoice` were built without the
+  `clientMessageId` that text sends carry, and that key is the only way the authoritative
+  `new_message` event can recognise the row it belongs to. When the send landed but its response
+  did not — a `receive`-phase timeout, a 5xx after persistence, or an `ack_mode=async` provisional
+  echo — the event found nothing to reconcile and added a bubble of its own: the same photo or
+  voice note twice, one of them stuck in its failed or sending state for good. Both rows now
+  carry the key, so the event replaces the optimistic bubble exactly as it already did for text.
+
+  **Known limitation, and it is new in this release.** The same key now also reaches the
+  cold-start rehydration path, which still decides whether a cached pending row was superseded by
+  comparing message *text* within a timestamp window — media rows carry no text, so a stale
+  **failed** media row still sitting in the pending cache is not recognised as superseded.
+  Precisely because it now carries the `clientMessageId`, re-adding it resolves onto the
+  authoritative message and repaints an already-delivered message as failed until the next
+  reload; 0.16.0 painted a second, duplicate bubble in that same situation. The heuristic
+  predates this release, the symptom does not. Tracked in `ISSUES.md` under *"Pending-row
+  rehydration matches on text + timestamp, not the idempotency key"*, together with the fix
+  (match on the key before the heuristic), deliberately left out of a release scoped to the send
+  path.
+
+- **An upload that timed out after the bytes were on the wire is no longer replayed by the offline
+  queue.** `POST /attachments` carries no idempotency key and the server mints a fresh
+  `attachmentId` on every call, so replaying an upload that may already have landed leaves a
+  duplicate blob behind. The queue now accepts an upload failure only when it proves the bytes
+  never arrived — a `NetworkFailure`, or a `TimeoutFailure` whose `kind.isPreResponse` — the same
+  predicate the equally non-idempotent text send has always applied.
+
+  **The trade-off, stated plainly**: a `receive`-phase or `unknown` timeout on an upload — the
+  common shape of a bad network dropping while waiting for the `201` — now has no automatic
+  recovery at all. It marks the bubble failed, it is not queued, and `retrySend` on it is refused
+  because nothing was uploaded to re-post. The user has to pick the file again; the bundled UI
+  tells them so. The alternative was replaying an upload that may already have landed, which
+  leaves an orphan blob on the server for every attempt. That stands until `POST /attachments`
+  takes an idempotency key.
+
+- **Every link in every message was dead — tapping a URL in a bubble now opens it.** The markdown
+  parser has always painted a bare `http://` / `https://` URL blue and underlined, the universal
+  "this is tappable" affordance, and it attaches the tap recognizer only when it is handed an
+  `onTapLink`. `ChatView` has always built one (`callbacks.onTapLink ?? _defaultOpenLink`, which
+  opens the URL in the system browser via `url_launcher`), and `MessageList` has always forwarded
+  it — but `MessageBubble` never passed it on to the `TextBubble` it builds. The handler existed,
+  was correct, and died one line short of its destination, so no link in any message has ever been
+  tappable, in any host, with or without custom wiring. The bubble now forwards it.
+
+  **This is visible to every host on upgrade and needs no wiring**: URLs in message text become
+  tappable and open in the system browser. A host that already passes its own
+  `ChatViewCallbacks.onTapLink` — in-app webview, deep-link router, confirmation dialog — keeps
+  winning: the default is only the `??` fallback, and it is now actually reachable. Hosts that
+  want links to stay inert pass an `onTapLink` that does nothing. Link *styling* is unchanged —
+  the blue underline was already painted and still is, so goldens do not move. This covers the
+  message timeline; untouched, and each tracked in `ISSUES.md`: the reply bubbles inside
+  `ThreadView`, which build their own `MessageBubble` and accept no `onTapLink`, and `@mentions`,
+  which the parser still paints as tappable with no callback anywhere in the public API.
+  `LinkPreviewBubble` and the links tab of the media gallery had working taps already.
+
+- **Registering `ChatUiLocalizations.delegate` now translates the chat UI.** The delegate, `of` and
+  `override` resolved the right instance for the active locale and no widget consulted them: every
+  widget read `ChatTheme.l10n`, whose default is English. A host that followed the guide to the
+  letter — delegate registered, `supportedLocales` set, app locale in Spanish — got a chat in
+  English with no clue why. Widgets now resolve through `ChatTheme.l10nOf(context)`, which returns
+  the instance the host put on `ChatTheme.l10n` and otherwise reads the `Localizations` ancestor,
+  so both routes work and the ancestor route follows app-locale changes at runtime.
+
+  **Hosts that already pass `l10n` through the theme see no change** — an explicit instance still
+  wins. The one case that moves is a host whose app locale is not English and whose theme carries
+  the canonical `ChatUiLocalizations.en` verbatim (including `forLanguageCode('en')`,
+  `forLanguageCode(null)` and any unsupported code, which all return that instance): that theme
+  reads as "not set" and now follows the ancestor. Passing `ChatUiLocalizations.en.copyWith()`
+  pins English. The limitation is documented on `ChatThemeL10n` and tracked in `ISSUES.md`.
+
+- **A membership banner is no longer stuck in the language it was written in.** "Alice joined",
+  "You removed Bob" and the role-change notice are composed by the adapter — which has no
+  `BuildContext` — and then *persisted*, so the sentence stayed in whatever language the session
+  had when the event arrived: switching the app to Spanish left every old banner in English, on
+  every device, forever. The row now carries the ingredients that produced it (`event`, the two
+  user ids, the display names resolved at the time, and whether the local user is the subject or
+  the actor — see `SystemMessageMetadataKeys`), and `MessageBubble` rebuilds the sentence on every
+  paint with the localizations it is rendering with. Display names stay as they were resolved: they
+  are proper nouns, and re-resolving them per paint would cost a user lookup to change nothing.
+
+  **Rows written by earlier versions keep their stored text**, since they carry ids but no names —
+  re-localizing them would put raw user ids on screen, which is worse than an English banner. The
+  new public helper `localizedSystemMessageText(message, l10n)` is what the bubble calls and is
+  exported, so a host with its own system-message rendering can call it too. A host
+  `systemMessageTextResolver` still wins over both, unchanged.
+
+- **The chat list was the one screen the delegate could not reach, and now it is not.** A row's
+  preview — "📷 Photo", "🎤 Voice message (0:14)", "Forwarded", the deleted marker, "Alice reacted
+  👍 to …" — was composed once, by the adapter, in whatever language the session had when the
+  message landed, and then stored on the row and cached. Registering the delegate and switching the
+  app to Spanish translated every screen except the one users spend the most time on, and no
+  amount of host wiring fixed a row already written. Worse, one shape came out wrong in *any*
+  language: a photo with no caption stored the generic "📎 Attachment" in the very slot the
+  renderer reads captions from, so the row read "📷 📎 Attachment" instead of "📷 Photo", on
+  every host, forever.
+
+  Nothing is composed into a row any more. `RoomListItem.lastMessage` now holds the sender's own
+  text and nothing else — `null` when they wrote none — and the row carries what the preview needs
+  instead: the type, the mime type, the file name, the voice duration, the deleted flag, and, new
+  in this release, `lastMessageReactionTargetText` / `lastMessageReactionTargetType` for the
+  message a reaction was aimed at. `RoomTile` builds the sentence from those on every paint, with
+  `theme.l10nOf(context)`, so the list follows the app locale live like every other widget and the
+  "📷 📎 Attachment" row is gone. **Text a person wrote is never rewritten**, because nothing
+  rewrites anything: the only string kept is theirs.
+
+  **Two host-visible changes.** `RoomListItem.lastMessage` (and `UnreadRoom.lastMessage`, which
+  feeds it) no longer carries a label for a captionless photo, voice note, forward, reaction or
+  deletion — read the row's structured fields, or call the exported `buildLastMessagePreview`, to
+  render one. And the room-list search filter, which matches on that field, now matches what people
+  typed rather than the SDK's own labels. Rows cached by an older version keep the label they were
+  written with until the next `loadRooms` or the next message in that room refreshes them.
+
+- **`ChatUiAdapter.l10n` is settable, and registering the delegate is now enough on its own.** It
+  was a `final` field, so the strings the adapter composes where no `BuildContext` is in reach were
+  pinned to the language the session connected with, and the only documented way to move them was
+  to dispose the adapter and build a new one. That made a language change cost a disconnect and a
+  full reconnect, and a reconnect that fails leaves a host with no chat at all until the app
+  restarts — a heavy and failure-prone price for re-reading a few strings.
+
+  It is now a property whose setter every handler reads through on each use, so assigning a new
+  bundle re-points the whole adapter in place: no teardown, no reconnect, no await, nothing that
+  can fail. With the previews gone from the row, one string is left that a widget cannot recompute
+  for itself because it is stored there rather than derived at paint time — the self-chat title —
+  and the setter re-stamps it, touching only a row whose title is exactly what the outgoing bundle
+  would have produced.
+
+  **The SDK now assigns it for you.** `NomaChatView`, and `RoomListView` when handed the new
+  optional `adapter:`, push the localizations their subtree resolved into the adapter as their
+  dependencies settle, with the same precedence `ChatTheme.l10nOf` uses: an explicit
+  `ChatTheme.l10n` first, the `Localizations` ancestor otherwise. **A host that assigns
+  `adapter.l10n` itself — or passes a non-default `l10n:` to the constructor or to
+  `NomaChat.create` — keeps full control and is never pushed to**, so existing wiring such as WB's
+  `ChatService.updateLanguage` behaves exactly as before. Reading `adapter.l10n` is unchanged.
+
+- **`ChatUiLocalizations.override(...)` reaches every string.** It declared 237 of the 274 fields
+  and forwarded 236 of those: `attachmentUploadingTemplate` was accepted and silently dropped, and
+  37 more — `retry`, `messageInfo`, `readBy`, `deliveredTo`, `starredMessages`, the `mute*` and
+  `presence*` sets, `archived`, `loadMore`, `error`, `reason`, `avatar`, `email`, `searchEmoji`,
+  the `*Failed` toasts and the rest — could not be overridden at all. The parameter list now
+  mirrors `copyWith` one for one and forwards all of it.
+
+### Changed
+
+- **`NomaChatView` mounts the bundled `OperationFeedbackListener` itself.** The listener has
+  shipped with the package for a while, but nothing inside the package mounted it: a host that
+  rendered `NomaChatView` — the drop-in path this package advertises — got no snackbar for a
+  moderation rejection, and none for the refused retry described above. The retry button did
+  nothing and said nothing, whatever the docs claimed. The view now wraps its own subtree in the
+  listener, fed from `adapter.operationSuccesses` and `adapter.operationErrors` and localized with
+  the very `theme` it is already rendering with, so the feedback works with zero host wiring.
+
+  **Wrapping the view by hand still gives exactly one snackbar.** A host that already wraps it in
+  an `OperationFeedbackListener` wired to both streams keeps that one and only that one: the view
+  reads what the listener above it delivers and adds nothing, so those integrations are untouched
+  and need no edit. What the view checks is what the wrapper *shows*, not that a wrapper exists —
+  `errors` is optional on that widget, and a listener mounted for successes only would otherwise
+  have silenced the very failures this release exists to surface. In that case the view mounts a
+  failures-only listener underneath: the wrapper keeps its success confirmations, the failures get
+  said once, and neither is announced twice. A listener mounted with `enabled: false` still claims
+  the whole subtree — silencing your own listener is a request for silence, and that switch would
+  be dead if the view spoke over it.
+
+  A host that routes the two streams into feedback UI that is *not* this widget — a global error
+  banner, an analytics-driven toast — decides: pass
+  `ChatViewBehaviors(showOperationFeedback: false)` when that UI already speaks for the same
+  events, or leave the default on and let the SDK cover the ones it does not. The same flag is the
+  switch for a layout with two chat views on screen where only one should speak.
+
+  **What actually changes for a host with no feedback wiring at all**: pinning, unpinning and
+  deleting now confirm themselves with a snackbar, and moderation rejections and refused retries
+  now explain themselves. Forwarding confirms itself too, for the hosts that wire it — see the
+  entry below on why it is no longer in the default menu. Every string comes from
+  `ChatUiLocalizations` through the view's own theme, so it is already translated, already
+  overridable, and an empty string still suppresses its snackbar.
+
+- **`MessageAction.forward` is no longer in `NomaChatView`'s default context menu.** The tile was
+  painted on every long-press with its icon and its label, and tapping it closed the sheet and did
+  nothing at all: neither `ChatView` nor `NomaChatView` had a branch for it, and the only remaining
+  exit was `ChatViewCallbacks.onContextMenuAction`, which a drop-in host does not pass. Choosing
+  the target rooms is a product decision the package cannot make on a host's behalf, so it now
+  leaves the action out instead of offering a dead control.
+
+  **Hosts that already wire forwarding must add the action back** — one line, and the behaviour is
+  exactly what it was:
+
+  ```dart
+  NomaChatView(
+    roomId: roomId,
+    adapter: adapter,
+    contextMenuActionsResolver: (room, defaults) =>
+        {...defaults, MessageAction.forward},
+    callbacks: ChatViewCallbacks(
+      onContextMenuAction: (message, action) {
+        if (action == MessageAction.forward) openForwardSheet(message);
+      },
+    ),
+  );
+  ```
+
+  Nothing else about forwarding changed: `MessageForwardSheet`, `adapter.messages.forward` and the
+  `feedbackForwarded` confirmation are untouched, and the bundled feedback listener still shows
+  that confirmation once the host's own sheet completes the operation.
+
+- **A video bubble no longer paints a play button nobody answers.** `VideoBubble` drew its 56×56
+  play overlay unconditionally whenever no upload was in flight, but the tap travels to
+  `ChatViewCallbacks.onTapVideo`, which — unlike `onTapImage` and `onTapFile` — has no default in
+  `NomaChatView`: the package bundles no video player. A host that wired nothing showed a
+  thumbnail with a large, obvious play button that did absolutely nothing when tapped. The overlay
+  is now painted only when a handler is wired, so an unwired video reads as a still. Wire
+  `onTapVideo` to get the affordance back; the upload-in-progress state is unchanged (placeholder
+  and progress ring, no overlay, taps ignored).
+
+- **The default app bar's title row is tappable only when `onAppBarTap` is wired.** `NomaChatView`
+  always handed `ChatRoomAppBar` a non-null closure — `() => onAppBarTap?.call(room)` — so the
+  `InkWell` behind the avatar, title and subtitle was permanently live: it painted a Material
+  splash and swallowed the tap while the default `onAppBarTap` of `null` made the closure a no-op.
+  Opening a room or user profile is navigation, and the package has no screen it can route to on a
+  host's behalf, so the callback is now propagated as it arrives: `null` in, no ripple, no consumed
+  tap. Wire `onAppBarTap` — `GroupInfoPage` and `UserInfoPage` ship with the package — to get the
+  affordance back, exactly as before. Hosts with their own `appBarBuilder` were never affected.
+
+- **`RoomListView` no longer opens a room context menu it cannot answer.** Every tile handed its
+  `InkWell` a non-null `onLongPress`, so a long press always opened `RoomContextMenu`, and with
+  `contextMenuActions` left at its default that sheet painted every action it knows for the row:
+  Mute or Unmute, Pin or Unpin, Mark as read when the row had unread messages, and Delete on every
+  row without exception. Picking one closed the sheet and called
+  `onContextMenuAction`, which a drop-in host does not pass — a full modal sheet of dead tiles,
+  Delete included, opened by the package without the host ever asking for it. Unlike the bubble
+  menu, this view takes a `RoomListController` and no adapter, and that controller is a pure
+  view-model: it can mutate the in-memory list but cannot mute, pin, mark read or delete a room on
+  the server. There is no subset of those actions with a working default to keep, so the long press
+  is now wired only when something can answer it — `onContextMenuAction`, `onLongPressRoom`, or a
+  `contextMenuBuilder` that owns the sheet outright. Wire any of the three and the menu behaves
+  exactly as it did.
+
+- **An invitation row paints "Accept" and "Reject" only when they are wired.** `RoomTile` drew both
+  buttons on every `room.isInvitation` row and handed each one a nullable callback. A button with
+  no handler behind it registers no tap recognizer, so the touch did not stop there: it fell
+  through to the tile's own `InkWell` and opened the conversation. Pressing "Reject" on an
+  invitation therefore entered it — the wrong action rather than no action, on the only control the
+  row offers for answering at all. Each button is now painted only when its own handler exists
+  (`RoomListView.onAcceptInvitation` / `onRejectInvitation`, forwarded per row), so a tap always
+  lands on the thing it says it does, and a row with neither wired falls back to the ordinary
+  last-message preview. Hosts that already answer both buttons see no change.
+
+- **`ChatRoomsApi.updateCachedRoomPreview` replaces the whole last-message block when it is told
+  the type.** Every field it takes describes one message, but each was merged with `??` against
+  what the row already held, so a plain text message landing after a photo inherited the photo's
+  mime type and rendered as one, and a reaction's quoted snippet outlived the reaction. A call
+  that passes `lastMessageType` now states the row's new last message outright and the rest of the
+  block is replaced, `null`s included; a call that omits it still patches a single field (a
+  receipt, a deletion) and leaves the block alone. Two optional parameters were added for the
+  reaction fields (see **Added**); a custom UI that calls this method itself needs no edit unless
+  it wants them.
+
+### Added
+
+- **`RoomListItem.lastMessageReactionTargetText` / `.lastMessageReactionTargetType`**, mirrored on
+  `UnreadRoom`, persisted in the preview cache, and settable through
+  `ChatRoomsApi.updateCachedRoomPreview` — the text (or, failing that, the type) of the message a
+  reaction was aimed at, so "Alice reacted 👍 to …" can be rebuilt at paint time in the reader's
+  own language instead of being frozen when the reaction landed. All optional; nothing to wire.
+
+- **`RoomListView.adapter`** — optional, and the only reason to pass it is localization: the view
+  hands the adapter the bundle its subtree resolved, so a host that registers
+  `ChatUiLocalizations.delegate` gets the strings composed off-screen in the app's language with
+  no assignment of its own. The view stays adapter-free for everything else it renders, and a host
+  that sets `ChatUiAdapter.l10n` itself is never overridden.
+
+- **`ChatViewBehaviors.showOperationFeedback`** — opts the chat view out of mounting the bundled
+  `OperationFeedbackListener` (default `true`, see **Changed**). Optional named parameter with a
+  default, like every other knob on that class.
+
+- **`OperationFeedbackListener.coverageAbove` and `OperationFeedbackCoverage`** — what a listener
+  mounted above a given context already delivers: `none`, `successesOnly` (mounted without an
+  `errors` stream, so failures reach nobody through it) or `everything`. This is how `NomaChatView`
+  decides what to mount, and it is public so a host composing its own feedback widgets can make the
+  same call. Nothing to wire for the drop-in path.
+
+- **`ChatUiLocalizations.attachmentNeverUploaded`** — "That file was never uploaded — pick it
+  again to send it." (translated in `es`, `fr`, `de`, `it`, `pt` and `ca`; English elsewhere).
+  The listener `NomaChatView` mounts shows it as a soft snackbar when `retrySend` is refused with
+  `errors['reason'] == 'attachment_never_uploaded'`, so the bundled retry button explains itself
+  instead of doing nothing. Override it like any other string, with `copyWith` on the
+  `ChatUiLocalizations` you put on `ChatTheme.l10n`, or through
+  `ChatUiLocalizations.override(...)`. The field has a default, so nothing has to change to
+  upgrade.
+
+- **`MockAttachmentsApi.uploadCount`** (`package:noma_chat/noma_chat_testing.dart`) — how many
+  times `upload` has been called, failures included. Lets a test assert that a path which re-posts
+  an already-uploaded blob, such as `retrySend` on an attachment whose send failed, does not
+  upload the bytes a second time.
+
+### Removed
+
+- **`packages/noma_chat_otel/` — the OpenTelemetry companion is gone from the repo and from the
+  published archive.** Its documented install route was a git dependency on this repository
+  (`path: packages/noma_chat_otel`), and it also travelled inside `noma_chat`'s own tarball; both
+  stop resolving from this version on. It was under a hundred lines turning
+  `ChatConfig.metricCallback` into one instantaneous span per event, and its span naming could not
+  be customized without rewriting the callback anyway — which is the whole adapter:
+
+  ```dart
+  config: ChatConfig(
+    metricCallback: (metric, data) =>
+        tracer.startSpan('noma_chat.$metric', attributes: attrs(data)).end(),
+  ),
+  ```
+
+  `attrs` is your own map-to-attributes conversion for whichever OTel binding you use, and the
+  span names are now yours to choose. `ChatConfig.metricCallback` itself is unchanged, and
+  `TELEMETRY.md` still documents every metric name, its fields and when it fires.
+
+- **`benchmark/` — the micro-benchmark scripts are gone from the repo and from the published
+  archive.** Three standalone `dart run` programs (event parser, message mapper, offline queue)
+  plus their README, used to compare throughput before and after a change on a maintainer's
+  machine. They were never public API and were never importable as a library, but they did travel
+  inside the archive; a consumer running them out of their pub cache no longer finds them.
+
+### Docs
+
+- **The localization guide describes the two routes that now work.** The class documentation,
+  `doc/DEVELOPER_GUIDE.md` and the `LocalizationsDelegate` bullet of the 0.6.0 entry below said the
+  widgets resolve the active instance through `Localizations`; between 0.6.0 and this release they
+  did not, and a host that registered the delegate got an English chat with no clue why. Both
+  routes are real as of the **Fixed** entry above, and the docs now spell out the precedence
+  between them, the runtime-locale behaviour, and the one case where an explicit English theme
+  loses to the ancestor:
+
+  ```dart
+  // Route 1 — explicit, wins over the ambient locale.
+  NomaChatView(
+    roomId: roomId,
+    adapter: adapter,
+    theme: ChatTheme.defaults.copyWith(
+      l10n: ChatUiLocalizations.forLanguageCode(code),
+    ),
+  );
+
+  // Route 2 — register the delegate, leave the theme alone.
+  MaterialApp(
+    localizationsDelegates: const [ChatUiLocalizations.delegate, /* … */],
+    supportedLocales: ChatUiLocalizations.supportedLocales,
+    home: NomaChatView(roomId: roomId, adapter: adapter),
+  );
+  ```
+
 ## 0.16.0
 
 ### Security

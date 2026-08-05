@@ -14,8 +14,13 @@ import '../../models/room_list_item.dart';
 
 /// Centralised mutations to the [RoomListController] driven by chat
 /// events, optimistic operations and user-cache updates: last-message
-/// strings, reaction previews, receipt mirroring, unread counts, DM
+/// fields, reaction previews, receipt mirroring, unread counts, DM
 /// title/avatar refresh, sender-name backfill, blocked-rooms pruning.
+///
+/// What lands on a row is the message's own data, never a sentence
+/// composed for it: `RoomTile` builds the preview from those fields on
+/// every paint (`buildLastMessagePreview`), so there is nothing here to
+/// re-translate when the reader's language changes.
 ///
 /// All public methods are no-ops when the underlying room is absent
 /// from [roomListController]; callers do not need to gate themselves.
@@ -24,7 +29,7 @@ class RoomListMutator {
     required this.roomListController,
     required this.cache,
     required this.client,
-    required this.l10n,
+    required ChatUiLocalizations Function() l10n,
     required ChatUser Function() currentUser,
     required ChatUser? Function(String userId) findCachedUser,
     required Future<void> Function(String userId) ensureUserCached,
@@ -39,7 +44,8 @@ class RoomListMutator {
     })
     computeEffectiveTitle,
     required bool Function() isDisposed,
-  }) : _currentUser = currentUser,
+  }) : _l10n = l10n,
+       _currentUser = currentUser,
        _findCachedUser = findCachedUser,
        _ensureUserCached = ensureUserCached,
        _findChatController = findChatController,
@@ -52,8 +58,12 @@ class RoomListMutator {
   final RoomListController roomListController;
   final ChatLocalDatasource? cache;
   final ChatClient client;
-  final ChatUiLocalizations l10n;
 
+  /// Read on every use so a hot `ChatUiAdapter.l10n` swap reaches the
+  /// strings composed from here without rebuilding this handler.
+  ChatUiLocalizations get l10n => _l10n();
+
+  final ChatUiLocalizations Function() _l10n;
   final ChatUser Function() _currentUser;
   final ChatUser? Function(String userId) _findCachedUser;
   final Future<void> Function(String userId) _ensureUserCached;
@@ -69,9 +79,10 @@ class RoomListMutator {
   _computeEffectiveTitle;
   final bool Function() _isDisposed;
 
-  /// Re-stamps the room-list row for [roomId] with [message] as its
-  /// new last-message preview. Mirrors the change to the persistent
-  /// cache via `client.rooms.updateCachedRoomPreview` (fire-and-forget).
+  /// Re-stamps the room-list row for [roomId] with [message] as its new
+  /// last message: the sender's own text plus the structured fields the
+  /// preview is built from. Mirrors the change to the persistent cache via
+  /// `client.rooms.updateCachedRoomPreview` (fire-and-forget).
   void updateRoomLastMessage(String roomId, ChatMessage message) {
     final existing = roomListController.getRoomById(roomId);
     if (existing == null) return;
@@ -89,7 +100,7 @@ class RoomListMutator {
         message.timestamp.isBefore(existingTime)) {
       return;
     }
-    final preview = _legacyPreviewForMessage(message);
+    final text = message.isDeleted ? null : message.text;
     final durationMs = message.metadata?['duration'];
     final int? lastDurationMs = durationMs is int
         ? durationMs
@@ -102,7 +113,7 @@ class RoomListMutator {
     }
     roomListController.updateRoom(
       existing.copyWith(
-        lastMessage: preview,
+        lastMessage: text,
         lastMessageTime: message.timestamp,
         lastMessageUserId: message.from,
         lastMessageSenderName: senderName,
@@ -118,6 +129,8 @@ class RoomListMutator {
         lastMessageReactionEmoji: message.messageType == MessageType.reaction
             ? message.reaction
             : null,
+        lastMessageReactionTargetText: null,
+        lastMessageReactionTargetType: null,
       ),
     );
     if (senderName == null && message.from != currentUser.id) {
@@ -129,7 +142,7 @@ class RoomListMutator {
     unawaited(
       client.rooms.updateCachedRoomPreview(
         roomId,
-        lastMessage: preview,
+        lastMessage: text,
         lastMessageTime: message.timestamp,
         lastMessageUserId: message.from,
         lastMessageId: message.id,
@@ -145,9 +158,11 @@ class RoomListMutator {
     );
   }
 
-  /// Updates the row preview after an emoji reaction was added to a
-  /// message in [roomId]. Renders the WhatsApp-style snippet using the
-  /// referenced message's text when available.
+  /// Stamps the row for [roomId] with the emoji reaction [userId] just put
+  /// on [messageId]: the emoji, the reactor, and the text (or type) of the
+  /// message being reacted to. The sentence around them — "You reacted 👍
+  /// to …" — is composed by `RoomTile` at paint time out of exactly these
+  /// fields.
   void updateRoomReactionPreview(
     String roomId,
     String emoji,
@@ -159,40 +174,40 @@ class RoomListMutator {
 
     final controller = _findChatController(roomId);
     final referencedMsg = controller?.getMessageById(messageId);
-    final snippet = _messageSnippet(referencedMsg);
 
     final bool isSelf = userId == _currentUser().id;
-    String preview;
-    if (snippet != null) {
-      if (isSelf) {
-        preview = l10n.reactionPreviewSelf(emoji, snippet);
-      } else {
-        final name = _resolveUserName(controller, userId, roomId);
-        preview = l10n.reactionPreviewOther(name, emoji, snippet);
-      }
-    } else {
-      preview = l10n.reactionPreview(emoji);
-    }
+    final reactorName = isSelf
+        ? null
+        : _resolveUserName(controller, userId, roomId);
 
     final timestamp = DateTime.now();
     roomListController.updateRoom(
       existing.copyWith(
-        lastMessage: preview,
+        lastMessage: null,
         lastMessageTime: timestamp,
         lastMessageUserId: userId,
+        lastMessageSenderName: reactorName,
+        lastMessageId: null,
+        lastMessageReceipt: null,
         lastMessageType: MessageType.reaction,
+        lastMessageMimeType: null,
+        lastMessageFileName: null,
+        lastMessageDurationMs: null,
         lastMessageReactionEmoji: emoji,
+        lastMessageReactionTargetText: _messageSnippet(referencedMsg),
+        lastMessageReactionTargetType: referencedMsg?.messageType,
         lastMessageIsDeleted: false,
       ),
     );
     unawaited(
       client.rooms.updateCachedRoomPreview(
         roomId,
-        lastMessage: preview,
         lastMessageTime: timestamp,
         lastMessageUserId: userId,
         lastMessageType: MessageType.reaction,
         lastMessageReactionEmoji: emoji,
+        lastMessageReactionTargetText: _messageSnippet(referencedMsg),
+        lastMessageReactionTargetType: referencedMsg?.messageType,
         lastMessageIsDeleted: false,
       ),
     );
@@ -324,6 +339,29 @@ class RoomListMutator {
     }
   }
 
+  /// Re-stamps rows still carrying the self-chat title [previous] composed,
+  /// so a hot `ChatUiAdapter.l10n` swap also reaches the one title a widget
+  /// cannot recompute for itself (it is stored on the row, not derived at
+  /// paint time).
+  ///
+  /// Matches on the exact stale title rather than re-running the title
+  /// resolver: a row whose title came from anywhere else — a peer name, a
+  /// group name, a host `RoomTitleResolver` — is left untouched, and so is
+  /// one whose owner has been renamed since it was stamped.
+  void refreshSelfChatTitles(ChatUiLocalizations previous) {
+    final ownName = _currentUser().displayName?.trim();
+    final base = (ownName == null || ownName.isEmpty)
+        ? _currentUser().id
+        : ownName;
+    final stale = previous.selfChatTitle(base);
+    final fresh = l10n.selfChatTitle(base);
+    if (stale == fresh) return;
+    for (final room in roomListController.allRooms) {
+      if (room.effectiveDisplayName != stale) continue;
+      roomListController.updateRoom(room.copyWith(effectiveDisplayName: fresh));
+    }
+  }
+
   /// Propagates avatar changes to DM room tiles whose `otherUserId`
   /// matches one of [users]. Mirrors the pattern in
   /// [refreshDmTitlesForUsers] but for the `avatarUrl` field.
@@ -369,37 +407,12 @@ class RoomListMutator {
     }
   }
 
-  /// Computes a legacy plain-text preview for [message] used as fallback
-  /// (search filter, older consumers, server-formatted payloads).
-  String _legacyPreviewForMessage(ChatMessage message) {
-    if (message.isDeleted) return l10n.messageDeleted;
-    final text = message.text;
-    switch (message.messageType) {
-      case MessageType.attachment:
-        return (text != null && text.isNotEmpty)
-            ? text
-            : l10n.attachmentPreview;
-      case MessageType.audio:
-        return (text != null && text.isNotEmpty) ? text : l10n.audioPreview;
-      case MessageType.forward:
-        return (text != null && text.isNotEmpty) ? text : l10n.forwarded;
-      case MessageType.reaction:
-        return l10n.reactionPreview(message.reaction ?? '');
-      default:
-        return text ?? '';
-    }
-  }
-
+  /// The reacted-to message's own text, trimmed to what a row can show.
+  /// `null` when it carried none — the type stored alongside decides the
+  /// label that stands in for it, in the language of whoever is reading.
   String? _messageSnippet(ChatMessage? message) {
-    if (message == null) return null;
-    final text = message.text;
-    if (text == null || text.isEmpty) {
-      return switch (message.messageType) {
-        MessageType.attachment => l10n.attachmentPreview,
-        MessageType.audio => l10n.audioPreview,
-        _ => null,
-      };
-    }
+    final text = message?.text;
+    if (text == null || text.isEmpty) return null;
     // Truncate by grapheme clusters, not UTF-16 code units. Otherwise
     // `text.substring(0, 30)` can split a surrogate pair (emoji,
     // astral char), producing a string Flutter's painter rejects with
@@ -409,7 +422,11 @@ class RoomListMutator {
     return '${chars.take(30).toString()}...';
   }
 
-  String _resolveUserName(
+  /// Display name for [userId] in [roomId], or `null` when none is known.
+  /// Deliberately never falls back to the id: an opaque identifier quoted
+  /// in a preview reads as a bug, and the bare "Reacted 👍" the caller
+  /// falls back to says the same thing without one.
+  String? _resolveUserName(
     ChatController? controller,
     String userId,
     String roomId,
@@ -418,12 +435,16 @@ class RoomListMutator {
       final user = controller.otherUsers
           .where((u) => u.id == userId)
           .firstOrNull;
-      if (user?.displayName != null) return user!.displayName!;
+      final fromRoom = user?.displayName?.trim();
+      if (fromRoom != null && fromRoom.isNotEmpty) return fromRoom;
     }
+    final cached = _findCachedUser(userId)?.displayName?.trim();
+    if (cached != null && cached.isNotEmpty) return cached;
     final room = roomListController.getRoomById(roomId);
-    if (room != null && room.otherUserId == userId && room.name != null) {
-      return room.name!;
+    if (room != null && room.otherUserId == userId) {
+      final name = room.name?.trim();
+      if (name != null && name.isNotEmpty) return name;
     }
-    return userId;
+    return null;
   }
 }

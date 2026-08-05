@@ -178,6 +178,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
+  /// Target-room picker for `MessageAction.forward`. The SDK leaves that
+  /// action out of `NomaChatView`'s default menu — it has no room picker of
+  /// its own and will not paint a tile that does nothing — so this page adds
+  /// it back through `contextMenuActionsResolver` and answers it here.
   Future<void> _openForwardSheet(ChatMessage message) async {
     final sourceRoomId = _navKey;
     final rooms = _chat.adapter.roomListController.allRooms
@@ -258,40 +262,39 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     final theme = ChatTheme.defaults.copyWith(l10n: l10n);
     final strings = LocaleProvider.of(context).strings;
 
-    return OperationFeedbackListener(
-      successes: _chat.adapter.operationSuccesses,
-      errors: _chat.adapter.operationErrors,
+    return NomaChatView(
+      roomId: widget.roomId,
+      adapter: _chat.adapter,
+      title: widget.title,
       theme: theme,
-      child: NomaChatView(
-        roomId: widget.roomId,
-        adapter: _chat.adapter,
-        title: widget.title,
-        theme: theme,
-        initialMessageId: _initialMessageId,
-        reportReasonHint: strings.reportReasonHint,
-        onAppBarTap: _openRoomInfo,
-        callbacks: ChatViewCallbacks(
-          onTapImage: _openImageViewer,
-          onPickGallery: _pickAndSendGalleryImage,
-          onContextMenuAction: (message, action) {
-            if (action == MessageAction.forward) {
-              _openForwardSheet(message);
-            }
-          },
-        ),
-        appBarActions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: strings.refreshTooltip,
-            onPressed: _refresh,
-          ),
-          IconButton(
-            tooltip: l10n.more,
-            icon: const Icon(Icons.more_vert),
-            onPressed: _openOptionsMenu,
-          ),
-        ],
+      initialMessageId: _initialMessageId,
+      reportReasonHint: strings.reportReasonHint,
+      onAppBarTap: _openRoomInfo,
+      contextMenuActionsResolver: (room, defaults) => {
+        ...defaults,
+        MessageAction.forward,
+      },
+      callbacks: ChatViewCallbacks(
+        onTapImage: _openImageViewer,
+        onPickGallery: _pickAndSendGalleryImage,
+        onContextMenuAction: (message, action) {
+          if (action == MessageAction.forward) {
+            _openForwardSheet(message);
+          }
+        },
       ),
+      appBarActions: [
+        IconButton(
+          icon: const Icon(Icons.refresh),
+          tooltip: strings.refreshTooltip,
+          onPressed: _refresh,
+        ),
+        IconButton(
+          tooltip: l10n.more,
+          icon: const Icon(Icons.more_vert),
+          onPressed: _openOptionsMenu,
+        ),
+      ],
     );
   }
 }

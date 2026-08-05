@@ -336,7 +336,7 @@ the parent, a UI built for a managed user typically needs to filter or relabel
 incoming events client-side rather than relying on the transport identity —
 there is no `X-From-User-Id`-scoped event stream to subscribe to.
 
-### Observability — `metricCallback` and `noma_chat_otel`
+### Observability — `metricCallback`
 
 `ChatConfig.metricCallback` is a single sink —
 `void Function(String metric, Map<String, dynamic> data)` — fed by every
@@ -352,27 +352,28 @@ config: ChatConfig(
 ),
 ```
 
-For OpenTelemetry specifically, use the `noma_chat_otel` companion package
-(`packages/noma_chat_otel` in this repo) instead of hand-rolling the mapping:
+That one sink is also the whole OpenTelemetry story: an adapter is a few
+lines you write against your own tracer, and writing it yourself is what
+keeps the span naming yours.
 
 ```dart
-import 'package:noma_chat_otel/noma_chat_otel.dart';
-
-final tracer = openTelemetry.getTracer('noma_chat');
 config: ChatConfig(
-  metricCallback: nomaChatOtelCallback(tracer),
+  metricCallback: (metric, data) =>
+      tracer.startSpan('noma_chat.$metric', attributes: attrs(data)).end(),
 ),
 ```
 
-Every metric becomes an instantaneous point-in-time OTel span (started and
-ended immediately, so span start/end timestamps are identical — these are
-observations, not measured durations) named `noma_chat.<metric>`, falling
-back to a small built-in table (`OtelSpanBuilder.spanNames`) of friendlier
-names for a subset of events. There is currently no supported way to
-customize span names or shape — `OtelSpanBuilder` is a `static`-only,
-non-instantiable class, so it cannot be subclassed. Fork
-`nomaChatOtelCallback` if you need different span naming. See
-`packages/noma_chat_otel/README.md`.
+`attrs` is your own conversion from the event's `Map<String, dynamic>` to
+whatever attribute type your OTel binding takes. Note what the shape
+implies: these are instantaneous, point-in-time spans — started and ended
+in the same statement, so start and end timestamps are identical. They are
+observations, not measured durations; a metric that carries a duration
+reports it as a field, which lands as an attribute.
+
+> An earlier `noma_chat_otel` companion package did exactly this mapping
+> with a fixed name table. It was removed in 0.17.0 — see the CHANGELOG —
+> because it saved a handful of lines while making the names impossible to
+> change without rewriting the callback anyway.
 
 ### Structured logging — `logSink` / `ChatLogger`
 
@@ -777,16 +778,66 @@ re-enqueuing a failed retry; nothing else in the SDK enqueues a second copy
 of the same logical send.
 
 A photo/video/audio/file attachment enters the same queue when the
-**upload** step fails with a connectivity-flavored failure (a
-`NetworkFailure`/`TimeoutFailure`, checked by `ChatUiAdapter` before
-calling `ChatClient.enqueueOfflineAttachment`) — `sendAttachment`/
+**upload** step fails with a failure that proves the bytes never arrived —
+a `NetworkFailure`, or a `TimeoutFailure` whose `kind.isPreResponse`,
+checked by `NomaChatClient.enqueueOfflineAttachment`, which is the same
+predicate the equally non-idempotent text send applies. The queue only
+exists when the host configured a cache (`cacheConfig`); without one there
+is nowhere to persist the bytes and nothing is queued. `sendAttachment`/
 `sendVoice` still mark the optimistic bubble failed immediately (nothing
 changes visually), but the bytes + metadata are queued and the whole
 upload+send is replayed automatically on reconnect. The bubble flips from
 failed to sent via the same `onOfflineMessageSent` reconciliation as a
 queued text send, keyed by the original `tempId`. A permanent failure
 (validation, auth, forbidden, …) is never queued — there is nothing a
-retry would fix.
+retry would fix. Neither is a `receive`-phase or `unknown` timeout:
+`POST /attachments` carries no idempotency key and the server mints a
+fresh `attachmentId` per call, so replaying an upload that may already
+have landed would leave a duplicate blob behind. That bubble has no
+automatic recovery left: it stays failed, `retrySend` on it is refused
+(there is no blob to re-post), and the only way forward is the user
+picking the file again.
+
+When the upload lands but the **send** that follows it fails, the bubble is
+marked failed carrying the blob that is already on the server:
+`attachmentUrl`, `attachmentId` and the enriched metadata are written onto
+the row (and onto its cached pending copy, which is updated as soon as the
+upload resolves — before the send is even attempted, so a process killed
+mid-send rehydrates a row that still knows its blob) before the failure
+returns. A `messages.retrySend` on that bubble therefore re-posts the
+uploaded attachment under the original `clientMessageId` — no second
+upload, no orphan blob, and no duplicate message however many times it is
+retried.
+This is what makes a "retry the first message once the room exists" policy
+safe on the four upload paths (voice, file, gallery, camera), not just on
+text.
+
+When the **upload** is what failed there is no blob to repost, and
+`messages.retrySend` refuses the row rather than publishing an attachment
+or voice bubble pointing at nothing — a message nobody can take back once
+it is in the room. The call returns a `ValidationFailure` with
+`errors['reason'] == 'attachment_never_uploaded'` and leaves the bubble
+failed. A row counts as carrying a blob when any of `attachmentUrl`,
+`attachmentId` or the `attachmentUrl`/`attachmentId` keys of `metadata`
+holds a non-empty value, so a media message posted through
+`messages.send` with the reference only in `metadata` still retries
+normally.
+
+The only way out of a refused row is picking the file again, and the
+bundled UI says so by itself: `NomaChatView` mounts an
+`OperationFeedbackListener` over `adapter.operationErrors`, which turns
+that failure into a soft snackbar reading
+`ChatUiLocalizations.attachmentNeverUploaded` in the view's own theme
+language — a host rendering `NomaChatView` needs no wiring at all. A host
+that wraps the view in its own listener and passes it `errors:` keeps that
+one and only that one (the view sees the failures are covered and mounts
+none); a host driving `ChatView` or `messages.retrySend`
+directly reads the returned `ValidationFailure`, or routes the same
+`reason` through its own `errorLabelBuilder`. Do not document it to the
+user as "recovered automatically": that only happens for the queued case
+above (a cache configured *and* a failure proving the bytes never left),
+and there the queue replays the whole upload + send by itself, without the
+user touching anything.
 
 If the offline queue exhausts its retries (or the operation sits too long /
 the queue is full), `NomaChatClient.onOperationDropped` fires. The default
@@ -1508,6 +1559,47 @@ chatAdapter.operationErrors.listen((e) {
 });
 ```
 
+### What the SDK already surfaces for you
+
+`NomaChatView` mounts an `OperationFeedbackListener` over both streams, so
+a host that renders it gets the SDK's own snackbars with no wiring at all:
+the pin / unpin / delete confirmations, plus the two failures a failed
+bubble cannot express by itself — a moderation rejection, and a `retrySend`
+refused because the file was never uploaded. Forwarding is confirmed the
+same way for hosts that wire the action (it is not in the default context
+menu — see `NomaChatView` below). Every string comes from
+`ChatUiLocalizations` through the view's `theme`, so it is translated and
+overridable; setting one to `''` suppresses that snackbar alone.
+
+Two ways to take it over — either keeps you at exactly one snackbar per
+event:
+
+```dart
+// Wrap the view in your own listener and the SDK mounts none.
+OperationFeedbackListener(
+  successes: chatAdapter.operationSuccesses,
+  errors: chatAdapter.operationErrors,   // omit and the view covers failures
+  theme: theme,                          // pass the same theme as the view
+  labelBuilder: (context, event, theme) => myStrings.forKind(event.kind),
+  child: NomaChatView(roomId: roomId, adapter: chatAdapter, theme: theme),
+);
+
+// Or switch it off and drive the streams from your own pipeline.
+NomaChatView(
+  roomId: roomId,
+  adapter: chatAdapter,
+  behaviors: const ChatViewBehaviors(showOperationFeedback: false),
+);
+```
+
+`errors` is optional on that widget, and the view accounts for it: what it
+checks is what your listener *shows*, not that it exists. Wrap the view
+with both streams and the view mounts nothing; wrap it with `successes`
+only and the view mounts a failures-only listener underneath, so your
+success labels stay yours and the failures still get said — once. If you
+want silence instead, that is `enabled: false` on your listener (it claims
+the whole subtree) or `showOperationFeedback: false` on the view.
+
 ---
 
 ## Cache
@@ -1748,15 +1840,15 @@ pass wins, the rest keep the sensible behavior.
 | `behaviors` | `ChatViewBehaviors?` | Override computed behaviors (mentions, reaction set, recording limits, read receipts…). Non-default fields win. |
 | `appBarActions` | `List<Widget>?` | Trailing icons appended to the default app bar (e.g. refresh, overflow). Ignored when `appBarBuilder` is set. |
 | `appBarBuilder` | `ChatAppBarBuilder?` | Replace the entire app bar: `(context, room, controller) => PreferredSizeWidget`. |
-| `onAppBarTap` | `void Function(RoomListItem?)?` | Tap on the default app bar's title row (typically opens room/user info). |
+| `onAppBarTap` | `void Function(RoomListItem?)?` | Tap on the default app bar's title row (typically opens room/user info). Left unset, the row is not a tap target at all — no ripple, no swallowed tap. |
 | `onRoomLeft` | `VoidCallback?` | Invoked when the room is removed under the view. Defaults to `Navigator.maybePop`. |
 | `contextMenuActionsResolver` | `ContextMenuActionsResolver?` | `(room, defaults) => Set<MessageAction>` — add/remove actions on top of the role-aware defaults. |
 | `hydrateGroupMembers` | `bool` | Fetch + hydrate group members (default `true`). |
 | `initialMessageId` | `String?` | Message to scroll to and highlight on mount (search / pinned-row target). |
 | `reportReasonHint` | `String?` | Placeholder for the report dialog's reason field. |
 
-Example — add a custom context-menu action and an image viewer while keeping
-every default:
+Example — add context-menu actions and an image viewer while keeping every
+default:
 
 ```dart
 NomaChatView(
@@ -1764,7 +1856,7 @@ NomaChatView(
   adapter: chat.adapter,
   reportReasonHint: 'Why are you reporting this?',
   contextMenuActionsResolver: (room, defaults) =>
-      {...defaults, MessageAction.replyInThread},
+      {...defaults, MessageAction.replyInThread, MessageAction.forward},
   appBarActions: [
     IconButton(icon: const Icon(Icons.refresh), onPressed: _refresh),
   ],
@@ -1776,6 +1868,14 @@ NomaChatView(
   ),
 )
 ```
+
+> **`MessageAction.forward` is not one of the defaults**, which is why the
+> example adds it explicitly. Choosing the target rooms is yours to decide,
+> so the SDK leaves the tile out rather than painting one that closes the
+> sheet and does nothing. Add it back as above and answer it in
+> `onContextMenuAction` — typically with `MessageForwardSheet` and
+> `adapter.messages.forward`, whose confirmation snackbar the bundled
+> feedback listener then shows for you.
 
 > **You rarely need `onTapImage`.** Left unset, `NomaChatView` already opens
 > the built-in full-screen `ImageViewer` wired to the authenticated media
@@ -1794,6 +1894,15 @@ NomaChatView(
 >   ),
 > )
 > ```
+
+> **`onTapVideo` is the one tap callback with no default.** The package
+> bundles no video player, so playback is yours to provide — and until you
+> do, the video bubble paints no play overlay: a thumbnail with a play
+> button that swallows the tap is worse than a thumbnail. Wire the callback
+> (`video_player`, a full-screen route, an external app — your call) and the
+> overlay comes back. Re-mint the URL through
+> `chat.adapter.defaultAttachmentUrlResolver` before handing it to a player,
+> for the same expiry reason as `ImageViewer` above.
 
 #### ReportMessageDialog
 
@@ -1839,7 +1948,7 @@ remainder). Pass `leadingBuilder` to render avatars next to each name.
 |---|---|
 | `NomaChatView` | Drop-in single-room screen — app bar + `ChatView` + the seven room behaviors auto-wired (recommended) |
 | `ChatView` | Full chat screen with input, bubble list, app bar |
-| `RoomListView` | Paginated room list with unread badges, mute/pin/hide options |
+| `RoomListView` | Paginated room list with unread badges; the long-press menu (mute/pin/mark read/delete) opens only once `onContextMenuAction` is there to answer it |
 | `GroupSetupPage` | Multi-step group creation flow |
 | `GroupInfoPage` | Edit group name, avatar, add/remove/promote members |
 | `ProfileSettingsPage` | User profile with avatar picker + crop |
@@ -2239,7 +2348,30 @@ See the `ChatTheme` class documentation for the complete field reference.
 
 ## Localization
 
-Seven locales ship out of the box:
+Twelve locales ship out of the box: `en`, `es`, `fr`, `de`, `it`, `pt`, `ca`,
+`sv`, `no`, `da`, `pl`, `cs`.
+
+Every widget resolves its strings through `theme.l10nOf(context)`, which
+honours two wiring routes. Pick either.
+
+**Route 1 — through the theme.** Put the instance you want on the theme you
+hand to the view; an explicit instance always wins:
+
+```dart
+NomaChatView(
+  roomId: roomId,
+  adapter: adapter,
+  theme: ChatTheme.defaults.copyWith(
+    l10n: ChatUiLocalizations.forLanguageCode(languageCode),
+  ),
+)
+```
+
+This is what the example app does (`example/lib/pages/chat_room_page.dart`).
+
+**Route 2 — through Flutter's `Localizations`.** Register the delegate and
+leave `ChatTheme.l10n` at its default; the widgets read the ancestor
+themselves and follow app-locale changes at runtime:
 
 ```dart
 MaterialApp(
@@ -2252,18 +2384,77 @@ MaterialApp(
     ...ChatUiLocalizations.supportedLocales,
     // your app locales
   ],
+  home: NomaChatView(roomId: roomId, adapter: adapter),
 )
 ```
 
-Supported: `en`, `es`, `fr`, `de`, `it`, `pt`, `ca`.
+With neither, the UI renders the English defaults.
 
-The SDK falls back to English when no delegate is registered. Widgets access strings through `ChatUiLocalizations.of(context)`.
+One caveat on route 1: "the host set `l10n`" is detected by identity against
+the canonical `ChatUiLocalizations.en` constant, so a theme carrying that
+exact instance — including `forLanguageCode('en')`, `forLanguageCode(null)`
+and any unsupported code, which all return it — reads as "not set" and falls
+through to route 2. To pin English against a non-English app locale, pass a
+distinct instance: `ChatUiLocalizations.en.copyWith()`.
+
+**Room-list previews follow routes 1 and 2 like any other widget string.**
+`RoomTile` builds every one of them at paint time from the structured
+`RoomListItem` fields and `theme.l10nOf(context)`: the deleted marker, "📷
+Photo" / "📹 Video" / "📄 report.pdf" / "🎵 song.mp3", "🎤 Voice message
+(0:14)", "📍 Location", "Forwarded", and the reaction sentence ("Alice
+reacted 👍 to …", rebuilt from `lastMessageReactionEmoji`,
+`lastMessageSenderName` and `lastMessageReactionTargetText` /
+`lastMessageReactionTargetType`). `RoomListItem.lastMessage` holds only the
+text the sender wrote, so nothing on a row is ever frozen in the language it
+arrived in and nothing a person typed is ever rewritten. Membership system
+banners ("Alice joined", "You removed Bob") work the same way, rebuilt from
+the metadata the SDK persists with them (`localizedSystemMessageText`); only
+banners written before 0.17.0, which carry no display names, keep the
+language they were stored in.
+
+`ChatUiAdapter.l10n` is a third surface, and a small one: the strings the
+adapter composes where no `BuildContext` is in reach — the self-chat title
+and the membership banners at the moment they are minted.
+
+**You do not normally have to set it.** `NomaChatView` — and `RoomListView`
+when you pass it the optional `adapter:` — hand the adapter the bundle their
+own subtree resolved, with the same precedence as `l10nOf`, so registering
+the delegate covers this surface too:
+
+```dart
+RoomListView(
+  controller: chat.roomListController,
+  adapter: chat.adapter,
+)
+```
+
+**Assign it yourself and you own it from then on.** `ChatUiAdapter.l10n` is
+settable and read on every use, so a host that drives the chat language from
+its own settings screen writes `adapter.l10n =
+ChatUiLocalizations.forLanguageCode(code)` — no teardown, no reconnect. Once
+you have assigned it (or passed a non-default `l10n:` to `NomaChat.create` or
+to the constructor) the SDK stops pushing the ambient bundle in, so the two
+routes never fight. The self-chat title on rows already written is re-stamped
+by the setter; the membership banners already written keep their sentence, as
+described above.
 
 ### Custom strings
 
-Register `ChatUiLocalizations.override(...)` in place of `delegate` to
-customise individual strings while keeping the seven bundled locales. The
-overrides layer on top of whichever locale is active:
+Any of the 274 string fields can be overridden with `copyWith`; unspecified
+ones keep the bundled translation:
+
+```dart
+theme: ChatTheme.defaults.copyWith(
+  l10n: ChatUiLocalizations.forLanguageCode(languageCode).copyWith(
+    send: 'Submit',
+    writeMessage: 'Write a message…',
+  ),
+)
+```
+
+`ChatUiLocalizations.override(...)` builds a delegate that applies the same
+overrides on top of whichever locale Flutter resolves. It reaches the chat UI
+through route 2, so leave `ChatTheme.l10n` at its default when you use it:
 
 ```dart
 localizationsDelegates: [
@@ -2286,10 +2477,6 @@ localizationsDelegates: [
   ChatUiLocalizations.delegate, // es/fr/de/it/pt/ca use bundled copy
 ],
 ```
-
-Any of the 225 string fields can be overridden; unspecified ones keep the
-bundled translation. `copyWith` is also available if you build a
-`ChatUiLocalizations` instance directly.
 
 ---
 

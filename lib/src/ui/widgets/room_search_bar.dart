@@ -71,7 +71,7 @@ class _RoomSearchBarState extends State<RoomSearchBar> {
               if (value.text.isEmpty) return const SizedBox.shrink();
               return IconButton(
                 icon: const Icon(Icons.close, size: 18),
-                tooltip: widget.theme.l10n.clearText,
+                tooltip: widget.theme.l10nOf(context).clearText,
                 onPressed: _clear,
               );
             },

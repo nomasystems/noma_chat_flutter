@@ -27,6 +27,7 @@ class AvatarCropPage {
     // No native cropper on desktop (image_cropper is android/ios/web only).
     // Degrade gracefully: return the source so the caller uploads it uncropped.
     if (!PlatformSupport.supportsImageCrop) return sourceBytes;
+    final l10n = theme.l10nOf(context);
     File? tempFile;
     try {
       final tempDir = await getTemporaryDirectory();
@@ -40,7 +41,7 @@ class AvatarCropPage {
         compressQuality: compressQuality,
         uiSettings: [
           AndroidUiSettings(
-            toolbarTitle: theme.l10n.cropPhoto,
+            toolbarTitle: l10n.cropPhoto,
             initAspectRatio: CropAspectRatioPreset.square,
             aspectRatioPresets: const [CropAspectRatioPreset.square],
             lockAspectRatio: true,
@@ -48,7 +49,7 @@ class AvatarCropPage {
             cropStyle: CropStyle.circle,
           ),
           IOSUiSettings(
-            title: theme.l10n.cropPhoto,
+            title: l10n.cropPhoto,
             aspectRatioLockEnabled: true,
             aspectRatioPickerButtonHidden: true,
             resetButtonHidden: true,

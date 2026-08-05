@@ -62,8 +62,39 @@ subtype (`AuthFailure`, `NetworkFailure`, `StorageFailure`, …).
 ## 4. L10n keys
 
 * Every user-facing string sits in `ChatUiLocalizations`. No hardcoded
-  English in widget code (`Text('Loading…')` is forbidden — use
-  `theme.l10n.loading`).
+  English in widget code (`Text('Loading…')` is forbidden).
+* Widgets read strings through `theme.l10nOf(context)`, never through
+  `theme.l10n` directly — `Text(theme.l10nOf(context).loading)`. The
+  `l10nOf` extension (`ChatThemeL10n`, in `chat_theme.dart`, so it comes
+  with the import every widget already has) returns the instance the host
+  put on `ChatTheme.l10n`, or the one published by the `Localizations`
+  ancestor when the theme carries the default. Reading `theme.l10n`
+  directly makes the widget deaf to `ChatUiLocalizations.delegate` and to
+  runtime locale changes.
+* A method that needs a string but has no `BuildContext` takes one
+  (`String _label(BuildContext context)`) and the caller in `build` passes
+  it along. Only helpers that already receive a resolved
+  `ChatUiLocalizations` are exempt — the adapter layer
+  (`lib/src/ui/adapter/`) is one of them: it has no context and keeps its
+  own injected `l10n`.
+* **Never persist a string the adapter composed.** It would be frozen in the
+  language of the session that wrote it, which is not the one the reader
+  will necessarily have on screen, and it would sit in the same field as
+  text a person typed — where telling the two apart afterwards is guesswork.
+  Persist the ingredients instead — a type, an emoji, ids, display names, a
+  "who is the local user" flag — and rebuild the sentence at paint time from
+  a pure function that takes `ChatUiLocalizations`:
+  `buildLastMessagePreview` for room-list rows,
+  `localizedSystemMessageText` for membership banners. A stored string is
+  the fallback for rows written before the ingredients existed, never the
+  primary source.
+* What is left over — a string the SDK genuinely cannot rebuild from a row,
+  today only the self-chat title — follows `ChatUiAdapter.l10n`: every
+  handler reads it on each use, so the swap is in place and cannot fail, and
+  the setter re-stamps the rows that carry it. `NomaChatView` and
+  `RoomListView` push the ambient bundle in on `didChangeDependencies`
+  (`adoptAmbientL10n`), so registering the delegate is enough and a host
+  that assigns `l10n` itself is never overridden.
 * Templates use `{n}`, `{user}`, `{count}` placeholders consumed via
   `String.replaceAll`. Helpers in `chat_ui_localizations.dart` wrap the
   most common cases (`feedbackForwarded(count)`, etc.).

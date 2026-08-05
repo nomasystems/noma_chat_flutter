@@ -9,6 +9,7 @@ import '../../../models/message.dart';
 import '../../../models/user.dart';
 import '../../controller/room_list_controller.dart';
 import '../../l10n/chat_ui_localizations.dart';
+import '../../l10n/system_message_text.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/user_cache_service.dart';
 
@@ -33,6 +34,15 @@ import '../services/user_cache_service.dart';
 /// still see the banner on next open. Synthetic message ids are minted
 /// from the room/event/user tuple plus a microsecond timestamp.
 ///
+/// The banner is composed with [l10n] — the adapter's current language,
+/// re-read on every use — because there is no `BuildContext` down here,
+/// and it is persisted, so that sentence would otherwise be frozen in the
+/// language of the day it happened. It is written alongside the ingredients
+/// that produced it
+/// ([SystemMessageMetadataKeys]), so `MessageBubble` rebuilds it in the
+/// reader's current language on every paint and the stored text is only
+/// the fallback for rows written before those keys existed.
+///
 /// `deleteKickedChat` powers the WhatsApp-style "delete this chat"
 /// option exposed when the local user is no longer a participant — it
 /// removes the row from the list, disposes the controller, and clears
@@ -44,7 +54,7 @@ class MemberEventHandler {
     required this.cache,
     required this.roomListController,
     required this.userCacheService,
-    required this.l10n,
+    required ChatUiLocalizations Function() l10n,
     required ChatUser Function() currentUser,
     required String Function(String userId) displayNameFor,
     required Future<void> Function(String userId) ensureUserCached,
@@ -55,7 +65,8 @@ class MemberEventHandler {
     required bool Function() isDisposed,
     required ChatResult<void> Function(Object _) swallowCacheThrow,
     this.logger,
-  }) : _currentUser = currentUser,
+  }) : _l10n = l10n,
+       _currentUser = currentUser,
        _displayNameFor = displayNameFor,
        _ensureUserCached = ensureUserCached,
        _addRoomFromDetail = addRoomFromDetail,
@@ -69,8 +80,12 @@ class MemberEventHandler {
   final ChatLocalDatasource? cache;
   final RoomListController roomListController;
   final UserCacheService userCacheService;
-  final ChatUiLocalizations l10n;
 
+  /// Read on every use so a hot `ChatUiAdapter.l10n` swap reaches the
+  /// banners composed from here without rebuilding this handler.
+  ChatUiLocalizations get l10n => _l10n();
+
+  final ChatUiLocalizations Function() _l10n;
   final ChatUser Function() _currentUser;
   final String Function(String userId) _displayNameFor;
   final Future<void> Function(String userId) _ensureUserCached;
@@ -176,33 +191,27 @@ class MemberEventHandler {
       unawaited(_ensureUserCached(actorUserId));
     }
     final label = _displayNameFor(userId);
-    final isKick = actorUserId != null && actorUserId != userId;
     final meId = me.id;
-    final text = switch (eventType) {
-      'user_joined' => l10n.userJoined(label),
-      'user_left' when isKick && userId == meId => l10n.youWereRemovedBy(
-        _displayNameFor(actorUserId),
-      ),
-      'user_left' when isKick && actorUserId == meId => l10n.youRemoved(label),
-      'user_left' when isKick => l10n.userRemovedBy(
-        label,
-        _displayNameFor(actorUserId),
-      ),
-      'user_left' => l10n.userLeft(label),
-      'user_role_changed' => l10n.userRoleChanged(label),
-      _ => eventType,
+    final metadata = <String, dynamic>{
+      SystemMessageMetadataKeys.event: eventType,
+      SystemMessageMetadataKeys.userId: userId,
+      if (actorUserId != null)
+        SystemMessageMetadataKeys.actorUserId: actorUserId,
+      SystemMessageMetadataKeys.userLabel: label,
+      if (actorUserId != null)
+        SystemMessageMetadataKeys.actorLabel: _displayNameFor(actorUserId),
+      if (userId == meId) SystemMessageMetadataKeys.userIsSelf: true,
+      if (actorUserId == meId) SystemMessageMetadataKeys.actorIsSelf: true,
     };
+    final text =
+        localizedSystemMessageTextFromMetadata(metadata, l10n) ?? eventType;
     final systemMsg = ChatMessage(
       id: '_system_${roomId}_${eventType}_${userId}_${DateTime.now().microsecondsSinceEpoch}',
       from: 'system',
       timestamp: DateTime.now(),
       text: text,
       isSystem: true,
-      metadata: {
-        'event': eventType,
-        'userId': userId,
-        if (actorUserId != null) 'actorUserId': actorUserId,
-      },
+      metadata: metadata,
     );
     controller?.addMessage(systemMsg);
     final c = cache;

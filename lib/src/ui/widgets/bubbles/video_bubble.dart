@@ -10,7 +10,12 @@ import '../../theme/chat_theme.dart';
 import '_attachment_upload_overlay.dart';
 import '_bubble_metadata.dart';
 
-/// Bubble that renders a video thumbnail with a play overlay; tap to open.
+/// Bubble that renders a video thumbnail; tap the play overlay to open.
+///
+/// The package ships no video player, so playback belongs to [onTap]. The
+/// play overlay is painted only when [onTap] is wired: without a handler
+/// the thumbnail renders on its own rather than offering a button that
+/// would swallow the tap.
 class VideoBubble extends StatefulWidget {
   const VideoBubble({
     super.key,
@@ -32,6 +37,9 @@ class VideoBubble extends StatefulWidget {
   final String? thumbnailUrl;
   final String? caption;
   final DateTime? timestamp;
+
+  /// Opens the video. `null` (default) also hides the play overlay — the
+  /// bubble never paints an affordance it cannot honour.
   final VoidCallback? onTap;
   final bool isOutgoing;
   final ChatTheme theme;
@@ -182,7 +190,7 @@ class _VideoBubbleState extends State<VideoBubble> {
     final thumbnailUrl = _effectiveThumbnailUrl;
     final uploadProgress = widget.uploadProgress;
     return Semantics(
-      label: caption ?? theme.l10n.videoPreview,
+      label: caption ?? theme.l10nOf(context).videoPreview,
       button: widget.onTap != null && uploadProgress == null,
       child: GestureDetector(
         // No tap-to-open while the upload is still in flight.
@@ -248,21 +256,22 @@ class _VideoBubbleState extends State<VideoBubble> {
                               size: 48,
                             ),
                           ),
-                        Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color:
-                                theme.videoPlayIconBackgroundColor ??
-                                Colors.black54,
-                            shape: BoxShape.circle,
+                        if (widget.onTap != null)
+                          Container(
+                            width: 56,
+                            height: 56,
+                            decoration: BoxDecoration(
+                              color:
+                                  theme.videoPlayIconBackgroundColor ??
+                                  Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              Icons.play_arrow,
+                              color: theme.videoPlayIconColor ?? Colors.white,
+                              size: 32,
+                            ),
                           ),
-                          child: Icon(
-                            Icons.play_arrow,
-                            color: theme.videoPlayIconColor ?? Colors.white,
-                            size: 32,
-                          ),
-                        ),
                       ],
                     ),
             ),

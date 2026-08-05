@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -240,6 +241,149 @@ void main() {
         ),
       );
       expect(find.byType(ConnectionBanner), findsOneWidget);
+    });
+  });
+
+  group('ChatView link taps', () {
+    const url = 'https://example.com/a';
+
+    /// Recognizer of the rendered span whose text is exactly `url`, reached
+    /// through the real chain: `ChatView` → `MessageList` → `MessageBubble`
+    /// → `TextBubble` → `parseMarkdown`.
+    TapGestureRecognizer? linkRecognizer(WidgetTester tester) {
+      TapGestureRecognizer? found;
+      for (final rich in tester.widgetList<RichText>(find.byType(RichText))) {
+        rich.text.visitChildren((span) {
+          if (span is TextSpan && span.text == url) {
+            final recognizer = span.recognizer;
+            if (recognizer is TapGestureRecognizer) found = recognizer;
+            return false;
+          }
+          return true;
+        });
+        if (found != null) break;
+      }
+      return found;
+    }
+
+    Future<void> pumpWithCallbacks(
+      WidgetTester tester,
+      ChatViewCallbacks callbacks,
+    ) async {
+      controller = ChatController(
+        initialMessages: [
+          ChatMessage(
+            id: 'm1',
+            from: 'u2',
+            text: 'see $url now',
+            timestamp: DateTime(2026),
+          ),
+        ],
+        currentUser: user,
+      );
+      await tester.pumpWidget(
+        wrap(ChatView(controller: controller, callbacks: callbacks)),
+      );
+    }
+
+    testWidgets('a url span is tappable with no host wiring at all', (
+      tester,
+    ) async {
+      await pumpWithCallbacks(
+        tester,
+        ChatViewCallbacks(onSendMessageRequest: (_) {}),
+      );
+
+      expect(linkRecognizer(tester), isNotNull);
+    });
+
+    testWidgets('a host onTapLink wins over the browser default', (
+      tester,
+    ) async {
+      String? opened;
+
+      await pumpWithCallbacks(
+        tester,
+        ChatViewCallbacks(
+          onSendMessageRequest: (_) {},
+          onTapLink: (value) => opened = value,
+        ),
+      );
+
+      linkRecognizer(tester)!.onTap!();
+      expect(opened, url);
+    });
+  });
+
+  group('ChatView mention taps', () {
+    /// The rendered span for `@bob`, reached through the whole chain:
+    /// `ChatViewCallbacks` → `ChatView` → `MessageList` → `MessageBubble`
+    /// → `TextBubble` → `parseMarkdown`.
+    TextSpan? mentionSpan(WidgetTester tester) {
+      TextSpan? found;
+      for (final rich in tester.widgetList<RichText>(find.byType(RichText))) {
+        rich.text.visitChildren((span) {
+          if (span is TextSpan && span.text == '@bob') {
+            found = span;
+            return false;
+          }
+          return true;
+        });
+        if (found != null) break;
+      }
+      return found;
+    }
+
+    Future<void> pumpWithCallbacks(
+      WidgetTester tester,
+      ChatViewCallbacks callbacks,
+    ) async {
+      controller = ChatController(
+        initialMessages: [
+          ChatMessage(
+            id: 'm1',
+            from: 'u2',
+            text: 'ping @bob please',
+            timestamp: DateTime(2026),
+          ),
+        ],
+        currentUser: user,
+      );
+      await tester.pumpWidget(
+        wrap(ChatView(controller: controller, callbacks: callbacks)),
+      );
+    }
+
+    testWidgets('a host onTapMention reaches the bubble', (tester) async {
+      String? opened;
+
+      await pumpWithCallbacks(
+        tester,
+        ChatViewCallbacks(
+          onSendMessageRequest: (_) {},
+          onTapMention: (value) => opened = value,
+        ),
+      );
+
+      final recognizer = mentionSpan(tester)!.recognizer;
+      (recognizer! as TapGestureRecognizer).onTap!();
+      expect(opened, 'bob');
+    });
+
+    testWidgets('an unwired mention is inert and looks it', (tester) async {
+      await pumpWithCallbacks(
+        tester,
+        ChatViewCallbacks(onSendMessageRequest: (_) {}),
+      );
+
+      final mention = mentionSpan(tester);
+      expect(mention, isNotNull);
+      expect(
+        mention!.recognizer,
+        isNull,
+        reason: 'unlike onTapLink, this callback has no sensible default',
+      );
+      expect(mention.style?.fontWeight, isNot(FontWeight.w600));
     });
   });
 }

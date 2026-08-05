@@ -21,6 +21,13 @@ abstract class RoomListItem with _$RoomListItem {
     String? name,
     String? subject,
     String? avatarUrl,
+
+    /// Text of the last message exactly as its sender wrote it, and nothing
+    /// else: the SDK never composes a label, a marker or a sentence of its
+    /// own into this field. `null` or empty means the sender wrote no text
+    /// (a captionless photo, a voice note, a deleted message, a reaction),
+    /// and the row's preview is built at paint time from the structured
+    /// `lastMessage*` fields below — see `buildLastMessagePreview`.
     String? lastMessage,
     DateTime? lastMessageTime,
     String? lastMessageUserId,
@@ -42,6 +49,21 @@ abstract class RoomListItem with _$RoomListItem {
     int? lastMessageDurationMs,
     @Default(false) bool lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+
+    /// Text of the message the last reaction was aimed at, as its own
+    /// sender wrote it, truncated to 30 grapheme clusters. Quoted inside
+    /// the reaction preview ("Alice reacted 👍 to …"), which is composed at
+    /// paint time. `null` or empty when that message carried no text of its
+    /// own — [lastMessageReactionTargetType] then decides the label that
+    /// stands in for it. Only meaningful while [lastMessageType] is
+    /// [MessageType.reaction].
+    String? lastMessageReactionTargetText,
+
+    /// Type of the message the last reaction was aimed at, so a text-less
+    /// one can be quoted by its label ("📎 Attachment", "🎤 Voice message")
+    /// in whatever language the row is painted in. `null` when the message
+    /// was not in reach when the reaction landed.
+    MessageType? lastMessageReactionTargetType,
     @Default(0) int unreadCount,
 
     /// Count of unread messages in this room that mention the current user.

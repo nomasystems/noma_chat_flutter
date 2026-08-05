@@ -55,7 +55,14 @@ class RoomTile extends StatelessWidget {
   /// "typing" label without a name.
   final String? Function(String userId)? typingUserNameResolver;
 
+  /// Answers the "Accept" button of an invitation row. The button is
+  /// painted only when this is wired: with no handler the tap lands on
+  /// the tile itself and opens the room, which is the opposite of what
+  /// either invitation button says it does.
   final VoidCallback? onAcceptInvitation;
+
+  /// Answers the "Reject" button of an invitation row. Painted only when
+  /// wired, like [onAcceptInvitation].
   final VoidCallback? onRejectInvitation;
 
   /// Overrides the receipt tick next to the last-message preview. Takes
@@ -66,8 +73,8 @@ class RoomTile extends StatelessWidget {
   /// receipt, not the full message).
   final MessageStatusIconBuilder? statusIconBuilder;
 
-  String _formatTimestamp(DateTime time) {
-    return DateFormatter.formatRelative(time, l10n: theme.l10n);
+  String _formatTimestamp(BuildContext context, DateTime time) {
+    return DateFormatter.formatRelative(time, l10n: theme.l10nOf(context));
   }
 
   @override
@@ -92,7 +99,7 @@ class RoomTile extends StatelessWidget {
           children: [
             if (room.lastMessageTime != null)
               Text(
-                _formatTimestamp(room.lastMessageTime!),
+                _formatTimestamp(context, room.lastMessageTime!),
                 style: room.unreadCount > 0
                     ? (theme.roomList.timestampUnreadStyle ??
                           theme.roomList.timestampStyle ??
@@ -211,33 +218,51 @@ class RoomTile extends StatelessWidget {
   bool get _isOwnLastMessage =>
       currentUserId != null && room.lastMessageUserId == currentUserId;
 
+  /// Subtitle for the row: the invitation actions, the typing line, or the
+  /// last-message preview.
+  ///
+  /// An invitation only paints the buttons whose handler exists. A button
+  /// with nothing behind it registers no tap recognizer, so the touch
+  /// falls through to the tile's own `InkWell` and opens the room —
+  /// a "Reject" that accepts the invitation by omission. A row with
+  /// neither handler wired falls back to the ordinary preview.
   Widget? _buildDefaultSubtitle(BuildContext context) {
-    if (room.isInvitation) {
+    final acceptInvitation = onAcceptInvitation;
+    final rejectInvitation = onRejectInvitation;
+    if (room.isInvitation &&
+        (acceptInvitation != null || rejectInvitation != null)) {
       return Row(
         children: [
-          _InvitationButton(
-            label: theme.l10n.accept,
-            color: theme.input.sendButtonColor ?? Colors.blue,
-            onTap: onAcceptInvitation,
-          ),
-          const SizedBox(width: 8),
-          _InvitationButton(
-            label: theme.l10n.reject,
-            color: theme.contextMenuDestructiveColor ?? Colors.red,
-            onTap: onRejectInvitation,
-          ),
+          if (acceptInvitation != null)
+            _InvitationButton(
+              label: theme.l10nOf(context).accept,
+              color: theme.input.sendButtonColor ?? Colors.blue,
+              onTap: acceptInvitation,
+            ),
+          if (acceptInvitation != null && rejectInvitation != null)
+            const SizedBox(width: 8),
+          if (rejectInvitation != null)
+            _InvitationButton(
+              label: theme.l10nOf(context).reject,
+              color: theme.contextMenuDestructiveColor ?? Colors.red,
+              onTap: rejectInvitation,
+            ),
         ],
       );
     }
 
     if (room.typingUserIds.isNotEmpty) {
-      return _buildTypingSubtitle();
+      return _buildTypingSubtitle(context);
     }
 
     final overrideText = lastMessagePreviewBuilder?.call(context, room);
     final body =
         overrideText ??
-        buildLastMessagePreview(room, theme.l10n, currentUserId: currentUserId);
+        buildLastMessagePreview(
+          room,
+          theme.l10nOf(context),
+          currentUserId: currentUserId,
+        );
 
     if (body == null) return null;
 
@@ -251,7 +276,7 @@ class RoomTile extends StatelessWidget {
         : defaultStyle;
 
     final showReceipt = _isOwnLastMessage && room.lastMessageReceipt != null;
-    final prefix = _resolvePrefix();
+    final prefix = _resolvePrefix(context);
     final fullText = '$prefix$body';
 
     if (showReceipt) {
@@ -295,7 +320,7 @@ class RoomTile extends StatelessWidget {
         MessageStatusIcon(status: receipt, theme: theme, size: 12);
   }
 
-  Widget _buildTypingSubtitle() {
+  Widget _buildTypingSubtitle(BuildContext context) {
     final ids = room.typingUserIds.toList();
     final resolver = typingUserNameResolver;
     final names = <String>[];
@@ -309,18 +334,18 @@ class RoomTile extends StatelessWidget {
     String text;
     if (room.isGroup) {
       if (names.length == 1) {
-        text = theme.l10n.typingOne(names.first);
+        text = theme.l10nOf(context).typingOne(names.first);
       } else if (names.length == 2) {
-        text = theme.l10n.typingTwo(names[0], names[1]);
+        text = theme.l10nOf(context).typingTwo(names[0], names[1]);
       } else if (names.length > 2) {
-        text = theme.l10n.typingMany(names.length);
+        text = theme.l10nOf(context).typingMany(names.length);
       } else if (ids.length > 1) {
-        text = theme.l10n.typingMany(ids.length);
+        text = theme.l10nOf(context).typingMany(ids.length);
       } else {
-        text = theme.l10n.typing;
+        text = theme.l10nOf(context).typing;
       }
     } else {
-      text = theme.l10n.typing;
+      text = theme.l10nOf(context).typing;
     }
 
     final color = theme.input.sendButtonColor ?? Colors.blue;
@@ -342,15 +367,18 @@ class RoomTile extends StatelessWidget {
   /// Mirrors WhatsApp behaviour: "Tú: " only in groups when the last message
   /// is mine; sender name in groups when the last message is from someone
   /// else; no prefix in 1-to-1 chats. When the message is deleted, no prefix
-  /// is added because the localized text already implies authorship.
-  String _resolvePrefix() {
+  /// is added because the localized text already implies authorship, and
+  /// neither when it is a reaction, whose own sentence already names who
+  /// reacted.
+  String _resolvePrefix(BuildContext context) {
     if (room.lastMessageIsDeleted) return '';
+    if (room.lastMessageType == MessageType.reaction) return '';
     // DMs never get a sender prefix — the title already identifies who
     // the conversation is with. The "Alice: Asdf" shape only makes
     // sense in groups where the avatar / title can't disambiguate.
     if (!room.isGroup) return '';
     if (_isOwnLastMessage) {
-      return '${theme.l10n.previewYouPrefix}: ';
+      return '${theme.l10nOf(context).previewYouPrefix}: ';
     }
     // Prefer the explicit constructor param (consumer-resolved name from
     // its own user repository) and fall back to the adapter-enriched
@@ -370,16 +398,17 @@ class _InvitationButton extends StatelessWidget {
   const _InvitationButton({
     required this.label,
     required this.color,
-    this.onTap,
+    required this.onTap,
   });
 
   final String label;
   final Color color;
-  final VoidCallback? onTap;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
+      behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),

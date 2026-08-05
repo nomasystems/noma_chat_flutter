@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
+import 'package:noma_chat/src/_internal/cache/memory_datasource.dart';
 
 class _FailableRoomsApi implements ChatRoomsApi {
   final ChatRoomsApi _delegate;
@@ -129,6 +131,8 @@ class _FailableRoomsApi implements ChatRoomsApi {
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
     String? lastMessageReactionEmoji,
+    String? lastMessageReactionTargetText,
+    MessageType? lastMessageReactionTargetType,
   }) => _delegate.updateCachedRoomPreview(
     roomId,
     lastMessage: lastMessage,
@@ -141,6 +145,8 @@ class _FailableRoomsApi implements ChatRoomsApi {
     lastMessageDurationMs: lastMessageDurationMs,
     lastMessageIsDeleted: lastMessageIsDeleted,
     lastMessageReactionEmoji: lastMessageReactionEmoji,
+    lastMessageReactionTargetText: lastMessageReactionTargetText,
+    lastMessageReactionTargetType: lastMessageReactionTargetType,
   );
 
   @override
@@ -172,6 +178,17 @@ class _FailableMessagesApi implements ChatMessagesApi {
   /// server-minted id that does NOT correspond to the stored message.
   bool provisionalSend = false;
   int _provisionalSeq = 0;
+
+  /// The idempotency key of every [send] reaching this api, in order and
+  /// including the ones that fail. Two attempts at the same logical
+  /// message must record the SAME value — that is what stops a retry from
+  /// creating a second message server-side.
+  final List<String?> sentClientMessageIds = <String?>[];
+
+  /// When set, [send] parks on it — lets a test inspect the world with a
+  /// send genuinely in flight (the upload already resolved, the post not
+  /// yet answered).
+  Completer<void>? sendGate;
 
   @override
   Future<ChatResult<ChatMessage>> get(String roomId, String messageId) =>
@@ -212,6 +229,9 @@ class _FailableMessagesApi implements ChatMessagesApi {
     String? clientMessageId,
     Map<String, dynamic>? metadata,
   }) async {
+    sentClientMessageIds.add(clientMessageId);
+    final gate = sendGate;
+    if (gate != null) await gate.future;
     if (failSend) {
       return const ChatFailureResult(ServerFailure(statusCode: 500));
     }
@@ -240,6 +260,7 @@ class _FailableMessagesApi implements ChatMessagesApi {
       attachmentId: attachmentId,
       sourceRoomId: sourceRoomId,
       tempId: tempId,
+      clientMessageId: clientMessageId,
       metadata: metadata,
     );
   }
@@ -826,6 +847,462 @@ void main() {
 
       expect(result.isFailure, true);
       expect(result.failureOrNull, isA<NotFoundFailure>());
+    });
+  });
+
+  group('F3.4 retrySend after an upload that outlived its send', () {
+    final bytes = Uint8List.fromList(List<int>.filled(8, 3));
+
+    test('sendAttachment hands the failed bubble the uploaded url, '
+        'attachmentId and enriched metadata', () async {
+      final controller = adapter.getChatController('room1');
+      failableClient.failableMessages.failSend = true;
+
+      final result = await adapter.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+        fileName: 'pic.png',
+      );
+
+      expect(result.isFailure, true);
+      expect(controller.messages, hasLength(1));
+      final failed = controller.messages.single;
+      expect(controller.isFailed(failed.id), true);
+      expect(failed.attachmentUrl, 'mock-attachment-1');
+      expect(failed.attachmentId, 'mock-attachment-1');
+      expect(failed.metadata?['attachmentUrl'], 'mock-attachment-1');
+      expect(failed.metadata?['fileName'], 'pic.png');
+    });
+
+    test('sendVoice hands the failed bubble the uploaded url and '
+        'attachmentId without losing duration or waveform', () async {
+      final controller = adapter.getChatController('room1');
+      failableClient.failableMessages.failSend = true;
+
+      final result = await adapter.messages.sendVoice(
+        'room1',
+        audioBytes: bytes,
+        mimeType: 'audio/mp4',
+        duration: const Duration(seconds: 3),
+        waveform: const [1, 2, 3],
+      );
+
+      expect(result.isFailure, true);
+      expect(controller.messages, hasLength(1));
+      final failed = controller.messages.single;
+      expect(controller.isFailed(failed.id), true);
+      expect(failed.attachmentUrl, 'mock-attachment-1');
+      expect(failed.attachmentId, 'mock-attachment-1');
+      expect(failed.metadata?['attachmentId'], 'mock-attachment-1');
+      expect(failed.metadata?['duration'], 3000);
+      expect(failed.metadata?['waveform'], [1, 2, 3]);
+    });
+
+    test('a failed upload leaves nothing to patch — the bubble keeps its '
+        'empty url', () async {
+      final controller = adapter.getChatController('room1');
+      mockClient.attachments.failNextUpload = true;
+
+      final result = await adapter.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+
+      expect(result.isFailure, true);
+      expect(controller.messages, hasLength(1));
+      final failed = controller.messages.single;
+      expect(controller.isFailed(failed.id), true);
+      expect(failed.attachmentUrl, isEmpty);
+      expect(failed.attachmentId, isNull);
+    });
+
+    test('a successful send still confirms the bubble with the server '
+        'message, patching nothing', () async {
+      final controller = adapter.getChatController('room1');
+
+      final result = await adapter.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+      );
+
+      expect(result.isSuccess, true);
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.single.id, result.dataOrThrow.id);
+      expect(controller.isFailed(result.dataOrThrow.id), false);
+    });
+
+    test('retrying reposts the uploaded blob instead of uploading it '
+        'again, under the original idempotency key', () async {
+      await adapter.connect();
+      final controller = adapter.getChatController('room1');
+      failableClient.failableMessages.failSend = true;
+      await adapter.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+        fileName: 'pic.png',
+      );
+      final tempId = controller.messages.single.id;
+
+      failableClient.failableMessages.failSend = false;
+      final retry = await adapter.messages.retrySend('room1', tempId);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(retry.isSuccess, true);
+      expect(retry.dataOrThrow.attachmentUrl, 'mock-attachment-1');
+      expect(retry.dataOrThrow.attachmentId, 'mock-attachment-1');
+      expect(retry.dataOrThrow.metadata?['fileName'], 'pic.png');
+      expect(mockClient.attachments.uploadCount, 1);
+      expect(failableClient.failableMessages.sentClientMessageIds, [
+        tempId,
+        tempId,
+      ]);
+      expect(controller.messages, hasLength(1));
+    });
+
+    test('a retry against a room that still is not there keeps the blob for '
+        'the next attempt and never paints a second bubble', () async {
+      await adapter.connect();
+      final controller = adapter.getChatController('room1');
+      failableClient.failableMessages.failSend = true;
+      await adapter.messages.sendVoice(
+        'room1',
+        audioBytes: bytes,
+        mimeType: 'audio/mp4',
+        duration: const Duration(seconds: 3),
+        waveform: const [1, 2, 3],
+      );
+      final tempId = controller.messages.single.id;
+
+      final firstRetry = await adapter.messages.retrySend('room1', tempId);
+
+      expect(firstRetry.isFailure, true);
+      expect(controller.messages, hasLength(1));
+      expect(controller.isFailed(tempId), true);
+      expect(controller.messages.single.attachmentId, 'mock-attachment-1');
+
+      failableClient.failableMessages.failSend = false;
+      final secondRetry = await adapter.messages.retrySend('room1', tempId);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(secondRetry.isSuccess, true);
+      expect(secondRetry.dataOrThrow.attachmentId, 'mock-attachment-1');
+      expect(secondRetry.dataOrThrow.messageType, MessageType.audio);
+      expect(mockClient.attachments.uploadCount, 1);
+      expect(failableClient.failableMessages.sentClientMessageIds, [
+        tempId,
+        tempId,
+        tempId,
+      ]);
+      expect(controller.messages, hasLength(1));
+    });
+  });
+
+  group('F3.4 retrySend refuses a media row whose upload never landed', () {
+    final bytes = Uint8List.fromList(List<int>.filled(8, 3));
+
+    test('an attachment whose upload failed is never re-posted as a bubble '
+        'pointing at nothing', () async {
+      await adapter.connect();
+      final controller = adapter.getChatController('room1');
+      mockClient.attachments.failNextUpload = true;
+      await adapter.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+        fileName: 'pic.png',
+      );
+      final tempId = controller.messages.single.id;
+
+      final retry = await adapter.messages.retrySend('room1', tempId);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(retry.isFailure, true);
+      final failure = retry.failureOrNull;
+      expect(failure, isA<ValidationFailure>());
+      expect(
+        (failure! as ValidationFailure).errors?['reason'],
+        'attachment_never_uploaded',
+      );
+      expect(failableClient.failableMessages.sentClientMessageIds, isEmpty);
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.single.attachmentUrl, isEmpty);
+      expect(controller.isFailed(tempId), true);
+      expect(controller.isPending(tempId), false);
+    });
+
+    test('a voice note whose upload failed is never re-posted as a bubble '
+        'pointing at nothing', () async {
+      await adapter.connect();
+      final controller = adapter.getChatController('room1');
+      mockClient.attachments.failNextUpload = true;
+      await adapter.messages.sendVoice(
+        'room1',
+        audioBytes: bytes,
+        mimeType: 'audio/mp4',
+        duration: const Duration(seconds: 3),
+        waveform: const [1, 2, 3],
+      );
+      final tempId = controller.messages.single.id;
+
+      final retry = await adapter.messages.retrySend('room1', tempId);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(retry.isFailure, true);
+      expect(retry.failureOrNull, isA<ValidationFailure>());
+      expect(
+        (retry.failureOrNull! as ValidationFailure).errors?['reason'],
+        'attachment_never_uploaded',
+      );
+      expect(failableClient.failableMessages.sentClientMessageIds, isEmpty);
+      expect(controller.messages, hasLength(1));
+      expect(controller.isFailed(tempId), true);
+      expect(controller.isPending(tempId), false);
+    });
+
+    test('a media row that kept its attachmentId still retries — only a row '
+        'with no blob at all is refused', () async {
+      final controller = adapter.getChatController('room1');
+      controller.addMessage(
+        ChatMessage(
+          id: '_pending_77',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          messageType: MessageType.attachment,
+          clientMessageId: '_pending_77',
+          attachmentUrl: '',
+          attachmentId: 'att-77',
+        ),
+      );
+      controller.markFailed('_pending_77');
+
+      final retry = await adapter.messages.retrySend('room1', '_pending_77');
+
+      expect(retry.isSuccess, true);
+      expect(retry.dataOrThrow.attachmentId, 'att-77');
+      expect(failableClient.failableMessages.sentClientMessageIds, [
+        '_pending_77',
+      ]);
+    });
+
+    test('an attachmentId minted empty by a degenerate upload counts as no '
+        'blob at all', () async {
+      final controller = adapter.getChatController('room1');
+      controller.addMessage(
+        ChatMessage(
+          id: '_pending_78',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          messageType: MessageType.attachment,
+          clientMessageId: '_pending_78',
+          attachmentUrl: '',
+          attachmentId: '',
+        ),
+      );
+      controller.markFailed('_pending_78');
+
+      final retry = await adapter.messages.retrySend('room1', '_pending_78');
+
+      expect(retry.isFailure, true);
+      expect(
+        (retry.failureOrNull! as ValidationFailure).errors?['reason'],
+        'attachment_never_uploaded',
+      );
+      expect(failableClient.failableMessages.sentClientMessageIds, isEmpty);
+      expect(controller.isFailed('_pending_78'), true);
+      expect(controller.isPending('_pending_78'), false);
+    });
+
+    test('a row whose blob reference lives only in metadata still '
+        'retries', () async {
+      final controller = adapter.getChatController('room1');
+      controller.addMessage(
+        ChatMessage(
+          id: '_pending_79',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          messageType: MessageType.audio,
+          clientMessageId: '_pending_79',
+          metadata: const {
+            'attachmentUrl': 'https://cdn.invalid/clip.m4a',
+            'attachmentId': 'att-79',
+            'duration': 3000,
+          },
+        ),
+      );
+      controller.markFailed('_pending_79');
+
+      final retry = await adapter.messages.retrySend('room1', '_pending_79');
+
+      expect(retry.isSuccess, true);
+      expect(
+        retry.dataOrThrow.metadata?['attachmentId'],
+        'att-79',
+        reason: 'the metadata carrier must be re-posted verbatim',
+      );
+      expect(failableClient.failableMessages.sentClientMessageIds, [
+        '_pending_79',
+      ]);
+    });
+  });
+
+  group('the uploaded blob reaches the cache before the send is risked', () {
+    final bytes = Uint8List.fromList(List<int>.filled(8, 3));
+
+    /// An adapter over the same failable client, backed by [cache].
+    ChatUiAdapter cachedAdapter(MemoryChatLocalDatasource cache) {
+      final built = ChatUiAdapter(
+        client: failableClient,
+        currentUser: currentUser,
+        cache: cache,
+      );
+      addTearDown(built.dispose);
+      return built;
+    }
+
+    test('sendAttachment caches the enriched row while the send is still in '
+        'flight', () async {
+      final cache = MemoryChatLocalDatasource();
+      addTearDown(cache.dispose);
+      final withCache = cachedAdapter(cache);
+      final gate = Completer<void>();
+      failableClient.failableMessages.sendGate = gate;
+
+      final inFlight = withCache.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+        fileName: 'pic.png',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final pending = (await cache.getPendingMessages('room1')).dataOrThrow;
+      expect(pending, hasLength(1));
+      expect(pending.single.message.attachmentUrl, 'mock-attachment-1');
+      expect(pending.single.message.attachmentId, 'mock-attachment-1');
+      expect(pending.single.message.metadata?['fileName'], 'pic.png');
+
+      gate.complete();
+      failableClient.failableMessages.sendGate = null;
+      await inFlight;
+    });
+
+    test('sendVoice caches the enriched row while the send is still in '
+        'flight', () async {
+      final cache = MemoryChatLocalDatasource();
+      addTearDown(cache.dispose);
+      final withCache = cachedAdapter(cache);
+      final gate = Completer<void>();
+      failableClient.failableMessages.sendGate = gate;
+
+      final inFlight = withCache.messages.sendVoice(
+        'room1',
+        audioBytes: bytes,
+        mimeType: 'audio/mp4',
+        duration: const Duration(seconds: 3),
+        waveform: const [1, 2, 3],
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final pending = (await cache.getPendingMessages('room1')).dataOrThrow;
+      expect(pending, hasLength(1));
+      expect(pending.single.message.attachmentId, 'mock-attachment-1');
+      expect(
+        pending.single.message.metadata?['attachmentId'],
+        'mock-attachment-1',
+      );
+
+      gate.complete();
+      failableClient.failableMessages.sendGate = null;
+      await inFlight;
+    });
+  });
+
+  group('ack_mode=async reconciliation for attachment and voice', () {
+    final bytes = Uint8List.fromList(List<int>.filled(8, 3));
+
+    test('a provisional attachment send is replaced by the authoritative '
+        'event instead of painting a second bubble', () async {
+      await adapter.connect();
+      failableClient.failableMessages.provisionalSend = true;
+      final controller = adapter.getChatController('room1');
+
+      final result = await adapter.messages.sendAttachment(
+        'room1',
+        bytes: bytes,
+        mimeType: 'image/png',
+        fileName: 'pic.png',
+      );
+
+      expect(result.isSuccess, true);
+      final tempId = controller.messages.single.id;
+      expect(tempId, startsWith('_pending_'));
+      expect(result.dataOrThrow.clientMessageId, tempId);
+      expect(controller.isPending(tempId), true);
+
+      mockClient.emitEvent(
+        ChatEvent.newMessage(
+          roomId: 'room1',
+          message: ChatMessage(
+            id: 'real-att',
+            from: 'u1',
+            timestamp: DateTime.now(),
+            messageType: MessageType.attachment,
+            clientMessageId: tempId,
+            attachmentUrl: 'mock-attachment-1',
+            attachmentId: 'mock-attachment-1',
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.single.id, 'real-att');
+      expect(controller.isPending(tempId), false);
+    });
+
+    test('a provisional voice send is replaced by the authoritative event '
+        'instead of painting a second bubble', () async {
+      await adapter.connect();
+      failableClient.failableMessages.provisionalSend = true;
+      final controller = adapter.getChatController('room1');
+
+      final result = await adapter.messages.sendVoice(
+        'room1',
+        audioBytes: bytes,
+        mimeType: 'audio/mp4',
+        duration: const Duration(seconds: 3),
+        waveform: const [1, 2, 3],
+      );
+
+      expect(result.isSuccess, true);
+      final tempId = controller.messages.single.id;
+      expect(tempId, startsWith('_pending_'));
+      expect(result.dataOrThrow.clientMessageId, tempId);
+      expect(controller.isPending(tempId), true);
+
+      mockClient.emitEvent(
+        ChatEvent.newMessage(
+          roomId: 'room1',
+          message: ChatMessage(
+            id: 'real-voice',
+            from: 'u1',
+            timestamp: DateTime.now(),
+            messageType: MessageType.audio,
+            clientMessageId: tempId,
+            attachmentUrl: 'mock-attachment-1',
+            attachmentId: 'mock-attachment-1',
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(controller.messages, hasLength(1));
+      expect(controller.messages.single.id, 'real-voice');
+      expect(controller.isPending(tempId), false);
     });
   });
 

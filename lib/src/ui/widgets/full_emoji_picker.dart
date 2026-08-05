@@ -36,7 +36,7 @@ class FullEmojiPicker {
                 enabled: false,
               ),
               searchViewConfig: SearchViewConfig(
-                hintText: theme.l10n.searchEmoji,
+                hintText: theme.l10nOf(sheetContext).searchEmoji,
               ),
             ),
           ),

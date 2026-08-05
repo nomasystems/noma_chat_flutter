@@ -473,3 +473,47 @@ abstract class ChatTheme with _$ChatTheme {
     ),
   );
 }
+
+/// Resolves the [ChatUiLocalizations] a widget must render with.
+///
+/// This is the single string-lookup entry point for every widget in the
+/// package: read `theme.l10nOf(context).someKey` instead of
+/// `theme.l10n.someKey`, so both wiring routes work.
+///
+/// Precedence:
+///
+/// 1. The instance the host put on [ChatTheme.l10n] — an explicit theme
+///    always wins, so a host that already routes its own copy through the
+///    theme keeps full control and pays only an [identical] check.
+/// 2. Otherwise the instance published by the `Localizations` ancestor,
+///    via [ChatUiLocalizations.of] — this is what makes
+///    `ChatUiLocalizations.delegate` (and `ChatUiLocalizations.override`)
+///    actually translate the UI, and what rebuilds it when the app locale
+///    changes at runtime.
+/// 3. If no delegate is registered, [ChatUiLocalizations.of] falls back to
+///    [ChatUiLocalizations.en], i.e. the previous behaviour.
+///
+/// ## Known limitation
+///
+/// "The host set [ChatTheme.l10n]" is detected with [identical] against the
+/// canonical [ChatUiLocalizations.en] constant, because
+/// [ChatUiLocalizations] does not define `operator ==`. So a theme carrying
+/// that exact constant is indistinguishable from an untouched default and
+/// still resolves from the ancestor. In practice that covers
+/// [ChatUiLocalizations.en] itself and every call to
+/// `ChatUiLocalizations.forLanguageCode` that returns it: `'en'`, `null`,
+/// and any language code outside
+/// [ChatUiLocalizations.supportedLanguageCodes].
+///
+/// A host that wants to pin English regardless of the app locale passes a
+/// distinct instance: `ChatUiLocalizations.en.copyWith()` returns a fresh
+/// object with identical strings, which step 1 honours. Anything built with
+/// [ChatUiLocalizations.copyWith] (the usual way to tweak a few strings) is
+/// already a distinct instance and is never affected.
+extension ChatThemeL10n on ChatTheme {
+  /// See [ChatThemeL10n] for the precedence rules and the `en` caveat.
+  ChatUiLocalizations l10nOf(BuildContext context) =>
+      identical(l10n, ChatUiLocalizations.en)
+      ? ChatUiLocalizations.of(context)
+      : l10n;
+}

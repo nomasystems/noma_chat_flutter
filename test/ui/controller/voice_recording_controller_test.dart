@@ -13,6 +13,13 @@ class MockAudioPlayer extends Mock implements AudioPlayer {}
 
 class FakeRecordConfig extends Fake implements RecordConfig {}
 
+/// Long enough for a capture to clear
+/// [VoiceRecordingController.minCaptureDuration] on wall-clock time, with
+/// room for a slow machine.
+final _pastCaptureFloor =
+    VoiceRecordingController.minCaptureDuration +
+    const Duration(milliseconds: 80);
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -151,6 +158,293 @@ void main() {
 
     expect(data, isNull);
     expect(controller.state, VoiceRecordingState.idle);
+  });
+
+  test('residual cleanup is not on the arming path', () async {
+    final residual = File('${tempDir.path}/voice_stale.m4a')
+      ..writeAsStringSync('stale');
+    var residualStillThereWhenArmed = false;
+
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      _,
+    ) async {
+      residualStillThereWhenArmed = residual.existsSync();
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+
+    final result = await controller.startRecording();
+
+    expect(result, StartRecordingResult.started);
+    expect(residualStillThereWhenArmed, isTrue);
+  });
+
+  test('residual cleanup purges leftovers and spares the live file', () async {
+    final residual = File('${tempDir.path}/voice_stale.m4a')
+      ..writeAsStringSync('stale');
+    final unrelated = File('${tempDir.path}/notes.txt')
+      ..writeAsStringSync('keep me');
+    late File live;
+
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      live = File(invocation.namedArguments[#path] as String)
+        ..writeAsStringSync('live');
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+
+    await controller.startRecording();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(residual.existsSync(), isFalse);
+    expect(live.existsSync(), isTrue);
+    expect(unrelated.existsSync(), isTrue);
+  });
+
+  test('residual cleanup spares a capture staged moments ago', () async {
+    // Not the file this arming passes as `except`: it stands for the
+    // capture a LATER touch stages while this scan is still draining. Only
+    // its age keeps it alive.
+    final stamp = DateTime.now().millisecondsSinceEpoch - 1000;
+    final fresh = File('${tempDir.path}/voice_$stamp.m4a')
+      ..writeAsStringSync('another live capture');
+    final stale = File('${tempDir.path}/voice_stale.m4a')
+      ..writeAsStringSync('stale');
+
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenAnswer((_) async {});
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+
+    await controller.startRecording();
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+
+    expect(fresh.existsSync(), isTrue);
+    expect(stale.existsSync(), isFalse);
+  });
+
+  test('startRecording reports failed when the platform throws', () async {
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(
+      () => mockRecorder.start(any(), path: any(named: 'path')),
+    ).thenThrow(StateError('audio session unavailable'));
+
+    final result = await controller.startRecording();
+
+    expect(result, StartRecordingResult.failed);
+    expect(controller.state, VoiceRecordingState.idle);
+  });
+
+  test('a touch held past the minimum sends before the first tick', () async {
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      File(
+        invocation.namedArguments[#path] as String,
+      ).writeAsStringSync('audio' * 500);
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenAnswer((_) async => '');
+
+    await controller.startRecording();
+    // The duration counter is still zero — it only advances on whole
+    // seconds, and the recorder came up after the touch. What the gate
+    // must honour is how long the user held the button.
+    expect(controller.currentDuration, Duration.zero);
+    await Future<void>.delayed(_pastCaptureFloor);
+    final data = await controller.stopRecording(
+      heldFor: const Duration(milliseconds: 1200),
+    );
+
+    expect(data, isNotNull);
+  });
+
+  test('a touch under the minimum is still discarded', () async {
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      File(
+        invocation.namedArguments[#path] as String,
+      ).writeAsStringSync('audio' * 500);
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenAnswer((_) async => '');
+
+    await controller.startRecording();
+    await Future<void>.delayed(_pastCaptureFloor);
+    final data = await controller.stopRecording(
+      heldFor: const Duration(milliseconds: 300),
+    );
+
+    expect(data, isNull);
+    expect(controller.state, VoiceRecordingState.idle);
+    // Short touch, live capture: the finger is what was missing, so the
+    // composer must be free to say exactly that and nothing else.
+    expect(controller.lastCaptureFailed, isFalse);
+  });
+
+  test('a hold with no capture behind it is dropped, not blamed', () async {
+    late File staged;
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      staged = File(invocation.namedArguments[#path] as String)
+        ..writeAsStringSync('audio' * 500);
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenAnswer((_) async => '');
+
+    await controller.startRecording();
+    // Released the instant the recorder came up: the finger was down well
+    // past the minimum, the microphone was not.
+    final data = await controller.stopRecording(
+      heldFor: const Duration(milliseconds: 1200),
+    );
+
+    expect(data, isNull);
+    expect(controller.lastCaptureFailed, isTrue);
+    expect(controller.state, VoiceRecordingState.idle);
+    expect(staged.existsSync(), isFalse);
+  });
+
+  test('a capture that came back as a bare header is not sent', () async {
+    late File staged;
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      staged = File(invocation.namedArguments[#path] as String)
+        ..writeAsStringSync('ftyp');
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenAnswer((_) async => '');
+
+    await controller.startRecording();
+    await Future<void>.delayed(_pastCaptureFloor);
+    final data = await controller.stopRecording(
+      heldFor: const Duration(seconds: 2),
+    );
+
+    expect(data, isNull);
+    expect(controller.lastCaptureFailed, isTrue);
+    expect(staged.existsSync(), isFalse);
+  });
+
+  test('a stop that blows up leaves the controller idle', () async {
+    late File staged;
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      staged = File(invocation.namedArguments[#path] as String)
+        ..writeAsStringSync('audio' * 500);
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenThrow(StateError('recorder disposed'));
+
+    await controller.startRecording();
+    await Future<void>.delayed(_pastCaptureFloor);
+    final data = await controller.stopRecording(
+      heldFor: const Duration(seconds: 2),
+    );
+
+    // Stuck in `recording` here would mean a composer frozen on its
+    // recording row with a dead microphone until the user leaves the room.
+    expect(data, isNull);
+    expect(controller.state, VoiceRecordingState.idle);
+    expect(controller.lastCaptureFailed, isTrue);
+    expect(staged.existsSync(), isFalse);
+  });
+
+  test('a cancel that blows up still resets and cleans up', () async {
+    late File staged;
+    var notifications = 0;
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      staged = File(invocation.namedArguments[#path] as String)
+        ..writeAsStringSync('audio' * 500);
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenThrow(StateError('gone'));
+
+    await controller.startRecording();
+    await Future<void>.delayed(_pastCaptureFloor);
+    controller.addListener(() => notifications++);
+    // The incoming-call path: the system tore the recorder down under us.
+    await controller.cancelRecording();
+
+    expect(controller.state, VoiceRecordingState.idle);
+    expect(controller.currentDuration, Duration.zero);
+    expect(staged.existsSync(), isFalse);
+    expect(notifications, greaterThan(0));
+  });
+
+  test('a cancel is decided before the platform is asked', () async {
+    late File staged;
+    final drain = Completer<String?>();
+    when(() => mockRecorder.hasPermission()).thenAnswer((_) async => true);
+    when(() => mockRecorder.start(any(), path: any(named: 'path'))).thenAnswer((
+      invocation,
+    ) async {
+      staged = File(invocation.namedArguments[#path] as String)
+        ..writeAsStringSync('audio' * 500);
+    });
+    when(
+      () => mockRecorder.getAmplitude(),
+    ).thenAnswer((_) async => Amplitude(current: -30.0, max: 0.0));
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+    when(() => mockRecorder.stop()).thenAnswer((_) => drain.future);
+
+    await controller.startRecording();
+    await Future<void>.delayed(_pastCaptureFloor);
+    final cancelling = controller.cancelRecording();
+
+    expect(controller.state, VoiceRecordingState.idle);
+
+    final data = await controller.stopRecording(
+      heldFor: const Duration(seconds: 2),
+    );
+
+    expect(data, isNull);
+    expect(controller.lastCaptureFailed, isFalse);
+
+    drain.complete(null);
+    await cancelling;
+
+    expect(controller.state, VoiceRecordingState.idle);
+    expect(staged.existsSync(), isFalse);
+    verify(() => mockRecorder.stop()).called(1);
   });
 
   test('stopRecording does nothing when not recording', () async {

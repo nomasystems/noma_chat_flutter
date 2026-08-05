@@ -33,6 +33,17 @@ class MarkdownSpan {
   const MarkdownSpan(this.text, this.style, {this.url, this.mentionUserId});
 }
 
+/// Splits [text] into styled [TextSpan]s according to [MarkdownStyle].
+///
+/// **Tap targets follow their handler.** A URL is painted blue and
+/// underlined — the universal "this is tappable" affordance — and carries a
+/// recognizer only when [onTapLink] is supplied; `ChatView` always supplies
+/// one, so links are live by default. A `@mention` is the opposite case:
+/// opening a profile is host navigation the package cannot guess, so
+/// without [onTapMention] the mention renders as plain body text —
+/// [mentionStyle] and the built-in colour/weight are skipped entirely —
+/// rather than advertising a control that does nothing. Wire
+/// [onTapMention] to get the mention style and the recognizer together.
 List<TextSpan> parseMarkdown(
   String text, {
   required TextStyle baseStyle,
@@ -90,6 +101,9 @@ List<TextSpan> parseMarkdown(
               : null,
         );
       case MarkdownStyle.mention:
+        if (onTapMention == null) {
+          return TextSpan(text: span.text, style: baseStyle);
+        }
         return TextSpan(
           text: span.text,
           style:
@@ -98,10 +112,8 @@ List<TextSpan> parseMarkdown(
                 color: Colors.blue,
                 fontWeight: FontWeight.bold,
               ),
-          recognizer: onTapMention != null
-              ? (TapGestureRecognizer()
-                  ..onTap = () => onTapMention(span.mentionUserId ?? span.text))
-              : null,
+          recognizer: TapGestureRecognizer()
+            ..onTap = () => onTapMention(span.mentionUserId ?? span.text),
         );
       case MarkdownStyle.plain:
         return TextSpan(text: span.text, style: baseStyle);

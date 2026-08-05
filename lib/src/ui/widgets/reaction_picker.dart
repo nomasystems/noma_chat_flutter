@@ -52,7 +52,7 @@ class ReactionPicker extends StatelessWidget {
             }),
             if (showExpandButton)
               Semantics(
-                label: theme.l10n.moreEmojis,
+                label: theme.l10nOf(context).moreEmojis,
                 button: true,
                 child: GestureDetector(
                   onTap: onExpandTap,

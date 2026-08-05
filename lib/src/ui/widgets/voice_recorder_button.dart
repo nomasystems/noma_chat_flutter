@@ -15,7 +15,7 @@ class VoiceRecorderButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label: theme.l10n.recordVoice,
+      label: theme.l10nOf(context).recordVoice,
       button: true,
       child: Container(
         width: 40,
