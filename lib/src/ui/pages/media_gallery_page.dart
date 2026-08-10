@@ -138,6 +138,9 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
               continue;
             }
             final type = _classify(mime);
+            final isVideo = type == MediaItemType.video;
+            final thumbnailId = msg.thumbnailAttachmentId;
+            final thumbnailUrl = msg.thumbnailUrl;
             final item = MediaItem(
               url: url,
               type: type,
@@ -150,6 +153,15 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
                 attachmentId: msg.attachmentId,
                 fallbackUrl: url,
               ),
+              thumbnailUrl: isVideo ? thumbnailUrl : null,
+              thumbnailRef:
+                  isVideo && (thumbnailId != null || thumbnailUrl != null)
+                  ? AttachmentRef(
+                      roomId: widget.roomId,
+                      attachmentId: thumbnailId,
+                      fallbackUrl: thumbnailUrl ?? '',
+                    )
+                  : null,
             );
             if (type == MediaItemType.file) {
               docs.add(item);

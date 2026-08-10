@@ -21,9 +21,15 @@ class _StallingAttachmentsApi implements ChatAttachmentsApi {
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
+    UploadCancelToken? cancelToken,
   }) async {
     await gate.future;
-    return _delegate.upload(data, mimeType, onProgress: onProgress);
+    return _delegate.upload(
+      data,
+      mimeType,
+      onProgress: onProgress,
+      cancelToken: cancelToken,
+    );
   }
 
   @override
@@ -222,10 +228,9 @@ void main() {
       expect(find.byType(AttachmentUploadRing), findsOneWidget);
 
       client.attachments.gate.complete();
-      // Not `pumpAndSettle`: the indeterminate ring (progress still at its
-      // initial 0 value — this fake never calls `onProgress`) animates
-      // forever and would time it out. A couple of bounded pumps drain the
-      // completing futures instead.
+      // Bounded pumps (not `pumpAndSettle`) to drain the completing futures
+      // — this fake never calls `onProgress`, so the ring stays at 0% the
+      // whole time and there is nothing further to settle toward.
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
     },

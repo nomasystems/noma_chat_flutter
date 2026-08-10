@@ -37,6 +37,9 @@ class ImageBubble extends StatefulWidget {
     this.urlResolver,
     this.mediaLoader,
     this.uploadProgress,
+    this.onCancelUpload,
+    this.isFailed = false,
+    this.onRetry,
   });
 
   final String imageUrl;
@@ -54,6 +57,27 @@ class ImageBubble extends StatefulWidget {
   /// [imageUrl]. Expected range 0..1 — same contract as
   /// `AudioBubble.uploadProgress`.
   final ValueListenable<double>? uploadProgress;
+
+  /// Cancels the in-flight upload. `null` (default) renders the ring's
+  /// center icon as a plain, non-interactive glyph — same contract as
+  /// `VideoBubble.onCancelUpload`/`FileBubble.onCancelUpload`.
+  final VoidCallback? onCancelUpload;
+
+  /// `true` once the upload/send behind this attachment has failed
+  /// (`MessageBubble.isFailed`). Only while [uploadProgress] is null —
+  /// uploading and failed are mutually exclusive — this swaps the image
+  /// for [AttachmentFailedPlaceholder] instead of attempting to resolve
+  /// [imageUrl], which is typically empty or local-only when the upload
+  /// never completed.
+  final bool isFailed;
+
+  /// Retries the failed upload/send. Same contract as [onCancelUpload]:
+  /// forward the exact callback `MessageBubble.onRetry` already uses for
+  /// the status-row retry icon — never a second retry path. `null`
+  /// (default) still paints the failed placeholder, with a static error
+  /// glyph in place of the retry arrow — a failure no retry can clear
+  /// must not offer a button that does nothing.
+  final VoidCallback? onRetry;
 
   /// Identifies this attachment for [urlResolver]. `null` (default) keeps
   /// [imageUrl] as the sole source, unchanged from before this parameter
@@ -254,13 +278,17 @@ class _ImageBubbleState extends State<ImageBubble> {
     final timestamp = widget.timestamp;
     final statusWidget = widget.statusWidget;
     final uploadProgress = widget.uploadProgress;
+    final showFailed = paintsAttachmentFailure(
+      isFailed: widget.isFailed,
+      uploadProgress: uploadProgress,
+    );
     return Semantics(
       image: true,
       label: caption ?? theme.l10nOf(context).imagePreview,
       child: GestureDetector(
-        // No tap-to-open while the upload is still in flight — there is
-        // no usable URL yet.
-        onTap: uploadProgress == null ? widget.onTap : null,
+        // No tap-to-open while the upload is still in flight, nor once it
+        // has failed — there is no usable URL in either case.
+        onTap: uploadProgress == null && !showFailed ? widget.onTap : null,
         child: LayoutBuilder(
           builder: (context, constraints) {
             final mediaSize = _mediaSize(theme, constraints);
@@ -292,6 +320,16 @@ class _ImageBubbleState extends State<ImageBubble> {
                                   theme.imageMaxHeight ??
                                   _defaultImageMaxHeight,
                               icon: Icons.image,
+                              onCancel: widget.onCancelUpload,
+                            )
+                          : showFailed
+                          ? AttachmentFailedPlaceholder(
+                              theme: theme,
+                              height:
+                                  theme.imageMaxHeight ??
+                                  _defaultImageMaxHeight,
+                              icon: Icons.image,
+                              onRetry: widget.onRetry,
                             )
                           : _usesMediaLoader
                           ? _buildAuthenticatedImage(theme)

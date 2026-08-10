@@ -69,6 +69,7 @@ void main() {
         fileName: 'file.png',
         fileSize: '1234',
         thumbnailUrl: 'https://x/thumb.png',
+        thumbnailAttachmentId: 'thumb-att-1',
       );
 
       final map = messageToMap(msg);
@@ -79,6 +80,7 @@ void main() {
       expect(map['isEdited'], true);
       expect(map['mimeType'], 'image/png');
       expect(map['fileSize'], '1234');
+      expect(map['thumbnailAttachmentId'], 'thumb-att-1');
 
       final back = messageFromMap(map);
       expect(back.id, 'm1');
@@ -86,6 +88,9 @@ void main() {
       expect(back.receipt, ReceiptStatus.read);
       expect(back.isDeleted, true);
       expect(back.fileName, 'file.png');
+      // Survives the restart: without it a cached video bubble would come
+      // back with a thumbnail URL it has no id to authenticate against.
+      expect(back.thumbnailAttachmentId, 'thumb-att-1');
     });
   });
 

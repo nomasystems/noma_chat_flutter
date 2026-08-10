@@ -31,10 +31,13 @@ import '../controller/room_list_controller.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../models/attachment_policy.dart';
 import '../models/room_list_item.dart';
+import '../room_defaults.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
+import '../services/video_thumbnailer.dart';
 import '../utils/last_message_preview.dart';
+import '../utils/mime_classifier.dart';
 import '../widgets/chat_room_options_menu.dart';
 import '../widgets/chat_view.dart';
 import 'operation_error.dart';
@@ -46,6 +49,7 @@ import 'handlers/optimistic_handler.dart';
 import 'services/presence_registry.dart';
 import 'handlers/room_enricher.dart';
 import 'handlers/room_list_mutator.dart';
+import 'services/attachment_upload_cancel_registry.dart';
 import 'services/blocked_users_registry.dart';
 import 'services/chat_controller_registry.dart';
 import 'services/chat_lifecycle_observer.dart';
@@ -120,11 +124,13 @@ class ChatUiAdapter {
     Duration resyncDebounce = const Duration(seconds: 5),
     ChatLocalDatasource? cache,
     AvatarStorage? avatarStorage,
+    VideoThumbnailer? videoThumbnailer,
   }) : _cache = cache,
        _l10n = l10n,
        _l10nPinnedByHost = !identical(l10n, ChatUiLocalizations.en),
        _currentUser = currentUser,
        avatarStorage = avatarStorage ?? DefaultAvatarStorage(client),
+       videoThumbnailer = videoThumbnailer ?? const NativeVideoThumbnailer(),
        roomListController = RoomListController(),
        _lifecycle = ConnectionLifecycle(),
        _resyncDebounce = resyncDebounce {
@@ -298,6 +304,17 @@ class ChatUiAdapter {
   /// Consumers wire a custom implementation when avatars must live on
   /// their own backend (Firebase, S3, custom CHT/wb pipeline, …).
   final AvatarStorage avatarStorage;
+
+  /// Extracts the poster frame `sendAttachment` uploads alongside an
+  /// outgoing `video/*` attachment, so the bubble shows a real preview
+  /// instead of a grey placeholder.
+  ///
+  /// Defaults to [NativeVideoThumbnailer] — the platform decoder, mobile
+  /// only (see `PlatformSupport.supportsVideoThumbnails`). Supply your own
+  /// implementation to route generation elsewhere, or
+  /// [NoVideoThumbnailer] to turn the feature off entirely. Never blocks a
+  /// send: whatever it returns, `null` included, the video goes out.
+  final VideoThumbnailer videoThumbnailer;
 
   /// Default [AttachmentUrlResolver] the adapter wires into
   /// `NomaChatView`/`ChatView` when the host doesn't supply its own
@@ -706,6 +723,19 @@ class ChatUiAdapter {
   /// the ~25 async paths that need to early-out when the adapter has
   /// been torn down mid-flight.
   bool get _disposed => _lifecycle.isDisposed;
+
+  /// Bumped every time the room controllers are wiped — [signOut],
+  /// [dispose] and an eager [disconnect] alike. [_disposed] does not cover
+  /// the first of those (the adapter stays usable for the next user), yet a
+  /// flow that captured a [ChatController] before it has no more right to
+  /// touch it, or the cache `signOut` just cleared, than one racing a real
+  /// disposal.
+  int _sessionEpoch = 0;
+
+  /// `true` when the session that was live at [epoch] has ended — see
+  /// [_sessionEpoch]. Long-running optimistic sends capture the epoch up
+  /// front and re-check it after every suspension point.
+  bool _sessionEndedSince(int epoch) => _disposed || _sessionEpoch != epoch;
 
   void Function(String message)? onBroadcast;
   void Function(ChatEvent event)? onError;
@@ -1291,6 +1321,7 @@ class ChatUiAdapter {
   /// controller mounted, and [resync] has something to backfill on resume.
   void _resetConnectionState({bool clearRooms = true}) {
     if (clearRooms) {
+      _sessionEpoch++;
       _chatControllers.disposeAll();
       _dmContacts.clear();
       _activeRoomId = null;
@@ -1303,10 +1334,10 @@ class ChatUiAdapter {
   /// Wipes every in-memory registry the adapter owns — both the
   /// per-connection state ([_resetConnectionState]) and the
   /// cross-session caches (user cache, blocked users, presence,
-  /// pending-reaction suppression, voice-upload progress). Shared by
-  /// [signOut] and [dispose] so neither can drift from the full state
-  /// inventory: adding a new registry to the adapter means clearing it
-  /// here once, and both teardown paths pick it up.
+  /// pending-reaction suppression, voice-upload progress, attachment-upload
+  /// cancel tokens). Shared by [signOut] and [dispose] so neither can drift
+  /// from the full state inventory: adding a new registry to the adapter
+  /// means clearing it here once, and both teardown paths pick it up.
   void _resetSessionState() {
     _resetConnectionState();
     _userCacheService.clear();
@@ -1314,6 +1345,7 @@ class ChatUiAdapter {
     _presence.clear();
     _pendingReactionsRegistry.clear();
     _voiceUploads.disposeAll();
+    _attachmentUploadCancels.cancelAll();
   }
 
   /// One-shot teardown for "logout" flows: disconnects, wipes every
@@ -1763,7 +1795,13 @@ class ChatUiAdapter {
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
-  }) => messages.uploadAttachment(data, mimeType, onProgress: onProgress);
+    UploadCancelToken? cancelToken,
+  }) => messages.uploadAttachment(
+    data,
+    mimeType,
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+  );
 
   /// High-level helper: uploads [pick] and dispatches the resulting
   /// attachment message in one shot. Picks the right [MessageType]
@@ -1809,6 +1847,13 @@ class ChatUiAdapter {
   /// class.
   final VoiceUploadRegistry _voiceUploads = VoiceUploadRegistry();
 
+  /// Cancel tokens for attachments currently uploading via
+  /// `messages.sendAttachment` — see [cancelAttachmentUpload]. Kept apart
+  /// from [_voiceUploads]: a progress notifier and a cancel token have
+  /// unrelated lifecycles (see [AttachmentUploadCancelRegistry]'s doc).
+  final AttachmentUploadCancelRegistry _attachmentUploadCancels =
+      AttachmentUploadCancelRegistry();
+
   /// Returns a listenable for the upload progress of a pending voice message.
   /// Returns `null` if there is no upload in flight for that id.
   ValueListenable<double>? voiceUploadProgressFor(String messageId) =>
@@ -1821,6 +1866,18 @@ class ChatUiAdapter {
   /// Returns `null` if there is no upload in flight for that id.
   ValueListenable<double>? attachmentUploadProgressFor(String messageId) =>
       _voiceUploads.listenableFor(messageId);
+
+  /// Cancels the in-flight `messages.sendAttachment` upload for [messageId]
+  /// (the temp id of the still-uploading provisional message) and leaves no
+  /// trace of it: the provisional bubble is removed rather than left behind
+  /// as failed — the user chose to abort, so there is nothing to retry. See
+  /// `ChatMessagesController.sendAttachment` for the cleanup this triggers.
+  ///
+  /// No-op if no upload is in flight for [messageId] — e.g. it already
+  /// finished, already failed, or was already cancelled.
+  void cancelAttachmentUpload(String messageId) {
+    _attachmentUploadCancels.cancel(messageId);
+  }
 
   /// Records and confirms a voice message: optimistic bubble first, then upload
   /// (with progress published to [voiceUploadProgressFor]), then send.

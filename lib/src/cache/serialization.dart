@@ -49,6 +49,8 @@ Map<String, dynamic> messageToMap(
     if (msg.fileName != null) 'fileName': msg.fileName,
     if (msg.fileSize != null) 'fileSize': msg.fileSize,
     if (msg.thumbnailUrl != null) 'thumbnailUrl': msg.thumbnailUrl,
+    if (msg.thumbnailAttachmentId != null)
+      'thumbnailAttachmentId': msg.thumbnailAttachmentId,
     if (msg.silentlyDropped) 'silentlyDropped': true,
   };
 }
@@ -88,6 +90,7 @@ ChatMessage messageFromMap(
   fileName: map['fileName'] as String?,
   fileSize: map['fileSize'] as String?,
   thumbnailUrl: map['thumbnailUrl'] as String?,
+  thumbnailAttachmentId: map['thumbnailAttachmentId'] as String?,
   silentlyDropped: map['silentlyDropped'] as bool? ?? false,
 );
 

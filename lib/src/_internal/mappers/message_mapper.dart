@@ -23,6 +23,7 @@ class MessageMapper {
     'file_name',
     'fileSize',
     'thumbnailUrl',
+    'thumbnailAttachmentId',
     'attachmentUrl',
     'attachmentId',
     // Idempotency key — surfaced via [ChatMessage.clientMessageId], kept out
@@ -66,6 +67,9 @@ class MessageMapper {
         jsonStringOrNull(meta?['file_name']);
     final fileSize = jsonStringOrNull(meta?['fileSize']);
     final thumbnailUrl = jsonStringOrNull(meta?['thumbnailUrl']);
+    final thumbnailAttachmentId = jsonStringOrNull(
+      meta?['thumbnailAttachmentId'],
+    );
     final metaAttachmentUrl = jsonStringOrNull(meta?['attachmentUrl']);
     final resolvedAttachmentUrl = dto.attachmentUrl ?? metaAttachmentUrl;
     // dto.attachmentId already covers the metadata fallback (see
@@ -120,6 +124,14 @@ class MessageMapper {
       fileName: fileName,
       fileSize: fileSize,
       thumbnailUrl: thumbnailUrl,
+      // Only the id the backend actually sent. Guessing one out of
+      // [thumbnailUrl] would be persisted by `messageToMap` as if it were
+      // authoritative, and a host URL such as `/media/thumbnails/x.jpg`
+      // guesses `thumbnails` — an id that 404s for as long as the cached
+      // row lives. The loader and the signed-url resolver both recover an
+      // id from the URL on demand instead, so the legacy case still works
+      // and a wrong guess dies with the widget rather than in the cache.
+      thumbnailAttachmentId: thumbnailAttachmentId,
     );
   }
 

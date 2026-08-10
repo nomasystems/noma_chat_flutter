@@ -120,6 +120,39 @@ The backend's admin endpoints (`/v1/admin/*`) are also exposed via `client.admin
 - **Webhook circuit breaker**: the backend has a circuit breaker on webhook delivery. Not directly relevant to the SDK, but if your app relies on webhook delivery for some flow, expect transient delays.
 - **Multinodo cluster**: the backend may run as a cluster. Session lookups, NRTE events, scheduled messages, and admin config are cluster-coordinated. The SDK is unaware of cluster topology.
 
+## Video poster frames
+
+The backend stores attachment bytes verbatim: `POST /attachments` persists a
+blob and answers `{attachmentId, getUrl, mimeType}`, with no transcoding,
+sampling or media processing of any kind. A video therefore has no
+server-side preview frame, and none can be requested.
+
+The SDK closes the gap from the sending side. `sendAttachment` on a
+`video/*` payload uploads **two** blobs — the clip, then a JPEG poster frame
+extracted on-device — and carries the second one on the message metadata,
+which the backend round-trips unchanged:
+
+| Metadata key | Value |
+|---|---|
+| `thumbnailUrl` | `getUrl` of the poster-frame blob |
+| `thumbnailAttachmentId` | `attachmentId` of the poster-frame blob |
+
+`MessageMapper` lifts both onto `ChatMessage.thumbnailUrl` /
+`ChatMessage.thumbnailAttachmentId` on the way in and strips them from the
+public metadata map, alongside `mimeType` / `fileName` / `fileSize` /
+`attachmentId`. Backends that reject unknown metadata keys must allow these
+two; nothing else about the contract changes.
+
+Both fetches are Bearer-protected exactly like any other attachment — a
+poster frame is an ordinary blob, so `GET /attachments/{id}` (and its
+signed-url variant) enforces the same room-membership check. There is no
+bare URL a plain image widget can load; the bubble goes through the
+authenticated media loader for the thumbnail too.
+
+Nothing is required of the backend beyond the metadata passthrough. See
+[Developer Guide — VideoThumbnailer](./doc/DEVELOPER_GUIDE.md#videothumbnailer)
+for the client-side seam and how to override it.
+
 ## Avatar / profile-photo pipeline
 
 The SDK ships a WhatsApp-style avatar flow used by `ProfileSettingsPage`,
@@ -204,6 +237,83 @@ need it.
 **Both platforms**: the SDK ships `image_picker` and `image_cropper` as
 direct deps in `pubspec.yaml`, so consumers don't re-declare them — they
 inherit transitively.
+
+### 2b. Platform config for the in-app camera
+
+The composer's Camera row opens `CameraCapturePage`, the SDK's own
+full-screen viewfinder (tap the shutter for a still, hold it for a clip),
+backed by `camera` + `permission_handler`. It runs on Android and iOS —
+`PlatformSupport.supportsInAppCameraCapture` — and everywhere else the
+composer falls back to `image_picker`'s system camera.
+
+**iOS (`Info.plist`):** `NSCameraUsageDescription` is already required by
+the section above. Hold-to-record additionally needs:
+
+```xml
+<key>NSMicrophoneUsageDescription</key>
+<string>This app needs microphone access to record videos in chat.</string>
+```
+
+The screen never asks for the microphone up front — a still photo does
+not need audio — so the prompt only fires on the first hold. Until it is
+granted, the preview binds with `enableAudio: false`, because on iOS
+creating a camera with audio on while the microphone is denied fails
+outright and kills the preview.
+
+**iOS (`Podfile`)**, if the host disables `permission_handler`'s macros:
+
+```ruby
+'PERMISSION_CAMERA=1',
+'PERMISSION_MICROPHONE=1',
+```
+
+**Android (`AndroidManifest.xml`):**
+
+```xml
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+```
+
+`CAMERA` is the same permission the crop flow above already declares.
+
+**Android — Play Store device filtering (act on this deliberately).**
+`camera_android_camerax` declares in its own manifest:
+
+```xml
+<uses-feature android:name="android.hardware.camera.any" />
+```
+
+`android:required` defaults to `true`, and the manifest merger folds that
+declaration into every app that depends on this package. Google Play then
+hides the app from devices with no camera at all — Android TV, many
+Chromebooks, some tablets and emulator profiles. There is no build warning;
+the only visible symptom is a lower supported-device count in the Play
+Console.
+
+Chat itself never requires a camera, so unless the host app does, override
+it in `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false"
+        tools:replace="android:required" />
+</manifest>
+```
+
+`android:required` on `<uses-feature>` is OR-merged, so declaring `false`
+without `tools:replace` loses to the library's implicit `true` silently.
+Check `app/build/outputs/logs/manifest-merger-*-report.txt` to confirm which
+value won.
+
+**Both platforms**: `camera` and `permission_handler` are direct deps of
+this package, so consumers inherit them and do not re-declare them. A
+host that wants a different capture UI keeps everything else by wiring
+`ChatViewCallbacks.onPickCamera` — see the seam described in
+`README.md`.
 
 ### 3. WS events the SDK consumes
 

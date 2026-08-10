@@ -47,6 +47,7 @@ class MessageList extends StatefulWidget {
     this.forwardedSourceLabels = const {},
     this.showScrollToBottom = true,
     this.onRetryMessage,
+    this.onCancelAttachmentUpload,
     this.audioCoordinator,
     this.audioUploadProgressFor,
     this.attachmentUploadProgressFor,
@@ -95,6 +96,12 @@ class MessageList extends StatefulWidget {
   final Map<String, String> forwardedSourceLabels;
   final bool showScrollToBottom;
   final ValueChanged<ChatMessage>? onRetryMessage;
+
+  /// Cancels an in-flight attachment upload for a message. Forwarded to
+  /// `MessageBubble.onCancelAttachmentUpload` for every bubble the list
+  /// builds; see `ChatViewCallbacks.onCancelAttachmentUpload` for the full
+  /// contract.
+  final ValueChanged<ChatMessage>? onCancelAttachmentUpload;
   final AudioPlaybackCoordinator? audioCoordinator;
 
   /// Per-message upload progress notifier resolver. The list calls it with the
@@ -872,6 +879,9 @@ class _MessageListState extends State<MessageList> {
       onRetry:
           widget.controller.isFailed(msg.id) && widget.onRetryMessage != null
           ? () => widget.onRetryMessage!(msg)
+          : null,
+      onCancelAttachmentUpload: widget.onCancelAttachmentUpload != null
+          ? () => widget.onCancelAttachmentUpload!(msg)
           : null,
       theme: widget.theme,
       onTapImage: widget.onTapImage != null

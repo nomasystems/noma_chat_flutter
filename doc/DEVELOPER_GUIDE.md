@@ -1214,6 +1214,57 @@ shows the ring out of the box — nothing to configure for the common case.
 Supply your own `attachmentUploadProgressFor` on `ChatViewBuilders` only if
 you need a different resolver (it wins over the default).
 
+The ring itself is determinate and fills in
+`ChatBubbleTheme.uploadProgressColor` (falls back to `statusColor`, then to
+the same green as the send button / unread badge), with an X centered on
+top that cancels the upload — never the retry arrow, which only ever
+belongs to a message that has actually failed (see below). `NomaChatView`
+wires the X **by default** too: `ChatViewCallbacks.onCancelAttachmentUpload`
+defaults to `ChatUiAdapter.cancelAttachmentUpload(messageId)`. Cancelling
+removes the provisional bubble entirely — the user chose to abort, so
+there's nothing to retry — rather than leaving it behind marked failed.
+Supply your own `onCancelAttachmentUpload` only to change what cancelling
+does; leaving it `null` on a bare `ImageBubble`/`VideoBubble`/`FileBubble`
+(used outside `ChatView`) renders the ring without a tappable X instead of
+a dead button.
+
+The X and the ability to cancel share one lifetime: both end the instant
+the bytes land, which is also when `attachmentUploadProgressFor` stops
+returning a notifier. Everything a send still has to do after that — a
+video's poster frame, then the message itself — happens with the bubble
+already out of the ring, rather than behind an X that could no longer abort
+anything. During that tail the bubble is simply pending, exactly like a
+text message in flight.
+
+A failed upload does not render inside the ring at all: `uploadProgress`
+becomes `null` once the upload settles. For `ImageBubble`/`VideoBubble`
+that swaps the ring for `AttachmentFailedPlaceholder` — the same
+blurred-media stand-in, now centered on `AttachmentRetryIcon` instead of
+the progress ring. `FileBubble` has no separate media area, so it swaps its
+leading file-type icon for the same `AttachmentRetryIcon` instead. Tapping
+the arrow calls the bubble's `onRetry` — `MessageBubble` forwards the exact
+callback the status-row icon already used,
+which `NomaChatView` wires by default through
+`ChatViewCallbacks.onRetryMessage` to `adapter.messages.retrySend`. There
+is no second retry path: the arrow fires the same retry a screen reader's
+"Retry" custom action already triggers.
+
+Uploading and failed are mutually exclusive, so the arrow can never appear
+mid-upload. It also only appears when a retry can actually get anywhere.
+`retrySend` refuses a media row whose bytes never reached the server — it
+retains none, so there is nothing to re-drive and the only way forward is
+picking the file again — and `MessageBubble` mirrors that rule: such a row
+gets the same failed placeholder with a **static error glyph** instead of
+the retry arrow, and keeps its metadata-row failed icon, whose tap surfaces
+the localized "that file was never uploaded" notice through
+`OperationFeedbackListener`. Passing `onRetry: null` to a bare
+`ImageBubble`/`VideoBubble`/`FileBubble` does the same thing. Only when the
+media does paint a **working** arrow does `MessageBubble` suppress the
+metadata row's small failed-message icon, so the two never duplicate the
+same tap target. Text and audio messages have no media area to paint an
+arrow over, so they keep the status-row icon as their only retry
+affordance.
+
 #### Downloading / displaying — signed URLs (primary path)
 
 The robust default is the **signed-URL** flow. Given an attachment id and the
@@ -1902,7 +1953,8 @@ NomaChatView(
 > (`video_player`, a full-screen route, an external app — your call) and the
 > overlay comes back. Re-mint the URL through
 > `chat.adapter.defaultAttachmentUrlResolver` before handing it to a player,
-> for the same expiry reason as `ImageViewer` above.
+> for the same expiry reason as `ImageViewer` above. The still behind the
+> overlay is handled for you — see [VideoThumbnailer](#videothumbnailer).
 
 #### ReportMessageDialog
 
@@ -2294,6 +2346,62 @@ NomaChat.create(
 ```
 
 Implement `AvatarStorage` with `upload(Uint8List bytes) → Future<String>` (returns the public URL).
+
+### VideoThumbnailer
+
+A video bubble needs a poster frame, and the backend is a pure blob store —
+it never samples an uploaded clip. So the sending client is the only place
+one can come from: `sendAttachment` extracts a frame, uploads it as a
+**second, small blob with its own attachment id**, and stamps that id into
+the message metadata. The receiving bubble downloads it through the same
+authenticated media loader it uses for photos.
+
+The default `NativeVideoThumbnailer` uses the platform decoder
+(`MediaMetadataRetriever` / `AVAssetImageGenerator`) and is wired for you —
+nothing to pass. Override it to route generation elsewhere:
+
+```dart
+NomaChat.create(
+  ...
+  videoThumbnailer: MyServerSideThumbnailer(),   // or const NoVideoThumbnailer()
+)
+```
+
+```dart
+class MyServerSideThumbnailer implements VideoThumbnailer {
+  @override
+  Future<VideoThumbnailData?> generate(
+    Uint8List videoBytes, {
+    required String mimeType,
+  }) async {
+    final jpeg = await myPipeline.posterFrame(videoBytes);
+    return jpeg == null ? null : VideoThumbnailData(bytes: jpeg);
+  }
+}
+```
+
+Contract worth knowing before you plug something in:
+
+- **Return `null`, never throw.** Generation is an enrichment: a video that
+  arrives without a preview is a degraded success, one that fails to send
+  because its preview failed is a bug. Every failure — unsupported platform,
+  unreadable container, a failed thumbnail upload, or the whole step
+  exceeding `RoomDefaults.videoThumbnailTimeout` — sends the clip anyway.
+- **It runs only after the clip's own upload succeeded**, so a cancelled or
+  failed send never reaches it, and the visible upload ring tracks the clip
+  alone — the poster frame's few tens of kilobytes are deliberately outside
+  it. The ring (and its cancel X) is already gone by the time generation
+  starts; see "Upload progress" above.
+- **A long generation is abandoned *and* cancelled.** Exceeding
+  `RoomDefaults.videoThumbnailTimeout` aborts the poster frame's own upload
+  rather than letting it land a blob nothing references, and a
+  `signOut()`/`dispose()` in that window does the same before the send is
+  reached at all.
+- **Android / iOS only by default** (`PlatformSupport.supportsVideoThumbnails`).
+  Elsewhere the built-in returns `null` and bubbles keep the placeholder +
+  play button; a host-supplied implementation is free to work everywhere.
+- **Videos sent before this existed have no poster frame and never will** —
+  they render exactly as they always did.
 
 ---
 

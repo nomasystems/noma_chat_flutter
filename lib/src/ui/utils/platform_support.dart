@@ -19,12 +19,36 @@ class PlatformSupport {
   /// camera capture is unavailable on macOS / Windows / Linux.
   static bool get supportsCameraCapture => _isMobile || kIsWeb;
 
+  /// The SDK's own full-screen capture screen (`CameraCapturePage`, tap for
+  /// a still / hold for a clip) is offered on mobile only. `camera` ships
+  /// android / ios / web and `permission_handler` android / ios / web /
+  /// windows, so web is the only non-mobile target where both plugins
+  /// resolve at all — and there the screen still would not work: the
+  /// hold-to-record path drives `startVideoRecording` and per-lens
+  /// `setZoomLevel`, which `camera_web` backs with `MediaRecorder` and
+  /// `MediaStreamTrack` capabilities that vary per browser, and there is no
+  /// Settings app for the "permanently denied" CTA to open. Everywhere
+  /// else the composer keeps [supportsCameraCapture]'s `image_picker`
+  /// route, which is stills-only but honest about where it runs.
+  static bool get supportsInAppCameraCapture => _isMobile;
+
   /// Crop is offered on mobile only. There is no native cropper for
   /// macOS / Windows / Linux, and the SDK's crop path stages the image through
   /// a `dart:io` temp file, which is unavailable on web — so on every
   /// non-mobile target the crop step is skipped and the picked image is used
   /// as-is. (`image_cropper`'s web delegate could be wired later for web crop.)
   static bool get supportsImageCrop => _isMobile;
+
+  /// Video poster frames are generated on mobile only. `get_thumbnail_video`
+  /// — the plugin behind `NativeVideoThumbnailer` — ships android / ios /
+  /// web, but its web implementation is unusable here: it generates from a
+  /// file path or a URL, and on web there is no path, while every
+  /// attachment URL the SDK holds needs a Bearer token no `<video>` element
+  /// sends. On desktop the plugin has no implementation at all. Everywhere
+  /// this is `false`, `sendAttachment` skips generation and the video
+  /// message is sent without a preview — the bubble keeps the placeholder +
+  /// play button it has always shown.
+  static bool get supportsVideoThumbnails => _isMobile;
 
   /// `open_filex` ships android / ios only. On desktop the SDK opens the
   /// downloaded file through `url_launcher` (a `file://` URI handed to the OS

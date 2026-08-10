@@ -9,10 +9,13 @@ import '../../models/user.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../adapter/operation_error.dart';
 import '../controller/chat_controller.dart';
+import '../models/attachment_policy.dart';
 import '../models/reaction_user.dart';
 import '../models/room_list_item.dart';
+import '../pages/camera_capture_page.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_url_resolver.dart';
+import '../services/jpeg_metadata_stripper.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
 import '../utils/platform_support.dart';
@@ -621,7 +624,9 @@ class _NomaChatViewState extends State<NomaChatView> {
           ),
       onPickCamera:
           user.onPickCamera ??
-          (PlatformSupport.supportsCameraCapture
+          (PlatformSupport.supportsInAppCameraCapture
+              ? () => _captureAndSend(sendKey)
+              : PlatformSupport.supportsCameraCapture
               ? () => _pickAndSendImage(sendKey, fromCamera: true)
               : null),
       onPickGallery:
@@ -640,6 +645,9 @@ class _NomaChatViewState extends State<NomaChatView> {
       onRetryMessage:
           user.onRetryMessage ??
           (message) => adapter.messages.retrySend(sendKey, message.id),
+      onCancelAttachmentUpload:
+          user.onCancelAttachmentUpload ??
+          (message) => adapter.cancelAttachmentUpload(message.id),
       onReportMessage: user.onReportMessage ?? _defaultReport,
       onContextMenuAction: (message, action) {
         switch (action) {
@@ -691,6 +699,52 @@ class _NomaChatViewState extends State<NomaChatView> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Ceiling the SDK's own capture path enforces. A hold-to-record clip is
+  /// routinely tens of megabytes, so the capture stays on disk until it has
+  /// been measured — `AttachmentPolicy.unrestricted`'s 25 MB default would
+  /// only be consulted once the whole file was already in memory, and would
+  /// then refuse clips this screen is built to record.
+  static const AttachmentPolicy _capturePolicy = AttachmentPolicy.whatsappLike;
+
+  /// Default `onPickCamera` wherever the SDK ships its own capture screen.
+  /// Preferred over `image_picker`'s system camera because the composer's
+  /// Camera row has to do both jobs — tap for a still, hold for a clip —
+  /// and `image_picker` can only hand back one or the other, chosen before
+  /// the user ever sees a viewfinder.
+  Future<void> _captureAndSend(String sendKey) async {
+    final shot = await CameraCapturePage.show(context: context, theme: _theme);
+    if (shot == null || !mounted) return;
+    final violation = _capturePolicy.validate(
+      mimeType: shot.mimeType,
+      sizeBytes: await shot.file.length(),
+    );
+    if (!mounted) return;
+    if (violation != null) {
+      final l10n = _theme.l10nOf(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            violation.kind == AttachmentPolicyViolationKind.tooLarge
+                ? l10n.attachmentTooLarge
+                : l10n.attachmentTypeNotAllowed,
+          ),
+        ),
+      );
+      return;
+    }
+    // Same metadata pass every other picked image gets: a photo shot with
+    // location services on carries GPS coordinates in its EXIF block.
+    final bytes = JpegMetadataStripper.strip(await shot.file.readAsBytes());
+    if (!mounted) return;
+    await widget.adapter.messages.sendAttachment(
+      sendKey,
+      bytes: bytes,
+      mimeType: shot.mimeType,
+      fileName: shot.fileName,
+      policy: _capturePolicy,
     );
   }
 

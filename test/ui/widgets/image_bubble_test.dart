@@ -132,6 +132,95 @@ void main() {
     });
   });
 
+  group('ImageBubble — failed upload retry', () {
+    testWidgets(
+      'shows a retry icon instead of CachedNetworkImage when failed and '
+      'onRetry is wired',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(ImageBubble(imageUrl: '', isFailed: true, onRetry: () {})),
+        );
+
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
+      },
+    );
+
+    testWidgets('tapping the retry icon calls onRetry', (tester) async {
+      var retried = false;
+      await tester.pumpWidget(
+        wrap(
+          ImageBubble(
+            imageUrl: '',
+            isFailed: true,
+            onRetry: () => retried = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      expect(retried, isTrue);
+    });
+
+    testWidgets('disables tap-to-open once failed', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          ImageBubble(
+            imageUrl: '',
+            isFailed: true,
+            onRetry: () {},
+            onTap: () => tapped = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(GestureDetector).first, warnIfMissed: false);
+      expect(tapped, isFalse);
+    });
+
+    testWidgets(
+      'still paints the failed placeholder when onRetry is not wired, with a '
+      'static error glyph instead of a retry arrow that cannot work',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            const ImageBubble(
+              imageUrl: 'https://example.com/photo.jpg',
+              isFailed: true,
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'never shows the retry icon while an upload is still in flight, even '
+      'when isFailed and onRetry are both set',
+      (tester) async {
+        final progress = ValueNotifier<double>(0.4);
+        addTearDown(progress.dispose);
+        await tester.pumpWidget(
+          wrap(
+            ImageBubble(
+              imageUrl: '',
+              uploadProgress: progress,
+              isFailed: true,
+              onRetry: () {},
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
+  });
+
   group('ImageBubble — bubble hugs the picture', () {
     const bubbleMaxWidth = 270.0;
 

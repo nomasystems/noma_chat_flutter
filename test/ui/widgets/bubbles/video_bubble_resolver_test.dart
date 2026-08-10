@@ -33,7 +33,7 @@ void main() {
           VideoBubble(
             videoUrl: 'https://example.com/video.mp4',
             thumbnailUrl: 'https://stale.example/thumb.jpg',
-            attachmentRef: const AttachmentRef(
+            thumbnailRef: const AttachmentRef(
               roomId: 'r1',
               attachmentId: 'att-1',
               fallbackUrl: 'https://stale.example/thumb.jpg',
@@ -63,7 +63,7 @@ void main() {
         wrap(
           VideoBubble(
             videoUrl: 'https://example.com/video.mp4',
-            attachmentRef: const AttachmentRef(
+            thumbnailRef: const AttachmentRef(
               roomId: 'r1',
               attachmentId: 'att-1',
               fallbackUrl: 'https://example.com/video.mp4',

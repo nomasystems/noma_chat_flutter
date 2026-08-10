@@ -62,6 +62,32 @@ abstract final class RoomDefaults {
   /// backend load (1 `users.search` per demo contact per tick).
   static const Duration suggestionPollInterval = Duration(seconds: 10);
 
+  /// Outer diameter of the in-app camera shutter, in logical pixels.
+  /// Comfortably past the 48px Material tap target so a hold-to-record
+  /// gesture lands even with the phone held one-handed; both WhatsApp and
+  /// the stock camera apps sit in the same 80-90px band. Override per
+  /// screen with `ChatTheme.cameraCaptureShutterSize`.
+  static const double cameraShutterSize = 84;
+
+  /// Longest edge, in pixels, of the poster frame generated for an
+  /// outgoing video. 480 covers the widest bubble on a 3x phone at the
+  /// ~180px height `ChatTheme.videoHeight` defaults to, and keeps the
+  /// extra blob in the tens of kilobytes so it never competes with the
+  /// clip itself for upload bandwidth.
+  static const int videoThumbnailMaxWidth = 480;
+
+  /// JPEG quality (0-100) for that poster frame. Matches
+  /// [avatarPickerCompressQuality]: visually indistinguishable at bubble
+  /// size, several times smaller than a quality-100 encode.
+  static const int videoThumbnailQuality = 85;
+
+  /// Ceiling on the whole generate-and-upload-the-poster-frame step in
+  /// `sendAttachment`. Past it the step is abandoned and the video is sent
+  /// without a preview: a thumbnail is an enrichment, and a slow decoder or
+  /// a stalled second upload must never hold the actual message hostage for
+  /// the full HTTP timeout.
+  static const Duration videoThumbnailTimeout = Duration(seconds: 10);
+
   /// How long the WS reconnect grace period waits before flipping the
   /// UI to "Reconnecting…". Avoids flashing the banner on transient
   /// network blips of <1s. The SDK itself reconnects faster than this;

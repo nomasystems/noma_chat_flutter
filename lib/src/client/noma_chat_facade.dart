@@ -18,6 +18,7 @@ import '../ui/adapter/room_title_resolver.dart';
 import '../ui/controller/chat_controller.dart';
 import '../ui/controller/room_list_controller.dart';
 import '../ui/l10n/chat_ui_localizations.dart';
+import '../ui/services/video_thumbnailer.dart';
 import '../core/result.dart';
 import '../models/room.dart';
 import 'chat_client.dart';
@@ -162,6 +163,8 @@ class NomaChat {
     bool enableReconnectResync = true,
     // Storage
     AvatarStorage? avatarStorage,
+    // Media
+    VideoThumbnailer? videoThumbnailer,
     // Advanced
     ChatConfig? config,
     ChatLocalDatasource? localDatasource,
@@ -236,6 +239,7 @@ class NomaChat {
       logLevel: effectiveConfig.logLevel,
       logMessageContent: effectiveConfig.logMessageContent,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+      videoThumbnailer: videoThumbnailer,
     );
 
     return NomaChat._(client: client, adapter: adapter, cache: hiveCache);
@@ -295,6 +299,8 @@ class NomaChat {
     bool enableReconnectResync = true,
     // Storage
     AvatarStorage? avatarStorage,
+    // Media
+    VideoThumbnailer? videoThumbnailer,
   }) async {
     final client = NomaChatClient(config: config);
     await client.restoreCacheTimestamps();
@@ -317,6 +323,7 @@ class NomaChat {
       logLevel: config.logLevel,
       logMessageContent: config.logMessageContent,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+      videoThumbnailer: videoThumbnailer,
     );
 
     return NomaChat._(client: client, adapter: adapter);
@@ -377,6 +384,7 @@ class NomaChat {
     ChatLogLevel logLevel = ChatLogLevel.warn,
     bool logMessageContent = false,
     AvatarStorage? avatarStorage,
+    VideoThumbnailer? videoThumbnailer,
   }) {
     final adapter = ChatUiAdapter(
       client: client,
@@ -392,6 +400,7 @@ class NomaChat {
       logLevel: logLevel,
       logMessageContent: logMessageContent,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+      videoThumbnailer: videoThumbnailer,
     );
     return NomaChat._(client: client, adapter: adapter);
   }

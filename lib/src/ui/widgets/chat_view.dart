@@ -201,6 +201,7 @@ class _ChatViewState extends State<ChatView> {
       availableReactions: behaviors.availableReactions,
       forwardedSourceLabels: behaviors.forwardedSourceLabels,
       onRetryMessage: callbacks.onRetryMessage,
+      onCancelAttachmentUpload: callbacks.onCancelAttachmentUpload,
       onShowReactionDetail: _resolveShowReactionDetail(context),
       avatarBuilder: builders.avatarBuilder,
       systemMessageTextResolver: builders.systemMessageTextResolver,

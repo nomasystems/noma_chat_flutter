@@ -34,12 +34,14 @@ class AttachmentsApi implements ChatAttachmentsApi {
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
+    UploadCancelToken? cancelToken,
   }) => safeApiCall(() async {
     final json = await _rest.uploadBinary(
       '/attachments',
       data,
       mimeType,
       onProgress: onProgress,
+      cancelToken: cancelToken,
     );
     final att = _asMap(json['attachment']) ?? json;
     final attachmentId = (att['attachmentId'] ?? att['id'] ?? '') as String;

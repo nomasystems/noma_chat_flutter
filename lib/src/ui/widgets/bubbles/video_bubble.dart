@@ -27,10 +27,13 @@ class VideoBubble extends StatefulWidget {
     this.isOutgoing = false,
     this.theme = ChatTheme.defaults,
     this.statusWidget,
-    this.attachmentRef,
+    this.thumbnailRef,
     this.urlResolver,
     this.mediaLoader,
     this.uploadProgress,
+    this.onCancelUpload,
+    this.isFailed = false,
+    this.onRetry,
   });
 
   final String videoUrl;
@@ -50,13 +53,40 @@ class VideoBubble extends StatefulWidget {
   /// contract as `ImageBubble.uploadProgress`/`AudioBubble.uploadProgress`.
   final ValueListenable<double>? uploadProgress;
 
-  /// Identifies this attachment for [urlResolver]. `null` (default) keeps
-  /// [thumbnailUrl] as the sole source, unchanged from before this
-  /// parameter existed. Playback itself (opened via [onTap]) is the
-  /// host's responsibility and re-mints separately if it needs to.
-  final AttachmentRef? attachmentRef;
+  /// Cancels the in-flight upload. `null` (default) renders the ring's
+  /// center icon as a plain, non-interactive glyph — same contract as
+  /// `ImageBubble.onCancelUpload`/`FileBubble.onCancelUpload`.
+  final VoidCallback? onCancelUpload;
 
-  /// Resolves a fresh thumbnail URL for [attachmentRef] on demand,
+  /// `true` once the upload/send behind this attachment has failed
+  /// (`MessageBubble.isFailed`). Only while [uploadProgress] is null —
+  /// uploading and failed are mutually exclusive — this swaps the
+  /// thumbnail for [AttachmentFailedPlaceholder] instead of attempting to
+  /// resolve [thumbnailUrl], which is typically empty or local-only when
+  /// the upload never completed.
+  final bool isFailed;
+
+  /// Retries the failed upload/send. Same contract as [onCancelUpload]:
+  /// forward the exact callback `MessageBubble.onRetry` already uses for
+  /// the status-row retry icon — never a second retry path. `null`
+  /// (default) still paints the failed placeholder, with a static error
+  /// glyph in place of the retry arrow — a failure no retry can clear
+  /// must not offer a button that does nothing.
+  final VoidCallback? onRetry;
+
+  /// Identifies the **poster frame**, never the clip: the thumbnail is a
+  /// blob of its own with its own attachment id
+  /// (`ChatMessage.thumbnailAttachmentId`), which is why this is not the
+  /// video's [AttachmentRef] — handing that one down would make
+  /// [mediaLoader] fetch the clip and `Image.memory` try to decode a video
+  /// as a picture. Enough on its own for [mediaLoader]: the frame is
+  /// fetched by id, so a message that carries one but no [thumbnailUrl]
+  /// still paints. `null` (default) keeps [thumbnailUrl] as the sole
+  /// source. Playback itself (opened via [onTap]) is the host's
+  /// responsibility and re-mints separately if it needs to.
+  final AttachmentRef? thumbnailRef;
+
+  /// Resolves a fresh thumbnail URL for [thumbnailRef] on demand,
   /// re-minting on expiry. Consulted before the first load and once more
   /// if the thumbnail image errors. Ignored once [mediaLoader] is wired —
   /// same reasoning as `ImageBubble.urlResolver`.
@@ -65,7 +95,7 @@ class VideoBubble extends StatefulWidget {
   /// Fetches the thumbnail's bytes through the authenticated client and
   /// renders from memory instead of handing `CachedNetworkImage` a URL it
   /// can't authenticate. Preferred over [urlResolver] whenever both are
-  /// set (together with [attachmentRef]). `null` (default) keeps the
+  /// set (together with [thumbnailRef]). `null` (default) keeps the
   /// plain-URL path unchanged. Playback itself (opened via [onTap]) stays
   /// the host's responsibility.
   final AttachmentMediaLoader? mediaLoader;
@@ -83,9 +113,7 @@ class _VideoBubbleState extends State<VideoBubble> {
   bool _thumbnailBytesRetried = false;
 
   bool get _usesMediaLoader =>
-      widget.mediaLoader != null &&
-      widget.attachmentRef != null &&
-      widget.thumbnailUrl != null;
+      widget.mediaLoader != null && widget.thumbnailRef != null;
 
   String? get _effectiveThumbnailUrl =>
       _resolvedThumbnailUrl ?? widget.thumbnailUrl;
@@ -104,8 +132,8 @@ class _VideoBubbleState extends State<VideoBubble> {
   void didUpdateWidget(covariant VideoBubble oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.thumbnailUrl != widget.thumbnailUrl ||
-        oldWidget.attachmentRef?.attachmentId !=
-            widget.attachmentRef?.attachmentId) {
+        oldWidget.thumbnailRef?.attachmentId !=
+            widget.thumbnailRef?.attachmentId) {
       _retried = false;
       _resolvedThumbnailUrl = null;
       _thumbnailBytesRetried = false;
@@ -121,7 +149,7 @@ class _VideoBubbleState extends State<VideoBubble> {
 
   void _loadThumbnailBytes() {
     final loader = widget.mediaLoader;
-    final ref = widget.attachmentRef;
+    final ref = widget.thumbnailRef;
     if (loader == null || ref == null) return;
     unawaited(
       loader
@@ -153,7 +181,7 @@ class _VideoBubbleState extends State<VideoBubble> {
 
   void _resolve() {
     final resolver = widget.urlResolver;
-    final ref = widget.attachmentRef;
+    final ref = widget.thumbnailRef;
     if (resolver == null || ref == null || widget.thumbnailUrl == null) return;
     unawaited(
       resolver(ref)
@@ -168,7 +196,7 @@ class _VideoBubbleState extends State<VideoBubble> {
   void _retryAfterError() {
     if (_retried) return;
     final resolver = widget.urlResolver;
-    final ref = widget.attachmentRef;
+    final ref = widget.thumbnailRef;
     if (resolver == null || ref == null) return;
     _retried = true;
     unawaited(
@@ -189,12 +217,17 @@ class _VideoBubbleState extends State<VideoBubble> {
     final statusWidget = widget.statusWidget;
     final thumbnailUrl = _effectiveThumbnailUrl;
     final uploadProgress = widget.uploadProgress;
+    final showFailed = paintsAttachmentFailure(
+      isFailed: widget.isFailed,
+      uploadProgress: uploadProgress,
+    );
     return Semantics(
       label: caption ?? theme.l10nOf(context).videoPreview,
-      button: widget.onTap != null && uploadProgress == null,
+      button: widget.onTap != null && uploadProgress == null && !showFailed,
       child: GestureDetector(
-        // No tap-to-open while the upload is still in flight.
-        onTap: uploadProgress == null ? widget.onTap : null,
+        // No tap-to-open while the upload is still in flight, nor once it
+        // has failed.
+        onTap: uploadProgress == null && !showFailed ? widget.onTap : null,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -209,6 +242,14 @@ class _VideoBubbleState extends State<VideoBubble> {
                       theme: theme,
                       height: theme.videoHeight ?? 180,
                       icon: Icons.videocam,
+                      onCancel: widget.onCancelUpload,
+                    )
+                  : showFailed
+                  ? AttachmentFailedPlaceholder(
+                      theme: theme,
+                      height: theme.videoHeight ?? 180,
+                      icon: Icons.videocam,
+                      onRetry: widget.onRetry,
                     )
                   : Stack(
                       alignment: Alignment.center,
@@ -219,7 +260,7 @@ class _VideoBubbleState extends State<VideoBubble> {
                           CachedNetworkImage(
                             key: ValueKey(thumbnailUrl),
                             imageUrl: thumbnailUrl,
-                            cacheKey: widget.attachmentRef?.attachmentId,
+                            cacheKey: widget.thumbnailRef?.attachmentId,
                             fit: BoxFit.cover,
                             height: theme.videoHeight ?? 180,
                             width: double.infinity,
@@ -326,7 +367,7 @@ class _VideoBubbleState extends State<VideoBubble> {
     }
     return Image.memory(
       bytes,
-      key: ValueKey(widget.attachmentRef?.attachmentId ?? widget.thumbnailUrl),
+      key: ValueKey(widget.thumbnailRef?.attachmentId ?? widget.thumbnailUrl),
       fit: BoxFit.cover,
       height: height,
       width: double.infinity,

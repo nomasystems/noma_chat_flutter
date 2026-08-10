@@ -18,6 +18,9 @@ class FileBubble extends StatelessWidget {
     this.theme = ChatTheme.defaults,
     this.statusWidget,
     this.uploadProgress,
+    this.onCancelUpload,
+    this.isFailed = false,
+    this.onRetry,
   });
 
   final String fileName;
@@ -33,6 +36,27 @@ class FileBubble extends StatelessWidget {
   /// upload-progress ring and tap-to-open is disabled. Same contract as
   /// `ImageBubble.uploadProgress`/`VideoBubble.uploadProgress`.
   final ValueListenable<double>? uploadProgress;
+
+  /// Cancels the in-flight upload. `null` (default) renders the ring's
+  /// center icon as a plain, non-interactive glyph — same contract as
+  /// `ImageBubble.onCancelUpload`/`VideoBubble.onCancelUpload`.
+  final VoidCallback? onCancelUpload;
+
+  /// `true` once the upload/send behind this attachment has failed
+  /// (`MessageBubble.isFailed`). Only while [uploadProgress] is null —
+  /// uploading and failed are mutually exclusive — this swaps the leading
+  /// file-type icon for [AttachmentRetryIcon]; `FileBubble` has no
+  /// separate media area to paint a placeholder over, so the icon slot
+  /// itself doubles as the failed-state indicator.
+  final bool isFailed;
+
+  /// Retries the failed upload/send. Same contract as [onCancelUpload]:
+  /// forward the exact callback `MessageBubble.onRetry` already uses for
+  /// the status-row retry icon — never a second retry path. `null`
+  /// (default) still marks the slot as failed, with a static error glyph
+  /// in place of the retry arrow — a failure no retry can clear must not
+  /// offer a button that does nothing.
+  final VoidCallback? onRetry;
 
   IconData _iconForMimeType() {
     final mime = mimeType?.toLowerCase() ?? '';
@@ -54,12 +78,17 @@ class FileBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = uploadProgress;
+    final showFailed = paintsAttachmentFailure(
+      isFailed: isFailed,
+      uploadProgress: progress,
+    );
     return Semantics(
       label: fileName,
-      button: onTap != null && progress == null,
+      button: onTap != null && progress == null && !showFailed,
       child: GestureDetector(
-        // No tap-to-open while the upload is still in flight.
-        onTap: progress == null ? onTap : null,
+        // No tap-to-open while the upload is still in flight, nor once it
+        // has failed.
+        onTap: progress == null && !showFailed ? onTap : null,
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -71,6 +100,17 @@ class FileBubble extends StatelessWidget {
                       progress: progress,
                       theme: theme,
                       size: 36,
+                      onCancel: onCancelUpload,
+                    ),
+                  )
+                : showFailed
+                ? SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: AttachmentRetryIcon(
+                      theme: theme,
+                      size: 36,
+                      onRetry: onRetry,
                     ),
                   )
                 : Icon(

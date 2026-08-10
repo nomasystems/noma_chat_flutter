@@ -36,6 +36,29 @@ void main() {
     });
   });
 
+  group('supportsInAppCameraCapture', () {
+    test('true on android', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      expect(PlatformSupport.supportsInAppCameraCapture, isTrue);
+    });
+
+    test('true on iOS', () {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      expect(PlatformSupport.supportsInAppCameraCapture, isTrue);
+    });
+
+    test('false on desktop', () {
+      for (final platform in [
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(PlatformSupport.supportsInAppCameraCapture, isFalse);
+      }
+    });
+  });
+
   group('supportsImageCrop', () {
     test('true on mobile', () {
       debugDefaultTargetPlatformOverride = TargetPlatform.android;
@@ -45,6 +68,29 @@ void main() {
     test('false on desktop', () {
       debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
       expect(PlatformSupport.supportsImageCrop, isFalse);
+    });
+  });
+
+  group('supportsVideoThumbnails', () {
+    test('true on mobile', () {
+      for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(PlatformSupport.supportsVideoThumbnails, isTrue);
+      }
+    });
+
+    // The plugin ships no desktop implementation, and its web one generates
+    // from a path or a URL — web has no path, and every attachment URL
+    // needs a Bearer token.
+    test('false on desktop', () {
+      for (final platform in [
+        TargetPlatform.macOS,
+        TargetPlatform.windows,
+        TargetPlatform.linux,
+      ]) {
+        debugDefaultTargetPlatformOverride = platform;
+        expect(PlatformSupport.supportsVideoThumbnails, isFalse);
+      }
     });
   });
 

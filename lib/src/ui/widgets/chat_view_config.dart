@@ -200,6 +200,7 @@ class ChatViewCallbacks {
     this.onPermissionDenied,
     this.onContextMenuAction,
     this.onRetryMessage,
+    this.onCancelAttachmentUpload,
     this.onFetchReactions,
     this.onUnblock,
   });
@@ -263,6 +264,15 @@ class ChatViewCallbacks {
   onContextMenuAction;
 
   final ValueChanged<ChatMessage>? onRetryMessage;
+
+  /// Cancels an in-flight photo/video/file attachment upload for [message]
+  /// — fired by the X shown centered in the upload-progress ring while
+  /// [ChatViewBuilders.attachmentUploadProgressFor] reports one in flight.
+  /// `null` (default) renders that ring without a tappable X, same as
+  /// leaving [onTapVideo] unset hides `VideoBubble`'s play overlay: the SDK
+  /// never paints an affordance it cannot honour. `NomaChatView` defaults
+  /// this to `ChatUiAdapter.cancelAttachmentUpload`.
+  final ValueChanged<ChatMessage>? onCancelAttachmentUpload;
 
   /// Fetches aggregated reactions for the tapped message — backs the
   /// reaction detail sheet's "who reacted" list.

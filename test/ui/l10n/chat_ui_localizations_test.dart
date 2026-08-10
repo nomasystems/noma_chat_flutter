@@ -394,6 +394,21 @@ void main() {
       expect(l10n.loadMore, 'Načíst další');
     });
 
+    test('every full-tier locale translates the upload labels', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(l10n.cancelUploadLabel, isNot('Cancel upload'));
+        expect(l10n.retryUploadLabel, isNot('Retry upload'));
+        expect(l10n.attachmentUploadingTemplate, isNot('Uploading {percent}%'));
+      }
+    });
+
     test('fields outside the core set fall back to the English default', () {
       expect(ChatUiLocalizations.sv.unblockFailed, 'Unblock failed');
       expect(ChatUiLocalizations.no.unblockFailed, 'Unblock failed');

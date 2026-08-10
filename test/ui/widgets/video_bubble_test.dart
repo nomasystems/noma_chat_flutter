@@ -127,4 +127,102 @@ void main() {
       expect(find.byIcon(Icons.play_arrow), findsOneWidget);
     });
   });
+
+  group('VideoBubble — failed upload retry', () {
+    testWidgets(
+      'shows a retry icon instead of the play icon when failed and onRetry '
+      'is wired',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            VideoBubble(
+              videoUrl: '',
+              onTap: () {},
+              isFailed: true,
+              onRetry: () {},
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.play_arrow), findsNothing);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
+        expect(semanticsOf(tester).properties.button, isFalse);
+      },
+    );
+
+    testWidgets('tapping the retry icon calls onRetry', (tester) async {
+      var retried = false;
+      await tester.pumpWidget(
+        wrap(
+          VideoBubble(
+            videoUrl: '',
+            isFailed: true,
+            onRetry: () => retried = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      expect(retried, isTrue);
+    });
+
+    testWidgets('disables tap-to-open once failed', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          VideoBubble(
+            videoUrl: '',
+            isFailed: true,
+            onRetry: () {},
+            onTap: () => tapped = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byType(GestureDetector).first, warnIfMissed: false);
+      expect(tapped, isFalse);
+    });
+
+    testWidgets(
+      'still paints the failed placeholder when onRetry is not wired, with a '
+      'static error glyph instead of a retry arrow that cannot work',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            VideoBubble(
+              videoUrl: 'https://example.com/video.mp4',
+              onTap: () {},
+              isFailed: true,
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+        expect(find.byIcon(Icons.play_arrow), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'never shows the retry icon while an upload is still in flight, even '
+      'when isFailed and onRetry are both set',
+      (tester) async {
+        final progress = ValueNotifier<double>(0.2);
+        addTearDown(progress.dispose);
+        await tester.pumpWidget(
+          wrap(
+            VideoBubble(
+              videoUrl: '',
+              uploadProgress: progress,
+              isFailed: true,
+              onRetry: () {},
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
+  });
 }
