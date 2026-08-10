@@ -78,9 +78,13 @@ void main() {
   });
 
   test('leaves the visible upload progress on the clip alone', () async {
+    final gate = Completer<void>();
     final adapter = buildAdapter(
       _FakeThumbnailer(
-        onGenerate: (_, __) async => VideoThumbnailData(bytes: frameBytes),
+        onGenerate: (_, __) async {
+          await gate.future;
+          return VideoThumbnailData(bytes: frameBytes);
+        },
       ),
     );
     addTearDown(adapter.dispose);
@@ -92,13 +96,22 @@ void main() {
       mimeType: 'video/mp4',
     );
     final tempId = controller.messages.single.id;
-    final progress = adapter.attachmentUploadProgressFor(tempId);
 
-    await future;
-
+    // Parked inside generation, with the clip already uploaded. Resolved
+    // through the adapter on every read — the way `MessageList` does it on
+    // every row build — because a notifier captured once cannot observe
+    // the registry retiring it, which is exactly the bug this guards.
+    await pumpEventQueue();
+    expect(client.attachments.uploadCount, 1);
     // 1.0 is reached by the clip's own upload; the poster frame's bytes
     // are deliberately outside the ring.
-    expect(progress?.value, 1.0);
+    expect(adapter.attachmentUploadProgressFor(tempId)?.value, 1.0);
+
+    gate.complete();
+    await future;
+
+    // Retired only once the row can render itself.
+    expect(adapter.attachmentUploadProgressFor(tempId), isNull);
   });
 
   test('sends the video anyway when generation yields nothing', () async {

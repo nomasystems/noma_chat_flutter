@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../_internal/ui_debug_log.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../models/camera_capture_result.dart';
 import '../room_defaults.dart';
@@ -75,6 +76,12 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   double _maxZoom = 1.0;
   double _currentZoom = 1.0;
   double _baseZoom = 1.0;
+  double? _requestedZoom;
+  bool _applyingZoom = false;
+  // Handed over by [dispose] when the screen goes away with a start still in
+  // flight: the resolving `_startRecording` is the only place left that can
+  // finalise the clip, and it needs a controller to do it on.
+  CameraController? _orphanedController;
   // Kept apart from [_error]: rebinding the preview clears the error, and the
   // user still has to learn that the clip they were recording is gone.
   String? _interruptionNotice;
@@ -92,8 +99,53 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _recordingTimer?.cancel();
-    _controller?.dispose();
+    final controller = _controller;
+    _controller = null;
+    if (_recordingGate.isStarting) {
+      _orphanedController = controller;
+    } else {
+      unawaited(
+        _releaseController(
+          controller,
+          // A controller disposed mid-recording aborts the clip the platform
+          // is still writing; only its stop call closes the file.
+          finalizeRecording:
+              _recordingGate.isRecording || _recordingGate.isStopping,
+        ),
+      );
+    }
     super.dispose();
+  }
+
+  /// Finalises and releases a controller nobody is watching any more.
+  Future<void> _releaseController(
+    CameraController? controller, {
+    required bool finalizeRecording,
+  }) async {
+    if (controller == null) return;
+    if (finalizeRecording) {
+      try {
+        await controller.stopVideoRecording();
+      } on Object catch (error, stack) {
+        uiDebugLog(
+          'CameraCapturePage',
+          'stop on teardown failed: $error\n$stack',
+        );
+      }
+    }
+    _recordingGate.completeStop();
+    await _disposeQuietly(controller);
+  }
+
+  /// Releases the controller [dispose] handed over, if it did.
+  Future<void> _releaseOrphan({required bool finalizeRecording}) async {
+    final controller = _orphanedController;
+    _orphanedController = null;
+    if (controller == null) {
+      _recordingGate.completeStop();
+      return;
+    }
+    await _releaseController(controller, finalizeRecording: finalizeRecording);
   }
 
   @override
@@ -124,15 +176,42 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   }
 
   Future<void> _setup() async {
-    final cameraStatus = await Permission.camera.request();
-    // Read-only: a still photo does not need audio, so the microphone prompt
-    // is deferred to the first hold-to-record gesture.
-    _microphoneGranted = await Permission.microphone.isGranted;
+    final PermissionStatus cameraStatus;
+    try {
+      cameraStatus = await Permission.camera.request();
+      // Read-only: a still photo does not need audio, so the microphone prompt
+      // is deferred to the first hold-to-record gesture.
+      _microphoneGranted = await Permission.microphone.isGranted;
+    } on Object catch (error, stack) {
+      // `permission_handler` refuses to queue behind another plugin's dialog
+      // (ERROR_ALREADY_REQUESTING_PERMISSIONS). Left unhandled that is a
+      // spinner that never resolves, because nothing else clears
+      // `_initializing`.
+      _failToOpen('camera permission request failed', error, stack);
+      return;
+    }
     await _applyCameraPermissionStatus(cameraStatus);
   }
 
   Future<void> _recheckCameraPermission() async {
-    await _applyCameraPermissionStatus(await Permission.camera.status);
+    final PermissionStatus status;
+    try {
+      status = await Permission.camera.status;
+    } on Object catch (error, stack) {
+      _failToOpen('camera permission check failed', error, stack);
+      return;
+    }
+    await _applyCameraPermissionStatus(status);
+  }
+
+  void _failToOpen(String what, Object error, StackTrace stack) {
+    uiDebugLog('CameraCapturePage', '$what: $error\n$stack');
+    if (!mounted) return;
+    setState(() {
+      _initializing = false;
+      _error = _l10n.cameraUnavailable;
+      _showSettingsCta = false;
+    });
   }
 
   Future<void> _applyCameraPermissionStatus(PermissionStatus status) async {
@@ -150,9 +229,21 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     await _bindCameraAfterPermissions();
   }
 
+  /// `_binding` gates the shutter and the flip button in [build], so it can
+  /// only move inside a rebuild — the bind's own `setState` runs while it is
+  /// still `true` and never publishes the release.
+  void _setBinding(bool value) {
+    if (_binding == value) return;
+    if (!mounted) {
+      _binding = value;
+      return;
+    }
+    setState(() => _binding = value);
+  }
+
   Future<void> _bindCameraAfterPermissions() async {
     if (!_cameraGranted || _binding) return;
-    _binding = true;
+    _setBinding(true);
     try {
       if (_cameras.isEmpty) {
         final cameras = await availableCameras();
@@ -167,14 +258,15 @@ class _CameraCapturePageState extends State<CameraCapturePage>
         _cameras = cameras;
       }
       await _bindCamera(_activeCameraIndex);
-    } on Exception catch (_) {
+    } on Exception catch (error, stack) {
+      uiDebugLog('CameraCapturePage', 'bind failed: $error\n$stack');
       if (!mounted) return;
       setState(() {
         _initializing = false;
         _error = _l10n.cameraUnavailable;
       });
     } finally {
-      _binding = false;
+      _setBinding(false);
     }
   }
 
@@ -191,7 +283,8 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     );
     try {
       await controller.initialize();
-    } on Exception catch (_) {
+    } on Exception catch (error, stack) {
+      uiDebugLog('CameraCapturePage', 'initialize failed: $error\n$stack');
       // `initialize` opens the native session before the step that failed, so
       // the half-built candidate is ours to release — nothing else holds a
       // reference to it once we rethrow.
@@ -209,7 +302,8 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     try {
       minZoom = await controller.getMinZoomLevel();
       maxZoom = await controller.getMaxZoomLevel();
-    } on Exception catch (_) {
+    } on Exception catch (error, stack) {
+      uiDebugLog('CameraCapturePage', 'zoom range unreadable: $error\n$stack');
       // A lens that rejects the query just keeps the pinch gesture inert.
       // Both ends go back to the seed together: a half-read range would leave
       // the minimum above the maximum and make the pinch clamp throw.
@@ -234,6 +328,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       _minZoom = minZoom;
       _maxZoom = maxZoom;
       _currentZoom = minZoom;
+      _requestedZoom = null;
     });
     await _disposeQuietly(previous);
   }
@@ -245,8 +340,9 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   Future<void> _disposeQuietly(CameraController? controller) async {
     try {
       await controller?.dispose();
-    } on Exception catch (_) {
+    } on Exception catch (error, stack) {
       // Nothing to salvage: the session is gone either way.
+      uiDebugLog('CameraCapturePage', 'dispose failed: $error\n$stack');
     }
   }
 
@@ -254,6 +350,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       _cameras.length > 1 &&
       !_recordingGate.isRecording &&
       !_recordingGate.isStarting &&
+      !_recordingGate.isStopping &&
       !_binding &&
       !_initializing;
 
@@ -261,9 +358,9 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     if (!_canSwitchCamera) return;
     final previousIndex = _activeCameraIndex;
     final next = (previousIndex + 1) % _cameras.length;
-    _binding = true;
     final outgoing = _controller;
     setState(() {
+      _binding = true;
       _controller = null;
       _initializing = true;
       _interruptionNotice = null;
@@ -271,10 +368,11 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     await _disposeQuietly(outgoing);
     try {
       await _bindCamera(next);
-    } on Exception catch (_) {
+    } on Exception catch (error, stack) {
+      uiDebugLog('CameraCapturePage', 'lens switch failed: $error\n$stack');
       await _recoverPreviousCamera(previousIndex);
     } finally {
-      _binding = false;
+      _setBinding(false);
     }
   }
 
@@ -285,7 +383,8 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     if (!mounted) return;
     try {
       await _bindCamera(previousIndex);
-    } on Exception catch (_) {
+    } on Exception catch (error, stack) {
+      uiDebugLog('CameraCapturePage', 'lens recovery failed: $error\n$stack');
       if (!mounted) return;
       setState(() {
         _initializing = false;
@@ -309,8 +408,12 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       Navigator.of(
         context,
       ).pop(CameraCaptureResult(file: file, isVideo: false));
-    } on Exception catch (_) {
-      if (!mounted) return;
+    } on Object catch (error, stack) {
+      // Not just `Exception`: `takePicture` signs off by writing to the
+      // controller's value, so a teardown landing mid-capture raises a
+      // `FlutterError` instead.
+      uiDebugLog('CameraCapturePage', 'takePicture failed: $error\n$stack');
+      if (!mounted || _controller != controller) return;
       setState(() => _error = _l10n.cameraUnavailable);
     }
   }
@@ -326,13 +429,23 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     }
     final attempt = _recordingGate.beginStart();
     if (attempt == null) return;
+    // The gate is read by `build` through `_canSwitchCamera`, so arming it
+    // has to publish a frame: otherwise the flip button stays enabled for
+    // the whole start-in-flight window and can dispose the controller
+    // `startVideoRecording` is about to write to.
+    if (mounted) setState(() {});
     try {
       await controller.startVideoRecording();
-    } on Object catch (_) {
+    } on Object catch (error, stack) {
       // Not just `Exception`: a teardown that lands mid-start disposes the
       // controller, and `startVideoRecording` signs off by writing to it,
       // which fails an assertion rather than throwing. Either way there is no
       // recording, and a retired attempt has nobody left to report to.
+      uiDebugLog(
+        'CameraCapturePage',
+        'startVideoRecording failed: $error\n$stack',
+      );
+      unawaited(_releaseOrphan(finalizeRecording: false));
       if (_recordingGate.isStale(attempt)) return;
       _recordingGate.reset();
       if (!mounted) return;
@@ -346,7 +459,10 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     // `startVideoRecording` is in flight; re-arming it here would leave the
     // timer and the red pill running against a controller that is already
     // disposed, with no gesture left that can clear them.
-    if (outcome == CameraStartOutcome.stale) return;
+    if (outcome == CameraStartOutcome.stale) {
+      unawaited(_releaseOrphan(finalizeRecording: true));
+      return;
+    }
     unawaited(HapticFeedback.mediumImpact());
     // The finger may have already lifted while `startVideoRecording` was
     // in flight: that release already asked to stop, so we honour it
@@ -357,7 +473,11 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       return;
     }
     if (!mounted) {
-      _recordingGate.reset();
+      // The screen went away while the start was in flight: the platform is
+      // recording with nobody left to release the shutter, and simply
+      // dropping the controller aborts the clip instead of closing the file.
+      _recordingGate.requestStop();
+      unawaited(_releaseOrphan(finalizeRecording: true));
       return;
     }
     setState(() {
@@ -378,6 +498,16 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     PermissionStatus status;
     try {
       status = await Permission.microphone.request();
+    } on Object catch (error, stack) {
+      // A refused dialog and a dialog that could not be raised at all (another
+      // plugin's request already in flight) are the same thing here: no audio.
+      // Left to escape, this throw would surface as an unhandled async error
+      // from a gesture callback nobody awaits.
+      uiDebugLog(
+        'CameraCapturePage',
+        'microphone permission request failed: $error\n$stack',
+      );
+      status = PermissionStatus.denied;
     } finally {
       _requestingMicrophone = false;
     }
@@ -435,21 +565,34 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     // The gate is cleared before the controller is even looked at: a release
     // that arrives once the camera is gone still has to disarm the recording
     // UI, which used to survive the teardown with no way left to stop it.
+    final session = _recordingGate.currentSession;
     if (!_recordingGate.requestStop()) return;
     _recordingTimer?.cancel();
     _recordingTimer = null;
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) {
+      unawaited(_releaseOrphan(finalizeRecording: true));
       if (!mounted) return;
       setState(() => _recordingElapsed = Duration.zero);
       return;
     }
     try {
       final file = await controller.stopVideoRecording();
-      if (!mounted) return;
+      _recordingGate.completeStop();
+      // An interruption that landed inside the round-trip already told the
+      // user the clip was lost and rebound the preview behind it.
+      if (_recordingGate.isStale(session) || !mounted) return;
       setState(() => _recordingElapsed = Duration.zero);
       Navigator.of(context).pop(CameraCaptureResult(file: file, isVideo: true));
-    } on Exception catch (_) {
+    } on Object catch (error, stack) {
+      // Not just `Exception`: `stopVideoRecording` signs off by writing to the
+      // controller's value, which raises a `FlutterError` once a teardown has
+      // disposed it.
+      uiDebugLog(
+        'CameraCapturePage',
+        'stopVideoRecording failed: $error\n$stack',
+      );
+      if (_recordingGate.isStale(session)) return;
       _recordingGate.reset();
       if (!mounted) return;
       setState(() {
@@ -668,18 +811,39 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     _baseZoom = _currentZoom;
   }
 
+  /// Applies the pinch one call at a time, and only records the zoom the lens
+  /// actually took: committing it up front left `_currentZoom` — and with it
+  /// the next pinch's `_baseZoom` — describing a zoom the lens had refused,
+  /// and concurrent updates could resolve out of order.
   Future<void> _handleScaleUpdate(ScaleUpdateDetails details) async {
-    final controller = _controller;
-    if (controller == null) return;
+    if (_controller == null) return;
     if (_maxZoom <= _minZoom) return;
     final zoom = (_baseZoom * details.scale).clamp(_minZoom, _maxZoom);
     if (zoom == _currentZoom) return;
-    _currentZoom = zoom;
+    _requestedZoom = zoom;
+    if (_applyingZoom) return;
+    _applyingZoom = true;
     try {
-      await controller.setZoomLevel(zoom);
-    } on Exception catch (_) {
-      // Some lenses reject an in-range zoom value; the preview must not die
-      // for a gesture that only adjusts framing.
+      while (_requestedZoom != null) {
+        final next = _requestedZoom!;
+        _requestedZoom = null;
+        final controller = _controller;
+        if (controller == null) return;
+        try {
+          await controller.setZoomLevel(next);
+          if (!identical(controller, _controller)) return;
+          _currentZoom = next;
+        } on Object catch (error, stack) {
+          // Some lenses reject an in-range zoom value; the preview must not
+          // die for a gesture that only adjusts framing.
+          uiDebugLog(
+            'CameraCapturePage',
+            'setZoomLevel($next) failed: $error\n$stack',
+          );
+        }
+      }
+    } finally {
+      _applyingZoom = false;
     }
   }
 
@@ -689,7 +853,8 @@ class _CameraCapturePageState extends State<CameraCapturePage>
         controller != null &&
         controller.value.isInitialized &&
         !_initializing &&
-        !_binding;
+        !_binding &&
+        !_recordingGate.isStopping;
     final isRecording = _recordingGate.isRecording;
 
     return CameraCaptureButton(

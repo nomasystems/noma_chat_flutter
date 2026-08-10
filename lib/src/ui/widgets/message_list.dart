@@ -51,6 +51,7 @@ class MessageList extends StatefulWidget {
     this.audioCoordinator,
     this.audioUploadProgressFor,
     this.attachmentUploadProgressFor,
+    this.attachmentUploadCancellableFor,
     this.avatarBuilder,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
@@ -116,6 +117,13 @@ class MessageList extends StatefulWidget {
   /// builds; a non-null listenable shows the placeholder + progress ring.
   final ValueListenable<double>? Function(String messageId)?
   attachmentUploadProgressFor;
+
+  /// Per-message resolver for whether that upload can still be cancelled —
+  /// the signal behind the ring's X. Separate from
+  /// [attachmentUploadProgressFor] because the ring outlives cancellability;
+  /// see `ChatViewBuilders.attachmentUploadCancellableFor`.
+  final ValueListenable<bool>? Function(String messageId)?
+  attachmentUploadCancellableFor;
 
   final Widget Function(BuildContext, String userId)? avatarBuilder;
   final String Function(ChatMessage message)? systemMessageTextResolver;
@@ -922,6 +930,9 @@ class _MessageListState extends State<MessageList> {
       audioCoordinator: widget.audioCoordinator,
       audioUploadProgress: widget.audioUploadProgressFor?.call(msg.id),
       attachmentUploadProgress: widget.attachmentUploadProgressFor?.call(
+        msg.id,
+      ),
+      attachmentUploadCancellable: widget.attachmentUploadCancellableFor?.call(
         msg.id,
       ),
       forwardedSourceLabel: _resolveForwardedSourceLabel(msg),

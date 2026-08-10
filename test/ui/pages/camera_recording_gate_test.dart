@@ -64,6 +64,77 @@ void main() {
       expect(gate.requestStop(), isFalse);
     });
 
+    test('a stop still in flight keeps the gate armed, so a teardown that '
+        'lands inside it is reported as a lost clip', () {
+      final gate = CameraRecordingGate();
+      gate.completeStart(gate.beginStart());
+
+      expect(gate.requestStop(), isTrue);
+      expect(gate.isRecording, isFalse, reason: 'the clip has stopped growing');
+      expect(
+        gate.isStopping,
+        isTrue,
+        reason: 'the platform has not handed the file back yet',
+      );
+      expect(
+        gate.beginStart(),
+        isNull,
+        reason: 'the camera is not free for a second recording',
+      );
+
+      // The incoming call arrives while `stopVideoRecording()` is in flight.
+      expect(
+        gate.interruptIfActive(),
+        isTrue,
+        reason: 'a clip lost inside the stop is still a clip lost',
+      );
+      expect(gate.isStopping, isFalse);
+    });
+
+    test(
+      'completeStop frees the gate once the platform hands the clip back',
+      () {
+        final gate = CameraRecordingGate();
+        gate.completeStart(gate.beginStart());
+        gate.requestStop();
+
+        gate.completeStop();
+
+        expect(gate.isStopping, isFalse);
+        expect(
+          gate.interruptIfActive(),
+          isFalse,
+          reason: 'nothing is in flight any more',
+        );
+        expect(gate.beginStart(), isNotNull);
+      },
+    );
+
+    test(
+      'the session token a stop captured goes stale when it is interrupted',
+      () {
+        final gate = CameraRecordingGate();
+        gate.completeStart(gate.beginStart());
+        final session = gate.currentSession;
+        gate.requestStop();
+
+        expect(
+          gate.isStale(session),
+          isFalse,
+          reason: 'the stop belongs to the session the gate is tracking',
+        );
+
+        gate.interruptIfActive();
+
+        expect(
+          gate.isStale(session),
+          isTrue,
+          reason:
+              'the resolving stop is reporting about a session that is gone',
+        );
+      },
+    );
+
     test('requestStop after a stop already ran is a no-op', () {
       final gate = CameraRecordingGate();
       gate.completeStart(gate.beginStart());

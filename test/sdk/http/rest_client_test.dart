@@ -326,13 +326,20 @@ void main() {
 
       final chunks = await (body as Stream<Uint8List>).toList();
       expect(chunks.length, greaterThan(1));
-      // The no-copy property: every chunk is a VIEW onto the original
-      // buffer — `sublist` hands back a fresh one each time — and the views
-      // tile the payload exactly once, in order.
+      // The no-copy property, proved by aliasing rather than by
+      // `identical(chunk.buffer, payload.buffer)`: `TypedData.buffer` mints
+      // a fresh `ByteBuffer` wrapper on every read, so that identity is
+      // false even between two reads of the SAME list. A write through the
+      // payload showing up in the chunk cannot happen across a `sublist`
+      // copy. The views also tile the payload exactly once, in order.
       var offset = 0;
       for (final chunk in chunks) {
-        expect(identical(chunk.buffer, payload.buffer), isTrue);
         expect(chunk.offsetInBytes, payload.offsetInBytes + offset);
+        expect(chunk.buffer.lengthInBytes, payload.buffer.lengthInBytes);
+        final original = payload[offset];
+        payload[offset] = original ^ 0xff;
+        expect(chunk[0], original ^ 0xff);
+        payload[offset] = original;
         offset += chunk.length;
       }
       expect(offset, payload.length);

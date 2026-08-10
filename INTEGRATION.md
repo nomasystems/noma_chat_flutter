@@ -281,17 +281,22 @@ outright and kills the preview.
 
 ```xml
 <uses-feature android:name="android.hardware.camera.any" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
 ```
 
-`android:required` defaults to `true`, and the manifest merger folds that
-declaration into every app that depends on this package. Google Play then
-hides the app from devices with no camera at all — Android TV, many
-Chromebooks, some tablets and emulator profiles. There is no build warning;
-the only visible symptom is a lower supported-device count in the Play
-Console.
+`android:required` defaults to `true`, and the manifest merger folds all
+three into every app that depends on this package. The two permissions
+carry implied feature requirements of their own: `CAMERA` implies
+`android.hardware.camera` and `android.hardware.camera.autofocus`,
+`RECORD_AUDIO` implies `android.hardware.microphone`. Google Play then hides
+the app from devices with no camera, no autofocus or no microphone — Android
+TV, many Chromebooks, some tablets and emulator profiles. There is no build
+warning; the only visible symptom is a lower supported-device count in the
+Play Console.
 
 Chat itself never requires a camera, so unless the host app does, override
-it in `android/app/src/main/AndroidManifest.xml`:
+all four in `android/app/src/main/AndroidManifest.xml`:
 
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -301,13 +306,25 @@ it in `android/app/src/main/AndroidManifest.xml`:
         android:name="android.hardware.camera.any"
         android:required="false"
         tools:replace="android:required" />
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
 </manifest>
 ```
 
 `android:required` on `<uses-feature>` is OR-merged, so declaring `false`
-without `tools:replace` loses to the library's implicit `true` silently.
-Check `app/build/outputs/logs/manifest-merger-*-report.txt` to confirm which
-value won.
+for `camera.any` without `tools:replace` loses to the library's explicit
+`true` silently. The other three are declared by nobody — they exist only as
+implied requirements — so a plain `false` overrides them, and adding
+`tools:replace` to them fails the build instead. Check
+`app/build/outputs/logs/manifest-merger-*-report.txt` to confirm which value
+won for each.
 
 **Both platforms**: `camera` and `permission_handler` are direct deps of
 this package, so consumers inherit them and do not re-declare them. A

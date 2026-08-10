@@ -136,6 +136,11 @@ class NativeVideoThumbnailer implements VideoThumbnailer {
   /// above the bounded lifetime of a live spool, so a concurrent generation
   /// can never be its target. Best-effort — a failure to list or delete
   /// leaves the file for the next run.
+  ///
+  /// Per entry, deliberately: a temp directory is shared and mutable, so a
+  /// file vanishing between `list` and `statSync` is ordinary. With the walk
+  /// in one `try` that ordinary event would end the only sweep the process
+  /// ever gets and strand every remaining copy until the next launch.
   Future<void> _sweepStaleSpools(Directory dir) async {
     if (_staleSweepStarted) return;
     _staleSweepStarted = true;
@@ -144,8 +149,15 @@ class NativeVideoThumbnailer implements VideoThumbnailer {
       await for (final entity in dir.list(followLinks: false)) {
         if (entity is! File) continue;
         if (!entity.uri.pathSegments.last.startsWith(_spoolPrefix)) continue;
-        if (entity.statSync().modified.isAfter(cutoff)) continue;
-        await entity.delete();
+        try {
+          if (entity.statSync().modified.isAfter(cutoff)) continue;
+          await entity.delete();
+        } catch (error) {
+          uiDebugLog(
+            'NativeVideoThumbnailer',
+            'stale spool skipped: ${entity.path} ($error)',
+          );
+        }
       }
     } catch (error) {
       uiDebugLog('NativeVideoThumbnailer', 'stale spool sweep failed: $error');

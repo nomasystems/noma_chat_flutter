@@ -106,6 +106,20 @@ dependencies:
   # Bearer token. `PlatformSupport.supportsVideoThumbnails` gates it to
   # mobile accordingly.
   get_thumbnail_video: ^0.7.3
+  # Backs `ImageMetadataScrubber`, which rebuilds every picked photo from its
+  # pixels so nothing the source container carried can travel with it. Pure
+  # Dart, which is the point: a native compressor (`flutter_image_compress`)
+  # would be faster but ships android / ios / web only, narrowing what this
+  # package can promise on the six targets in `platforms:` above, and could
+  # not be exercised under `flutter test` at all. `dart:ui` was the other
+  # candidate and cannot do the job: it decodes, but has no JPEG encoder, and
+  # its decode is the platform's — EXIF orientation and colour management
+  # would then differ between a browser and Skia, which is exactly the kind of
+  # per-platform difference this pass must not have. The cost is speed: a
+  # 12 MP photo takes a few hundred milliseconds to decode and re-encode, so
+  # the work goes to a background isolate (see
+  # `PlatformSupport.supportsBackgroundIsolates`).
+  image: ^4.5.0
   characters: ^1.4.0
   shared_preferences: ^2.2.0
   uuid: ^4.0.0

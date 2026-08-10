@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../_internal/ui_debug_log.dart';
 import '../../models/message.dart';
 import '../../models/reaction.dart';
 import '../../models/room_user.dart';
@@ -10,12 +12,14 @@ import '../adapter/chat_ui_adapter.dart';
 import '../adapter/operation_error.dart';
 import '../controller/chat_controller.dart';
 import '../models/attachment_policy.dart';
+import '../models/attachment_rejection.dart';
+import '../models/camera_capture_result.dart';
 import '../models/reaction_user.dart';
 import '../models/room_list_item.dart';
 import '../pages/camera_capture_page.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_url_resolver.dart';
-import '../services/jpeg_metadata_stripper.dart';
+import '../services/image_metadata_scrubber.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
 import '../utils/platform_support.dart';
@@ -103,7 +107,32 @@ class NomaChatView extends StatefulWidget {
     this.hydrateGroupMembers = true,
     this.initialMessageId,
     this.reportReasonHint,
+    this.attachmentPolicy,
   });
+
+  /// What the SDK's own attachment paths accept, and why it is not
+  /// [AttachmentPolicy.whatsappLike].
+  ///
+  /// `sendAttachment` takes the payload as a single `Uint8List`, so an
+  /// accepted attachment is materialised whole in memory before the upload
+  /// starts. WhatsApp's 100 MB video ceiling would therefore mean a 100 MB
+  /// allocation on top of whatever the upload buffers — out of reach on the
+  /// 2-3 GB Android devices this SDK ships to. A streaming send is the real
+  /// answer and is not reachable from the view, so the ceiling is what keeps
+  /// the flow honest until it is: 32 MB of video is roughly ten seconds of
+  /// 1080p, well past what the hold-to-record shutter is for.
+  ///
+  /// Hosts whose backend and devices can take more raise it through
+  /// [attachmentPolicy].
+  static const AttachmentPolicy defaultAttachmentPolicy = AttachmentPolicy(
+    maxBytesByMimePrefix: {
+      'image/': 16 * 1024 * 1024,
+      'video/': 32 * 1024 * 1024,
+      'audio/': 16 * 1024 * 1024,
+      'application/': 32 * 1024 * 1024,
+    },
+    maxBytes: 32 * 1024 * 1024,
+  );
 
   /// Server-side id of the room to render. History and pins load on mount.
   final String roomId;
@@ -178,6 +207,12 @@ class NomaChatView extends StatefulWidget {
   /// Placeholder for the report dialog's reason field. Forwarded to
   /// [ReportMessageDialog].
   final String? reportReasonHint;
+
+  /// Size and mime-type limits every attachment path of this view honours —
+  /// the in-app capture, the gallery pick and the file pick alike, so the
+  /// same room cannot accept a clip it would reject as a gallery upload.
+  /// Defaults to [defaultAttachmentPolicy].
+  final AttachmentPolicy? attachmentPolicy;
 
   @override
   State<NomaChatView> createState() => _NomaChatViewState();
@@ -505,6 +540,9 @@ class _NomaChatViewState extends State<NomaChatView> {
       attachmentUploadProgressFor:
           user.attachmentUploadProgressFor ??
           adapter.attachmentUploadProgressFor,
+      attachmentUploadCancellableFor:
+          user.attachmentUploadCancellableFor ??
+          adapter.attachmentUploadCancellableFor,
       linkPreviewFetcher: user.linkPreviewFetcher,
       displayNameResolver:
           user.displayNameResolver ??
@@ -702,12 +740,23 @@ class _NomaChatViewState extends State<NomaChatView> {
     );
   }
 
-  /// Ceiling the SDK's own capture path enforces. A hold-to-record clip is
-  /// routinely tens of megabytes, so the capture stays on disk until it has
-  /// been measured — `AttachmentPolicy.unrestricted`'s 25 MB default would
-  /// only be consulted once the whole file was already in memory, and would
-  /// then refuse clips this screen is built to record.
-  static const AttachmentPolicy _capturePolicy = AttachmentPolicy.whatsappLike;
+  AttachmentPolicy get _attachmentPolicy =>
+      widget.attachmentPolicy ?? NomaChatView.defaultAttachmentPolicy;
+
+  void _reportAttachmentRejected(AttachmentRejection rejection) {
+    if (!mounted) return;
+    final l10n = _theme.l10nOf(context);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(switch (rejection.reason) {
+          AttachmentRejectReason.tooLarge => l10n.attachmentTooLarge,
+          AttachmentRejectReason.mimeNotAllowed =>
+            l10n.attachmentTypeNotAllowed,
+          AttachmentRejectReason.unreadable => l10n.attachmentUnreadable,
+        }),
+      ),
+    );
+  }
 
   /// Default `onPickCamera` wherever the SDK ships its own capture screen.
   /// Preferred over `image_picker`'s system camera because the composer's
@@ -716,62 +765,93 @@ class _NomaChatViewState extends State<NomaChatView> {
   /// the user ever sees a viewfinder.
   Future<void> _captureAndSend(String sendKey) async {
     final shot = await CameraCapturePage.show(context: context, theme: _theme);
-    if (shot == null || !mounted) return;
-    final violation = _capturePolicy.validate(
-      mimeType: shot.mimeType,
-      sizeBytes: await shot.file.length(),
-    );
-    if (!mounted) return;
-    if (violation != null) {
-      final l10n = _theme.l10nOf(context);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            violation.kind == AttachmentPolicyViolationKind.tooLarge
-                ? l10n.attachmentTooLarge
-                : l10n.attachmentTypeNotAllowed,
-          ),
-        ),
+    if (shot == null) return;
+    try {
+      if (!mounted) return;
+      final policy = _attachmentPolicy;
+      final violation = policy.validate(
+        mimeType: shot.mimeType,
+        sizeBytes: await shot.file.length(),
       );
-      return;
+      if (!mounted) return;
+      if (violation != null) {
+        _reportAttachmentRejected(
+          AttachmentRejection.fromPolicyViolation(
+            violation,
+            fileName: shot.fileName,
+          ),
+        );
+        return;
+      }
+      // Same metadata pass every other picked image gets: a photo shot with
+      // location services on carries GPS coordinates in its EXIF block.
+      final bytes = await ImageMetadataScrubber.scrub(
+        await shot.file.readAsBytes(),
+        onMetric: widget.adapter.metricCallback,
+      );
+      if (!mounted) return;
+      await widget.adapter.messages.sendAttachment(
+        sendKey,
+        bytes: bytes,
+        mimeType: shot.mimeType,
+        fileName: shot.fileName,
+        policy: policy,
+      );
+    } finally {
+      // The capture screen writes to the app cache and nothing else ever
+      // collects it, so a rejected clip would sit there at full size forever.
+      unawaited(_discardCapture(shot));
     }
-    // Same metadata pass every other picked image gets: a photo shot with
-    // location services on carries GPS coordinates in its EXIF block.
-    final bytes = JpegMetadataStripper.strip(await shot.file.readAsBytes());
-    if (!mounted) return;
-    await widget.adapter.messages.sendAttachment(
-      sendKey,
-      bytes: bytes,
-      mimeType: shot.mimeType,
-      fileName: shot.fileName,
-      policy: _capturePolicy,
-    );
+  }
+
+  Future<void> _discardCapture(CameraCaptureResult shot) async {
+    try {
+      await File(shot.file.path).delete();
+    } on Object catch (error) {
+      uiDebugLog('NomaChatView', 'could not delete capture: $error');
+    }
   }
 
   Future<void> _pickAndSendImage(
     String sendKey, {
     required bool fromCamera,
   }) async {
+    final policy = _attachmentPolicy;
     final pick = fromCamera
-        ? await AttachmentPickers.pickImageFromCamera()
-        : await AttachmentPickers.pickImageFromGallery();
+        ? await AttachmentPickers.pickImageFromCamera(
+            policy: policy,
+            onRejected: _reportAttachmentRejected,
+            onMetric: widget.adapter.metricCallback,
+          )
+        : await AttachmentPickers.pickImageFromGallery(
+            policy: policy,
+            onRejected: _reportAttachmentRejected,
+            onMetric: widget.adapter.metricCallback,
+          );
     if (pick == null || !mounted) return;
     await widget.adapter.messages.sendAttachment(
       sendKey,
       bytes: pick.bytes,
       mimeType: pick.mimeType,
       fileName: pick.fileName,
+      policy: policy,
     );
   }
 
   Future<void> _pickAndSendFile(String sendKey) async {
-    final pick = await AttachmentPickers.pickFile();
+    final policy = _attachmentPolicy;
+    final pick = await AttachmentPickers.pickFile(
+      policy: policy,
+      onRejected: _reportAttachmentRejected,
+      onMetric: widget.adapter.metricCallback,
+    );
     if (pick == null || !mounted) return;
     await widget.adapter.messages.sendAttachment(
       sendKey,
       bytes: pick.bytes,
       mimeType: pick.mimeType,
       fileName: pick.fileName,
+      policy: policy,
     );
   }
 

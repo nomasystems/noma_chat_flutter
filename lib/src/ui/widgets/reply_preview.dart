@@ -28,8 +28,10 @@ class ReplyPreview extends StatelessWidget {
   /// Fetches the quoted message's preview bytes through the authenticated
   /// client and renders the thumbnail from memory instead of handing
   /// `Image.network` a signed URL that 401s without a Bearer token.
-  /// Consulted together with [roomId] — `null` (default) keeps the
-  /// plain-URL thumbnail unchanged.
+  /// Consulted together with [roomId] — `null` (default) keeps an image
+  /// quote on its plain-URL thumbnail and leaves a video quote's slot
+  /// unpainted, since a poster frame only ever lives behind the
+  /// membership-checked download endpoint this loader hits.
   final AttachmentMediaLoader? mediaLoader;
 
   /// Room [message] belongs to — required by the membership-checked
@@ -38,7 +40,7 @@ class ReplyPreview extends StatelessWidget {
   /// video owns that is a *picture* is its poster frame, and a caller
   /// passing the clip's ref instead would download the whole video to
   /// paint a 40×40 square (and then fail to decode it). `null` (default)
-  /// keeps the plain-URL thumbnail unchanged.
+  /// has the same effect as a null [mediaLoader].
   final String? roomId;
 
   // Compact mode (inside bubble): shrink-wrap. Full mode (input bar): expand.
@@ -64,9 +66,13 @@ class ReplyPreview extends StatelessWidget {
   AttachmentRef? get _previewRef {
     final rid = roomId;
     if (rid == null) return null;
+    // A poster frame is what a *video* has instead of a picture; an image
+    // already is one. The backend stamps `thumbnailUrl` on every message
+    // type, so letting an image reach for it would shadow that image's
+    // own, always-usable bytes with a ref that may carry no id at all.
     if (_isVideo) return _posterFrameRef(rid);
-    if (!_isImage) return null;
-    return _posterFrameRef(rid) ?? _ownBytesRef(rid);
+    if (_isImage) return _ownBytesRef(rid);
+    return null;
   }
 
   AttachmentRef? _posterFrameRef(String rid) {
@@ -168,8 +174,6 @@ class ReplyPreview extends StatelessWidget {
     final usesMediaLoader = mediaLoader != null && previewRef != null;
     final thumbnailUrl = _isImage
         ? (message.thumbnailUrl ?? message.attachmentUrl)
-        : _isVideo
-        ? message.thumbnailUrl
         : null;
     final showThumbnail = usesMediaLoader || thumbnailUrl != null;
 

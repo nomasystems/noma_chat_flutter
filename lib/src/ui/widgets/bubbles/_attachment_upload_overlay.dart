@@ -23,7 +23,11 @@ bool paintsAttachmentFailure({
 /// consistent in-flight state without each reimplementing the ring.
 ///
 /// The center icon is an X that cancels the upload when [onCancel] is
-/// wired. A failed upload/send drops [progress] entirely (see
+/// wired. It is wired for less time than the ring is painted: `MessageBubble`
+/// drops it once `ChatUiAdapter.attachmentUploadCancellableFor` reports the
+/// bytes have landed, while the ring stays at 100% through the poster frame
+/// and the send — the row has no attachment URL to render until those
+/// finish. A failed upload/send drops [progress] entirely (see
 /// `ChatUiAdapter.attachmentUploadProgressFor`), at which point the bubble
 /// swaps this ring for [AttachmentRetryIcon] instead — uploading and
 /// failed are mutually exclusive, so the two are never painted together.

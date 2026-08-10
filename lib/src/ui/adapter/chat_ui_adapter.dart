@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show NetworkImage;
 import 'package:intl/intl.dart';
+import '../../_internal/cache/cache_manager.dart' show MetricCallback;
 import '../../cache/cache_policy.dart';
 import '../../cache/local_datasource.dart';
 import '../../client/chat_client.dart';
@@ -120,6 +121,7 @@ class ChatUiAdapter {
     this.enableReconnectResync = true,
     this.logLevel = ChatLogLevel.warn,
     this.logMessageContent = false,
+    this.metricCallback,
     this.roomRevalidateDebounce = const Duration(seconds: 5),
     Duration resyncDebounce = const Duration(seconds: 5),
     ChatLocalDatasource? cache,
@@ -475,6 +477,15 @@ class ChatUiAdapter {
   /// confirmed` line). Defaults to `false` — content is redacted unless the
   /// host opts in.
   final bool logMessageContent;
+
+  /// Mirrors [ChatConfig.metricCallback], which `NomaChat.create` and
+  /// `NomaChat.fromConfig` wire here for you: the sink the widget layer emits
+  /// its own metrics on, the way the client layer already emits HTTP,
+  /// transport and cache ones. Used by the composer's attachment paths for
+  /// `image_metadata_strip`, which is what tells a photo that was stripped of
+  /// its EXIF apart from one the stripper could not parse and sent as it
+  /// came. `null` (the default) collects nothing.
+  final MetricCallback? metricCallback;
 
   final RoomListController roomListController;
 
@@ -1866,6 +1877,22 @@ class ChatUiAdapter {
   /// Returns `null` if there is no upload in flight for that id.
   ValueListenable<double>? attachmentUploadProgressFor(String messageId) =>
       _voiceUploads.listenableFor(messageId);
+
+  /// Returns a listenable that reports whether the in-flight
+  /// `messages.sendAttachment` upload for [messageId] can still be aborted
+  /// — the signal behind the cancel X painted inside the progress ring.
+  /// Returns `null` when there is no send in flight for that id.
+  ///
+  /// Deliberately a second signal rather than a reading of
+  /// [attachmentUploadProgressFor]: the ring outlives cancellability. It
+  /// stays up until the row reaches a real final state (bytes uploaded,
+  /// poster frame uploaded, send acknowledged), because retiring it earlier
+  /// leaves the bubble resolving an attachment URL the message does not
+  /// carry yet. Cancelling stops being possible much earlier, the instant
+  /// the bytes land. This flips to `false` there, in place, so a ring
+  /// already on screen drops its X without waiting for an unrelated rebuild.
+  ValueListenable<bool>? attachmentUploadCancellableFor(String messageId) =>
+      _attachmentUploadCancels.cancellableFor(messageId);
 
   /// Cancels the in-flight `messages.sendAttachment` upload for [messageId]
   /// (the temp id of the still-uploading provisional message) and leaves no

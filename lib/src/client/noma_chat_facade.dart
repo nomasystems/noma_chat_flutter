@@ -238,6 +238,7 @@ class NomaChat {
       enableReconnectResync: enableReconnectResync,
       logLevel: effectiveConfig.logLevel,
       logMessageContent: effectiveConfig.logMessageContent,
+      metricCallback: effectiveConfig.metricCallback,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
     );
@@ -322,6 +323,7 @@ class NomaChat {
       enableReconnectResync: enableReconnectResync,
       logLevel: config.logLevel,
       logMessageContent: config.logMessageContent,
+      metricCallback: config.metricCallback,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
     );
@@ -383,6 +385,7 @@ class NomaChat {
     bool enableReconnectResync = true,
     ChatLogLevel logLevel = ChatLogLevel.warn,
     bool logMessageContent = false,
+    MetricCallback? metricCallback,
     AvatarStorage? avatarStorage,
     VideoThumbnailer? videoThumbnailer,
   }) {
@@ -399,6 +402,7 @@ class NomaChat {
       enableReconnectResync: enableReconnectResync,
       logLevel: logLevel,
       logMessageContent: logMessageContent,
+      metricCallback: metricCallback,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
     );

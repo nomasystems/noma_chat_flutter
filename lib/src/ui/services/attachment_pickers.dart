@@ -2,10 +2,11 @@ import 'package:file_picker/file_picker.dart' as fp;
 import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' as ip;
 
+import '../../_internal/cache/cache_manager.dart' show MetricCallback;
 import '../models/attachment_policy.dart';
 import '../models/attachment_rejection.dart';
 import '../utils/platform_support.dart';
-import 'jpeg_metadata_stripper.dart';
+import 'image_metadata_scrubber.dart';
 
 /// ChatResult of an attachment picker call.
 ///
@@ -36,7 +37,7 @@ class AttachmentPickResult {
 /// nothing — pickers swallow plugin errors and log them via [logger]
 /// when supplied so the composer never crashes on a denied permission.
 ///
-/// Picked images are stripped of their metadata on every platform, so GPS
+/// Picked images are rebuilt from their pixels on every platform, so GPS
 /// coordinates and capture timestamps never travel to the room members who
 /// download the original file.
 ///
@@ -48,9 +49,15 @@ class AttachmentPickResult {
 ///   `image_picker_android`'s resize pass (triggered by `imageQuality < 100`,
 ///   which every picker here sets) copies EXIF from the source file
 ///   unconditionally and offers no flag to suppress it.
-/// - [JpegMetadataStripper] over the picked bytes, which closes the Android
-///   gap without adding an image-processing dependency and leaves non-JPEG
-///   picks untouched.
+/// - [ImageMetadataScrubber] over the picked bytes, which closes the Android
+///   gap by decoding the image and encoding a fresh one, so that nothing but
+///   pixel data can come out the other side.
+///
+/// A file the scrubber cannot decode, and a format it cannot write back, are
+/// sent as they came, metadata included — wire [MetricCallback] through the
+/// `onMetric` parameter of any of these methods (`NomaChatView` passes
+/// `ChatUiAdapter.metricCallback` for you) to tell those outcomes apart from
+/// a clean one. See `TELEMETRY.md`.
 class AttachmentPickers {
   AttachmentPickers._();
 
@@ -66,6 +73,7 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
+    MetricCallback? onMetric,
   }) async {
     if (!PlatformSupport.supportsCameraCapture) {
       logger?.call(
@@ -80,7 +88,13 @@ class AttachmentPickers {
         imageQuality: imageQuality,
         requestFullMetadata: false,
       );
-      return await _xfileToValidatedResult(file, policy, logger, onRejected);
+      return await _xfileToValidatedResult(
+        file,
+        policy,
+        logger,
+        onRejected,
+        onMetric,
+      );
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromCamera failed: $e');
       onRejected?.call(AttachmentRejection.unreadable());
@@ -93,6 +107,7 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
+    MetricCallback? onMetric,
   }) async {
     try {
       final file = await _imagePicker.pickImage(
@@ -100,7 +115,13 @@ class AttachmentPickers {
         imageQuality: imageQuality,
         requestFullMetadata: false,
       );
-      return await _xfileToValidatedResult(file, policy, logger, onRejected);
+      return await _xfileToValidatedResult(
+        file,
+        policy,
+        logger,
+        onRejected,
+        onMetric,
+      );
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromGallery failed: $e');
       onRejected?.call(AttachmentRejection.unreadable());
@@ -113,6 +134,7 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
+    MetricCallback? onMetric,
   }) async {
     try {
       final file = await _imagePicker.pickVideo(
@@ -124,6 +146,7 @@ class AttachmentPickers {
         policy,
         logger,
         onRejected,
+        onMetric,
         fallbackMime: 'video/mp4',
       );
     } on Object catch (e) {
@@ -145,6 +168,7 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
+    MetricCallback? onMetric,
   }) async {
     try {
       final files = await _imagePicker.pickMultipleMedia(
@@ -153,7 +177,13 @@ class AttachmentPickers {
       );
       final results = <AttachmentPickResult>[];
       for (final f in files) {
-        final r = await _xfileToValidatedResult(f, policy, logger, onRejected);
+        final r = await _xfileToValidatedResult(
+          f,
+          policy,
+          logger,
+          onRejected,
+          onMetric,
+        );
         if (r != null) results.add(r);
       }
       return results;
@@ -174,6 +204,7 @@ class AttachmentPickers {
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
+    MetricCallback? onMetric,
   }) async {
     if (!PlatformSupport.supportsFilePicker) {
       logger?.call('warn', 'pickFile unsupported on this platform; ignoring');
@@ -196,7 +227,7 @@ class AttachmentPickers {
         return null;
       }
       final pick = AttachmentPickResult(
-        bytes: JpegMetadataStripper.strip(bytes),
+        bytes: await ImageMetadataScrubber.scrub(bytes, onMetric: onMetric),
         mimeType:
             _mimeFromExtension(file.extension) ?? 'application/octet-stream',
         fileName: file.name,
@@ -228,11 +259,15 @@ class AttachmentPickers {
     ip.XFile? file,
     AttachmentPolicy policy,
     void Function(String level, String message)? logger,
-    void Function(AttachmentRejection rejection)? onRejected, {
+    void Function(AttachmentRejection rejection)? onRejected,
+    MetricCallback? onMetric, {
     String fallbackMime = 'application/octet-stream',
   }) async {
     if (file == null) return null;
-    final bytes = JpegMetadataStripper.strip(await file.readAsBytes());
+    final bytes = await ImageMetadataScrubber.scrub(
+      await file.readAsBytes(),
+      onMetric: onMetric,
+    );
     final pick = AttachmentPickResult(
       bytes: bytes,
       mimeType:

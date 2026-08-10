@@ -33,6 +33,94 @@ void main() {
       registry.drop('t1');
     });
 
+    group('cancellability signal', () {
+      // The ring outlives the ability to cancel — it stays up through the
+      // poster frame and the send — so the X needs a signal of its own,
+      // and one that flips in place: a ring already built has no other
+      // reason to rebuild at the moment the bytes land.
+      test('is live while the upload is, and flips on drop', () {
+        registry.register('t1');
+        final cancellable = registry.cancellableFor('t1');
+
+        expect(cancellable, isNotNull);
+        expect(cancellable!.value, isTrue);
+
+        registry.drop('t1');
+
+        // Same instance, new value: whoever is already listening sees it.
+        expect(identical(registry.cancellableFor('t1'), cancellable), isTrue);
+        expect(cancellable.value, isFalse);
+      });
+
+      test('flips on cancel and on cancelAll', () {
+        registry.register('t1');
+        registry.register('t2');
+        final a = registry.cancellableFor('t1')!;
+        final b = registry.cancellableFor('t2')!;
+
+        registry.cancel('t1');
+        expect(a.value, isFalse);
+        expect(b.value, isTrue);
+
+        registry.cancelAll();
+        expect(b.value, isFalse);
+        expect(registry.cancellableFor('t2'), isNull);
+      });
+
+      test('is null for an id that never uploaded', () {
+        expect(registry.cancellableFor('nope'), isNull);
+      });
+
+      test('notifies listeners rather than only changing value', () {
+        registry.register('t1');
+        var notified = 0;
+        registry.cancellableFor('t1')!.addListener(() => notified++);
+
+        registry.drop('t1');
+
+        expect(notified, 1);
+      });
+    });
+
+    group('retire', () {
+      test('releases the signal so the send leaves nothing behind', () {
+        registry.register('t1');
+        final cancellable = registry.cancellableFor('t1')!;
+
+        registry.retire('t1');
+
+        expect(cancellable.value, isFalse);
+        expect(registry.cancellableFor('t1'), isNull);
+        expect(registry.activeCount, 0);
+      });
+
+      test('drops a user-cancelled mark nobody consumed', () {
+        // The X on the first attachment of a draft DM whose materialization
+        // then fails: the flow returns before it ever asks
+        // `consumeUserCancelled`, so only `retire` can release the mark.
+        registry.register('t1');
+        registry.cancel('t1');
+
+        registry.retire('t1');
+
+        expect(registry.consumeUserCancelled('t1'), isFalse);
+      });
+
+      test('is a no-op for an id that was never registered', () {
+        registry.retire('never');
+        expect(registry.activeCount, 0);
+      });
+
+      test('cancels nothing — the token is the caller\'s to settle', () {
+        final token = registry.register('t1');
+        registry.drop('t1');
+
+        registry.retire('t1');
+
+        expect(token.isCancelled, isFalse);
+      });
+    });
+
     test('cancelAll aborts everything outstanding', () {
       final a = registry.register('t1');
       final b = registry.register('t2');

@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../_internal/cache/cache_manager.dart' show MetricCallback;
 import '../../storage/avatar_storage.dart';
 import '../services/attachment_pickers.dart';
 import '../theme/chat_theme.dart';
@@ -43,6 +44,10 @@ class AvatarSnapshot {
 /// when [initialAvatarUrl] is non-null. Selections from camera or
 /// gallery are routed through [AvatarCropPage] for a square crop before
 /// returning. Cancelling at any step yields [AvatarPickerCancelled].
+///
+/// Pass [onMetric] (`ChatUiAdapter.metricCallback`) to see the
+/// `image_metadata_strip` outcome of the pick, which is the only signal that
+/// a photo could not be cleaned before it becomes someone's avatar.
 class AvatarPickerSheet {
   AvatarPickerSheet._();
 
@@ -52,6 +57,7 @@ class AvatarPickerSheet {
     String? initialAvatarUrl,
     bool allowRemove = true,
     ChatTheme theme = ChatTheme.defaults,
+    MetricCallback? onMetric,
   }) async {
     final source = await showModalBottomSheet<_Source>(
       context: context,
@@ -119,9 +125,12 @@ class AvatarPickerSheet {
     switch (source) {
       case _Source.camera:
       case _Source.gallery:
+        // The crop step re-encodes what it returns, but only where there is a
+        // native cropper to do it: on desktop [AvatarCropPage] hands the
+        // picked bytes straight back, so this pass is the only one there is.
         final picked = source == _Source.camera
-            ? await AttachmentPickers.pickImageFromCamera()
-            : await AttachmentPickers.pickImageFromGallery();
+            ? await AttachmentPickers.pickImageFromCamera(onMetric: onMetric)
+            : await AttachmentPickers.pickImageFromGallery(onMetric: onMetric);
         if (picked == null) return const AvatarPickerCancelled();
         if (!context.mounted) return const AvatarPickerCancelled();
         final cropped = await AvatarCropPage.show(

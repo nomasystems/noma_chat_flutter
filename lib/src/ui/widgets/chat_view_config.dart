@@ -39,6 +39,7 @@ class ChatViewBuilders {
     this.batchUserFetcher,
     this.audioUploadProgressFor,
     this.attachmentUploadProgressFor,
+    this.attachmentUploadCancellableFor,
     this.linkPreviewFetcher,
     this.avatarRebuildSignal,
     this.statusIconBuilder,
@@ -76,6 +77,21 @@ class ChatViewBuilders {
   /// host wiring anything.
   final ValueListenable<double>? Function(String messageId)?
   attachmentUploadProgressFor;
+
+  /// Per-message resolver that reports whether the upload behind
+  /// [attachmentUploadProgressFor] can still be aborted — the signal behind
+  /// the cancel X painted inside the ring. Returning `null` means there is
+  /// no send in flight for that id.
+  ///
+  /// A second resolver rather than a reading of the first because the two
+  /// have different lifetimes: the ring stays up until the row can render
+  /// its own media (bytes uploaded, poster frame uploaded, send
+  /// acknowledged), while cancelling stops working the instant the bytes
+  /// land. Defaults (when `null`, the default [ChatView]/[NomaChatView]
+  /// wiring) to `ChatUiAdapter.attachmentUploadCancellableFor`, so the X
+  /// disappears on time out of the box.
+  final ValueListenable<bool>? Function(String messageId)?
+  attachmentUploadCancellableFor;
 
   /// Custom text for system messages. Wins over the default text when it
   /// returns a string, but [systemMessageBuilder] is consulted first and

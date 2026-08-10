@@ -43,8 +43,16 @@ class _FakeCameraPlatform extends CameraPlatform {
   /// interrupts the session underneath it.
   Completer<void>? startVideoGate;
 
+  /// Held open to keep `stopVideoRecording()` in flight — the window in which
+  /// the clip exists only inside the platform.
+  Completer<void>? stopVideoGate;
+
   /// Held open to stretch the window in which a bind is still in flight.
   Completer<void>? initializeGate;
+
+  /// Held open to make releasing a session span frames, the way a real
+  /// platform round-trip does.
+  Completer<void>? disposeGate;
 
   /// Camera ids whose native `dispose` blows up — an already-closed session.
   final Set<int> disposeFailures = <int>{};
@@ -159,6 +167,7 @@ class _FakeCameraPlatform extends CameraPlatform {
 
   @override
   Future<XFile> stopVideoRecording(int cameraId) async {
+    await stopVideoGate?.future;
     stoppedRecordings.add(cameraId);
     return XFile('/tmp/clip.mp4');
   }
@@ -168,6 +177,7 @@ class _FakeCameraPlatform extends CameraPlatform {
 
   @override
   Future<void> dispose(int cameraId) async {
+    await disposeGate?.future;
     disposedCameras.add(cameraId);
     if (disposeFailures.contains(cameraId)) {
       throw CameraException('cameraNotFound', 'session already closed');
@@ -183,6 +193,7 @@ void main() {
   late int microphoneRequestResult;
   late int cameraStatus;
   late int cameraRequestResult;
+  late bool permissionPluginBusy;
   Completer<void>? microphoneRequestGate;
 
   setUp(() {
@@ -193,11 +204,20 @@ void main() {
     microphoneRequestResult = _granted;
     cameraStatus = _granted;
     cameraRequestResult = _granted;
+    permissionPluginBusy = false;
     microphoneRequestGate = null;
     CameraPlatform.instance = camera;
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_permissionChannel, (call) async {
+          if (permissionPluginBusy) {
+            // What `permission_handler` raises when another plugin already has
+            // a dialog up: the request is refused outright, never answered.
+            throw PlatformException(
+              code: 'ERROR_ALREADY_REQUESTING_PERMISSIONS',
+              message: 'A request for permissions is already running',
+            );
+          }
           switch (call.method) {
             case 'requestPermissions':
               final requested = (call.arguments as List<dynamic>).cast<int>();
@@ -918,6 +938,144 @@ void main() {
         reason: 'a lens with no usable range stays where it is',
       );
       expect(shutter(tester).ready, isTrue);
+    },
+  );
+
+  testWidgets(
+    'a call that lands while the clip is being finalised says so, instead of '
+    'losing it in silence under a fatal error',
+    (tester) async {
+      microphoneStatus = _granted;
+      await pumpPage(tester);
+
+      final gesture = await holdShutter(tester);
+      await settle(tester, 4);
+      expect(camera.startedRecordings, isNotEmpty);
+
+      // The finger lifts, and the platform is still writing the file when the
+      // call arrives — the one window in which the gate is neither starting
+      // nor recording.
+      final stopGate = Completer<void>();
+      camera.stopVideoGate = stopGate;
+      await gesture.up();
+      await tester.pump();
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      await tester.pump();
+      stopGate.complete();
+      camera.stopVideoGate = null;
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await settle(tester, 12);
+
+      expect(
+        tester.takeException(),
+        isNull,
+        reason:
+            'the write `stopVideoRecording` signs off with raises a '
+            'FlutterError, which `on Exception` never caught',
+      );
+      expect(
+        find.text(_cameraUnavailableMessage),
+        findsOneWidget,
+        reason: 'the clip is gone and the user has to be told',
+      );
+      expect(
+        find.text(_tapForPhotoHint),
+        findsOneWidget,
+        reason:
+            'that notice is not the fatal error screen — the camera came back '
+            'fine and the shutter renders its hint again',
+      );
+      expect(shutter(tester).ready, isTrue);
+      expect(shutter(tester).isRecording, isFalse);
+    },
+  );
+
+  testWidgets(
+    'a permission request the plugin refuses to raise ends on an error the '
+    'user can see, not a spinner that never resolves',
+    (tester) async {
+      permissionPluginBusy = true;
+
+      await pumpPage(tester);
+      await settle(tester, 4);
+
+      expect(
+        find.byType(CircularProgressIndicator),
+        findsNothing,
+        reason: 'nothing else would ever clear `_initializing`',
+      );
+      expect(find.text(_cameraUnavailableMessage), findsOneWidget);
+      expect(
+        find.text(_openSettingsLabel),
+        findsNothing,
+        reason: 'the permission was never denied, the plugin was just busy',
+      );
+      expect(camera.createdWithAudio, isEmpty);
+    },
+  );
+
+  testWidgets(
+    'a microphone request the plugin refuses to raise leaves the screen '
+    'usable instead of escaping the gesture callback',
+    (tester) async {
+      microphoneStatus = _denied;
+      await pumpPage(tester);
+      permissionPluginBusy = true;
+
+      final gesture = await holdShutter(tester);
+      await settle(tester, 8);
+      await gesture.up();
+      await settle(tester, 4);
+
+      expect(tester.takeException(), isNull);
+      expect(camera.startedRecordings, isEmpty);
+      expect(find.text(_microphoneDeniedMessage), findsOneWidget);
+      expect(shutter(tester).ready, isTrue);
+
+      await tester.pump(const Duration(seconds: 5));
+    },
+  );
+
+  testWidgets(
+    'the shutter comes back the moment the microphone rebind finishes, not '
+    'when some unrelated rebuild happens to run',
+    (tester) async {
+      microphoneStatus = _denied;
+      microphoneRequestResult = _granted;
+      final micGate = Completer<void>();
+      microphoneRequestGate = micGate;
+      await pumpPage(tester);
+
+      // Releasing the audio-less session is a real platform round-trip: it
+      // spans frames, and the rebind's own setState runs inside it.
+      final teardown = Completer<void>();
+      camera.disposeGate = teardown;
+
+      final gesture = await holdShutter(tester);
+      await tester.pump();
+      await gesture.cancel();
+      micGate.complete();
+      await settle(tester, 8);
+
+      expect(camera.createdWithAudio, [false, true]);
+      expect(
+        shutter(tester).ready,
+        isFalse,
+        reason: 'the rebind has not finished yet',
+      );
+
+      teardown.complete();
+      camera.disposeGate = null;
+      await settle(tester, 8);
+
+      expect(
+        shutter(tester).ready,
+        isTrue,
+        reason:
+            'clearing the bind flag has to reach a frame on its own — nothing '
+            'else rebuilds this screen after a mic-grant rebind',
+      );
     },
   );
 }

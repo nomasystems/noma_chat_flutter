@@ -76,4 +76,13 @@ class PlatformSupport {
   static bool get supportsFilePicker => true;
 
   static bool get supportsLocalStorage => true;
+
+  /// `compute` moves a callback to a background isolate on every target the
+  /// SDK builds for except web, where the implementation awaits a single
+  /// frame and then runs the callback on the same thread — there is no
+  /// isolate to move it to. `ImageMetadataScrubber` consults this to decide
+  /// whether the hop is worth its two buffer copies. Where it is `false` the
+  /// re-encode still happens; it just competes with the UI while it runs, so
+  /// a very large picture can drop frames on web.
+  static bool get supportsBackgroundIsolates => !kIsWeb;
 }

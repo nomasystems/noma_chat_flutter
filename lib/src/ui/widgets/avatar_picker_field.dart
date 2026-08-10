@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../../_internal/cache/cache_manager.dart' show MetricCallback;
 import '../../storage/avatar_storage.dart';
 import '../theme/chat_theme.dart';
 import 'avatar_picker_sheet.dart';
@@ -22,6 +23,7 @@ class AvatarPickerField extends StatefulWidget {
     this.size = 96,
     this.fallbackInitials,
     this.theme = ChatTheme.defaults,
+    this.onMetric,
   });
 
   final AvatarKind kind;
@@ -45,6 +47,9 @@ class AvatarPickerField extends StatefulWidget {
 
   final ChatTheme theme;
 
+  /// Telemetry sink for the `image_metadata_strip` outcome of the pick.
+  final MetricCallback? onMetric;
+
   @override
   State<AvatarPickerField> createState() => _AvatarPickerFieldState();
 }
@@ -62,6 +67,7 @@ class _AvatarPickerFieldState extends State<AvatarPickerField> {
       kind: widget.kind,
       initialAvatarUrl: _removed ? null : widget.initialAvatarUrl,
       theme: widget.theme,
+      onMetric: widget.onMetric,
     );
     if (!mounted) return;
     switch (outcome) {

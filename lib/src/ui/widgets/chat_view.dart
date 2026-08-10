@@ -177,6 +177,7 @@ class _ChatViewState extends State<ChatView> {
       audioCoordinator: _audioCoordinator,
       audioUploadProgressFor: builders.audioUploadProgressFor,
       attachmentUploadProgressFor: builders.attachmentUploadProgressFor,
+      attachmentUploadCancellableFor: builders.attachmentUploadCancellableFor,
       initialMessageId: behaviors.initialMessageId,
       unreadBoundaryMessageId: behaviors.unreadBoundaryMessageId,
       unreadCount: behaviors.unreadCount,

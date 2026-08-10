@@ -538,5 +538,49 @@ void main() {
       expect(find.byType(Image), findsNothing);
       expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
     });
+
+    testWidgets('a video with an empty thumbnailUrl and no '
+        'thumbnailAttachmentId makes no download call and shows the '
+        'placeholder', (tester) async {
+      final galleryClient = _GalleryClient(
+        client,
+        roomItems: [videoMessage(thumbnailUrl: '')],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(galleryClient.attachments.downloadedIds, isEmpty);
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+    });
+
+    testWidgets('a video whose thumbnailUrl carries no attachment id makes '
+        'no download call and shows the placeholder instead of fetching '
+        'that URL', (tester) async {
+      final galleryClient = _GalleryClient(
+        client,
+        roomItems: [
+          videoMessage(thumbnailUrl: 'https://cdn.example.com/blobs/xyz.jpg'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(galleryClient.attachments.downloadedIds, isEmpty);
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+    });
   });
 }

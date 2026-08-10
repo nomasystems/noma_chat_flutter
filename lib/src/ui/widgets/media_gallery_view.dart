@@ -136,15 +136,31 @@ class _MediaCell extends StatelessWidget {
 
   bool get _isVideo => item.type == MediaItemType.video;
 
+  /// A video's poster is only trustworthy with a real attachment id — that
+  /// is what the authenticated loader keys on, so a ref without one (an
+  /// older or third-party backend that only sent a URL) would only 404 or
+  /// throw. With a loader wired in, treat that the same as no poster at
+  /// all instead of spending a request on it; with no loader wired in
+  /// there is nothing to throw, so the raw URL still renders as-is,
+  /// unchanged from before this field existed.
+  bool get _hasUsablePoster {
+    if (item.thumbnailRef?.attachmentId != null) return true;
+    if (mediaLoader != null) return false;
+    return item.thumbnailUrl?.isNotEmpty ?? false;
+  }
+
   /// The ref this tile downloads through [mediaLoader]: the poster frame
   /// for a video — never its clip, which [MediaItem.attachmentRef] would
-  /// still resolve to for opening.
-  AttachmentRef? get _renderRef =>
-      _isVideo ? item.thumbnailRef : item.attachmentRef;
+  /// still resolve to for opening. `null` for a video without
+  /// [_hasUsablePoster], same as one with no poster stored at all.
+  AttachmentRef? get _renderRef => _isVideo
+      ? (_hasUsablePoster ? item.thumbnailRef : null)
+      : item.attachmentRef;
 
   /// Plain-URL counterpart of [_renderRef] for when no [mediaLoader]
   /// applies. Never the clip's URL for a video.
-  String? get _renderUrl => _isVideo ? item.thumbnailUrl : item.url;
+  String? get _renderUrl =>
+      _isVideo ? (_hasUsablePoster ? item.thumbnailUrl : null) : item.url;
 
   bool get _usesMediaLoader => mediaLoader != null && _renderRef != null;
 

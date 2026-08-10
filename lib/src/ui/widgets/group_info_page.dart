@@ -261,6 +261,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
                     fallbackInitials: initialsOf(_detail!.name),
                     size: 160,
                     theme: widget.theme,
+                    onMetric: widget.adapter.metricCallback,
                     onChanged: _canManage ? _onAvatarChanged : null,
                   ),
                 ),

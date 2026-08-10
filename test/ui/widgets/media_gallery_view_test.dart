@@ -334,6 +334,98 @@ void main() {
         expect(find.byIcon(Icons.broken_image), findsNothing);
         expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
       });
+
+      testWidgets('a video with an empty thumbnailUrl and no '
+          'thumbnailAttachmentId renders the placeholder and never calls '
+          'mediaLoader', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async {
+            throw StateError('must not be called for an empty thumbnailUrl');
+          },
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/clip.mp4',
+            type: MediaItemType.video,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'clip-1',
+              fallbackUrl: 'https://signed.example/clip.mp4',
+            ),
+            thumbnailUrl: '',
+            thumbnailRef: AttachmentRef(roomId: 'r1', fallbackUrl: ''),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
+        expect(find.byType(AuthenticatedMediaImage), findsNothing);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byType(Image), findsNothing);
+        expect(find.byIcon(Icons.broken_image), findsNothing);
+        expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+      });
+
+      testWidgets('a video whose thumbnailUrl carries no attachment id '
+          'renders the placeholder and never calls mediaLoader or fetches '
+          'that URL', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async {
+            throw StateError('must not be called for an unresolvable poster');
+          },
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/clip.mp4',
+            type: MediaItemType.video,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'clip-1',
+              fallbackUrl: 'https://signed.example/clip.mp4',
+            ),
+            thumbnailUrl: 'https://cdn.example.com/blobs/xyz.jpg',
+            thumbnailRef: AttachmentRef(
+              roomId: 'r1',
+              fallbackUrl: 'https://cdn.example.com/blobs/xyz.jpg',
+            ),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
+        expect(find.byType(AuthenticatedMediaImage), findsNothing);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byType(Image), findsNothing);
+        expect(find.byIcon(Icons.broken_image), findsNothing);
+        expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+      });
+
+      testWidgets('a video thumbnailUrl still renders via CachedNetworkImage '
+          'when no mediaLoader is wired, even with no '
+          'thumbnailAttachmentId', (tester) async {
+        final items = [
+          const MediaItem(
+            url: 'https://example.com/clip.mp4',
+            type: MediaItemType.video,
+            thumbnailUrl: 'https://example.com/poster.jpg',
+          ),
+        ];
+
+        await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
+        await tester.pump();
+
+        expect(find.byType(CachedNetworkImage), findsOneWidget);
+      });
     });
   });
 }

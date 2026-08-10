@@ -173,8 +173,10 @@ void main() {
       ChatMessage message,
       Finder anchor,
     ) async {
+      // Disposed before returning, not via addTearDown: the framework's
+      // semantics-handle check runs in _endOfTestVerifications, which is
+      // ahead of any tearDown.
       final handle = tester.ensureSemantics();
-      addTearDown(handle.dispose);
       final progress = ValueNotifier<double>(0.4);
       addTearDown(progress.dispose);
 
@@ -196,11 +198,13 @@ void main() {
               .getSemanticsData()
               .customSemanticsActionIds ??
           const <int>[];
-      return {
+      final labels = {
         for (final id in ids)
           if (CustomSemanticsAction.getAction(id)?.label case final label?)
             label,
       };
+      handle.dispose();
+      return labels;
     }
 
     testWidgets('is not announced on an uploading voice note — sendVoice '

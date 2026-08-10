@@ -232,23 +232,30 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 ### ⚠️ Android: adopting `noma_chat` makes your app camera-required on Google Play
 
 `camera` is a direct dependency of this package, and its Android
-implementation (`camera_android_camerax`) ships this line in its own
+implementation (`camera_android_camerax`) ships these lines in its own
 manifest, which the merger folds into **your** app:
 
 ```xml
 <uses-feature android:name="android.hardware.camera.any" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
 ```
 
-`android:required` defaults to **`true`**. So the moment you add
-`noma_chat`, Google Play stops offering your app to every device without a
-camera — most Android TV boxes, many Chromebooks, some tablets, kiosk and
-emulator device profiles. Nothing warns you: the build succeeds, and the
-drop only shows up as a smaller supported-device count in the Play Console.
+`android:required` defaults to **`true`**, and the two permissions add three
+more requirements you never wrote: Google Play *implies* a `<uses-feature>`
+from a permission that needs one, so `CAMERA` implies
+`android.hardware.camera` **and** `android.hardware.camera.autofocus`, and
+`RECORD_AUDIO` implies `android.hardware.microphone` — all four required.
+So the moment you add `noma_chat`, Google Play stops offering your app to
+every device without a camera, without autofocus or without a microphone —
+most Android TV boxes, many Chromebooks, some tablets, kiosk and emulator
+device profiles. Nothing warns you: the build succeeds, and the drop only
+shows up as a smaller supported-device count in the Play Console.
 
 Chat does not need a camera to work (`CameraCapturePage` is one row of the
 attachment sheet; without a camera that row simply fails to open a
-viewfinder). Unless you *want* the filter, put this in your app's
-`android/app/src/main/AndroidManifest.xml`:
+viewfinder). Unless you *want* the filter, put **all four** of these in your
+app's `android/app/src/main/AndroidManifest.xml`:
 
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -259,15 +266,31 @@ viewfinder). Unless you *want* the filter, put this in your app's
         android:required="false"
         tools:replace="android:required" />
 
+    <!-- Implied by the CAMERA / RECORD_AUDIO permissions the plugin merges
+         in. Nothing declares these, so they need no tools:replace — but
+         without them the filter stays on. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
     <!-- … the rest of your manifest … -->
 </manifest>
 ```
 
-Both the `xmlns:tools` declaration and `tools:replace` are load-bearing.
+The first one needs `tools:replace`, the other three must not have it.
 `android:required` on `<uses-feature>` is OR-merged, so a plain
-`android:required="false"` in your manifest loses to the library's implicit
-`true` **silently** — no error, no warning. `tools:replace` is what makes
-yours win. Confirm the outcome in
+`android:required="false"` for `camera.any` loses to the library's explicit
+declaration **silently** — no error, no warning; `tools:replace` is what
+makes yours win. The other three are never declared by anyone, so an
+explicit `false` is all it takes to override the implied requirement, and a
+`tools:replace` on them fails the build. Both the `xmlns:tools` declaration
+and the placement above are load-bearing. Confirm the outcome in
 `app/build/outputs/logs/manifest-merger-*-report.txt`.
 
 ---

@@ -66,6 +66,7 @@ class MessageBubble extends StatelessWidget {
     this.audioCoordinator,
     this.audioUploadProgress,
     this.attachmentUploadProgress,
+    this.attachmentUploadCancellable,
     this.avatarWidget,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
@@ -129,7 +130,8 @@ class MessageBubble extends StatelessWidget {
   /// (default) renders the ring's center icon as a plain, non-interactive
   /// glyph instead of a dead X — same principle as [onTapVideo] leaving
   /// `VideoBubble`'s play overlay unpainted. Ignored for bubbles that
-  /// aren't currently uploading.
+  /// aren't currently uploading, and suppressed while
+  /// [attachmentUploadCancellable] reports `false`.
   final VoidCallback? onCancelAttachmentUpload;
   final bool isFirstInGroup;
 
@@ -158,6 +160,16 @@ class MessageBubble extends StatelessWidget {
   /// [audioUploadProgress] — kept separate so a host that only wires audio
   /// progress does not accidentally affect the other attachment types.
   final ValueListenable<double>? attachmentUploadProgress;
+
+  /// Whether the upload behind [attachmentUploadProgress] can still be
+  /// aborted. The ring outlives that ability — it stays up through the
+  /// poster frame and the send, because the row has no usable attachment
+  /// URL until they finish — so the X needs a signal of its own, and a
+  /// listenable one: it flips mid-ring, with no other reason to rebuild.
+  ///
+  /// `null` (the default, and what a bare bubble outside `ChatView` gets)
+  /// keeps [onCancelAttachmentUpload] exactly as wired.
+  final ValueListenable<bool>? attachmentUploadCancellable;
 
   final Widget? avatarWidget;
 
@@ -376,7 +388,10 @@ class MessageBubble extends StatelessWidget {
     };
   }
 
-  Widget _buildBubbleContent(BuildContext context) {
+  Widget _buildBubbleContent(
+    BuildContext context,
+    VoidCallback? onCancelUpload,
+  ) {
     if (message.isDeleted) {
       return _DeletedBubbleContent(
         isOutgoing: isOutgoing,
@@ -484,7 +499,7 @@ class MessageBubble extends StatelessWidget {
           urlResolver: attachmentUrlResolver,
           mediaLoader: attachmentMediaLoader,
           uploadProgress: attachmentUploadProgress,
-          onCancelUpload: onCancelAttachmentUpload,
+          onCancelUpload: onCancelUpload,
           isFailed: isFailed,
           onRetry: _mediaRetry,
         );
@@ -502,7 +517,7 @@ class MessageBubble extends StatelessWidget {
           urlResolver: attachmentUrlResolver,
           mediaLoader: attachmentMediaLoader,
           uploadProgress: attachmentUploadProgress,
-          onCancelUpload: onCancelAttachmentUpload,
+          onCancelUpload: onCancelUpload,
           isFailed: isFailed,
           onRetry: _mediaRetry,
         );
@@ -518,7 +533,7 @@ class MessageBubble extends StatelessWidget {
         theme: theme,
         statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
         uploadProgress: attachmentUploadProgress,
-        onCancelUpload: onCancelAttachmentUpload,
+        onCancelUpload: onCancelUpload,
         isFailed: isFailed,
         onRetry: _mediaRetry,
       );
@@ -613,8 +628,20 @@ class MessageBubble extends StatelessWidget {
       return _buildSystemMessage(context);
     }
 
-    final bubble = _buildBubble(context);
-    final semanticBubble = _wrapWithSemantics(context, bubble);
+    final cancellable = attachmentUploadCancellable;
+    if (cancellable == null) {
+      return _buildRow(context, onCancelAttachmentUpload);
+    }
+    return ValueListenableBuilder<bool>(
+      valueListenable: cancellable,
+      builder: (context, canCancel, _) =>
+          _buildRow(context, canCancel ? onCancelAttachmentUpload : null),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, VoidCallback? onCancelUpload) {
+    final bubble = _buildBubble(context, onCancelUpload);
+    final semanticBubble = _wrapWithSemantics(context, bubble, onCancelUpload);
     final body = _buildBubbleColumn(context, semanticBubble);
     final wrapped = _wrapWithSwipe(body);
     return _buildAlignedRow(wrapped);
@@ -658,7 +685,7 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildBubble(BuildContext context) {
+  Widget _buildBubble(BuildContext context, VoidCallback? onCancelUpload) {
     final baseBubbleColor = isOutgoing
         ? (theme.bubble.outgoingColor ?? Colors.blue.shade100)
         : (theme.bubble.incomingColor ?? Colors.grey.shade200);
@@ -702,7 +729,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             if (senderName != null && !isOutgoing) _buildSenderName(),
-            _buildBubbleContent(context),
+            _buildBubbleContent(context, onCancelUpload),
           ],
         ),
       ),
@@ -814,13 +841,17 @@ class MessageBubble extends StatelessWidget {
   /// an attachment — have no announcement of their own to fall back on, so
   /// they're re-declared explicitly on this same node (mirrors the
   /// `MapButton` pattern: exclude descendants, keep the callbacks).
-  Widget _wrapWithSemantics(BuildContext context, Widget content) {
+  Widget _wrapWithSemantics(
+    BuildContext context,
+    Widget content,
+    VoidCallback? onCancelUpload,
+  ) {
     return Semantics(
       label: _buildSemanticLabel(context),
       excludeSemantics: true,
       onLongPress: onLongPress,
       onTap: _attachmentOpenAction,
-      customSemanticsActions: _customSemanticsActions(context),
+      customSemanticsActions: _customSemanticsActions(context, onCancelUpload),
       child: content,
     );
   }
@@ -830,10 +861,11 @@ class MessageBubble extends StatelessWidget {
   /// no-actions case identical to before either existed.
   Map<CustomSemanticsAction, VoidCallback>? _customSemanticsActions(
     BuildContext context,
+    VoidCallback? onCancelUpload,
   ) {
     final actions = {
       ...?_retryCustomAction(context),
-      ...?_cancelUploadCustomAction(context),
+      ...?_cancelUploadCustomAction(context, onCancelUpload),
     };
     return actions.isEmpty ? null : actions;
   }
@@ -891,8 +923,9 @@ class MessageBubble extends StatelessWidget {
   /// being painted ([_paintsUploadCancel]).
   Map<CustomSemanticsAction, VoidCallback>? _cancelUploadCustomAction(
     BuildContext context,
+    VoidCallback? onCancelUpload,
   ) {
-    final cancel = onCancelAttachmentUpload;
+    final cancel = onCancelUpload;
     if (attachmentUploadProgress == null ||
         cancel == null ||
         !_paintsUploadCancel) {

@@ -270,6 +270,26 @@ class RestClient {
   /// deliberate per-upload cancel.
   static const String _uploadCancelledReason = 'upload_cancelled';
 
+  /// POSTs [data] as a raw binary body of type [mimeType].
+  ///
+  /// **[data] is borrowed, not copied.** The body is a stream of
+  /// [Uint8List.sublistView] windows onto the caller's own buffer (see
+  /// [_chunkedBody]), so the caller must neither mutate it nor return it to
+  /// a pool until this future completes. The hazard is quiet rather than
+  /// loud: `content-length` is committed from `data.length` before the
+  /// first byte goes out, so an in-place edit mid-flight — a stripper
+  /// rewriting EXIF on the picked bytes, a host recycling a pooled
+  /// `Uint8List` — uploads a correctly-sized blob of wrong content instead
+  /// of failing. No caller does this today. Snapshotting to close it would
+  /// cost a full second copy of every video, which is the exact cost the
+  /// streamed body exists to avoid, so the contract is documented rather
+  /// than enforced.
+  ///
+  /// [onProgress] restarts from 0 when the retry interceptor re-drives the
+  /// POST, so a progress ring can visibly rewind. That is accepted: the
+  /// alternative — a monotonic ring — would have to invent progress the
+  /// transfer has not made, and a rewind is the honest report that the
+  /// bytes are going out again.
   Future<Map<String, dynamic>> uploadBinary(
     String path,
     Uint8List data,
