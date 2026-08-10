@@ -47,9 +47,11 @@ class MessageList extends StatefulWidget {
     this.forwardedSourceLabels = const {},
     this.showScrollToBottom = true,
     this.onRetryMessage,
+    this.onCancelAttachmentUpload,
     this.audioCoordinator,
     this.audioUploadProgressFor,
     this.attachmentUploadProgressFor,
+    this.attachmentUploadCancellableFor,
     this.avatarBuilder,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
@@ -95,6 +97,12 @@ class MessageList extends StatefulWidget {
   final Map<String, String> forwardedSourceLabels;
   final bool showScrollToBottom;
   final ValueChanged<ChatMessage>? onRetryMessage;
+
+  /// Cancels an in-flight attachment upload for a message. Forwarded to
+  /// `MessageBubble.onCancelAttachmentUpload` for every bubble the list
+  /// builds; see `ChatViewCallbacks.onCancelAttachmentUpload` for the full
+  /// contract.
+  final ValueChanged<ChatMessage>? onCancelAttachmentUpload;
   final AudioPlaybackCoordinator? audioCoordinator;
 
   /// Per-message upload progress notifier resolver. The list calls it with the
@@ -109,6 +117,13 @@ class MessageList extends StatefulWidget {
   /// builds; a non-null listenable shows the placeholder + progress ring.
   final ValueListenable<double>? Function(String messageId)?
   attachmentUploadProgressFor;
+
+  /// Per-message resolver for whether that upload can still be cancelled —
+  /// the signal behind the ring's X. Separate from
+  /// [attachmentUploadProgressFor] because the ring outlives cancellability;
+  /// see `ChatViewBuilders.attachmentUploadCancellableFor`.
+  final ValueListenable<bool>? Function(String messageId)?
+  attachmentUploadCancellableFor;
 
   final Widget Function(BuildContext, String userId)? avatarBuilder;
   final String Function(ChatMessage message)? systemMessageTextResolver;
@@ -873,6 +888,9 @@ class _MessageListState extends State<MessageList> {
           widget.controller.isFailed(msg.id) && widget.onRetryMessage != null
           ? () => widget.onRetryMessage!(msg)
           : null,
+      onCancelAttachmentUpload: widget.onCancelAttachmentUpload != null
+          ? () => widget.onCancelAttachmentUpload!(msg)
+          : null,
       theme: widget.theme,
       onTapImage: widget.onTapImage != null
           ? () => widget.onTapImage!(msg)
@@ -912,6 +930,9 @@ class _MessageListState extends State<MessageList> {
       audioCoordinator: widget.audioCoordinator,
       audioUploadProgress: widget.audioUploadProgressFor?.call(msg.id),
       attachmentUploadProgress: widget.attachmentUploadProgressFor?.call(
+        msg.id,
+      ),
+      attachmentUploadCancellable: widget.attachmentUploadCancellableFor?.call(
         msg.id,
       ),
       forwardedSourceLabel: _resolveForwardedSourceLabel(msg),

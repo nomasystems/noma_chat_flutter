@@ -279,6 +279,145 @@ void main() {
       expect(out, {'url': 'x'});
     });
 
+    test('uploadBinary() streams the payload as views over the SAME buffer, '
+        'never a second copy of it (regression: handing Dio the raw '
+        'Uint8List took the byte-array branch, which rebuilds the whole '
+        'body as 1 KiB sublist COPIES before the first byte goes out — '
+        'peak memory twice a 100 MB clip)', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((_) async => resp(data: {'url': 'x'}));
+
+      // 4 MB: past the point where the chunk size stops being the floor,
+      // so the body is split many times over.
+      final payload = Uint8List(4 * 1024 * 1024);
+      for (var i = 0; i < payload.length; i++) {
+        payload[i] = i & 0xff;
+      }
+      await rest.uploadBinary('/u', payload, 'video/mp4');
+
+      final captured = verify(
+        () => dio.request(
+          any(),
+          data: captureAny(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: captureAny(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).captured;
+      final body = captured[0];
+      final options = captured[1] as Options;
+
+      // Dio's `_transformData` only leaves the payload untouched on its
+      // `data is Stream` branch, and only reports progress there when the
+      // caller supplied the total itself.
+      expect(body, isA<Stream<List<int>>>());
+      expect(options.headers?['content-length'], payload.length);
+
+      final chunks = await (body as Stream<Uint8List>).toList();
+      expect(chunks.length, greaterThan(1));
+      // The no-copy property, proved by aliasing rather than by
+      // `identical(chunk.buffer, payload.buffer)`: `TypedData.buffer` mints
+      // a fresh `ByteBuffer` wrapper on every read, so that identity is
+      // false even between two reads of the SAME list. A write through the
+      // payload showing up in the chunk cannot happen across a `sublist`
+      // copy. The views also tile the payload exactly once, in order.
+      var offset = 0;
+      for (final chunk in chunks) {
+        expect(chunk.offsetInBytes, payload.offsetInBytes + offset);
+        expect(chunk.buffer.lengthInBytes, payload.buffer.lengthInBytes);
+        final original = payload[offset];
+        payload[offset] = original ^ 0xff;
+        expect(chunk[0], original ^ 0xff);
+        payload[offset] = original;
+        offset += chunk.length;
+      }
+      expect(offset, payload.length);
+    });
+
+    test('uploadBinary() body can be re-read, so a retried POST does not '
+        'die on an already-consumed stream', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((_) async => resp(data: {'url': 'x'}));
+
+      final payload = Uint8List.fromList(List<int>.generate(64, (i) => i));
+      await rest.uploadBinary('/u', payload, 'image/png');
+
+      final body =
+          verify(
+                () => dio.request(
+                  any(),
+                  data: captureAny(named: 'data'),
+                  queryParameters: any(named: 'queryParameters'),
+                  options: any(named: 'options'),
+                  cancelToken: any(named: 'cancelToken'),
+                  onSendProgress: any(named: 'onSendProgress'),
+                  onReceiveProgress: any(named: 'onReceiveProgress'),
+                ),
+              ).captured.single
+              as Stream<Uint8List>;
+
+      // `RetryInterceptor` re-fetches the same RequestOptions, which makes
+      // Dio run its transform over this stream a second time.
+      final first = await body.toList();
+      final second = await body.toList();
+      expect(second.expand((c) => c), orderedEquals(payload));
+      expect(second.length, first.length);
+    });
+
+    test('uploadBinary() chunks a small payload more than once so the ring '
+        'moves on a short voice note too', () async {
+      when(
+        () => dio.request(
+          any(),
+          data: any(named: 'data'),
+          queryParameters: any(named: 'queryParameters'),
+          options: any(named: 'options'),
+          cancelToken: any(named: 'cancelToken'),
+          onSendProgress: any(named: 'onSendProgress'),
+          onReceiveProgress: any(named: 'onReceiveProgress'),
+        ),
+      ).thenAnswer((_) async => resp(data: {'url': 'x'}));
+
+      // 128 KB — a ~30 s voice note.
+      await rest.uploadBinary('/u', Uint8List(128 * 1024), 'audio/mp4');
+
+      final body =
+          verify(
+                () => dio.request(
+                  any(),
+                  data: captureAny(named: 'data'),
+                  queryParameters: any(named: 'queryParameters'),
+                  options: any(named: 'options'),
+                  cancelToken: any(named: 'cancelToken'),
+                  onSendProgress: any(named: 'onSendProgress'),
+                  onReceiveProgress: any(named: 'onReceiveProgress'),
+                ),
+              ).captured.single
+              as Stream<Uint8List>;
+
+      expect((await body.toList()).length, greaterThan(1));
+    });
+
     test('uploadBinary() sets a sendTimeout independent from requestTimeout '
         '(regression: was inheriting the 30s generic requestTimeout, cutting '
         'off large attachment uploads on slow connections)', () async {

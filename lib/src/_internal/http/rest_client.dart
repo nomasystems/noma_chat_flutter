@@ -8,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../config/chat_config.dart';
 import '../../core/result.dart' show ChatErrorTokens, TimeoutKind;
+import '../../models/attachment.dart' show UploadCancelToken;
 import '../../observability/chat_logger.dart' show ChatLogLevel;
 import '../cache/cache_manager.dart' show MetricCallback;
 import 'bearer_auth_interceptor.dart';
@@ -21,7 +22,7 @@ import 'retry_interceptor.dart';
 /// if the two drift, so bumping the package version forces an update here
 /// too. A future build_runner-generated constant can drop in without
 /// changing the call sites.
-const String nomaChatSdkVersion = '0.17.0';
+const String nomaChatSdkVersion = '0.18.0';
 
 const String _requestIdExtraKey = 'requestId';
 const Uuid _uuid = Uuid();
@@ -260,16 +261,63 @@ class RestClient {
     await _request('DELETE', path, queryParams: queryParams, headers: headers);
   }
 
+  /// Reason tag stamped on the Dio `CancelToken` bridged from an
+  /// [UploadCancelToken.cancel] call. `_mapDioException` checks for this
+  /// exact value to raise [ChatCancelledException] — narrower than "any
+  /// `DioExceptionType.cancel`" so the bulk teardown in [cancelPending]
+  /// (reason `'cancelled'`/`'disconnect'`/`'dispose'`) keeps mapping to
+  /// today's generic failure instead of being reinterpreted as a
+  /// deliberate per-upload cancel.
+  static const String _uploadCancelledReason = 'upload_cancelled';
+
+  /// POSTs [data] as a raw binary body of type [mimeType].
+  ///
+  /// **[data] is borrowed, not copied.** The body is a stream of
+  /// [Uint8List.sublistView] windows onto the caller's own buffer (see
+  /// [_chunkedBody]), so the caller must neither mutate it nor return it to
+  /// a pool until this future completes. The hazard is quiet rather than
+  /// loud: `content-length` is committed from `data.length` before the
+  /// first byte goes out, so an in-place edit mid-flight — a stripper
+  /// rewriting EXIF on the picked bytes, a host recycling a pooled
+  /// `Uint8List` — uploads a correctly-sized blob of wrong content instead
+  /// of failing. No caller does this today. Snapshotting to close it would
+  /// cost a full second copy of every video, which is the exact cost the
+  /// streamed body exists to avoid, so the contract is documented rather
+  /// than enforced.
+  ///
+  /// [onProgress] restarts from 0 when the retry interceptor re-drives the
+  /// POST, so a progress ring can visibly rewind. That is accepted: the
+  /// alternative — a monotonic ring — would have to invent progress the
+  /// transfer has not made, and a rewind is the honest report that the
+  /// bytes are going out again.
   Future<Map<String, dynamic>> uploadBinary(
     String path,
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
+    UploadCancelToken? cancelToken,
   }) async {
+    CancelToken? dioCancelToken;
+    if (cancelToken != null) {
+      dioCancelToken = CancelToken();
+      final token = dioCancelToken;
+      cancelToken.bindOnCancel(() {
+        if (!token.isCancelled) token.cancel(_uploadCancelledReason);
+      });
+    }
     final response = await _request(
       'POST',
       path,
-      data: Stream.fromIterable([data]),
+      // Handing Dio the raw `Uint8List` takes `_transformData`'s byte-array
+      // branch, which rebuilds the WHOLE payload as 1 KiB `sublist` copies
+      // before the first byte reaches the socket — peak memory twice the
+      // clip, plus one object per kilobyte. Chunked *views* over the same
+      // buffer take the `data is Stream` branch instead: nothing is copied
+      // and `addProgress` still ticks `onSendProgress` once per chunk. The
+      // `content-length` header below is load-bearing on that branch — Dio
+      // only writes it itself for byte arrays, and `addProgress` reports no
+      // progress at all without a total.
+      data: _chunkedBody(data),
       headers: {'content-type': mimeType},
       options: Options(
         contentType: mimeType,
@@ -277,8 +325,56 @@ class RestClient {
         sendTimeout: _transferTimeoutFor(data.length),
       ),
       onSendProgress: onProgress,
+      cancelToken: dioCancelToken,
     );
     return response.data as Map<String, dynamic>;
+  }
+
+  /// Number of `onSendProgress` ticks a streamed upload aims for — one per
+  /// chunk. Dio's own fixed 1 KiB split gives a 100 MB clip ~100k of them;
+  /// ~128 keeps every step under a percent of the ring while costing three
+  /// orders of magnitude fewer callbacks and chunk objects.
+  static const int _uploadProgressTicks = 128;
+
+  /// Floor and ceiling for the size derived from [_uploadProgressTicks]: a
+  /// short voice note still ticks several times instead of jumping 0 → 1,
+  /// and a full-length video still writes in socket-sized pieces.
+  static const int _minUploadChunkBytes = 16 * 1024;
+  static const int _maxUploadChunkBytes = 512 * 1024;
+
+  static int _uploadChunkSizeFor(int byteLength) {
+    final target = (byteLength / _uploadProgressTicks).ceil();
+    if (target < _minUploadChunkBytes) return _minUploadChunkBytes;
+    if (target > _maxUploadChunkBytes) return _maxUploadChunkBytes;
+    return target;
+  }
+
+  /// [data] as a stream of chunked views over its own buffer —
+  /// [Uint8List.sublistView], never `sublist`, so no byte is duplicated.
+  ///
+  /// Re-listenable ([Stream.multi]) because a retried POST re-runs Dio's
+  /// transform over the same `RequestOptions`: a single-subscription stream
+  /// would fail every attempt after the first.
+  static Stream<Uint8List> _chunkedBody(Uint8List data) {
+    final chunkSize = _uploadChunkSizeFor(data.length);
+    return Stream<Uint8List>.multi(
+      (controller) => controller
+          .addStream(_uploadChunks(data, chunkSize))
+          .whenComplete(controller.close),
+    );
+  }
+
+  static Stream<Uint8List> _uploadChunks(Uint8List data, int chunkSize) async* {
+    var offset = 0;
+    while (offset < data.length) {
+      final end = offset + chunkSize;
+      yield Uint8List.sublistView(
+        data,
+        offset,
+        end < data.length ? end : data.length,
+      );
+      offset = end;
+    }
   }
 
   Future<Uint8List> downloadBinary(
@@ -330,6 +426,7 @@ class RestClient {
     Options? options,
     void Function(int, int)? onSendProgress,
     void Function(int, int)? onReceiveProgress,
+    CancelToken? cancelToken,
   }) async {
     final opts = options ?? Options();
     opts.method = method;
@@ -343,22 +440,26 @@ class RestClient {
     final requestId = _uuid.v4();
     opts.extra = {...?opts.extra, _requestIdExtraKey: requestId};
 
-    final cancelToken = CancelToken();
-    _pendingTokens.add(cancelToken);
+    // Callers that need to cancel this specific request (e.g. `uploadBinary`
+    // bridging an `UploadCancelToken`) supply their own token; every other
+    // call site keeps minting one internally. Either way it lands in
+    // `_pendingTokens` so `cancelPending` still reaches it.
+    final token = cancelToken ?? CancelToken();
+    _pendingTokens.add(token);
     try {
       return await _dio.request(
         path,
         data: data,
         queryParameters: queryParams,
         options: opts,
-        cancelToken: cancelToken,
+        cancelToken: token,
         onSendProgress: onSendProgress,
         onReceiveProgress: onReceiveProgress,
       );
     } on DioException catch (e) {
       throw _mapDioException(e);
     } finally {
-      _pendingTokens.remove(cancelToken);
+      _pendingTokens.remove(token);
     }
   }
 
@@ -478,6 +579,10 @@ class RestClient {
         retryAfter: _parseRetryAfterHeaders(e.response?.headers),
         errorToken: token,
       );
+    }
+    if (e.type == DioExceptionType.cancel &&
+        e.error == _uploadCancelledReason) {
+      return const ChatCancelledException();
     }
     if (e.type == DioExceptionType.connectionTimeout) {
       return const ChatTimeoutException(kind: TimeoutKind.connection);

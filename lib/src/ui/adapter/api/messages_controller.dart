@@ -274,9 +274,16 @@ interface class ChatMessagesController {
   /// Paints an optimistic bubble immediately (before the upload even
   /// starts, mirroring [sendVoice]) with a progress notifier reachable via
   /// `ChatUiAdapter.attachmentUploadProgressFor(tempId)` — the bubble no
-  /// longer stays blank for the whole upload. On upload failure the
-  /// bubble is marked failed and visible ([ChatController.isFailed]);
-  /// there is no silent drop.
+  /// longer stays blank for the whole upload. That notifier retires only
+  /// once the row reaches a real final state, which is why the row is
+  /// enriched with the uploaded blob's URL before the send goes out: a ring
+  /// taken down over a message still carrying `attachmentUrl: ''` paints
+  /// broken media. The cancel X is a signal of its own
+  /// (`ChatUiAdapter.attachmentUploadCancellableFor`) and goes the instant
+  /// the bytes land, when `ChatUiAdapter.cancelAttachmentUpload` stops
+  /// being able to abort anything. On upload failure the bubble is marked
+  /// failed and visible ([ChatController.isFailed]); there is no silent
+  /// drop.
   ///
   /// When the upload lands but the send that follows it does not, the
   /// failed bubble keeps the uploaded blob's URL and `attachmentId`, so a
@@ -327,7 +334,39 @@ interface class ChatMessagesController {
     final controller = _a._chatControllers[roomIdOrDraftKey];
     final tempId = '_pending_${DateTime.now().microsecondsSinceEpoch}';
     final progress = _a._voiceUploads.register(tempId);
+    final cancelToken = _a._attachmentUploadCancels.register(tempId);
+    try {
+      return await _sendUploadedAttachment(
+        roomIdOrDraftKey,
+        bytes: bytes,
+        mimeType: mimeType,
+        fileName: fileName,
+        onProgress: onProgress,
+        controller: controller,
+        tempId: tempId,
+        progress: progress,
+        cancelToken: cancelToken,
+      );
+    } finally {
+      // Every exit path, thrown ones included: the entry keeps the Dio
+      // `CancelToken` — and through it the whole payload — alive, and the
+      // draft-failure returns above never reach the mid-flow cleanup.
+      _a._attachmentUploadCancels.retire(tempId);
+    }
+  }
 
+  Future<ChatResult<ChatMessage>> _sendUploadedAttachment(
+    String roomIdOrDraftKey, {
+    required Uint8List bytes,
+    required String mimeType,
+    required String? fileName,
+    required void Function(int sent, int total)? onProgress,
+    required ChatController? controller,
+    required String tempId,
+    required ValueNotifier<double> progress,
+    required UploadCancelToken cancelToken,
+  }) async {
+    final epoch = _a._sessionEpoch;
     final optimisticMetadata = <String, dynamic>{
       'mimeType': mimeType,
       if (fileName != null) 'fileName': fileName,
@@ -384,6 +423,17 @@ interface class ChatMessagesController {
       roomId = roomIdOrDraftKey;
     }
 
+    if (_a._sessionEndedSince(epoch)) {
+      // Creating the room is a round trip like any other, and a logout
+      // inside it has already cleared the cache. Resuming would write the
+      // pending row back *after* that clear — a ghost bubble on the next
+      // login — and then upload and send under a session that is gone.
+      _a._voiceUploads.drop(tempId);
+      return const ChatFailureResult<ChatMessage>(
+        NetworkFailure('chat session ended mid-send'),
+      );
+    }
+
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, optimistic)
@@ -401,13 +451,43 @@ interface class ChatMessagesController {
         if (!_a._voiceUploads.isActive(tempId)) return;
         progress.value = (sent / total).clamp(0.0, 1.0);
       },
+      cancelToken: cancelToken,
     );
+    // The X and the ability to abort end at the same instant: past this
+    // point the bytes have landed, so a tappable X would be inert. `drop`
+    // kills the token AND flips the cancellability signal the ring reads,
+    // in place — a ring already on screen loses its X without waiting for
+    // an unrelated rebuild. The progress notifier deliberately survives:
+    // the row still carries `attachmentUrl: ''` and is pending, not failed,
+    // so taking the ring down here would paint broken media (an empty-URL
+    // image, a video with a live play button) for the whole poster-frame +
+    // send window.
+    final userCancelled = _a._attachmentUploadCancels.consumeUserCancelled(
+      tempId,
+    );
+    _a._attachmentUploadCancels.drop(tempId);
 
-    if (_a._disposed) {
+    if (_a._sessionEndedSince(epoch)) {
+      _a._voiceUploads.drop(tempId);
       return ChatFailureResult(
         uploadResult.failureOrNull ??
-            const NetworkFailure('adapter disposed mid-upload'),
+            const NetworkFailure('chat session ended mid-upload'),
       );
+    }
+
+    if (userCancelled && uploadResult.failureOrNull is CancelledFailure) {
+      // The user chose to abort, not a network condition to recover from:
+      // the provisional bubble disappears entirely instead of lingering as
+      // failed, and neither the retry nor the offline-queue path fires.
+      _a._voiceUploads.drop(tempId);
+      controller?.removeMessage(tempId);
+      unawaited(
+        _a._cache
+                ?.deletePendingMessage(roomId, tempId)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+      return uploadResult.castFailure<ChatMessage>();
     }
 
     if (uploadResult.isFailure) {
@@ -448,17 +528,44 @@ interface class ChatMessagesController {
     }
     final attachment = uploadResult.dataOrThrow;
     final url = attachment.url ?? attachment.attachmentId;
+    // Only now, with the clip itself safely uploaded: a cancel or a failure
+    // above short-circuits the poster frame for free, and the ring sits at
+    // 100% with no X while the extra step runs.
+    final thumbnail = await _uploadVideoThumbnail(tempId, bytes, mimeType);
+    if (_a._sessionEndedSince(epoch)) {
+      // Generation can hold this for seconds; a logout inside that window
+      // already cleared the cache and disposed the controllers. Writing the
+      // pending row again would leave a ghost bubble for the next session,
+      // and the send would go out under a session that no longer exists.
+      _a._voiceUploads.drop(tempId);
+      return const ChatFailureResult<ChatMessage>(
+        NetworkFailure('chat session ended mid-send'),
+      );
+    }
     final metadata = <String, dynamic>{
       'mimeType': mimeType,
       'attachmentUrl': url,
       if (fileName != null) 'fileName': fileName,
       'fileSize': bytes.length.toString(),
+      if (thumbnail != null) ...{
+        'thumbnailUrl': thumbnail.url,
+        'thumbnailAttachmentId': thumbnail.attachmentId,
+      },
     };
     final uploaded = optimistic.copyWith(
       attachmentUrl: url,
       attachmentId: attachment.attachmentId,
+      thumbnailUrl: thumbnail?.url,
+      thumbnailAttachmentId: thumbnail?.attachmentId,
       metadata: metadata,
     );
+    // The row's real final state, published before the send rather than
+    // only on its failure branch: from here the bubble resolves an
+    // attachment that exists, so neither the send round trip nor an
+    // `ack_mode=async` provisional echo (which leaves the row pending until
+    // the authoritative event lands) can catch it holding `attachmentUrl:
+    // ''` once the ring comes down.
+    controller?.updateMessage(uploaded);
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, uploaded)
@@ -476,6 +583,13 @@ interface class ChatMessagesController {
       tempId: tempId,
       clientMessageId: tempId,
     );
+    if (_a._sessionEndedSince(epoch)) {
+      _a._voiceUploads.drop(tempId);
+      return ChatFailureResult(
+        sendResult.failureOrNull ??
+            const NetworkFailure('chat session ended mid-send'),
+      );
+    }
 
     final confirmed = sendResult.isSuccess
         ? _a._ensureSentReceipt(sendResult.dataOrThrow)
@@ -521,10 +635,12 @@ interface class ChatMessagesController {
       );
     }
 
-    // See `sendVoice` for why this is `complete()` and not `disposeAll` /
-    // an outright drop: the optimistic bubble may still hold a reference
-    // to the notifier until the controller rebuild swaps tempId for the
-    // real id.
+    // Same placement and same reasoning as `sendVoice`: only now does the
+    // row have a state of its own to render — the uploaded URL, and either
+    // the confirmed message or the failed marker. `complete()` rather than
+    // `drop()` because the bubble may still hold the notifier until the
+    // controller swaps tempId for the real id, and a disposed one would
+    // throw on the next read.
     _a._voiceUploads.complete(tempId);
 
     return _a._emitFailure(
@@ -532,6 +648,102 @@ interface class ChatMessagesController {
       OperationKind.uploadAttachment,
       roomId: roomId,
       messageId: tempId,
+    );
+  }
+
+  /// Generates a poster frame for a `video/*` payload and uploads it as a
+  /// **second, small blob with its own attachment id**, so the bubble can
+  /// render a real preview. Returns `null` for anything that is not a
+  /// video, and for every video the step could not enrich.
+  ///
+  /// Best-effort by contract. Unsupported platform, a host that disabled
+  /// the thumbnailer, an unreadable container, a failed upload, or the
+  /// whole step outrunning [RoomDefaults.videoThumbnailTimeout] all resolve
+  /// to `null` and the clip is sent thumbnail-less. A video that arrives
+  /// without a preview is a degraded success; a video that fails to send
+  /// because its preview failed would be a regression.
+  ///
+  /// Deliberately outside the visible upload progress: the ring tracks the
+  /// clip, which is orders of magnitude larger, and folding a few tens of
+  /// kilobytes into it would only make it stall after reaching 100%.
+  ///
+  /// It does carry a cancel token, registered under a key of its own so the
+  /// session teardown ([AttachmentUploadCancelRegistry.cancelAll]) reaches
+  /// it while the bubble's X — which looks up the message's own temp id —
+  /// cannot. Abandoning the step on timeout without cancelling would leave
+  /// an upload on the wire whose blob nothing ever references, billed to
+  /// the user's storage.
+  ///
+  /// One budget covers generation and the upload together, but it is spent
+  /// two different ways. Generation cannot observe a token — a wedged
+  /// platform decoder is only escapable by walking away from it — so it is
+  /// bounded by `.timeout`. The upload can, so it is bounded by cancelling
+  /// it, and its outcome is honoured however late it lands: discarding a
+  /// POST that already succeeded is exactly how the orphan this token
+  /// exists to prevent gets created.
+  Future<_UploadedThumbnail?> _uploadVideoThumbnail(
+    String tempId,
+    Uint8List videoBytes,
+    String mimeType,
+  ) async {
+    if (classifyMime(mimeType) != MimeKind.video) return null;
+    final cancelKey = '$tempId#thumbnail';
+    final cancelToken = _a._attachmentUploadCancels.register(cancelKey);
+    final budgetStartedAt = DateTime.now();
+    try {
+      final frame = await _a.videoThumbnailer
+          .generate(videoBytes, mimeType: mimeType)
+          // Re-typed to the nullable form before the deadline, and that
+          // hop is load-bearing: `Future<T>.timeout` checks `onTimeout`
+          // against the *runtime* `T`, so a thumbnailer narrowing its
+          // return to `Future<VideoThumbnailData>` — every host is free to
+          // — makes `() => null` a TypeError raised at the call boundary,
+          // before `timeout` subscribes to anything. Generation's own
+          // failure would then reach nobody and surface as an unhandled
+          // zone error, taking down a send this step must never fail.
+          .then<VideoThumbnailData?>((frame) => frame)
+          .timeout(RoomDefaults.videoThumbnailTimeout, onTimeout: () => null);
+      if (frame == null || _a._disposed || cancelToken.isCancelled) return null;
+      final remaining =
+          RoomDefaults.videoThumbnailTimeout -
+          DateTime.now().difference(budgetStartedAt);
+      if (remaining <= Duration.zero) return null;
+      return await _uploadThumbnailFrame(frame, cancelToken, remaining);
+    } catch (error) {
+      cancelToken.cancel();
+      _a.logs?.attach(
+        ChatLogLevel.warn,
+        'video thumbnail skipped, sending without preview',
+        fields: {'error': error.toString()},
+      );
+      return null;
+    } finally {
+      _a._attachmentUploadCancels.retire(cancelKey);
+    }
+  }
+
+  Future<_UploadedThumbnail?> _uploadThumbnailFrame(
+    VideoThumbnailData frame,
+    UploadCancelToken cancelToken,
+    Duration remainingBudget,
+  ) async {
+    final deadline = Timer(remainingBudget, cancelToken.cancel);
+    final result = await _a.client.attachments
+        .upload(frame.bytes, frame.mimeType, cancelToken: cancelToken)
+        .whenComplete(deadline.cancel);
+    if (_a._disposed) return null;
+    if (result.isFailure) {
+      _a.logs?.attach(
+        ChatLogLevel.warn,
+        'video thumbnail upload failed, sending without preview',
+        fields: {'failure': result.failureOrNull.toString()},
+      );
+      return null;
+    }
+    final uploaded = result.dataOrThrow;
+    return _UploadedThumbnail(
+      url: uploaded.url ?? uploaded.attachmentId,
+      attachmentId: uploaded.attachmentId,
     );
   }
 
@@ -771,11 +983,13 @@ interface class ChatMessagesController {
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
+    UploadCancelToken? cancelToken,
   }) async {
     final result = await _a.client.attachments.upload(
       data,
       mimeType,
       onProgress: onProgress,
+      cancelToken: cancelToken,
     );
     return _a._emitFailure(result, OperationKind.uploadAttachment);
   }
@@ -1563,4 +1777,13 @@ interface class ChatMessagesController {
       ),
     );
   }
+}
+
+/// The uploaded poster frame for a video message: a blob of its own, so it
+/// carries its own [attachmentId] rather than sharing the clip's.
+class _UploadedThumbnail {
+  const _UploadedThumbnail({required this.url, required this.attachmentId});
+
+  final String url;
+  final String attachmentId;
 }

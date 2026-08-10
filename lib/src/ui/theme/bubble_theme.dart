@@ -75,5 +75,13 @@ abstract class ChatBubbleTheme with _$ChatBubbleTheme {
     /// room-list preview). Return `null` for SDK default. Covers all five
     /// states: sending / sent / delivered / read / failed.
     MessageStatusIconBuilder? statusIconBuilder,
+
+    /// Fill color of the determinate progress ring shown while a
+    /// photo/video/file attachment is uploading (`AttachmentUploadRing`).
+    /// Falls back to [statusColor], then to
+    /// `DefaultPalette.uploadProgressColor` (the same green as the send
+    /// button / unread badge), so it reads as the same family as the
+    /// sent/delivered/read status ticks by default.
+    Color? uploadProgressColor,
   }) = _ChatBubbleTheme;
 }

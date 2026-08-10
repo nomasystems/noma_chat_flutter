@@ -16,7 +16,7 @@ class ReplyPreview extends StatelessWidget {
     this.onTap,
     this.theme = ChatTheme.defaults,
     this.mediaLoader,
-    this.attachmentRef,
+    this.roomId,
   });
 
   final ChatMessage message;
@@ -25,18 +25,23 @@ class ReplyPreview extends StatelessWidget {
   final VoidCallback? onTap;
   final ChatTheme theme;
 
-  /// Fetches the referenced image's bytes through the authenticated
+  /// Fetches the quoted message's preview bytes through the authenticated
   /// client and renders the thumbnail from memory instead of handing
   /// `Image.network` a signed URL that 401s without a Bearer token.
-  /// Consulted together with [attachmentRef] — `null` (default) keeps the
-  /// plain-URL thumbnail unchanged.
+  /// Consulted together with [roomId] — `null` (default) keeps an image
+  /// quote on its plain-URL thumbnail and leaves a video quote's slot
+  /// unpainted, since a poster frame only ever lives behind the
+  /// membership-checked download endpoint this loader hits.
   final AttachmentMediaLoader? mediaLoader;
 
-  /// Identifies the referenced attachment for [mediaLoader]. Ignored when
-  /// [mediaLoader] is `null`.
-  final AttachmentRef? attachmentRef;
-
-  bool get _usesMediaLoader => mediaLoader != null && attachmentRef != null;
+  /// Room [message] belongs to — required by the membership-checked
+  /// download endpoint [mediaLoader] hits. The blob to fetch is resolved
+  /// here rather than accepted from the caller: the only blob a quoted
+  /// video owns that is a *picture* is its poster frame, and a caller
+  /// passing the clip's ref instead would download the whole video to
+  /// paint a 40×40 square (and then fail to decode it). `null` (default)
+  /// has the same effect as a null [mediaLoader].
+  final String? roomId;
 
   // Compact mode (inside bubble): shrink-wrap. Full mode (input bar): expand.
   bool get _isCompact => onDismiss == null;
@@ -45,6 +50,46 @@ class ReplyPreview extends StatelessWidget {
     final mimeType = message.mimeType?.toLowerCase() ?? '';
     return message.messageType == MessageType.attachment &&
         mimeType.startsWith('image/');
+  }
+
+  bool get _isVideo {
+    final mimeType = message.mimeType?.toLowerCase() ?? '';
+    return message.messageType == MessageType.attachment &&
+        mimeType.startsWith('video/');
+  }
+
+  /// The blob the 40×40 slot paints: an image's own bytes, or a video's
+  /// **poster frame** — a separate blob with its own attachment id. Never
+  /// the clip. `null` for everything else (audio, files, plain text) and
+  /// whenever no [roomId] is known, which keeps the preview on the
+  /// plain-URL path with the fallback it has always had.
+  AttachmentRef? get _previewRef {
+    final rid = roomId;
+    if (rid == null) return null;
+    // A poster frame is what a *video* has instead of a picture; an image
+    // already is one. The backend stamps `thumbnailUrl` on every message
+    // type, so letting an image reach for it would shadow that image's
+    // own, always-usable bytes with a ref that may carry no id at all.
+    if (_isVideo) return _posterFrameRef(rid);
+    if (_isImage) return _ownBytesRef(rid);
+    return null;
+  }
+
+  AttachmentRef? _posterFrameRef(String rid) {
+    final id = message.thumbnailAttachmentId;
+    final url = message.thumbnailUrl;
+    if (id == null && url == null) return null;
+    return AttachmentRef(roomId: rid, attachmentId: id, fallbackUrl: url ?? '');
+  }
+
+  AttachmentRef? _ownBytesRef(String rid) {
+    final url = message.attachmentUrl;
+    if (url == null || url.isEmpty) return null;
+    return AttachmentRef(
+      roomId: rid,
+      attachmentId: message.attachmentId,
+      fallbackUrl: url,
+    );
   }
 
   (IconData?, String) _resolveContent(BuildContext context) {
@@ -125,9 +170,12 @@ class ReplyPreview extends StatelessWidget {
         theme.input.replyPreviewTextStyle ??
         const TextStyle(fontSize: 12, color: Colors.black54);
 
+    final previewRef = _previewRef;
+    final usesMediaLoader = mediaLoader != null && previewRef != null;
     final thumbnailUrl = _isImage
         ? (message.thumbnailUrl ?? message.attachmentUrl)
         : null;
+    final showThumbnail = usesMediaLoader || thumbnailUrl != null;
 
     Widget content = Container(
       padding: const EdgeInsets.all(8),
@@ -147,7 +195,7 @@ class ReplyPreview extends StatelessWidget {
           _isCompact
               ? Flexible(child: _buildTextContent(icon, text, textStyle))
               : Expanded(child: _buildTextContent(icon, text, textStyle)),
-          if (thumbnailUrl != null)
+          if (showThumbnail)
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: ClipRRect(
@@ -155,15 +203,15 @@ class ReplyPreview extends StatelessWidget {
                 child: SizedBox(
                   width: 40,
                   height: 40,
-                  child: _usesMediaLoader
+                  child: usesMediaLoader
                       ? AuthenticatedMediaImage(
                           loader: mediaLoader!,
-                          attachmentRef: attachmentRef!,
+                          attachmentRef: previewRef,
                           fit: BoxFit.cover,
                           errorBuilder: (_) => const SizedBox.shrink(),
                         )
                       : Image.network(
-                          thumbnailUrl,
+                          thumbnailUrl!,
                           width: 40,
                           height: 40,
                           // Decode at 3× pixel density (~120 px) instead of

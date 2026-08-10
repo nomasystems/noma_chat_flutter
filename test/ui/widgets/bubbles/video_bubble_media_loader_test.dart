@@ -35,7 +35,7 @@ void main() {
           VideoBubble(
             videoUrl: 'https://example.com/video.mp4',
             thumbnailUrl: 'https://signed.example/thumb.jpg',
-            attachmentRef: const AttachmentRef(
+            thumbnailRef: const AttachmentRef(
               roomId: 'r1',
               attachmentId: 'att-1',
               fallbackUrl: 'https://signed.example/thumb.jpg',
@@ -69,7 +69,7 @@ void main() {
           VideoBubble(
             videoUrl: 'https://example.com/video.mp4',
             thumbnailUrl: 'https://signed.example/thumb.jpg',
-            attachmentRef: const AttachmentRef(
+            thumbnailRef: const AttachmentRef(
               roomId: 'r1',
               attachmentId: 'att-1',
               fallbackUrl: 'https://signed.example/thumb.jpg',
@@ -86,7 +86,39 @@ void main() {
       expect(calls, 2);
     });
 
-    testWidgets('does not use mediaLoader when there is no thumbnailUrl at '
+    testWidgets('fetches the poster frame by id when the message carries no '
+        'thumbnailUrl — the id is all the download endpoint needs', (
+      tester,
+    ) async {
+      final requested = <AttachmentRef>[];
+      final loader = _FakeMediaLoader(
+        onLoadBytes: (ref) async {
+          requested.add(ref);
+          return validPngBytes;
+        },
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          VideoBubble(
+            videoUrl: 'https://example.com/video.mp4',
+            thumbnailRef: const AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'att-thumb',
+              fallbackUrl: '',
+            ),
+            mediaLoader: loader,
+          ),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(requested.single.attachmentId, 'att-thumb');
+      expect(find.byType(Image), findsOneWidget);
+    });
+
+    testWidgets('does not use mediaLoader when there is no poster frame at '
         'all (falls to the placeholder, no crash)', (tester) async {
       var calls = 0;
       final loader = _FakeMediaLoader(
@@ -100,11 +132,6 @@ void main() {
         wrap(
           VideoBubble(
             videoUrl: 'https://example.com/video.mp4',
-            attachmentRef: const AttachmentRef(
-              roomId: 'r1',
-              attachmentId: 'att-1',
-              fallbackUrl: 'https://example.com/video.mp4',
-            ),
             mediaLoader: loader,
           ),
         ),

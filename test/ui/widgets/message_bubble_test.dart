@@ -90,6 +90,62 @@ void main() {
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
     });
 
+    testWidgets(
+      'suppresses the metadata-row error icon on a failed image bubble once '
+      'the media retry arrow takes over, and routes the tap through the '
+      'same onRetry',
+      (tester) async {
+        var retried = false;
+        final msg = ChatMessage(
+          id: 'img1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          messageType: MessageType.attachment,
+          mimeType: 'image/jpeg',
+          attachmentUrl: 'https://example.com/photo.jpg',
+        );
+        await tester.pumpWidget(
+          wrap(
+            MessageBubble(
+              message: msg,
+              isOutgoing: true,
+              isFailed: true,
+              onRetry: () => retried = true,
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.error_outline), findsNothing);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
+
+        await tester.tap(find.byIcon(Icons.refresh));
+        expect(retried, isTrue);
+      },
+    );
+
+    testWidgets(
+      'keeps the metadata-row error icon on a failed image bubble when no '
+      'onRetry is wired, and paints no retry arrow',
+      (tester) async {
+        final msg = ChatMessage(
+          id: 'img2',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          messageType: MessageType.attachment,
+          mimeType: 'image/jpeg',
+          attachmentUrl: 'https://example.com/photo.jpg',
+        );
+        await tester.pumpWidget(
+          wrap(MessageBubble(message: msg, isOutgoing: true, isFailed: true)),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        // The media badge plus the metadata-row icon: nothing claims to be
+        // a retry the bubble cannot honour.
+        expect(find.byIcon(Icons.error_outline), findsNWidgets(2));
+      },
+    );
+
     testWidgets('reduced top padding when isFirstInGroup=false', (
       tester,
     ) async {

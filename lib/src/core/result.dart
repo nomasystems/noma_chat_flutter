@@ -306,6 +306,14 @@ final class NetworkFailure extends ChatFailure {
   const NetworkFailure([super.message = 'Network error']);
 }
 
+/// The operation was deliberately aborted by the caller — e.g. a host
+/// cancelling an in-flight attachment upload — rather than failing on its
+/// own. Kept distinct from [NetworkFailure] so callers can skip the
+/// failed-message / retry treatment for an outcome the user chose.
+final class CancelledFailure extends ChatFailure {
+  const CancelledFailure([super.message = 'Operation cancelled']);
+}
+
 /// Server returned a 5xx error (and the catch-all for unmapped HTTP status
 /// codes). Carries the stable [errorToken] when the backend attached one.
 final class ServerFailure extends ChatFailure {

@@ -18,6 +18,7 @@ import '../ui/adapter/room_title_resolver.dart';
 import '../ui/controller/chat_controller.dart';
 import '../ui/controller/room_list_controller.dart';
 import '../ui/l10n/chat_ui_localizations.dart';
+import '../ui/services/video_thumbnailer.dart';
 import '../core/result.dart';
 import '../models/room.dart';
 import 'chat_client.dart';
@@ -162,6 +163,8 @@ class NomaChat {
     bool enableReconnectResync = true,
     // Storage
     AvatarStorage? avatarStorage,
+    // Media
+    VideoThumbnailer? videoThumbnailer,
     // Advanced
     ChatConfig? config,
     ChatLocalDatasource? localDatasource,
@@ -235,7 +238,9 @@ class NomaChat {
       enableReconnectResync: enableReconnectResync,
       logLevel: effectiveConfig.logLevel,
       logMessageContent: effectiveConfig.logMessageContent,
+      metricCallback: effectiveConfig.metricCallback,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+      videoThumbnailer: videoThumbnailer,
     );
 
     return NomaChat._(client: client, adapter: adapter, cache: hiveCache);
@@ -295,6 +300,8 @@ class NomaChat {
     bool enableReconnectResync = true,
     // Storage
     AvatarStorage? avatarStorage,
+    // Media
+    VideoThumbnailer? videoThumbnailer,
   }) async {
     final client = NomaChatClient(config: config);
     await client.restoreCacheTimestamps();
@@ -316,7 +323,9 @@ class NomaChat {
       enableReconnectResync: enableReconnectResync,
       logLevel: config.logLevel,
       logMessageContent: config.logMessageContent,
+      metricCallback: config.metricCallback,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+      videoThumbnailer: videoThumbnailer,
     );
 
     return NomaChat._(client: client, adapter: adapter);
@@ -376,7 +385,9 @@ class NomaChat {
     bool enableReconnectResync = true,
     ChatLogLevel logLevel = ChatLogLevel.warn,
     bool logMessageContent = false,
+    MetricCallback? metricCallback,
     AvatarStorage? avatarStorage,
+    VideoThumbnailer? videoThumbnailer,
   }) {
     final adapter = ChatUiAdapter(
       client: client,
@@ -391,7 +402,9 @@ class NomaChat {
       enableReconnectResync: enableReconnectResync,
       logLevel: logLevel,
       logMessageContent: logMessageContent,
+      metricCallback: metricCallback,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
+      videoThumbnailer: videoThumbnailer,
     );
     return NomaChat._(client: client, adapter: adapter);
   }

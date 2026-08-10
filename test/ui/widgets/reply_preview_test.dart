@@ -34,6 +34,9 @@ void main() {
     String? mimeType,
     String? fileName,
     String? attachmentUrl,
+    String? attachmentId,
+    String? thumbnailUrl,
+    String? thumbnailAttachmentId,
   }) {
     return ChatMessage(
       id: 'msg1',
@@ -44,6 +47,9 @@ void main() {
       mimeType: mimeType,
       fileName: fileName,
       attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
+      thumbnailUrl: thumbnailUrl,
+      thumbnailAttachmentId: thumbnailAttachmentId,
     );
   }
 
@@ -271,12 +277,6 @@ void main() {
         '+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       );
 
-      const attachmentRef = AttachmentRef(
-        roomId: 'r1',
-        attachmentId: 'att-1',
-        fallbackUrl: 'https://signed.example/photo.jpg',
-      );
-
       testWidgets('fetches the thumbnail bytes via mediaLoader instead of '
           'handing Image.network the signed URL', (tester) async {
         final loader = _FakeMediaLoader(
@@ -291,9 +291,10 @@ void main() {
                 messageType: MessageType.attachment,
                 mimeType: 'image/jpeg',
                 attachmentUrl: 'https://signed.example/photo.jpg',
+                attachmentId: 'att-1',
               ),
               mediaLoader: loader,
-              attachmentRef: attachmentRef,
+              roomId: 'r1',
             ),
           ),
         );
@@ -307,8 +308,42 @@ void main() {
         expect(loader.requested.single.roomId, 'r1');
       });
 
+      testWidgets('a quoted image carrying a thumbnailUrl still renders from '
+          'its own bytes, never from the unusable poster ref', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            ReplyPreview(
+              message: makeMessage(
+                text: null,
+                messageType: MessageType.attachment,
+                mimeType: 'image/jpeg',
+                attachmentUrl: 'https://signed.example/media/att-1',
+                attachmentId: 'att-1',
+                thumbnailUrl: 'https://cdn.example/thumbs/abc.jpg',
+              ),
+              mediaLoader: loader,
+              roomId: 'r1',
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested.single.attachmentId, 'att-1');
+        expect(
+          loader.requested.single.fallbackUrl,
+          'https://signed.example/media/att-1',
+        );
+        final image = tester.widget<Image>(find.byType(Image));
+        expect((image.image as MemoryImage).bytes, validPngBytes);
+      });
+
       testWidgets('shows the plain Image.network thumbnail unchanged when '
-          'mediaLoader is wired but attachmentRef is not (no behaviour '
+          'mediaLoader is wired but roomId is not (no behaviour '
           'change)', (tester) async {
         final loader = _FakeMediaLoader(
           onLoadBytes: (_) async => validPngBytes,
@@ -352,9 +387,10 @@ void main() {
                 messageType: MessageType.attachment,
                 mimeType: 'image/jpeg',
                 attachmentUrl: 'https://signed.example/photo.jpg',
+                attachmentId: 'att-1',
               ),
               mediaLoader: loader,
-              attachmentRef: attachmentRef,
+              roomId: 'r1',
             ),
           ),
         );
@@ -364,6 +400,143 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(calls, 2);
+      });
+
+      ChatMessage videoMessage({
+        String? thumbnailUrl,
+        String? thumbnailAttachmentId,
+      }) => makeMessage(
+        text: null,
+        messageType: MessageType.attachment,
+        mimeType: 'video/mp4',
+        attachmentUrl: 'https://signed.example/media/att-clip',
+        attachmentId: 'att-clip',
+        thumbnailUrl: thumbnailUrl,
+        thumbnailAttachmentId: thumbnailAttachmentId,
+      );
+
+      testWidgets('a quoted video fetches its poster frame, never the clip', (
+        tester,
+      ) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            ReplyPreview(
+              message: videoMessage(
+                thumbnailUrl: 'https://signed.example/media/att-thumb',
+                thumbnailAttachmentId: 'att-thumb',
+              ),
+              mediaLoader: loader,
+              roomId: 'r1',
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested.single.attachmentId, 'att-thumb');
+        expect(
+          loader.requested.single.fallbackUrl,
+          'https://signed.example/media/att-thumb',
+        );
+      });
+
+      testWidgets('a quoted video with only a poster id still fetches it', (
+        tester,
+      ) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            ReplyPreview(
+              message: videoMessage(thumbnailAttachmentId: 'att-thumb'),
+              mediaLoader: loader,
+              roomId: 'r1',
+            ),
+          ),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested.single.attachmentId, 'att-thumb');
+      });
+
+      testWidgets('a quoted video with no poster frame fetches nothing', (
+        tester,
+      ) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            ReplyPreview(
+              message: videoMessage(),
+              mediaLoader: loader,
+              roomId: 'r1',
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
+        expect(find.byType(Image), findsNothing);
+      });
+
+      testWidgets('a quoted video paints no thumbnail slot without a '
+          'mediaLoader, so no Image.network hits the Bearer-protected '
+          'poster URL', (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            ReplyPreview(
+              message: videoMessage(
+                thumbnailUrl: 'https://signed.example/media/att-thumb',
+                thumbnailAttachmentId: 'att-thumb',
+              ),
+              roomId: 'r1',
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(Image), findsNothing);
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is SizedBox && widget.width == 40 && widget.height == 40,
+          ),
+          findsNothing,
+        );
+      });
+
+      testWidgets('a quoted audio note fetches nothing', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            ReplyPreview(
+              message: makeMessage(
+                text: null,
+                messageType: MessageType.audio,
+                mimeType: 'audio/mp4',
+                attachmentUrl: 'https://signed.example/media/att-voice',
+                attachmentId: 'att-voice',
+              ),
+              mediaLoader: loader,
+              roomId: 'r1',
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
       });
     });
   });

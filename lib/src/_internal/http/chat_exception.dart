@@ -87,6 +87,16 @@ final class ChatNetworkException extends ChatException {
   const ChatNetworkException([super.message = 'Network error']);
 }
 
+/// A deliberate abort — an `UploadCancelToken.cancel()` call, mapped from
+/// the resulting Dio `DioExceptionType.cancel` — as opposed to a genuine
+/// transport failure. `RestClient._mapDioException` only raises this for
+/// its own upload-cancel sentinel reason, never for the bulk
+/// `cancelPending`/`cancelPendingRequests` teardown paths, so a disconnect
+/// or dispose mid-upload keeps mapping to the same failure it always has.
+final class ChatCancelledException extends ChatException {
+  const ChatCancelledException([super.message = 'Operation cancelled']);
+}
+
 final class ChatApiException extends ChatException {
   final int statusCode;
   final dynamic body;

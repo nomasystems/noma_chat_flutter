@@ -3,7 +3,7 @@ description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and ready-to-use UI components for the Nomasystems chat
   backend.
-version: 0.17.0
+version: 0.18.0
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
@@ -60,6 +60,21 @@ dependencies:
   open_filex: ^4.7.0
   html: ^0.15.5
   image_picker: ^1.1.0
+  # Backs the SDK's own full-screen capture screen (`CameraCapturePage`):
+  # tap the shutter for a still, hold it for a clip. `image_picker` cannot
+  # do that — its camera source is decided before the viewfinder opens and
+  # returns one or the other. Federated for android / ios / web only; the
+  # `platforms:` block above stays at six because a plugin without an
+  # implementation for a target does not strip this package's platform
+  # tags (`open_filex` is android/ios-only and already precedent). Desktop
+  # and web keep the `image_picker` route —
+  # `PlatformSupport.supportsInAppCameraCapture` decides.
+  camera: ^0.12.0
+  # Camera + microphone runtime permissions for that screen: the capture
+  # flow has to tell "denied" from "permanently denied" so it can offer an
+  # `openAppSettings()` way out instead of a dead end, which the plugins'
+  # own boolean failures cannot express.
+  permission_handler: '>=11.0.0 <13.0.0'
   # Bumped to >=9.0.0 because v9 removed `FilePicker.platform.pickFiles`
   # in favour of the static `FilePicker.pickFiles`. Loose upper bound so
   # consumers (e.g. WB/mobile already on ^11) don't hit version-solving
@@ -79,6 +94,32 @@ dependencies:
   # moves to TOCropViewController 3.x; otherwise consumers need an
   # SPM-disabling workaround in their own pubspec, which defeats plug & play.
   image_cropper: ^11.0.0
+  # Extracts the poster frame `VideoBubble` paints, behind the
+  # `VideoThumbnailer` seam so a later swap is a one-file change. The
+  # original `video_thumbnail` is not an option: every one of its published
+  # versions (up to 0.5.6) constrains `sdk: <3.0.0`, which cannot co-resolve
+  # with this package's `^3.12.0`. This maintained fork is on `sdk: ^3.4.0`
+  # and keeps the same native extractors (MediaMetadataRetriever / AVAsset)
+  # — same relationship `open_filex` has with `open_file` above. It also
+  # declares web, which buys us nothing: it generates from a file path or a
+  # URL, and on web there is no path while every attachment URL needs a
+  # Bearer token. `PlatformSupport.supportsVideoThumbnails` gates it to
+  # mobile accordingly.
+  get_thumbnail_video: ^0.7.3
+  # Backs `ImageMetadataScrubber`, which rebuilds every picked photo from its
+  # pixels so nothing the source container carried can travel with it. Pure
+  # Dart, which is the point: a native compressor (`flutter_image_compress`)
+  # would be faster but ships android / ios / web only, narrowing what this
+  # package can promise on the six targets in `platforms:` above, and could
+  # not be exercised under `flutter test` at all. `dart:ui` was the other
+  # candidate and cannot do the job: it decodes, but has no JPEG encoder, and
+  # its decode is the platform's — EXIF orientation and colour management
+  # would then differ between a browser and Skia, which is exactly the kind of
+  # per-platform difference this pass must not have. The cost is speed: a
+  # 12 MP photo takes a few hundred milliseconds to decode and re-encode, so
+  # the work goes to a background isolate (see
+  # `PlatformSupport.supportsBackgroundIsolates`).
+  image: ^4.5.0
   characters: ^1.4.0
   shared_preferences: ^2.2.0
   uuid: ^4.0.0
@@ -94,3 +135,7 @@ dev_dependencies:
   build_runner: ^2.4.0
   freezed: ^3.1.0
   alchemist: ^0.12.0
+  # Declared explicitly (rather than leaned on transitively through
+  # `camera`) so the camera-capture tests can swap `CameraPlatform.instance`
+  # for a fake without a `depend_on_referenced_packages` ignore.
+  camera_platform_interface: ^2.12.0

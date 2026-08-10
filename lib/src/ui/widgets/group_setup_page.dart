@@ -309,6 +309,7 @@ class _GroupSetupPageState extends State<GroupSetupPage> {
               kind: AvatarKind.room,
               size: 140,
               theme: widget.theme,
+              onMetric: widget.adapter.metricCallback,
               onChanged: (snap, _) => setState(() => _pickedAvatar = snap),
             ),
           ),

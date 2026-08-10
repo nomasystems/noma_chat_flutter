@@ -6,6 +6,113 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.18.0
+
+### Added
+
+- **The camera lives in the SDK.** `CameraCapturePage.show(context:, theme:)` opens a capture screen
+  and returns a `CameraCaptureResult`; `NomaChatView` wires it as the default camera action, and a
+  host can still override it through `ChatViewCallbacks.onPickCamera`. It ships pinch-to-zoom, a
+  shutter that only changes colour while recording, a lens switch that recovers the previous camera
+  when a bind fails, and a permission flow that tells a plain refusal apart from one the OS will not
+  prompt for again — offering a route to Settings for the second. Consumers no longer hand-roll a
+  preview, a shutter and a permission dance to send a photo from a chat.
+
+  `platforms:` still declares all six targets. `camera` and `permission_handler` cover mobile and
+  web; `PlatformSupport.supportsInAppCameraCapture` hides the screen where the plugin has no
+  implementation, and the picker falls back to `image_picker` there, so the Camera option never
+  disappears. **Android hosts:** the camera plugin merges `<uses-feature android:name=
+  "android.hardware.camera.any" />` into your manifest with `android:required` defaulting to true,
+  and Play then hides the app from camera-less devices. `README.md` and `INTEGRATION.md` §2b carry
+  the four declarations needed to lift that filter — note `android:required` is OR-merged, so a
+  plain `false` loses silently.
+
+- **Videos carry a poster frame.** `VideoThumbnailer` is the seam, with a working default, so the
+  frame extractor can be swapped in one file. The frame is generated after the clip's upload
+  succeeds, bounded by a deadline, and never blocks the send: a failure degrades to a preview-less
+  video. Its blob gets its own attachment id, which is what the bubble, the quote preview and the
+  media gallery fetch — they were previously handed the clip's id, so rendering a 40×40 thumbnail
+  downloaded the whole video.
+
+- **An upload can be cancelled while it is in flight.** The progress ring fills for real, and its
+  centre cancels. `ChatUiAdapter.attachmentUploadCancellableFor` reports whether that is still
+  possible, separately from progress, and `NomaChatView` wires it by default.
+
+- **`NomaChatView.attachmentPolicy`** applies one size and type limit across the camera, gallery and
+  file paths, to the pre-check and to the send alike. Rejections surface instead of being dropped.
+
+- **`ChatConfig.metricCallback` reaches image processing.** One `image_metadata_strip` metric per
+  call, carrying an outcome and a reason code — no bytes, no names, no paths, and nothing at all
+  when the callback is null. `TELEMETRY.md` documents every value.
+
+### Changed
+
+- **Images are rebuilt, not edited.** The metadata stripper used to walk JPEG markers and keep a
+  whitelist; three independent adversarial reviews each found a new way through it, the last one
+  proving GPS riding through under a relabelled marker and two working channels inside the colour
+  profile the whitelist deliberately kept. Images are now decoded to pixels and encoded again, so
+  nothing from the source container survives because nothing from it is read: marker laundering,
+  EXIF, GPS, XMP, Motion Photo and MPO trailers, JUMBF, thumbnails and comments all go, including
+  the frame and table bodies previously documented as an inherent limit. Orientation survives as
+  pixels rather than as a tag. PNG gets the same treatment; formats that cannot be rebuilt are
+  reported rather than silently passed. An image that cannot be processed is still sent as-is so a
+  rare odd-but-valid photo stays sendable, and the metric says so.
+
+  Rebuilding drops the colour profile, which would make every Display-P3 photo arrive
+  oversaturated. Rather than carry the source profile back in, the colour space is identified and a
+  fresh profile is emitted, built from this package's own constants — its colorants and transfer
+  curves come out byte-identical to the system profile they replace, derived from the primaries
+  alone. sRGB stays untagged, which already means sRGB to every receiver. Adobe RGB and Rec. 2020
+  are still converted by the receiver as sRGB, as before, but the metric now names it.
+
+- **`pickFile` re-encodes a JPEG or PNG picked as a generic file.** That path preserved bytes
+  before; it is now lossy, in exchange for the guarantees above.
+
+- **Default attachment limits.** Video drops from 100 MB to 32 MB and gallery and file picks rise
+  from 25 MB to 32 MB, so one ceiling governs every path. Hosts set their own through
+  `NomaChatView.attachmentPolicy`.
+
+- **Upload progress lives until the row has a real state.** It used to be retired the moment the
+  bytes landed, which left a window where a rebuild painted a broken photo with a live play button
+  and a tap that opened an empty URL.
+
+### Fixed
+
+- **Upload progress moves.** The payload was handed to the HTTP client as a single chunk, so the
+  progress callback fired once, at the end — the ring span the whole upload without filling. It is
+  now streamed in bounded pieces over views of the same buffer, with no second copy of a
+  hundred-megabyte clip.
+- **A quoted image renders its own preview** instead of being handed the referenced video's, which
+  is what made replying to a clip download the clip.
+- **A cancelled upload removes its message** rather than leaving it failed, and is told apart from a
+  genuine network failure, so backgrounding mid-upload still queues offline as before.
+- **A send abandoned by a logout** no longer writes into a cleared cache or posts under the session
+  that just ended.
+- **A failure a retry cannot clear** — the bytes never reached the server — shows an error rather
+  than a retry arrow that does nothing.
+- **The recording gate** cannot be left armed by a start that resolves after an interruption, and a
+  clip lost that way says so.
+- **A lens switch** cannot be raced by the shutter into disposing the controller it is rebinding,
+  and a teardown failure during the switch is no longer reported as a failed switch.
+- **A permission plugin that throws** no longer leaves the camera screen on a spinner forever.
+- **A capture is measured on disk** before it is read into memory, and its file is deleted whether
+  it was sent or refused.
+
+### Removed
+
+- **`VideoBubble.attachmentRef`** — renamed to `thumbnailRef`. It resolves the poster frame, never
+  the clip; the rename is what makes the old mistake unrepresentable.
+- **`ReplyPreview.attachmentRef`** — replaced by `roomId`. The widget resolves the blob it needs, so
+  no caller can hand it the wrong one.
+
+### Known limitations
+
+- HEIC is not rebuilt — no pure-Dart decoder exists. The picker paths are unaffected because
+  `image_picker` transcodes to JPEG on iOS; a raw `.heic` chosen through `pickFile` passes through
+  untouched and is reported as such.
+- An image whose decoder rejects it is returned unchanged, by design, and reported as not stripped.
+- Camera capture and poster frames are mobile-only; the gates in `PlatformSupport` say where.
+
 ## 0.17.0
 
 ### Security

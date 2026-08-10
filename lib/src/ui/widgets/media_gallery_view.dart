@@ -20,6 +20,8 @@ class MediaItem {
     this.fileName,
     this.mimeType,
     this.attachmentRef,
+    this.thumbnailUrl,
+    this.thumbnailRef,
   });
 
   final String url;
@@ -29,9 +31,24 @@ class MediaItem {
   final String? fileName;
   final String? mimeType;
 
-  /// Identifies this item for [MediaGalleryView.mediaLoader]. `null` keeps
-  /// [url] as the sole source, unchanged from before this field existed.
+  /// Identifies this item to open/download: an image's own bytes, or a
+  /// video's clip — never a poster frame. `null` keeps [url] as the sole
+  /// source, unchanged from before this field existed.
   final AttachmentRef? attachmentRef;
+
+  /// Plain-URL poster frame for a video tile, mirroring [thumbnailRef] on
+  /// the no-[MediaGalleryView.mediaLoader] path. `null` for non-video items
+  /// and for videos with no stored poster frame.
+  final String? thumbnailUrl;
+
+  /// The poster frame [MediaGalleryView] renders a video tile from — a
+  /// separate blob from [attachmentRef], which for a video identifies the
+  /// clip itself. Rendering the clip through an image loader would download
+  /// the whole file and then fail to decode it as a picture, so the grid
+  /// consults this field instead and never [attachmentRef] to paint a video
+  /// tile. `null` (legacy videos with no stored poster frame) renders the
+  /// static placeholder rather than fetching the clip.
+  final AttachmentRef? thumbnailRef;
 }
 
 /// Grid view of [MediaItem]s, used as the Media tab of [MediaGalleryPage].
@@ -56,8 +73,9 @@ class MediaGalleryView extends StatelessWidget {
   /// Fetches each item's bytes through the authenticated client and
   /// renders from memory instead of handing `CachedNetworkImage` a signed
   /// URL it can't attach a Bearer token to. Consulted per-item alongside
-  /// [MediaItem.attachmentRef] — `null` (default) keeps every cell on the
-  /// plain-URL path, unchanged from before this parameter existed.
+  /// [MediaItem.attachmentRef] (images) or [MediaItem.thumbnailRef]
+  /// (videos) — `null` (default) keeps every cell on the plain-URL path,
+  /// unchanged from before this parameter existed.
   final AttachmentMediaLoader? mediaLoader;
 
   /// Whether audio attachments (`mimeType: audio/*`) should be rendered.
@@ -116,8 +134,35 @@ class _MediaCell extends StatelessWidget {
   final VoidCallback? onTap;
   final AttachmentMediaLoader? mediaLoader;
 
-  bool get _usesMediaLoader =>
-      mediaLoader != null && item.attachmentRef != null;
+  bool get _isVideo => item.type == MediaItemType.video;
+
+  /// A video's poster is only trustworthy with a real attachment id — that
+  /// is what the authenticated loader keys on, so a ref without one (an
+  /// older or third-party backend that only sent a URL) would only 404 or
+  /// throw. With a loader wired in, treat that the same as no poster at
+  /// all instead of spending a request on it; with no loader wired in
+  /// there is nothing to throw, so the raw URL still renders as-is,
+  /// unchanged from before this field existed.
+  bool get _hasUsablePoster {
+    if (item.thumbnailRef?.attachmentId != null) return true;
+    if (mediaLoader != null) return false;
+    return item.thumbnailUrl?.isNotEmpty ?? false;
+  }
+
+  /// The ref this tile downloads through [mediaLoader]: the poster frame
+  /// for a video — never its clip, which [MediaItem.attachmentRef] would
+  /// still resolve to for opening. `null` for a video without
+  /// [_hasUsablePoster], same as one with no poster stored at all.
+  AttachmentRef? get _renderRef => _isVideo
+      ? (_hasUsablePoster ? item.thumbnailRef : null)
+      : item.attachmentRef;
+
+  /// Plain-URL counterpart of [_renderRef] for when no [mediaLoader]
+  /// applies. Never the clip's URL for a video.
+  String? get _renderUrl =>
+      _isVideo ? (_hasUsablePoster ? item.thumbnailUrl : null) : item.url;
+
+  bool get _usesMediaLoader => mediaLoader != null && _renderRef != null;
 
   static IconData _fileIcon(String? mimeType) {
     final mime = mimeType?.toLowerCase() ?? '';
@@ -182,34 +227,7 @@ class _MediaCell extends StatelessWidget {
           child: Stack(
             fit: StackFit.expand,
             children: [
-              _usesMediaLoader
-                  ? AuthenticatedMediaImage(
-                      loader: mediaLoader!,
-                      attachmentRef: item.attachmentRef!,
-                      fit: BoxFit.cover,
-                      placeholderBuilder: (_) =>
-                          Container(color: Colors.grey.shade200),
-                      errorBuilder: (_) => Container(
-                        color: Colors.grey.shade200,
-                        child: const Icon(
-                          Icons.broken_image,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    )
-                  : CachedNetworkImage(
-                      imageUrl: item.url,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) =>
-                          Container(color: Colors.grey.shade200),
-                      errorWidget: (_, __, ___) => Container(
-                        color: Colors.grey.shade200,
-                        child: const Icon(
-                          Icons.broken_image,
-                          color: Colors.grey,
-                        ),
-                      ),
-                    ),
+              _buildMediaContent(),
               if (item.type == MediaItemType.video)
                 const Center(
                   child: Icon(
@@ -221,6 +239,38 @@ class _MediaCell extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Renders [_renderRef]/[_renderUrl] — the poster frame for a video, the
+  /// item's own bytes for an image. Neither present (a legacy video with no
+  /// stored poster frame) renders the static placeholder and makes no
+  /// network call, instead of fetching the clip a video tile can't decode.
+  Widget _buildMediaContent() {
+    if (_usesMediaLoader) {
+      return AuthenticatedMediaImage(
+        loader: mediaLoader!,
+        attachmentRef: _renderRef!,
+        fit: BoxFit.cover,
+        placeholderBuilder: (_) => Container(color: Colors.grey.shade200),
+        errorBuilder: (_) => Container(
+          color: Colors.grey.shade200,
+          child: const Icon(Icons.broken_image, color: Colors.grey),
+        ),
+      );
+    }
+    final renderUrl = _renderUrl;
+    if (renderUrl == null || renderUrl.isEmpty) {
+      return Container(color: Colors.grey.shade200);
+    }
+    return CachedNetworkImage(
+      imageUrl: renderUrl,
+      fit: BoxFit.cover,
+      placeholder: (_, __) => Container(color: Colors.grey.shade200),
+      errorWidget: (_, __, ___) => Container(
+        color: Colors.grey.shade200,
+        child: const Icon(Icons.broken_image, color: Colors.grey),
       ),
     );
   }

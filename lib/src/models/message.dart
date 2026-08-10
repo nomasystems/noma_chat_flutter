@@ -51,6 +51,17 @@ abstract class ChatMessage with _$ChatMessage {
     String? fileSize,
     String? thumbnailUrl,
 
+    /// Stable attachment id of the poster frame for a video message — a
+    /// **second, separate blob** from [attachmentId], uploaded by
+    /// `sendAttachment` alongside the clip. Bubbles need it (not
+    /// [attachmentId]) to download the preview: both endpoints are
+    /// Bearer-protected, so the id is what the authenticated loader keys
+    /// on, and reusing the video's id would hand an image widget the
+    /// video's own bytes. `null` for every non-video message, for videos
+    /// sent before this field existed, and whenever generation was skipped
+    /// or failed — the bubble then falls back to its placeholder.
+    String? thumbnailAttachmentId,
+
     /// `true` when this message was accepted by the server but silently
     /// dropped instead of delivered, because the recipient has blocked
     /// the sender (`POST /contacts/{id}/messages` answers `204 No

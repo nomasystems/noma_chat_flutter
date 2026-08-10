@@ -10,6 +10,7 @@ import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
 import '../utils/url_detector.dart';
+import 'bubbles/_attachment_upload_overlay.dart' show paintsAttachmentFailure;
 import 'bubbles/audio_bubble.dart';
 import 'bubbles/file_bubble.dart';
 import 'bubbles/forwarded_bubble.dart';
@@ -55,6 +56,7 @@ class MessageBubble extends StatelessWidget {
     this.isFailed = false,
     this.isPinned = false,
     this.onRetry,
+    this.onCancelAttachmentUpload,
     this.isFirstInGroup = true,
     this.isLastInGroup = true,
     this.replyCount,
@@ -64,6 +66,7 @@ class MessageBubble extends StatelessWidget {
     this.audioCoordinator,
     this.audioUploadProgress,
     this.attachmentUploadProgress,
+    this.attachmentUploadCancellable,
     this.avatarWidget,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
@@ -115,7 +118,21 @@ class MessageBubble extends StatelessWidget {
   /// so users can spot pinned messages while scrolling the timeline,
   /// not just inside the dedicated pins drawer.
   final bool isPinned;
+
+  /// Retries a failed send/upload — backs both the status-row retry icon
+  /// ([_buildStatusIcon]) and, for image/video/file messages whose bytes
+  /// did reach the server, the retry arrow painted directly on the media
+  /// once [attachmentUploadProgress] is null (see [_mediaRetry] and
+  /// [_hasMediaRetryAffordance]). One callback, never a second retry path.
   final VoidCallback? onRetry;
+
+  /// Cancels the in-flight upload behind [attachmentUploadProgress]. `null`
+  /// (default) renders the ring's center icon as a plain, non-interactive
+  /// glyph instead of a dead X — same principle as [onTapVideo] leaving
+  /// `VideoBubble`'s play overlay unpainted. Ignored for bubbles that
+  /// aren't currently uploading, and suppressed while
+  /// [attachmentUploadCancellable] reports `false`.
+  final VoidCallback? onCancelAttachmentUpload;
   final bool isFirstInGroup;
 
   /// `true` when this message is the last one in a same-sender chain (next
@@ -143,6 +160,16 @@ class MessageBubble extends StatelessWidget {
   /// [audioUploadProgress] — kept separate so a host that only wires audio
   /// progress does not accidentally affect the other attachment types.
   final ValueListenable<double>? attachmentUploadProgress;
+
+  /// Whether the upload behind [attachmentUploadProgress] can still be
+  /// aborted. The ring outlives that ability — it stays up through the
+  /// poster frame and the send, because the row has no usable attachment
+  /// URL until they finish — so the X needs a signal of its own, and a
+  /// listenable one: it flips mid-ring, with no other reason to rebuild.
+  ///
+  /// `null` (the default, and what a bare bubble outside `ChatView` gets)
+  /// keeps [onCancelAttachmentUpload] exactly as wired.
+  final ValueListenable<bool>? attachmentUploadCancellable;
 
   final Widget? avatarWidget;
 
@@ -244,17 +271,21 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  /// Same as [_attachmentRef] but for [referencedMessage] — the message a
-  /// reply bubble quotes, whose thumbnail [ReplyPreview] renders.
-  AttachmentRef? get _referencedAttachmentRef {
+  /// The poster frame's own [AttachmentRef] for a video message — a
+  /// **second blob** with its own id, uploaded next to the clip by
+  /// `sendAttachment`. Either half is enough to fetch it: the id goes
+  /// straight to the download endpoint, and a bare URL still yields one
+  /// through `attachmentIdFromUrl`. `null` only when the message carries
+  /// neither — every non-video message, videos sent before the SDK
+  /// generated poster frames, and videos whose generation was skipped or
+  /// failed. Bubbles then keep the placeholder + play button they have
+  /// always shown.
+  AttachmentRef? _thumbnailRefFor(ChatMessage message) {
     final rid = roomId;
-    final url = referencedMessage?.attachmentUrl;
-    if (rid == null || url == null) return null;
-    return AttachmentRef(
-      roomId: rid,
-      attachmentId: referencedMessage!.attachmentId,
-      fallbackUrl: url,
-    );
+    final id = message.thumbnailAttachmentId;
+    final url = message.thumbnailUrl;
+    if (rid == null || (id == null && url == null)) return null;
+    return AttachmentRef(roomId: rid, attachmentId: id, fallbackUrl: url ?? '');
   }
 
   List<int>? _extractWaveform() {
@@ -275,6 +306,45 @@ class MessageBubble extends StatelessWidget {
       ReceiptStatus.read => MessageDeliveryState.read,
     };
   }
+
+  /// `retrySend` refuses a media row whose upload never landed — it kept no
+  /// bytes, so there is nothing to re-drive and the only way forward is
+  /// picking the file again. Painting the media-level retry arrow there
+  /// would be a button that cannot work, so this mirrors that refusal rule
+  /// (`OptimisticHandler.retrySend`) and hands the bubbles a `null`
+  /// callback instead: they paint the failed state with a static "failed"
+  /// glyph, and the tappable status-row icon stays as the affordance that
+  /// explains why (localized `attachmentNeverUploaded`).
+  bool get _uploadNeverLanded {
+    if (!message.messageType.hasAttachment) return false;
+    if ((message.attachmentUrl ?? '').isNotEmpty) return false;
+    if ((message.attachmentId ?? '').isNotEmpty) return false;
+    final metadata = message.metadata;
+    if (metadata == null) return true;
+    return !_isBlobReference(metadata['attachmentUrl']) &&
+        !_isBlobReference(metadata['attachmentId']);
+  }
+
+  static bool _isBlobReference(Object? value) =>
+      value is String ? value.isNotEmpty : value != null;
+
+  /// The retry callback the media bubbles get — [onRetry] unless retrying
+  /// this row cannot reach the server (see [_uploadNeverLanded]).
+  VoidCallback? get _mediaRetry => _uploadNeverLanded ? null : onRetry;
+
+  /// `true` when a failed photo/video/file upload paints its own *working*
+  /// retry arrow directly on the media (`AttachmentFailedPlaceholder` /
+  /// `AttachmentRetryIcon`). In that case the metadata row's status icon
+  /// is suppressed for that bubble instead of duplicating the same retry
+  /// affordance twice — see [_buildBubbleContent]. Text and audio bubbles
+  /// have no media-level control, so they keep the status-row icon as
+  /// their only retry affordance regardless of this getter.
+  bool get _hasMediaRetryAffordance =>
+      paintsAttachmentFailure(
+        isFailed: isFailed,
+        uploadProgress: attachmentUploadProgress,
+      ) &&
+      _mediaRetry != null;
 
   Widget _buildStatusIcon(BuildContext context, MessageDeliveryState state) {
     final data = MessageStatusIconData(
@@ -318,7 +388,10 @@ class MessageBubble extends StatelessWidget {
     };
   }
 
-  Widget _buildBubbleContent(BuildContext context) {
+  Widget _buildBubbleContent(
+    BuildContext context,
+    VoidCallback? onCancelUpload,
+  ) {
     if (message.isDeleted) {
       return _DeletedBubbleContent(
         isOutgoing: isOutgoing,
@@ -421,11 +494,14 @@ class MessageBubble extends StatelessWidget {
           onTap: onTapImage,
           isOutgoing: isOutgoing,
           theme: theme,
-          statusWidget: outgoingStatusWidget,
+          statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
           attachmentRef: _attachmentRef,
           urlResolver: attachmentUrlResolver,
           mediaLoader: attachmentMediaLoader,
           uploadProgress: attachmentUploadProgress,
+          onCancelUpload: onCancelUpload,
+          isFailed: isFailed,
+          onRetry: _mediaRetry,
         );
       }
       if (mimeType.startsWith('video/')) {
@@ -436,11 +512,14 @@ class MessageBubble extends StatelessWidget {
           onTap: onTapVideo,
           isOutgoing: isOutgoing,
           theme: theme,
-          statusWidget: outgoingStatusWidget,
-          attachmentRef: _attachmentRef,
+          statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
+          thumbnailRef: _thumbnailRefFor(message),
           urlResolver: attachmentUrlResolver,
           mediaLoader: attachmentMediaLoader,
           uploadProgress: attachmentUploadProgress,
+          onCancelUpload: onCancelUpload,
+          isFailed: isFailed,
+          onRetry: _mediaRetry,
         );
       }
       return FileBubble(
@@ -452,8 +531,11 @@ class MessageBubble extends StatelessWidget {
         onTap: onTapFile,
         isOutgoing: isOutgoing,
         theme: theme,
-        statusWidget: outgoingStatusWidget,
+        statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
         uploadProgress: attachmentUploadProgress,
+        onCancelUpload: onCancelUpload,
+        isFailed: isFailed,
+        onRetry: _mediaRetry,
       );
     }
 
@@ -488,7 +570,7 @@ class MessageBubble extends StatelessWidget {
         onTap: onTapReply,
         theme: theme,
         mediaLoader: attachmentMediaLoader,
-        attachmentRef: _referencedAttachmentRef,
+        roomId: roomId,
       );
     }
 
@@ -546,8 +628,20 @@ class MessageBubble extends StatelessWidget {
       return _buildSystemMessage(context);
     }
 
-    final bubble = _buildBubble(context);
-    final semanticBubble = _wrapWithSemantics(context, bubble);
+    final cancellable = attachmentUploadCancellable;
+    if (cancellable == null) {
+      return _buildRow(context, onCancelAttachmentUpload);
+    }
+    return ValueListenableBuilder<bool>(
+      valueListenable: cancellable,
+      builder: (context, canCancel, _) =>
+          _buildRow(context, canCancel ? onCancelAttachmentUpload : null),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, VoidCallback? onCancelUpload) {
+    final bubble = _buildBubble(context, onCancelUpload);
+    final semanticBubble = _wrapWithSemantics(context, bubble, onCancelUpload);
     final body = _buildBubbleColumn(context, semanticBubble);
     final wrapped = _wrapWithSwipe(body);
     return _buildAlignedRow(wrapped);
@@ -591,7 +685,7 @@ class MessageBubble extends StatelessWidget {
     );
   }
 
-  Widget _buildBubble(BuildContext context) {
+  Widget _buildBubble(BuildContext context, VoidCallback? onCancelUpload) {
     final baseBubbleColor = isOutgoing
         ? (theme.bubble.outgoingColor ?? Colors.blue.shade100)
         : (theme.bubble.incomingColor ?? Colors.grey.shade200);
@@ -635,7 +729,7 @@ class MessageBubble extends StatelessWidget {
                 ),
               ),
             if (senderName != null && !isOutgoing) _buildSenderName(),
-            _buildBubbleContent(context),
+            _buildBubbleContent(context, onCancelUpload),
           ],
         ),
       ),
@@ -747,15 +841,33 @@ class MessageBubble extends StatelessWidget {
   /// an attachment — have no announcement of their own to fall back on, so
   /// they're re-declared explicitly on this same node (mirrors the
   /// `MapButton` pattern: exclude descendants, keep the callbacks).
-  Widget _wrapWithSemantics(BuildContext context, Widget content) {
+  Widget _wrapWithSemantics(
+    BuildContext context,
+    Widget content,
+    VoidCallback? onCancelUpload,
+  ) {
     return Semantics(
       label: _buildSemanticLabel(context),
       excludeSemantics: true,
       onLongPress: onLongPress,
       onTap: _attachmentOpenAction,
-      customSemanticsActions: _retryCustomAction(context),
+      customSemanticsActions: _customSemanticsActions(context, onCancelUpload),
       child: content,
     );
+  }
+
+  /// Merges every screen-reader custom action this bubble exposes.
+  /// Returns `null` (not an empty map) when neither applies, keeping the
+  /// no-actions case identical to before either existed.
+  Map<CustomSemanticsAction, VoidCallback>? _customSemanticsActions(
+    BuildContext context,
+    VoidCallback? onCancelUpload,
+  ) {
+    final actions = {
+      ...?_retryCustomAction(context),
+      ...?_cancelUploadCustomAction(context, onCancelUpload),
+    };
+    return actions.isEmpty ? null : actions;
   }
 
   /// Callback that opens this message's attachment, when it has one — wired
@@ -778,16 +890,51 @@ class MessageBubble extends StatelessWidget {
     return onTapFile;
   }
 
-  /// Exposes the failed-send retry icon as a screen-reader custom action —
-  /// it's a bare 14x14px `GestureDetector` with no text of its own, so it
-  /// has no other way to announce itself once nested under the excluded
-  /// bubble semantics.
+  /// Exposes the failed-send retry as a screen-reader custom action. Both
+  /// the status-row retry icon and, when [_hasMediaRetryAffordance] is
+  /// true, the media-level retry arrow are bare `GestureDetector`s with no
+  /// text of their own, so neither has any other way to announce itself
+  /// once nested under the excluded bubble semantics — this one action
+  /// covers whichever of the two is actually on screen.
   Map<CustomSemanticsAction, VoidCallback>? _retryCustomAction(
     BuildContext context,
   ) {
     final retry = onRetry;
     if (!isFailed || retry == null) return null;
     return {CustomSemanticsAction(label: theme.l10nOf(context).retry): retry};
+  }
+
+  /// `true` for the bubbles that actually paint a cancel X on the upload
+  /// ring: image, video and file. Audio rows — voice notes and audio
+  /// attachments alike — render `AudioBubble`, which has no cancel control
+  /// at all, and `sendVoice` registers no cancel token behind one either,
+  /// so the progress notifier being non-null there says nothing about the
+  /// upload being abortable.
+  bool get _paintsUploadCancel {
+    if (message.messageType != MessageType.attachment) return false;
+    if (message.attachmentUrl == null) return false;
+    return !(_mimeType?.toLowerCase() ?? '').startsWith('audio/');
+  }
+
+  /// Exposes the upload-cancel X as a screen-reader custom action — same
+  /// reasoning as [_retryCustomAction]: it's a bare icon nested inside the
+  /// upload-progress ring with no announcement of its own once the
+  /// bubble's own semantics excludes descendants. Gated on the X actually
+  /// being painted ([_paintsUploadCancel]).
+  Map<CustomSemanticsAction, VoidCallback>? _cancelUploadCustomAction(
+    BuildContext context,
+    VoidCallback? onCancelUpload,
+  ) {
+    final cancel = onCancelUpload;
+    if (attachmentUploadProgress == null ||
+        cancel == null ||
+        !_paintsUploadCancel) {
+      return null;
+    }
+    return {
+      CustomSemanticsAction(label: theme.l10nOf(context).cancelUploadLabel):
+          cancel,
+    };
   }
 
   String _buildSemanticLabel(BuildContext context) {

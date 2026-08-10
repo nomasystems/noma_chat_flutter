@@ -136,6 +136,14 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 **UI components — messages**
 - Text, image, audio, video, file and link-preview bubbles — media bubbles
   re-mint an expired signed download URL automatically and retry once
+- Cancellable photo/video/file uploads — a determinate progress ring with an
+  X that aborts the transfer mid-flight and removes the provisional bubble,
+  wired by default; the retry arrow shows only after a genuine failure
+- Built-in camera screen wired by default — tap the shutter for a photo,
+  hold it to record a clip, pinch to zoom, flip the lens; EXIF is stripped
+  and the capture is sent without leaving the chat. Override the whole flow
+  with `ChatViewCallbacks.onPickCamera`, or push `CameraCapturePage.show()`
+  yourself and keep the result
 - Attachment picker rejections (too large, wrong type, unreadable) surface
   via `onRejected` instead of a silent drop
 - Voice recording with lock-to-record gesture
@@ -215,6 +223,75 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 | iOS | **Production** | Primary target. Same as Android. |
 | macOS / Linux / Windows | Best effort | SDK and UI components work; voice uses platform audio backends. Not exercised in production. |
 | Web | Limited | SDK, cache (IndexedDB) and audio playback work. Voice **recording** is disabled (filesystem staging). |
+
+| Feature | Status | Notes |
+|---|---|---|
+| In-app camera (`CameraCapturePage`) | **Production** on Android / iOS · Limited elsewhere | Tap the shutter for a photo, hold it to record a clip; pinch to zoom, flip lens, permission recovery via Settings. On desktop and web the composer's Camera row falls back to `image_picker`'s system camera (stills only) — `PlatformSupport.supportsInAppCameraCapture`. |
+| Video poster frames (`VideoThumbnailer`) | **Production** on Android / iOS · Limited elsewhere | Sending a video generates a preview frame and uploads it as a second small blob, so the bubble shows a real still instead of a grey placeholder. The backend never transcodes, so the sender is the only place this can happen. Off on desktop (no plugin implementation) and on web (the extractor needs a file path, which web has no equivalent of, and every attachment URL needs a Bearer token) — `PlatformSupport.supportsVideoThumbnails`. Where it is off, and for videos sent before it existed, the bubble keeps the placeholder + play button. |
+
+### ⚠️ Android: adopting `noma_chat` makes your app camera-required on Google Play
+
+`camera` is a direct dependency of this package, and its Android
+implementation (`camera_android_camerax`) ships these lines in its own
+manifest, which the merger folds into **your** app:
+
+```xml
+<uses-feature android:name="android.hardware.camera.any" />
+<uses-permission android:name="android.permission.CAMERA" />
+<uses-permission android:name="android.permission.RECORD_AUDIO" />
+```
+
+`android:required` defaults to **`true`**, and the two permissions add three
+more requirements you never wrote: Google Play *implies* a `<uses-feature>`
+from a permission that needs one, so `CAMERA` implies
+`android.hardware.camera` **and** `android.hardware.camera.autofocus`, and
+`RECORD_AUDIO` implies `android.hardware.microphone` — all four required.
+So the moment you add `noma_chat`, Google Play stops offering your app to
+every device without a camera, without autofocus or without a microphone —
+most Android TV boxes, many Chromebooks, some tablets, kiosk and emulator
+device profiles. Nothing warns you: the build succeeds, and the drop only
+shows up as a smaller supported-device count in the Play Console.
+
+Chat does not need a camera to work (`CameraCapturePage` is one row of the
+attachment sheet; without a camera that row simply fails to open a
+viewfinder). Unless you *want* the filter, put **all four** of these in your
+app's `android/app/src/main/AndroidManifest.xml`:
+
+```xml
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false"
+        tools:replace="android:required" />
+
+    <!-- Implied by the CAMERA / RECORD_AUDIO permissions the plugin merges
+         in. Nothing declares these, so they need no tools:replace — but
+         without them the filter stays on. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.camera.autofocus"
+        android:required="false" />
+    <uses-feature
+        android:name="android.hardware.microphone"
+        android:required="false" />
+
+    <!-- … the rest of your manifest … -->
+</manifest>
+```
+
+The first one needs `tools:replace`, the other three must not have it.
+`android:required` on `<uses-feature>` is OR-merged, so a plain
+`android:required="false"` for `camera.any` loses to the library's explicit
+declaration **silently** — no error, no warning; `tools:replace` is what
+makes yours win. The other three are never declared by anyone, so an
+explicit `false` is all it takes to override the implied requirement, and a
+`tools:replace` on them fails the build. Both the `xmlns:tools` declaration
+and the placement above are load-bearing. Confirm the outcome in
+`app/build/outputs/logs/manifest-merger-*-report.txt`.
 
 ---
 

@@ -178,6 +178,8 @@ class ChatUiLocalizations {
     this.audioPauseLabel = 'Pause audio message',
     this.audioUploadingTemplate = 'Uploading voice message {percent}%',
     this.attachmentUploadingTemplate = 'Uploading {percent}%',
+    this.cancelUploadLabel = 'Cancel upload',
+    this.retryUploadLabel = 'Retry upload',
     this.audioPlaybackSpeedTemplate = 'Playback speed {speed}',
     this.typing = 'Typing',
     this.online = 'online',
@@ -298,6 +300,13 @@ class ChatUiLocalizations {
     this.cropPhoto = 'Crop photo',
     this.uploadingPhoto = 'Uploading photo…',
     this.photoUploadFailed = 'Could not upload photo',
+    // In-app camera capture (`CameraCapturePage`)
+    this.cameraTapForPhoto = 'Tap for photo, hold for video',
+    this.cameraRecordingHint = 'Hold to record, tap to stop',
+    this.cameraUnavailable = 'Could not start the camera',
+    this.cameraPermissionDenied = 'You need to allow camera access',
+    this.switchCamera = 'Switch camera',
+    this.openSettings = 'Open settings',
     this.changesSaved = 'Changes saved',
     // Profile settings + group info
     this.settings = 'Settings',
@@ -567,6 +576,17 @@ class ChatUiLocalizations {
   /// `'Uploading {percent}%'`.
   final String attachmentUploadingTemplate;
 
+  /// Semantic label for the cancel button centered in the upload-progress
+  /// ring (`AttachmentUploadRing`) while a photo/video/file attachment is
+  /// uploading. Default `'Cancel upload'`.
+  final String cancelUploadLabel;
+
+  /// Semantic label for the retry button centered over a photo/video
+  /// placeholder (`AttachmentRetryIcon`), or replacing the file-type icon
+  /// on `FileBubble`, once an attachment upload/send has failed. Default
+  /// `'Retry upload'`.
+  final String retryUploadLabel;
+
   /// Template used to announce the current playback speed (1x / 1.5x / 2x).
   /// Must contain `{speed}`. Default `'Playback speed {speed}'`.
   final String audioPlaybackSpeedTemplate;
@@ -726,6 +746,13 @@ class ChatUiLocalizations {
   final String cropPhoto;
   final String uploadingPhoto;
   final String photoUploadFailed;
+
+  final String cameraTapForPhoto;
+  final String cameraRecordingHint;
+  final String cameraUnavailable;
+  final String cameraPermissionDenied;
+  final String switchCamera;
+  final String openSettings;
   final String changesSaved;
   final String settings;
   final String profile;
@@ -1143,6 +1170,8 @@ class ChatUiLocalizations {
     String? audioPlaybackSpeedTemplate,
     String? audioUploadingTemplate,
     String? attachmentUploadingTemplate,
+    String? cancelUploadLabel,
+    String? retryUploadLabel,
     String? changesSaved,
     String? chooseFromGallery,
     String? createGroup,
@@ -1155,6 +1184,12 @@ class ChatUiLocalizations {
     String? nameTooShortTemplate,
     String? next,
     String? photoUploadFailed,
+    String? cameraTapForPhoto,
+    String? cameraRecordingHint,
+    String? cameraUnavailable,
+    String? cameraPermissionDenied,
+    String? switchCamera,
+    String? openSettings,
     String? profile,
     String? profilePhoto,
     String? removePhoto,
@@ -1419,6 +1454,8 @@ class ChatUiLocalizations {
           audioUploadingTemplate ?? this.audioUploadingTemplate,
       attachmentUploadingTemplate:
           attachmentUploadingTemplate ?? this.attachmentUploadingTemplate,
+      cancelUploadLabel: cancelUploadLabel ?? this.cancelUploadLabel,
+      retryUploadLabel: retryUploadLabel ?? this.retryUploadLabel,
       changesSaved: changesSaved ?? this.changesSaved,
       chooseFromGallery: chooseFromGallery ?? this.chooseFromGallery,
       createGroup: createGroup ?? this.createGroup,
@@ -1431,6 +1468,13 @@ class ChatUiLocalizations {
       nameTooShortTemplate: nameTooShortTemplate ?? this.nameTooShortTemplate,
       next: next ?? this.next,
       photoUploadFailed: photoUploadFailed ?? this.photoUploadFailed,
+      cameraTapForPhoto: cameraTapForPhoto ?? this.cameraTapForPhoto,
+      cameraRecordingHint: cameraRecordingHint ?? this.cameraRecordingHint,
+      cameraUnavailable: cameraUnavailable ?? this.cameraUnavailable,
+      cameraPermissionDenied:
+          cameraPermissionDenied ?? this.cameraPermissionDenied,
+      switchCamera: switchCamera ?? this.switchCamera,
+      openSettings: openSettings ?? this.openSettings,
       profile: profile ?? this.profile,
       profilePhoto: profilePhoto ?? this.profilePhoto,
       removePhoto: removePhoto ?? this.removePhoto,
@@ -1606,6 +1650,8 @@ class ChatUiLocalizations {
     audioPlaybackSpeedTemplate: 'Velocidad {speed}',
     audioUploadingTemplate: 'Subiendo mensaje de voz {percent}%',
     attachmentUploadingTemplate: 'Subiendo {percent}%',
+    cancelUploadLabel: 'Cancelar subida',
+    retryUploadLabel: 'Reintentar subida',
     members: 'miembros',
     online: 'en línea',
     lastSeenTemplate: 'última vez hace {time}',
@@ -1838,6 +1884,12 @@ class ChatUiLocalizations {
     cropPhoto: 'Recortar foto',
     uploadingPhoto: 'Subiendo foto…',
     photoUploadFailed: 'No se pudo subir la foto',
+    cameraTapForPhoto: 'Toca para foto, mantén para vídeo',
+    cameraRecordingHint: 'Mantén pulsado para grabar, pulsa para detener',
+    cameraUnavailable: 'No se pudo iniciar la cámara',
+    cameraPermissionDenied: 'Necesitas permitir el acceso a la cámara',
+    switchCamera: 'Cambiar de cámara',
+    openSettings: 'Abrir ajustes',
     changesSaved: 'Cambios guardados',
     settings: 'Ajustes',
     profile: 'Perfil',
@@ -1893,6 +1945,8 @@ class ChatUiLocalizations {
     audioPlaybackSpeedTemplate: 'Vitesse de lecture {speed}',
     audioUploadingTemplate: 'Envoi du message vocal {percent}%',
     attachmentUploadingTemplate: 'Envoi {percent}%',
+    cancelUploadLabel: "Annuler l'envoi",
+    retryUploadLabel: "Réessayer l'envoi",
     blockUser: 'Bloquer',
     blockUserConfirmBody:
         'Vous ne recevrez plus de messages de cet utilisateur.',
@@ -2124,6 +2178,13 @@ class ChatUiLocalizations {
     cropPhoto: 'Recadrer la photo',
     uploadingPhoto: 'Téléchargement de la photo…',
     photoUploadFailed: 'Impossible de télécharger la photo',
+    cameraTapForPhoto: 'Appuie pour une photo, maintiens pour une vidéo',
+    cameraRecordingHint:
+        'Maintiens appuyé pour enregistrer, appuie pour arrêter',
+    cameraUnavailable: 'Impossible de démarrer la caméra',
+    cameraPermissionDenied: "Tu dois autoriser l'accès à la caméra",
+    switchCamera: 'Changer de caméra',
+    openSettings: 'Ouvrir les réglages',
     changesSaved: 'Modifications enregistrées',
     settings: 'Paramètres',
     profile: 'Profil',
@@ -2178,6 +2239,8 @@ class ChatUiLocalizations {
     audioPlaybackSpeedTemplate: 'Wiedergabegeschwindigkeit {speed}',
     audioUploadingTemplate: 'Sprachnachricht wird hochgeladen {percent}%',
     attachmentUploadingTemplate: 'Wird hochgeladen {percent}%',
+    cancelUploadLabel: 'Upload abbrechen',
+    retryUploadLabel: 'Upload wiederholen',
     blockUser: 'Blockieren',
     blockUserConfirmBody:
         'Du erhältst keine Nachrichten mehr von diesem Benutzer.',
@@ -2412,6 +2475,12 @@ class ChatUiLocalizations {
     cropPhoto: 'Foto zuschneiden',
     uploadingPhoto: 'Foto wird hochgeladen…',
     photoUploadFailed: 'Foto konnte nicht hochgeladen werden',
+    cameraTapForPhoto: 'Tippen für Foto, halten für Video',
+    cameraRecordingHint: 'Gedrückt halten zum Aufnehmen, tippen zum Stoppen',
+    cameraUnavailable: 'Die Kamera konnte nicht gestartet werden',
+    cameraPermissionDenied: 'Du musst den Zugriff auf die Kamera erlauben',
+    switchCamera: 'Kamera wechseln',
+    openSettings: 'Einstellungen öffnen',
     changesSaved: 'Änderungen gespeichert',
     settings: 'Einstellungen',
     profile: 'Profil',
@@ -2466,6 +2535,8 @@ class ChatUiLocalizations {
     audioPlaybackSpeedTemplate: 'Velocità di riproduzione {speed}',
     audioUploadingTemplate: 'Caricamento messaggio vocale {percent}%',
     attachmentUploadingTemplate: 'Caricamento {percent}%',
+    cancelUploadLabel: 'Annulla caricamento',
+    retryUploadLabel: 'Riprova caricamento',
     blockUser: 'Blocca',
     blockUserConfirmBody: 'Non riceverai più messaggi da questo utente.',
     blockUserConfirmTitle: 'Bloccare?',
@@ -2696,6 +2767,12 @@ class ChatUiLocalizations {
     cropPhoto: 'Ritaglia foto',
     uploadingPhoto: 'Caricamento foto…',
     photoUploadFailed: 'Impossibile caricare la foto',
+    cameraTapForPhoto: 'Tocca per foto, tieni premuto per video',
+    cameraRecordingHint: 'Tieni premuto per registrare, tocca per fermare',
+    cameraUnavailable: 'Non è stato possibile avviare la fotocamera',
+    cameraPermissionDenied: "Devi consentire l'accesso alla fotocamera",
+    switchCamera: 'Cambia fotocamera',
+    openSettings: 'Apri impostazioni',
     changesSaved: 'Modifiche salvate',
     settings: 'Impostazioni',
     profile: 'Profilo',
@@ -2750,6 +2827,8 @@ class ChatUiLocalizations {
     audioPlaybackSpeedTemplate: 'Velocidade de reprodução {speed}',
     audioUploadingTemplate: 'Enviando mensagem de voz {percent}%',
     attachmentUploadingTemplate: 'Enviando {percent}%',
+    cancelUploadLabel: 'Cancelar envio',
+    retryUploadLabel: 'Repetir envio',
     blockUser: 'Bloquear',
     blockUserConfirmBody: 'Você não receberá mais mensagens deste usuário.',
     blockUserConfirmTitle: 'Bloquear?',
@@ -2980,6 +3059,12 @@ class ChatUiLocalizations {
     cropPhoto: 'Recortar foto',
     uploadingPhoto: 'Carregando foto…',
     photoUploadFailed: 'Não foi possível enviar a foto',
+    cameraTapForPhoto: 'Toca para foto, mantém pressionado para vídeo',
+    cameraRecordingHint: 'Mantém pressionado para gravar, toca para parar',
+    cameraUnavailable: 'Não foi possível iniciar a câmara',
+    cameraPermissionDenied: 'Precisas de permitir o acesso à câmara',
+    switchCamera: 'Mudar de câmara',
+    openSettings: 'Abrir definições',
     changesSaved: 'Alterações guardadas',
     settings: 'Configurações',
     profile: 'Perfil',
@@ -3033,6 +3118,9 @@ class ChatUiLocalizations {
     audioPlayLabel: 'Reproduir el missatge d\'àudio',
     audioPlaybackSpeedTemplate: 'Velocitat de reproducció {speed}',
     audioUploadingTemplate: 'Pujant el missatge de veu {percent}%',
+    attachmentUploadingTemplate: 'Pujant {percent}%',
+    cancelUploadLabel: 'Cancel·lar la pujada',
+    retryUploadLabel: 'Tornar a provar la pujada',
     blockUser: 'Bloquejar',
     blockUserConfirmBody: 'Ja no rebràs missatges d\'aquest usuari.',
     blockUserConfirmTitle: 'Bloquejar?',
@@ -3258,6 +3346,12 @@ class ChatUiLocalizations {
     cropPhoto: 'Retallar foto',
     uploadingPhoto: 'Pujant foto…',
     photoUploadFailed: 'No s\'ha pogut pujar la foto',
+    cameraTapForPhoto: 'Toca per fer foto, mantén per vídeo',
+    cameraRecordingHint: 'Mantén premut per gravar, toca per aturar',
+    cameraUnavailable: "No s'ha pogut iniciar la càmera",
+    cameraPermissionDenied: "Necessites permetre l'accés a la càmera",
+    switchCamera: 'Canviar de càmera',
+    openSettings: 'Obrir configuració',
     changesSaved: 'Canvis desats',
     settings: 'Configuració',
     profile: 'Perfil',
@@ -4421,6 +4515,8 @@ class ChatUiLocalizations {
     String? audioPauseLabel,
     String? audioUploadingTemplate,
     String? attachmentUploadingTemplate,
+    String? cancelUploadLabel,
+    String? retryUploadLabel,
     String? audioPlaybackSpeedTemplate,
     String? typing,
     String? online,
@@ -4527,6 +4623,12 @@ class ChatUiLocalizations {
     String? cropPhoto,
     String? uploadingPhoto,
     String? photoUploadFailed,
+    String? cameraTapForPhoto,
+    String? cameraRecordingHint,
+    String? cameraUnavailable,
+    String? cameraPermissionDenied,
+    String? switchCamera,
+    String? openSettings,
     String? changesSaved,
     String? settings,
     String? profile,
@@ -4699,6 +4801,8 @@ class ChatUiLocalizations {
         audioPauseLabel: audioPauseLabel,
         audioUploadingTemplate: audioUploadingTemplate,
         attachmentUploadingTemplate: attachmentUploadingTemplate,
+        cancelUploadLabel: cancelUploadLabel,
+        retryUploadLabel: retryUploadLabel,
         audioPlaybackSpeedTemplate: audioPlaybackSpeedTemplate,
         typing: typing,
         online: online,
@@ -4805,6 +4909,12 @@ class ChatUiLocalizations {
         cropPhoto: cropPhoto,
         uploadingPhoto: uploadingPhoto,
         photoUploadFailed: photoUploadFailed,
+        cameraTapForPhoto: cameraTapForPhoto,
+        cameraRecordingHint: cameraRecordingHint,
+        cameraUnavailable: cameraUnavailable,
+        cameraPermissionDenied: cameraPermissionDenied,
+        switchCamera: switchCamera,
+        openSettings: openSettings,
         changesSaved: changesSaved,
         settings: settings,
         profile: profile,

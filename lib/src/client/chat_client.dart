@@ -1357,10 +1357,18 @@ abstract class ChatAttachmentsApi {
   /// final upload = await client.attachments.upload(bytes, mimeType);
   /// final url = upload.dataOrNull?.url;
   /// ```
+  ///
+  /// Pass [cancelToken] to make the transfer abortable — call
+  /// `cancelToken.cancel()` to stop it mid-flight. The resulting failure is
+  /// a [CancelledFailure], distinct from a genuine [NetworkFailure], so
+  /// callers can skip retry/offline-queue handling for a deliberate abort.
+  /// An implementation that cannot interrupt an upload once started is free
+  /// to accept and ignore it.
   Future<ChatResult<AttachmentUploadResult>> upload(
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
+    UploadCancelToken? cancelToken,
   });
 
   /// Resolves a short-lived **signed download URL** for an attachment.

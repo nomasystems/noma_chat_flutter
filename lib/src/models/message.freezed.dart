@@ -26,7 +26,16 @@ mixin _$ChatMessage {
 /// SDK lifts it out to this field so it can reconcile the optimistic
 /// temporary message with the server-assigned [id]. `null` when the
 /// sender did not supply one (e.g. messages from other users).
- String? get clientMessageId; String? get reaction; String? get reply; Map<String, dynamic>? get metadata; ReceiptStatus? get receipt; bool get isEdited; bool get isDeleted; bool get isForwarded; bool get isStarred; bool get isSystem; String? get mimeType; String? get fileName; String? get fileSize; String? get thumbnailUrl;/// `true` when this message was accepted by the server but silently
+ String? get clientMessageId; String? get reaction; String? get reply; Map<String, dynamic>? get metadata; ReceiptStatus? get receipt; bool get isEdited; bool get isDeleted; bool get isForwarded; bool get isStarred; bool get isSystem; String? get mimeType; String? get fileName; String? get fileSize; String? get thumbnailUrl;/// Stable attachment id of the poster frame for a video message — a
+/// **second, separate blob** from [attachmentId], uploaded by
+/// `sendAttachment` alongside the clip. Bubbles need it (not
+/// [attachmentId]) to download the preview: both endpoints are
+/// Bearer-protected, so the id is what the authenticated loader keys
+/// on, and reusing the video's id would hand an image widget the
+/// video's own bytes. `null` for every non-video message, for videos
+/// sent before this field existed, and whenever generation was skipped
+/// or failed — the bubble then falls back to its placeholder.
+ String? get thumbnailAttachmentId;/// `true` when this message was accepted by the server but silently
 /// dropped instead of delivered, because the recipient has blocked
 /// the sender (`POST /contacts/{id}/messages` answers `204 No
 /// Content` in that case — see [ChatContactsApi.sendDirectMessage]).
@@ -65,7 +74,7 @@ abstract mixin class $ChatMessageCopyWith<$Res>  {
   factory $ChatMessageCopyWith(ChatMessage value, $Res Function(ChatMessage) _then) = _$ChatMessageCopyWithImpl;
 @useResult
 $Res call({
- String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? attachmentId, String? referencedMessageId, String? clientMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isStarred, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl, bool silentlyDropped, bool isProvisional
+ String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? attachmentId, String? referencedMessageId, String? clientMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isStarred, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl, String? thumbnailAttachmentId, bool silentlyDropped, bool isProvisional
 });
 
 
@@ -82,7 +91,7 @@ class _$ChatMessageCopyWithImpl<$Res>
 
 /// Create a copy of ChatMessage
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? attachmentId = freezed,Object? referencedMessageId = freezed,Object? clientMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isStarred = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,Object? silentlyDropped = null,Object? isProvisional = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? attachmentId = freezed,Object? referencedMessageId = freezed,Object? clientMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isStarred = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,Object? thumbnailAttachmentId = freezed,Object? silentlyDropped = null,Object? isProvisional = null,}) {
   return _then(_self.copyWith(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
@@ -106,6 +115,7 @@ as bool,mimeType: freezed == mimeType ? _self.mimeType : mimeType // ignore: cas
 as String?,fileName: freezed == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
 as String?,fileSize: freezed == fileSize ? _self.fileSize : fileSize // ignore: cast_nullable_to_non_nullable
 as String?,thumbnailUrl: freezed == thumbnailUrl ? _self.thumbnailUrl : thumbnailUrl // ignore: cast_nullable_to_non_nullable
+as String?,thumbnailAttachmentId: freezed == thumbnailAttachmentId ? _self.thumbnailAttachmentId : thumbnailAttachmentId // ignore: cast_nullable_to_non_nullable
 as String?,silentlyDropped: null == silentlyDropped ? _self.silentlyDropped : silentlyDropped // ignore: cast_nullable_to_non_nullable
 as bool,isProvisional: null == isProvisional ? _self.isProvisional : isProvisional // ignore: cast_nullable_to_non_nullable
 as bool,
@@ -193,10 +203,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? attachmentId,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl,  bool silentlyDropped,  bool isProvisional)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? attachmentId,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl,  String? thumbnailAttachmentId,  bool silentlyDropped,  bool isProvisional)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ChatMessage() when $default != null:
-return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.attachmentId,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl,_that.silentlyDropped,_that.isProvisional);case _:
+return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.attachmentId,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl,_that.thumbnailAttachmentId,_that.silentlyDropped,_that.isProvisional);case _:
   return orElse();
 
 }
@@ -214,10 +224,10 @@ return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? attachmentId,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl,  bool silentlyDropped,  bool isProvisional)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? attachmentId,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl,  String? thumbnailAttachmentId,  bool silentlyDropped,  bool isProvisional)  $default,) {final _that = this;
 switch (_that) {
 case _ChatMessage():
-return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.attachmentId,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl,_that.silentlyDropped,_that.isProvisional);case _:
+return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.attachmentId,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl,_that.thumbnailAttachmentId,_that.silentlyDropped,_that.isProvisional);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -234,10 +244,10 @@ return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? attachmentId,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl,  bool silentlyDropped,  bool isProvisional)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( String id,  String from,  DateTime timestamp,  String? text,  MessageType messageType,  String? attachmentUrl,  String? attachmentId,  String? referencedMessageId,  String? clientMessageId,  String? reaction,  String? reply,  Map<String, dynamic>? metadata,  ReceiptStatus? receipt,  bool isEdited,  bool isDeleted,  bool isForwarded,  bool isStarred,  bool isSystem,  String? mimeType,  String? fileName,  String? fileSize,  String? thumbnailUrl,  String? thumbnailAttachmentId,  bool silentlyDropped,  bool isProvisional)?  $default,) {final _that = this;
 switch (_that) {
 case _ChatMessage() when $default != null:
-return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.attachmentId,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl,_that.silentlyDropped,_that.isProvisional);case _:
+return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType,_that.attachmentUrl,_that.attachmentId,_that.referencedMessageId,_that.clientMessageId,_that.reaction,_that.reply,_that.metadata,_that.receipt,_that.isEdited,_that.isDeleted,_that.isForwarded,_that.isStarred,_that.isSystem,_that.mimeType,_that.fileName,_that.fileSize,_that.thumbnailUrl,_that.thumbnailAttachmentId,_that.silentlyDropped,_that.isProvisional);case _:
   return null;
 
 }
@@ -249,7 +259,7 @@ return $default(_that.id,_that.from,_that.timestamp,_that.text,_that.messageType
 
 
 class _ChatMessage extends ChatMessage {
-  const _ChatMessage({required this.id, required this.from, required this.timestamp, this.text, this.messageType = MessageType.regular, this.attachmentUrl, this.attachmentId, this.referencedMessageId, this.clientMessageId, this.reaction, this.reply, final  Map<String, dynamic>? metadata, this.receipt, this.isEdited = false, this.isDeleted = false, this.isForwarded = false, this.isStarred = false, this.isSystem = false, this.mimeType, this.fileName, this.fileSize, this.thumbnailUrl, this.silentlyDropped = false, this.isProvisional = false}): _metadata = metadata,super._();
+  const _ChatMessage({required this.id, required this.from, required this.timestamp, this.text, this.messageType = MessageType.regular, this.attachmentUrl, this.attachmentId, this.referencedMessageId, this.clientMessageId, this.reaction, this.reply, final  Map<String, dynamic>? metadata, this.receipt, this.isEdited = false, this.isDeleted = false, this.isForwarded = false, this.isStarred = false, this.isSystem = false, this.mimeType, this.fileName, this.fileSize, this.thumbnailUrl, this.thumbnailAttachmentId, this.silentlyDropped = false, this.isProvisional = false}): _metadata = metadata,super._();
   
 
 @override final  String id;
@@ -294,6 +304,16 @@ class _ChatMessage extends ChatMessage {
 @override final  String? fileName;
 @override final  String? fileSize;
 @override final  String? thumbnailUrl;
+/// Stable attachment id of the poster frame for a video message — a
+/// **second, separate blob** from [attachmentId], uploaded by
+/// `sendAttachment` alongside the clip. Bubbles need it (not
+/// [attachmentId]) to download the preview: both endpoints are
+/// Bearer-protected, so the id is what the authenticated loader keys
+/// on, and reusing the video's id would hand an image widget the
+/// video's own bytes. `null` for every non-video message, for videos
+/// sent before this field existed, and whenever generation was skipped
+/// or failed — the bubble then falls back to its placeholder.
+@override final  String? thumbnailAttachmentId;
 /// `true` when this message was accepted by the server but silently
 /// dropped instead of delivered, because the recipient has blocked
 /// the sender (`POST /contacts/{id}/messages` answers `204 No
@@ -335,7 +355,7 @@ abstract mixin class _$ChatMessageCopyWith<$Res> implements $ChatMessageCopyWith
   factory _$ChatMessageCopyWith(_ChatMessage value, $Res Function(_ChatMessage) _then) = __$ChatMessageCopyWithImpl;
 @override @useResult
 $Res call({
- String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? attachmentId, String? referencedMessageId, String? clientMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isStarred, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl, bool silentlyDropped, bool isProvisional
+ String id, String from, DateTime timestamp, String? text, MessageType messageType, String? attachmentUrl, String? attachmentId, String? referencedMessageId, String? clientMessageId, String? reaction, String? reply, Map<String, dynamic>? metadata, ReceiptStatus? receipt, bool isEdited, bool isDeleted, bool isForwarded, bool isStarred, bool isSystem, String? mimeType, String? fileName, String? fileSize, String? thumbnailUrl, String? thumbnailAttachmentId, bool silentlyDropped, bool isProvisional
 });
 
 
@@ -352,7 +372,7 @@ class __$ChatMessageCopyWithImpl<$Res>
 
 /// Create a copy of ChatMessage
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? attachmentId = freezed,Object? referencedMessageId = freezed,Object? clientMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isStarred = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,Object? silentlyDropped = null,Object? isProvisional = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? id = null,Object? from = null,Object? timestamp = null,Object? text = freezed,Object? messageType = null,Object? attachmentUrl = freezed,Object? attachmentId = freezed,Object? referencedMessageId = freezed,Object? clientMessageId = freezed,Object? reaction = freezed,Object? reply = freezed,Object? metadata = freezed,Object? receipt = freezed,Object? isEdited = null,Object? isDeleted = null,Object? isForwarded = null,Object? isStarred = null,Object? isSystem = null,Object? mimeType = freezed,Object? fileName = freezed,Object? fileSize = freezed,Object? thumbnailUrl = freezed,Object? thumbnailAttachmentId = freezed,Object? silentlyDropped = null,Object? isProvisional = null,}) {
   return _then(_ChatMessage(
 id: null == id ? _self.id : id // ignore: cast_nullable_to_non_nullable
 as String,from: null == from ? _self.from : from // ignore: cast_nullable_to_non_nullable
@@ -376,6 +396,7 @@ as bool,mimeType: freezed == mimeType ? _self.mimeType : mimeType // ignore: cas
 as String?,fileName: freezed == fileName ? _self.fileName : fileName // ignore: cast_nullable_to_non_nullable
 as String?,fileSize: freezed == fileSize ? _self.fileSize : fileSize // ignore: cast_nullable_to_non_nullable
 as String?,thumbnailUrl: freezed == thumbnailUrl ? _self.thumbnailUrl : thumbnailUrl // ignore: cast_nullable_to_non_nullable
+as String?,thumbnailAttachmentId: freezed == thumbnailAttachmentId ? _self.thumbnailAttachmentId : thumbnailAttachmentId // ignore: cast_nullable_to_non_nullable
 as String?,silentlyDropped: null == silentlyDropped ? _self.silentlyDropped : silentlyDropped // ignore: cast_nullable_to_non_nullable
 as bool,isProvisional: null == isProvisional ? _self.isProvisional : isProvisional // ignore: cast_nullable_to_non_nullable
 as bool,

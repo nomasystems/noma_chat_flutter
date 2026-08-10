@@ -39,6 +39,7 @@ class ChatViewBuilders {
     this.batchUserFetcher,
     this.audioUploadProgressFor,
     this.attachmentUploadProgressFor,
+    this.attachmentUploadCancellableFor,
     this.linkPreviewFetcher,
     this.avatarRebuildSignal,
     this.statusIconBuilder,
@@ -76,6 +77,21 @@ class ChatViewBuilders {
   /// host wiring anything.
   final ValueListenable<double>? Function(String messageId)?
   attachmentUploadProgressFor;
+
+  /// Per-message resolver that reports whether the upload behind
+  /// [attachmentUploadProgressFor] can still be aborted — the signal behind
+  /// the cancel X painted inside the ring. Returning `null` means there is
+  /// no send in flight for that id.
+  ///
+  /// A second resolver rather than a reading of the first because the two
+  /// have different lifetimes: the ring stays up until the row can render
+  /// its own media (bytes uploaded, poster frame uploaded, send
+  /// acknowledged), while cancelling stops working the instant the bytes
+  /// land. Defaults (when `null`, the default [ChatView]/[NomaChatView]
+  /// wiring) to `ChatUiAdapter.attachmentUploadCancellableFor`, so the X
+  /// disappears on time out of the box.
+  final ValueListenable<bool>? Function(String messageId)?
+  attachmentUploadCancellableFor;
 
   /// Custom text for system messages. Wins over the default text when it
   /// returns a string, but [systemMessageBuilder] is consulted first and
@@ -200,6 +216,7 @@ class ChatViewCallbacks {
     this.onPermissionDenied,
     this.onContextMenuAction,
     this.onRetryMessage,
+    this.onCancelAttachmentUpload,
     this.onFetchReactions,
     this.onUnblock,
   });
@@ -263,6 +280,15 @@ class ChatViewCallbacks {
   onContextMenuAction;
 
   final ValueChanged<ChatMessage>? onRetryMessage;
+
+  /// Cancels an in-flight photo/video/file attachment upload for [message]
+  /// — fired by the X shown centered in the upload-progress ring while
+  /// [ChatViewBuilders.attachmentUploadProgressFor] reports one in flight.
+  /// `null` (default) renders that ring without a tappable X, same as
+  /// leaving [onTapVideo] unset hides `VideoBubble`'s play overlay: the SDK
+  /// never paints an affordance it cannot honour. `NomaChatView` defaults
+  /// this to `ChatUiAdapter.cancelAttachmentUpload`.
+  final ValueChanged<ChatMessage>? onCancelAttachmentUpload;
 
   /// Fetches aggregated reactions for the tapped message — backs the
   /// reaction detail sheet's "who reacted" list.

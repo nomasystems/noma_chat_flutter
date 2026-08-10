@@ -84,6 +84,7 @@ void main() {
           any(),
           any(),
           onProgress: any(named: 'onProgress'),
+          cancelToken: any(named: 'cancelToken'),
         ),
       ).thenAnswer((_) async {
         uploadAttempts++;
@@ -157,6 +158,7 @@ void main() {
                   captureAny(),
                   'image/png',
                   onProgress: any(named: 'onProgress'),
+                  cancelToken: any(named: 'cancelToken'),
                 ),
               ).captured.last
               as Uint8List;

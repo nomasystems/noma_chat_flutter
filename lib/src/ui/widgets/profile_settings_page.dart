@@ -271,6 +271,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
               fallbackInitials: initialsOf(me.displayName),
               size: 140,
               theme: widget.theme,
+              onMetric: widget.adapter.metricCallback,
               onChanged: _onAvatarChanged,
             ),
           ),

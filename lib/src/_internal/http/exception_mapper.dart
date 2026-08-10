@@ -51,6 +51,7 @@ ChatFailure mapExceptionToFailure(Object e) {
       errorToken: e.errorToken ?? ChatErrorTokens.rateLimited,
     );
   }
+  if (e is ChatCancelledException) return CancelledFailure(e.message);
   if (e is ChatNetworkException) return NetworkFailure(e.message);
   if (e is ChatTimeoutException) return TimeoutFailure(kind: e.kind);
   if (e is ChatApiException) {

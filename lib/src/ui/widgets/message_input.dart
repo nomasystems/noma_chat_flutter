@@ -8,7 +8,6 @@ import '../models/link_preview_metadata.dart';
 import '../models/send_message_request.dart';
 import '../models/voice_message_data.dart';
 import '../services/attachment_bytes_loader.dart';
-import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
 import '../theme/chat_theme.dart';
 import '../utils/url_detector.dart';
@@ -710,21 +709,6 @@ class _MessageInputState extends State<MessageInput> {
     );
   }
 
-  /// Built only when the controller is bound to a real room — `null` for
-  /// a draft DM that hasn't been materialized yet, which keeps the
-  /// pinned reply thumbnail on the plain-URL path with zero behaviour
-  /// change (same fallback [ReplyPreview] already had).
-  AttachmentRef? _replyingToAttachmentRef(ChatMessage replyingTo) {
-    final rid = widget.controller.roomId;
-    final url = replyingTo.attachmentUrl;
-    if (rid == null || url == null) return null;
-    return AttachmentRef(
-      roomId: rid,
-      attachmentId: replyingTo.attachmentId,
-      fallbackUrl: url,
-    );
-  }
-
   Widget _buildPreviewBanner() {
     return ListenableBuilder(
       listenable: widget.controller,
@@ -808,7 +792,7 @@ class _MessageInputState extends State<MessageInput> {
             theme: widget.theme,
             onDismiss: () => widget.controller.setReplyTo(null),
             mediaLoader: widget.attachmentMediaLoader,
-            attachmentRef: _replyingToAttachmentRef(replyingTo),
+            roomId: widget.controller.roomId,
           ),
         );
       },

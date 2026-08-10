@@ -107,6 +107,7 @@ export 'src/ui/models/reaction_user.dart';
 export 'src/ui/models/room_list_item.dart';
 export 'src/ui/models/attachment_policy.dart';
 export 'src/ui/models/attachment_rejection.dart';
+export 'src/ui/models/camera_capture_result.dart';
 export 'src/ui/models/send_message_request.dart';
 export 'src/ui/models/suggested_contact.dart';
 export 'src/ui/models/voice_message_data.dart';
@@ -152,6 +153,7 @@ export 'src/ui/utils/last_message_preview.dart';
 export 'src/ui/utils/url_detector.dart';
 export 'src/ui/utils/markdown_parser.dart';
 export 'src/ui/utils/mime_classifier.dart';
+export 'src/ui/utils/platform_support.dart';
 export 'src/ui/utils/read_receipts_helper.dart';
 
 // === UI: Dialogs ===
@@ -197,6 +199,7 @@ export 'src/ui/services/link_preview_fetcher.dart';
 export 'src/ui/services/attachment_pickers.dart';
 export 'src/ui/services/attachment_bytes_loader.dart';
 export 'src/ui/services/attachment_url_resolver.dart';
+export 'src/ui/services/video_thumbnailer.dart';
 export 'src/ui/widgets/bubbles/link_preview_bubble.dart';
 export 'src/ui/widgets/bubbles/forwarded_bubble.dart';
 export 'src/ui/widgets/message_status_icon.dart';
@@ -243,5 +246,6 @@ export 'src/ui/widgets/swipe_to_reply.dart';
 export 'src/ui/widgets/typing_status_text.dart';
 
 // === UI: Pages ===
+export 'src/ui/pages/camera_capture_page.dart';
 export 'src/ui/pages/media_gallery_page.dart';
 export 'src/ui/pages/starred_messages_page.dart';

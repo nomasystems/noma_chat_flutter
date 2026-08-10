@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../pages/camera_capture_page.dart';
 import '../theme/chat_theme.dart';
 
 /// One row inside [AttachmentPickerSheet]. Used both for the built-in
@@ -58,6 +59,13 @@ class AttachmentPickerSheet extends StatelessWidget {
     this.theme = ChatTheme.defaults,
   });
 
+  /// Opens the camera. `null` drops the row entirely.
+  ///
+  /// `NomaChatView` fills this in for you: on Android / iOS with the SDK's
+  /// own [CameraCapturePage] (tap for a still, hold for a clip) and
+  /// elsewhere with `image_picker`'s system camera, both sending the
+  /// capture straight to the room. Set `ChatViewCallbacks.onPickCamera` to
+  /// take the flow over.
   final VoidCallback? onPickCamera;
   final VoidCallback? onPickGallery;
   final VoidCallback? onPickFile;

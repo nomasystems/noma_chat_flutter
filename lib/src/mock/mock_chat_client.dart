@@ -1266,22 +1266,37 @@ class MockAttachmentsApi implements ChatAttachmentsApi {
   /// bytes a second time.
   int uploadCount = 0;
 
+  /// MIME type of every [upload] call, in order. Lets a test assert that a
+  /// path uploading more than one blob — `sendAttachment` on a video, which
+  /// posts the clip and then its poster frame — sent the right payloads.
+  final List<String> uploadedMimeTypes = [];
+
+  /// Mints the id [upload] answers with, given the 1-based call number.
+  /// `null` (default) answers `mock-attachment-1` for every call, so a
+  /// single-upload test can hardcode it. Set
+  /// `(n) => 'mock-attachment-$n'` when the test needs consecutive uploads
+  /// to be distinguishable.
+  String Function(int uploadNumber)? uploadAttachmentId;
+
   @override
   Future<ChatResult<AttachmentUploadResult>> upload(
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
+    UploadCancelToken? cancelToken,
   }) async {
     uploadCount++;
+    uploadedMimeTypes.add(mimeType);
+    if (cancelToken?.isCancelled ?? false) {
+      return const ChatFailureResult(CancelledFailure());
+    }
     if (failNextUpload) {
       failNextUpload = false;
       return const ChatFailureResult(NetworkFailure('mock upload failure'));
     }
-    return const ChatSuccess(
-      AttachmentUploadResult(
-        attachmentId: 'mock-attachment-1',
-        raw: {'attachmentId': 'mock-attachment-1'},
-      ),
+    final id = uploadAttachmentId?.call(uploadCount) ?? 'mock-attachment-1';
+    return ChatSuccess(
+      AttachmentUploadResult(attachmentId: id, raw: {'attachmentId': id}),
     );
   }
 

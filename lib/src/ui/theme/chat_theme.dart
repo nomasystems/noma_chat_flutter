@@ -21,7 +21,7 @@ part 'chat_theme.freezed.dart';
 ///
 /// - [bubble] — [ChatBubbleTheme]: message bubble surface, text styles,
 ///   timestamps, receipt status, mentions, edited / forwarded labels,
-///   sender name, failed-message icon.
+///   sender name, failed-message icon, attachment upload-progress ring.
 /// - [input] — [ChatInputTheme]: composer, side buttons (send / attach /
 ///   voice / camera), editing banner, reply preview.
 /// - [roomList] — [ChatRoomListTheme]: tiles, last-message preview,
@@ -157,6 +157,26 @@ abstract class ChatTheme with _$ChatTheme {
     Color? imageViewerBackgroundColor,
     Color? imageViewerIconColor,
 
+    // In-app camera capture (`CameraCapturePage`)
+    Color? cameraCaptureBackgroundColor,
+
+    /// Tint of everything drawn over the preview: close / flip icons, the
+    /// shutter ring, the elapsed-time text and the error copy.
+    Color? cameraCaptureForegroundColor,
+
+    /// Fill of the shutter and of the elapsed-time pill while recording.
+    Color? cameraCaptureRecordingColor,
+
+    /// Translucent backing of the "your clip was lost" notice.
+    Color? cameraCaptureOverlayColor,
+
+    /// Style of the hint under the shutter and of the interruption notice.
+    TextStyle? cameraCaptureHintStyle,
+
+    /// Outer diameter of the shutter. Falls back to
+    /// [RoomDefaults.cameraShutterSize].
+    double? cameraCaptureShutterSize,
+
     // Presence dots
     Color? presenceAvailableColor,
     Color? presenceAwayColor,
@@ -197,6 +217,7 @@ abstract class ChatTheme with _$ChatTheme {
         incomingTextStyle: TextStyle(color: textPrimary, fontSize: 14),
         timestampStyle: TextStyle(color: textSecondary, fontSize: 11),
         statusColor: Color(0xFF9E9E9E),
+        uploadProgressColor: accentGreen,
       ),
       input: ChatInputTheme(
         backgroundColor: surfaceLight,
@@ -283,6 +304,7 @@ abstract class ChatTheme with _$ChatTheme {
         outgoingTextStyle: TextStyle(color: textPrimary, fontSize: 14),
         incomingTextStyle: TextStyle(color: textPrimary, fontSize: 14),
         timestampStyle: TextStyle(color: textSecondary, fontSize: 11),
+        uploadProgressColor: accentTeal,
       ),
       input: ChatInputTheme(
         backgroundColor: surfaceInput,
@@ -367,10 +389,10 @@ abstract class ChatTheme with _$ChatTheme {
   /// Builds a quick brand-tinted theme without having to override every
   /// slot individually. [accent] drives every accent surface the SDK
   /// renders — outgoing bubble, send / attach / camera buttons, audio
-  /// play, unread badge, read receipt — so a host app gets a consistent
-  /// brand look from a single colour. [contrastingOnAccent] should pass
-  /// WCAG AA against [accent] (white for saturated brands; black for
-  /// pastels).
+  /// play, unread badge, read receipt, attachment upload-progress ring —
+  /// so a host app gets a consistent brand look from a single colour.
+  /// [contrastingOnAccent] should pass WCAG AA against [accent] (white for
+  /// saturated brands; black for pastels).
   ///
   /// ```dart
   /// final theme = ChatTheme.branded(
@@ -386,6 +408,7 @@ abstract class ChatTheme with _$ChatTheme {
         outgoingColor: accent,
         outgoingTextStyle: TextStyle(color: contrastingOnAccent, fontSize: 14),
         statusReadColor: accent,
+        uploadProgressColor: accent,
       ),
       input: ChatInputTheme(
         sendButtonColor: accent,

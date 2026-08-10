@@ -1214,6 +1214,76 @@ shows the ring out of the box — nothing to configure for the common case.
 Supply your own `attachmentUploadProgressFor` on `ChatViewBuilders` only if
 you need a different resolver (it wins over the default).
 
+The ring itself is determinate and fills in
+`ChatBubbleTheme.uploadProgressColor` (falls back to `statusColor`, then to
+the same green as the send button / unread badge), with an X centered on
+top that cancels the upload — never the retry arrow, which only ever
+belongs to a message that has actually failed (see below). `NomaChatView`
+wires the X **by default** too: `ChatViewCallbacks.onCancelAttachmentUpload`
+defaults to `ChatUiAdapter.cancelAttachmentUpload(messageId)`. Cancelling
+removes the provisional bubble entirely — the user chose to abort, so
+there's nothing to retry — rather than leaving it behind marked failed.
+Supply your own `onCancelAttachmentUpload` only to change what cancelling
+does; leaving it `null` on a bare `ImageBubble`/`VideoBubble`/`FileBubble`
+(used outside `ChatView`) renders the ring without a tappable X instead of
+a dead button.
+
+The X and the ability to cancel share one lifetime: both end the instant
+the bytes land. The **ring** does not — it stays up through everything a
+send still has to do after that (a video's poster frame, then the message
+itself), because until the send resolves the row carries no attachment URL
+and a bubble out of the ring would resolve an empty one: a broken image, or
+a video placeholder with a live play button that opens nothing.
+
+Those are two signals, and `ChatViewBuilders` has one resolver for each:
+
+| Resolver | Answers | Ends when |
+|---|---|---|
+| `attachmentUploadProgressFor` → `ValueListenable<double>?` | how full is the ring | the row has a real final state (sent, or failed) |
+| `attachmentUploadCancellableFor` → `ValueListenable<bool>?` | is the X tappable | the bytes land — `cancelAttachmentUpload` can no longer abort anything |
+
+`NomaChatView` defaults **both**, to `ChatUiAdapter.attachmentUploadProgressFor`
+and `ChatUiAdapter.attachmentUploadCancellableFor` respectively — nothing to
+configure for the common case. Override either on `ChatViewBuilders` (each
+wins over its default independently) when you need your own resolver.
+
+Cancellability is a *listenable* rather than a plain `bool` on purpose: it
+flips in the middle of a ring's life, with nothing else changing that would
+rebuild the row. Returning `null` from a wired resolver means "no send in
+flight", the same as `attachmentUploadProgressFor`. A bare
+`MessageBubble`/`ImageBubble` used outside `ChatView` that leaves
+`attachmentUploadCancellable` unset keeps its `onCancelAttachmentUpload`
+exactly as wired.
+
+A failed upload does not render inside the ring at all: `uploadProgress`
+becomes `null` once the upload settles. For `ImageBubble`/`VideoBubble`
+that swaps the ring for `AttachmentFailedPlaceholder` — the same
+blurred-media stand-in, now centered on `AttachmentRetryIcon` instead of
+the progress ring. `FileBubble` has no separate media area, so it swaps its
+leading file-type icon for the same `AttachmentRetryIcon` instead. Tapping
+the arrow calls the bubble's `onRetry` — `MessageBubble` forwards the exact
+callback the status-row icon already used,
+which `NomaChatView` wires by default through
+`ChatViewCallbacks.onRetryMessage` to `adapter.messages.retrySend`. There
+is no second retry path: the arrow fires the same retry a screen reader's
+"Retry" custom action already triggers.
+
+Uploading and failed are mutually exclusive, so the arrow can never appear
+mid-upload. It also only appears when a retry can actually get anywhere.
+`retrySend` refuses a media row whose bytes never reached the server — it
+retains none, so there is nothing to re-drive and the only way forward is
+picking the file again — and `MessageBubble` mirrors that rule: such a row
+gets the same failed placeholder with a **static error glyph** instead of
+the retry arrow, and keeps its metadata-row failed icon, whose tap surfaces
+the localized "that file was never uploaded" notice through
+`OperationFeedbackListener`. Passing `onRetry: null` to a bare
+`ImageBubble`/`VideoBubble`/`FileBubble` does the same thing. Only when the
+media does paint a **working** arrow does `MessageBubble` suppress the
+metadata row's small failed-message icon, so the two never duplicate the
+same tap target. Text and audio messages have no media area to paint an
+arrow over, so they keep the status-row icon as their only retry
+affordance.
+
 #### Downloading / displaying — signed URLs (primary path)
 
 The robust default is the **signed-URL** flow. Given an attachment id and the
@@ -1301,7 +1371,7 @@ policy for small tweaks.
 
 #### Photo metadata is stripped for you
 
-Every picked image loses its metadata before it becomes an
+Every picked image is rebuilt from its pixels before it becomes an
 `AttachmentPickResult`, so the **GPS coordinates and capture timestamp of a
 photo never reach the other members of a room**. You do not have to opt in,
 and there is no flag to keep them.
@@ -1313,15 +1383,65 @@ Two passes are needed because neither platform is covered by the other:
   re-encoded without its EXIF block. On Android it changes nothing:
   `image_picker_android` copies EXIF from the source file unconditionally
   whenever it resizes (any `imageQuality < 100`), with no flag to suppress it.
-- `JpegMetadataStripper` then walks the picked bytes and drops the EXIF,
-  XMP/IPTC and comment segments. It carries no image-processing dependency.
+- `ImageMetadataScrubber` then decodes the picked bytes and encodes a fresh
+  file from the pixel buffer alone. Not one byte of the container the user
+  picked reaches the output, which is what makes the guarantee structural
+  rather than a list of segments somebody remembered to drop: EXIF, XMP,
+  IPTC, JUMBF/C2PA, the ICC profile, embedded thumbnails, comments, and the
+  MP4 a Motion Photo appends past the end of the picture are all absent for
+  the same reason — they were never copied.
 
-The stripper is deliberately conservative: a non-JPEG, a truncated file, or
-any segment it cannot parse with full confidence comes back **untouched**.
-Corrupting someone's photo is a worse outcome than leaving metadata on it.
+The rotation is baked into the pixels, so no orientation tag is written and
+none is needed.
+
+Colour is carried across the same way: as a value, never as bytes. The decoder
+is not colour managed, so a Display P3 capture keeps its P3 numbers and needs a
+profile for the receiver to read them by — and forwarding the source's would
+reopen the channel the rebuild exists to close. So the source profile is parsed
+only far enough to name the space, dropped with everything else, and the output
+gets a profile the SDK **builds from published constants** (chromaticities, a
+white point, a Bradford matrix, five transfer-curve parameters). What comes out
+is a function of those constants and one enum value, and nothing else.
+
+- A **Display P3** source is re-issued as a canonical 512-byte Display P3
+  profile, which costs 530 bytes on a JPEG and about 310 on a PNG. Its
+  colorant and tone-curve tags reproduce the profile Apple ships bit for bit.
+- An **sRGB** source is left untagged, because untagged already means sRGB to
+  every receiver and a redundant half-kilobyte on the most common photo in the
+  world buys nothing.
+- **Anything else** — Adobe RGB, Rec. 2020, ProPhoto, or a profile too
+  malformed to read — is left untagged and **reported as such**. Those pixels
+  are read as sRGB and reach the receiver oversaturated, the same as before;
+  converting them would need a colour engine the SDK does not carry. Watch
+  `colour_profile` in the metric if that matters to you.
+
+**JPEG is re-encoded**, at quality 90 with 4:2:0 chroma — a second lossy
+generation over whatever the picker already wrote, for roughly 20% more bytes
+than a same-quality pass would cost.
+
+Only JPEG and PNG are rebuilt; they are the two formats that can be written
+back in the format they arrived in. A HEIC, WebP, GIF, video or PDF comes back
+**untouched** under `unsupported_format`. So does a file the decoder cannot
+read: corrupting someone's photo is a worse outcome than leaving metadata on
+it, so a rare odd-but-valid picture stays sendable.
+
+Untouched means the metadata is still on the file, so that outcome is not
+silent. Every pass emits one `image_metadata_strip` metric on
+`ChatConfig.metricCallback` — `outcome: stripped | not_stripped |
+unsupported_format`, plus the format, the reason, and `colour_profile` saying
+what the output actually carries. Wire the callback
+(`NomaChat.create(metricCallback: …)`) and a photo that could not be cleaned
+stops looking exactly like one that was. See
+[TELEMETRY.md](../TELEMETRY.md). Nothing is collected when it is `null`, and a
+callback that throws can never fail the send.
+
+The work runs on a background isolate everywhere except web, where `compute`
+has no isolate to move it to.
 
 This applies to `pickFile` too, so a photo attached through the generic file
-picker is covered as well.
+picker is covered as well, and to the avatar picker — pass
+`AvatarPickerField(onMetric: …)` to see its outcome, which matters most on
+desktop, where there is no native cropper to re-encode the pick afterwards.
 
 Every `AttachmentPickers` method (`pickImageFromCamera`,
 `pickImageFromGallery`, `pickVideoFromGallery`, `pickMultipleMedia`,
@@ -1902,7 +2022,8 @@ NomaChatView(
 > (`video_player`, a full-screen route, an external app — your call) and the
 > overlay comes back. Re-mint the URL through
 > `chat.adapter.defaultAttachmentUrlResolver` before handing it to a player,
-> for the same expiry reason as `ImageViewer` above.
+> for the same expiry reason as `ImageViewer` above. The still behind the
+> overlay is handled for you — see [VideoThumbnailer](#videothumbnailer).
 
 #### ReportMessageDialog
 
@@ -2294,6 +2415,66 @@ NomaChat.create(
 ```
 
 Implement `AvatarStorage` with `upload(Uint8List bytes) → Future<String>` (returns the public URL).
+
+### VideoThumbnailer
+
+A video bubble needs a poster frame, and the backend is a pure blob store —
+it never samples an uploaded clip. So the sending client is the only place
+one can come from: `sendAttachment` extracts a frame, uploads it as a
+**second, small blob with its own attachment id**, and stamps that id into
+the message metadata. The receiving bubble downloads it through the same
+authenticated media loader it uses for photos.
+
+The default `NativeVideoThumbnailer` uses the platform decoder
+(`MediaMetadataRetriever` / `AVAssetImageGenerator`) and is wired for you —
+nothing to pass. Override it to route generation elsewhere:
+
+```dart
+NomaChat.create(
+  ...
+  videoThumbnailer: MyServerSideThumbnailer(),   // or const NoVideoThumbnailer()
+)
+```
+
+```dart
+class MyServerSideThumbnailer implements VideoThumbnailer {
+  @override
+  Future<VideoThumbnailData?> generate(
+    Uint8List videoBytes, {
+    required String mimeType,
+  }) async {
+    final jpeg = await myPipeline.posterFrame(videoBytes);
+    return jpeg == null ? null : VideoThumbnailData(bytes: jpeg);
+  }
+}
+```
+
+Contract worth knowing before you plug something in:
+
+- **Return `null`, never throw.** Generation is an enrichment: a video that
+  arrives without a preview is a degraded success, one that fails to send
+  because its preview failed is a bug. Every failure — unsupported platform,
+  unreadable container, a failed thumbnail upload, or the whole step
+  exceeding `RoomDefaults.videoThumbnailTimeout` — sends the clip anyway.
+- **It runs only after the clip's own upload succeeded**, so a cancelled or
+  failed send never reaches it, and the visible upload ring tracks the clip
+  alone — the poster frame's few tens of kilobytes are deliberately outside
+  it. The cancel X is already gone by the time generation starts; the ring
+  itself stays, full, until the send resolves. See "Upload progress" above.
+- **One budget, spent two ways.** `RoomDefaults.videoThumbnailTimeout`
+  covers generation and the poster frame's upload together, but generation
+  cannot observe a cancel token — a wedged platform decoder is only
+  escapable by walking away from it — so it is bounded by abandoning it,
+  while the upload is bounded by cancelling it. An upload that settles
+  anyway, in the instant the deadline fires, is *used* rather than
+  discarded: throwing away a POST that already succeeded is precisely how a
+  blob nothing references gets created. A `signOut()`/`dispose()` in that
+  window cancels the same token before the send is reached at all.
+- **Android / iOS only by default** (`PlatformSupport.supportsVideoThumbnails`).
+  Elsewhere the built-in returns `null` and bubbles keep the placeholder +
+  play button; a host-supplied implementation is free to work everywhere.
+- **Videos sent before this existed have no poster frame and never will** —
+  they render exactly as they always did.
 
 ---
 

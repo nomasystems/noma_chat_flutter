@@ -59,8 +59,11 @@ lib/
         │                       # bubbles/, ReactionBar, TypingIndicator,
         │                       # ImageViewer, voice recorder, etc.
         ├── models/             # UI-only models (RoomListItem, policies)
-        ├── services/           # Attachment pickers, link preview fetcher
-        ├── pages/              # MediaGalleryPage, StarredMessagesPage
+        ├── services/           # Attachment pickers, authenticated media
+        │                       # loader, signed-url resolver, video
+        │                       # thumbnailer, link preview fetcher
+        ├── pages/              # MediaGalleryPage, StarredMessagesPage,
+        │                       # CameraCapturePage (+ its recording gate)
         ├── theme/              # ChatTheme + bubble / input / roomList /
         │                       # markdown sub-themes (155+ fields)
         ├── l10n/               # ChatUiLocalizations — every bundled locale
@@ -156,7 +159,19 @@ Bridges SDK events to UI controllers.
 - `RoomEnricher` awaits a presence bootstrap (`presence.getAll()`) before returning, so `RoomListItem.isOnline` is populated from the first render.
 
 **Actions exposed:**
-- `sendMessage`, `sendVoiceMessage` (optimistic + upload progress + send).
+- `sendMessage`, `sendVoiceMessage`, `sendAttachment` (optimistic + upload
+  progress + send). `sendAttachment`'s upload is cancellable —
+  `cancelAttachmentUpload(messageId)` aborts the transfer via an
+  `UploadCancelToken` and removes the provisional bubble; a genuine
+  transfer failure is mapped separately (`CancelledFailure` vs.
+  `NetworkFailure`) so a deliberate cancel never triggers the
+  failed-message/retry or offline-queue paths. A `video/*` payload also
+  gets a poster frame: `VideoThumbnailer` extracts one on-device, it is
+  uploaded as a second small blob with its own attachment id, and that id
+  travels on the message metadata so the bubble can render a real still.
+  Strictly best-effort and outside the progress ring / cancel token — it
+  runs only once the clip's own upload has succeeded, and any failure sends
+  the video preview-less rather than not at all.
 - `editMessage`, `deleteMessage`, `sendReaction`, `deleteReaction`, `pinMessage`, etc.
 - `markAsRead` on `dispose` (leaving the chat), when `autoMarkAsRead` is on (default).
 

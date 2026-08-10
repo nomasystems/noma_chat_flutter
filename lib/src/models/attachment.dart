@@ -30,3 +30,38 @@ abstract class AttachmentSignedUrl with _$AttachmentSignedUrl {
     required Map<String, dynamic> raw,
   }) = _AttachmentSignedUrl;
 }
+
+/// Cancellation handle for an in-flight [ChatAttachmentsApi.upload].
+///
+/// Create one per upload and pass it via the `cancelToken` parameter; call
+/// [cancel] later to abort the transfer. Deliberately transport-agnostic —
+/// unlike Dio's own `CancelToken` — so the abstraction stays usable from a
+/// [ChatAttachmentsApi] implementation that isn't Dio-backed; one that
+/// cannot interrupt an upload once started is free to accept and ignore it.
+class UploadCancelToken {
+  bool _cancelled = false;
+  void Function()? _onCancel;
+
+  /// `true` once [cancel] has been called.
+  bool get isCancelled => _cancelled;
+
+  /// Aborts the upload this token was handed to. Safe to call more than
+  /// once or after the upload already settled — a no-op past the first call.
+  void cancel() {
+    if (_cancelled) return;
+    _cancelled = true;
+    _onCancel?.call();
+  }
+
+  /// Lets the transport react the instant [cancel] fires instead of
+  /// polling [isCancelled]. Package-internal wiring between
+  /// `RestClient.uploadBinary` and this token — not for host use.
+  @internal
+  void bindOnCancel(void Function() onCancel) {
+    if (_cancelled) {
+      onCancel();
+    } else {
+      _onCancel = onCancel;
+    }
+  }
+}

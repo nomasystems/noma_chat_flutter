@@ -89,4 +89,102 @@ void main() {
       expect(find.byIcon(Icons.picture_as_pdf), findsOneWidget);
     });
   });
+
+  group('FileBubble — failed upload retry', () {
+    testWidgets(
+      'shows a retry icon instead of the file-type icon when failed and '
+      'onRetry is wired',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            FileBubble(
+              fileName: 'report.pdf',
+              mimeType: 'application/pdf',
+              isFailed: true,
+              onRetry: () {},
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.picture_as_pdf), findsNothing);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
+      },
+    );
+
+    testWidgets('tapping the retry icon calls onRetry', (tester) async {
+      var retried = false;
+      await tester.pumpWidget(
+        wrap(
+          FileBubble(
+            fileName: 'report.pdf',
+            isFailed: true,
+            onRetry: () => retried = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      expect(retried, isTrue);
+    });
+
+    testWidgets('disables tap-to-open once failed', (tester) async {
+      var tapped = false;
+      await tester.pumpWidget(
+        wrap(
+          FileBubble(
+            fileName: 'report.pdf',
+            isFailed: true,
+            onRetry: () {},
+            onTap: () => tapped = true,
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('report.pdf'), warnIfMissed: false);
+      expect(tapped, isFalse);
+    });
+
+    testWidgets(
+      'still marks the slot as failed when onRetry is not wired, with a '
+      'static error glyph instead of a retry arrow that cannot work',
+      (tester) async {
+        await tester.pumpWidget(
+          wrap(
+            const FileBubble(
+              fileName: 'report.pdf',
+              mimeType: 'application/pdf',
+              isFailed: true,
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byIcon(Icons.error_outline), findsOneWidget);
+        expect(find.byIcon(Icons.picture_as_pdf), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'never shows the retry icon while an upload is still in flight, even '
+      'when isFailed and onRetry are both set',
+      (tester) async {
+        final progress = ValueNotifier<double>(0.7);
+        addTearDown(progress.dispose);
+        await tester.pumpWidget(
+          wrap(
+            FileBubble(
+              fileName: 'report.pdf',
+              mimeType: 'application/pdf',
+              uploadProgress: progress,
+              isFailed: true,
+              onRetry: () {},
+            ),
+          ),
+        );
+
+        expect(find.byIcon(Icons.refresh), findsNothing);
+        expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      },
+    );
+  });
 }

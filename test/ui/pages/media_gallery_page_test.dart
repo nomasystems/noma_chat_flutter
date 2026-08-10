@@ -36,7 +36,13 @@ class _FakeAttachmentsApi implements ChatAttachmentsApi {
     Uint8List data,
     String mimeType, {
     void Function(int sent, int total)? onProgress,
-  }) => _delegate.upload(data, mimeType, onProgress: onProgress);
+    UploadCancelToken? cancelToken,
+  }) => _delegate.upload(
+    data,
+    mimeType,
+    onProgress: onProgress,
+    cancelToken: cancelToken,
+  );
 
   @override
   Future<ChatResult<AttachmentSignedUrl>> signedUrl(
@@ -347,6 +353,24 @@ void main() {
       attachmentId: attachmentId,
     );
 
+    ChatMessage videoMessage({
+      String id = 'm2',
+      String attachmentId = 'clip-1',
+      String? thumbnailAttachmentId,
+      String? thumbnailUrl,
+      String url = 'https://signed.example/clip.mp4',
+    }) => ChatMessage(
+      id: id,
+      from: 'u2',
+      timestamp: DateTime(2026, 1, 1),
+      messageType: MessageType.attachment,
+      mimeType: 'video/mp4',
+      attachmentUrl: url,
+      attachmentId: attachmentId,
+      thumbnailAttachmentId: thumbnailAttachmentId,
+      thumbnailUrl: thumbnailUrl,
+    );
+
     testWidgets('falls back to an authenticated loader over client when no '
         'mediaLoader is wired, instead of the raw-URL CachedNetworkImage '
         'path that 401s', (tester) async {
@@ -472,6 +496,91 @@ void main() {
       expect(viewer.mediaLoader, same(gridImage.loader));
       expect(viewer.attachmentRef?.attachmentId, 'att-1');
       expect(viewer.attachmentRef?.roomId, 'room-1');
+    });
+
+    testWidgets('a video tile downloads its poster frame through the '
+        'default authenticated loader, never the clip', (tester) async {
+      final galleryClient = _GalleryClient(
+        client,
+        roomItems: [videoMessage(thumbnailAttachmentId: 'poster-1')],
+        downloadBytes: validPngBytes,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(galleryClient.attachments.downloadedIds, ['poster-1']);
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      final image = tester.widget<Image>(find.byType(Image));
+      expect(image.image, isA<MemoryImage>());
+      expect((image.image as MemoryImage).bytes, validPngBytes);
+    });
+
+    testWidgets('a legacy video with no poster frame makes no download '
+        'call and shows the placeholder instead of fetching the clip', (
+      tester,
+    ) async {
+      final galleryClient = _GalleryClient(client, roomItems: [videoMessage()]);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(galleryClient.attachments.downloadedIds, isEmpty);
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+    });
+
+    testWidgets('a video with an empty thumbnailUrl and no '
+        'thumbnailAttachmentId makes no download call and shows the '
+        'placeholder', (tester) async {
+      final galleryClient = _GalleryClient(
+        client,
+        roomItems: [videoMessage(thumbnailUrl: '')],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(galleryClient.attachments.downloadedIds, isEmpty);
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+    });
+
+    testWidgets('a video whose thumbnailUrl carries no attachment id makes '
+        'no download call and shows the placeholder instead of fetching '
+        'that URL', (tester) async {
+      final galleryClient = _GalleryClient(
+        client,
+        roomItems: [
+          videoMessage(thumbnailUrl: 'https://cdn.example.com/blobs/xyz.jpg'),
+        ],
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(galleryClient.attachments.downloadedIds, isEmpty);
+      expect(find.byType(CachedNetworkImage), findsNothing);
+      expect(find.byType(Image), findsNothing);
+      expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
     });
   });
 }

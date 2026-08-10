@@ -6,6 +6,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/ui/widgets/_authenticated_media_image.dart';
 
 class _MockHttpOverrides extends HttpOverrides {
   @override
@@ -61,7 +62,11 @@ void main() {
       await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
       await tester.pump();
 
-      expect(find.byType(CachedNetworkImage), findsNWidgets(3));
+      expect(find.byType(InkWell), findsNWidgets(3));
+      // Only the 2 images fetch a source — the video item carries no
+      // poster-frame URL, so it renders the static placeholder instead of
+      // handing its clip's URL to CachedNetworkImage.
+      expect(find.byType(CachedNetworkImage), findsNWidgets(2));
     });
 
     testWidgets('shows play icon for video items', (tester) async {
@@ -258,6 +263,168 @@ void main() {
 
         expect(find.byIcon(Icons.broken_image), findsOneWidget);
         expect(calls, 2);
+      });
+
+      testWidgets('fetches the poster frame via mediaLoader for a video '
+          'tile, never the clip', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async => validPngBytes,
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/clip.mp4',
+            type: MediaItemType.video,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'clip-1',
+              fallbackUrl: 'https://signed.example/clip.mp4',
+            ),
+            thumbnailRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'poster-1',
+              fallbackUrl: 'https://signed.example/poster.jpg',
+            ),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(loader.requested.single.attachmentId, 'poster-1');
+        final image = tester.widget<Image>(find.byType(Image));
+        expect(image.image, isA<MemoryImage>());
+        expect((image.image as MemoryImage).bytes, validPngBytes);
+      });
+
+      testWidgets('legacy video with no poster frame renders the '
+          'placeholder and never calls mediaLoader or fetches the clip', (
+        tester,
+      ) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async {
+            throw StateError('must not be called for a legacy video');
+          },
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/clip.mp4',
+            type: MediaItemType.video,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'clip-1',
+              fallbackUrl: 'https://signed.example/clip.mp4',
+            ),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
+        expect(find.byType(AuthenticatedMediaImage), findsNothing);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byType(Image), findsNothing);
+        expect(find.byIcon(Icons.broken_image), findsNothing);
+        expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+      });
+
+      testWidgets('a video with an empty thumbnailUrl and no '
+          'thumbnailAttachmentId renders the placeholder and never calls '
+          'mediaLoader', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async {
+            throw StateError('must not be called for an empty thumbnailUrl');
+          },
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/clip.mp4',
+            type: MediaItemType.video,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'clip-1',
+              fallbackUrl: 'https://signed.example/clip.mp4',
+            ),
+            thumbnailUrl: '',
+            thumbnailRef: AttachmentRef(roomId: 'r1', fallbackUrl: ''),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
+        expect(find.byType(AuthenticatedMediaImage), findsNothing);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byType(Image), findsNothing);
+        expect(find.byIcon(Icons.broken_image), findsNothing);
+        expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+      });
+
+      testWidgets('a video whose thumbnailUrl carries no attachment id '
+          'renders the placeholder and never calls mediaLoader or fetches '
+          'that URL', (tester) async {
+        final loader = _FakeMediaLoader(
+          onLoadBytes: (_) async {
+            throw StateError('must not be called for an unresolvable poster');
+          },
+        );
+        final items = [
+          const MediaItem(
+            url: 'https://signed.example/clip.mp4',
+            type: MediaItemType.video,
+            attachmentRef: AttachmentRef(
+              roomId: 'r1',
+              attachmentId: 'clip-1',
+              fallbackUrl: 'https://signed.example/clip.mp4',
+            ),
+            thumbnailUrl: 'https://cdn.example.com/blobs/xyz.jpg',
+            thumbnailRef: AttachmentRef(
+              roomId: 'r1',
+              fallbackUrl: 'https://cdn.example.com/blobs/xyz.jpg',
+            ),
+          ),
+        ];
+
+        await tester.pumpWidget(
+          wrap(MediaGalleryView(items: items, mediaLoader: loader)),
+        );
+        await tester.pump();
+        await tester.pump();
+
+        expect(loader.requested, isEmpty);
+        expect(find.byType(AuthenticatedMediaImage), findsNothing);
+        expect(find.byType(CachedNetworkImage), findsNothing);
+        expect(find.byType(Image), findsNothing);
+        expect(find.byIcon(Icons.broken_image), findsNothing);
+        expect(find.byIcon(Icons.play_circle_filled), findsOneWidget);
+      });
+
+      testWidgets('a video thumbnailUrl still renders via CachedNetworkImage '
+          'when no mediaLoader is wired, even with no '
+          'thumbnailAttachmentId', (tester) async {
+        final items = [
+          const MediaItem(
+            url: 'https://example.com/clip.mp4',
+            type: MediaItemType.video,
+            thumbnailUrl: 'https://example.com/poster.jpg',
+          ),
+        ];
+
+        await tester.pumpWidget(wrap(MediaGalleryView(items: items)));
+        await tester.pump();
+
+        expect(find.byType(CachedNetworkImage), findsOneWidget);
       });
     });
   });

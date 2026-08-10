@@ -1,5 +1,7 @@
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/src/_internal/mappers/message_mapper.dart';
+// Serialization helpers live in the cache layer (not re-exported).
+import 'package:noma_chat/src/cache/serialization.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -372,6 +374,70 @@ void main() {
       expect(msg.attachmentId, 'att-legacy');
       expect(msg.metadata?.containsKey('attachmentId'), isFalse);
       expect(msg.metadata?['custom'], 'value');
+    });
+  });
+
+  group('MessageMapper thumbnailAttachmentId', () {
+    Map<String, dynamic> videoWith(Map<String, dynamic> metadata) => {
+      'id': 'msg-1',
+      'from': 'user-1',
+      'timestamp': '2024-01-01T00:00:00Z',
+      'attachmentUrl': 'https://cdn.example/media/att-video',
+      'attachmentId': 'att-video',
+      'metadata': {'mimeType': 'video/mp4', ...metadata},
+    };
+
+    test('lifts the poster frame id out of metadata and strips it', () {
+      final msg = MessageMapper.fromJson(
+        videoWith({
+          'thumbnailUrl': 'https://cdn.example/media/att-thumb',
+          'thumbnailAttachmentId': 'att-thumb',
+          'custom': 'value',
+        }),
+      );
+      expect(msg.thumbnailAttachmentId, 'att-thumb');
+      expect(msg.thumbnailUrl, 'https://cdn.example/media/att-thumb');
+      // The poster frame is a blob of its own, never the clip's.
+      expect(msg.attachmentId, 'att-video');
+      expect(msg.metadata?.containsKey('thumbnailAttachmentId'), isNot(isTrue));
+      expect(msg.metadata?.containsKey('thumbnailUrl'), isNot(isTrue));
+      expect(msg.metadata?['custom'], 'value');
+    });
+
+    test('does not guess an id from the thumbnail URL', () {
+      // A guess would be persisted by `messageToMap` as if the backend had
+      // sent it, and `/media/thumbnails/x.jpg` guesses `thumbnails` — an id
+      // that 404s for as long as the cached row lives. The loader and the
+      // signed-url resolver recover an id from the URL at fetch time
+      // instead, so the URL alone is still enough to paint the frame.
+      final msg = MessageMapper.fromJson(
+        videoWith({'thumbnailUrl': 'https://cdn.example/media/att-thumb'}),
+      );
+      expect(msg.thumbnailAttachmentId, isNull);
+      expect(msg.thumbnailUrl, 'https://cdn.example/media/att-thumb');
+    });
+
+    test('a host thumbnail URL leaves no wrong id behind to persist', () {
+      final msg = MessageMapper.fromJson(
+        videoWith({
+          'thumbnailUrl': 'https://cdn.example/media/thumbnails/x.jpg',
+        }),
+      );
+      expect(msg.thumbnailAttachmentId, isNull);
+      expect(messageToMap(msg).containsKey('thumbnailAttachmentId'), isFalse);
+    });
+
+    test('is null for a video sent before poster frames existed', () {
+      final msg = MessageMapper.fromJson(videoWith({}));
+      expect(msg.thumbnailAttachmentId, isNull);
+      expect(msg.thumbnailUrl, isNull);
+    });
+
+    test('is null when the thumbnail URL embeds no recoverable id', () {
+      final msg = MessageMapper.fromJson(
+        videoWith({'thumbnailUrl': 'https://cdn.example/opaque?sig=x'}),
+      );
+      expect(msg.thumbnailAttachmentId, isNull);
     });
   });
 }

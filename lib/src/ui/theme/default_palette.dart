@@ -38,4 +38,27 @@ abstract final class DefaultPalette {
 
   /// Text color used inside [warningSurface] banners.
   static const Color warningSurfaceText = Color(0xFFC62828);
+
+  /// Fill color of the determinate upload-progress ring in
+  /// `AttachmentUploadRing` when both `ChatBubbleTheme.uploadProgressColor`
+  /// and `ChatBubbleTheme.statusColor` are unset. Matches the `accentGreen`
+  /// `ChatTheme.lightPreset()` uses for the send button / unread badge, so
+  /// even a bare `ChatTheme.defaults` reads as the same status-tick family.
+  static const Color uploadProgressColor = Color(0xFF25D366);
+
+  /// Backdrop of the in-app camera screen. Opaque black so the preview is
+  /// judged against nothing — every camera app on both platforms does this.
+  static const Color cameraCaptureBackground = Color(0xFF000000);
+
+  /// Tint of the controls painted over the camera preview. White reads
+  /// against an arbitrary scene where a brand colour would not.
+  static const Color cameraCaptureForeground = Color(0xFFFFFFFF);
+
+  /// Fill of the shutter and of the elapsed-time pill while a clip is
+  /// recording. The universal "you are being recorded" red.
+  static const Color cameraCaptureRecording = Color(0xFFE53935);
+
+  /// Translucent backing behind the camera screen's advisory notice, so the
+  /// text stays readable over a bright preview.
+  static const Color cameraCaptureOverlay = Color(0x99000000);
 }

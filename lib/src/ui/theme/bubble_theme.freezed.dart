@@ -37,7 +37,13 @@ mixin _$ChatBubbleTheme {
  Color? get statusPendingColor;/// Per-state override of the delivery-status icon (bubble corner and
 /// room-list preview). Return `null` for SDK default. Covers all five
 /// states: sending / sent / delivered / read / failed.
- MessageStatusIconBuilder? get statusIconBuilder;
+ MessageStatusIconBuilder? get statusIconBuilder;/// Fill color of the determinate progress ring shown while a
+/// photo/video/file attachment is uploading (`AttachmentUploadRing`).
+/// Falls back to [statusColor], then to
+/// `DefaultPalette.uploadProgressColor` (the same green as the send
+/// button / unread badge), so it reads as the same family as the
+/// sent/delivered/read status ticks by default.
+ Color? get uploadProgressColor;
 /// Create a copy of ChatBubbleTheme
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -48,16 +54,16 @@ $ChatBubbleThemeCopyWith<ChatBubbleTheme> get copyWith => _$ChatBubbleThemeCopyW
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChatBubbleTheme&&(identical(other.outgoingColor, outgoingColor) || other.outgoingColor == outgoingColor)&&(identical(other.incomingColor, incomingColor) || other.incomingColor == incomingColor)&&(identical(other.outgoingTextStyle, outgoingTextStyle) || other.outgoingTextStyle == outgoingTextStyle)&&(identical(other.incomingTextStyle, incomingTextStyle) || other.incomingTextStyle == incomingTextStyle)&&(identical(other.borderRadius, borderRadius) || other.borderRadius == borderRadius)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.outgoingTimestampStyle, outgoingTimestampStyle) || other.outgoingTimestampStyle == outgoingTimestampStyle)&&(identical(other.incomingTimestampStyle, incomingTimestampStyle) || other.incomingTimestampStyle == incomingTimestampStyle)&&(identical(other.statusColor, statusColor) || other.statusColor == statusColor)&&(identical(other.statusReadColor, statusReadColor) || other.statusReadColor == statusReadColor)&&(identical(other.mentionColor, mentionColor) || other.mentionColor == mentionColor)&&(identical(other.editedLabelStyle, editedLabelStyle) || other.editedLabelStyle == editedLabelStyle)&&(identical(other.forwardedLabelColor, forwardedLabelColor) || other.forwardedLabelColor == forwardedLabelColor)&&(identical(other.forwardedLabelStyle, forwardedLabelStyle) || other.forwardedLabelStyle == forwardedLabelStyle)&&(identical(other.senderNameStyle, senderNameStyle) || other.senderNameStyle == senderNameStyle)&&(identical(other.failedIconColor, failedIconColor) || other.failedIconColor == failedIconColor)&&(identical(other.statusPendingColor, statusPendingColor) || other.statusPendingColor == statusPendingColor)&&(identical(other.statusIconBuilder, statusIconBuilder) || other.statusIconBuilder == statusIconBuilder));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChatBubbleTheme&&(identical(other.outgoingColor, outgoingColor) || other.outgoingColor == outgoingColor)&&(identical(other.incomingColor, incomingColor) || other.incomingColor == incomingColor)&&(identical(other.outgoingTextStyle, outgoingTextStyle) || other.outgoingTextStyle == outgoingTextStyle)&&(identical(other.incomingTextStyle, incomingTextStyle) || other.incomingTextStyle == incomingTextStyle)&&(identical(other.borderRadius, borderRadius) || other.borderRadius == borderRadius)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.outgoingTimestampStyle, outgoingTimestampStyle) || other.outgoingTimestampStyle == outgoingTimestampStyle)&&(identical(other.incomingTimestampStyle, incomingTimestampStyle) || other.incomingTimestampStyle == incomingTimestampStyle)&&(identical(other.statusColor, statusColor) || other.statusColor == statusColor)&&(identical(other.statusReadColor, statusReadColor) || other.statusReadColor == statusReadColor)&&(identical(other.mentionColor, mentionColor) || other.mentionColor == mentionColor)&&(identical(other.editedLabelStyle, editedLabelStyle) || other.editedLabelStyle == editedLabelStyle)&&(identical(other.forwardedLabelColor, forwardedLabelColor) || other.forwardedLabelColor == forwardedLabelColor)&&(identical(other.forwardedLabelStyle, forwardedLabelStyle) || other.forwardedLabelStyle == forwardedLabelStyle)&&(identical(other.senderNameStyle, senderNameStyle) || other.senderNameStyle == senderNameStyle)&&(identical(other.failedIconColor, failedIconColor) || other.failedIconColor == failedIconColor)&&(identical(other.statusPendingColor, statusPendingColor) || other.statusPendingColor == statusPendingColor)&&(identical(other.statusIconBuilder, statusIconBuilder) || other.statusIconBuilder == statusIconBuilder)&&(identical(other.uploadProgressColor, uploadProgressColor) || other.uploadProgressColor == uploadProgressColor));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,outgoingColor,incomingColor,outgoingTextStyle,incomingTextStyle,borderRadius,timestampStyle,outgoingTimestampStyle,incomingTimestampStyle,statusColor,statusReadColor,mentionColor,editedLabelStyle,forwardedLabelColor,forwardedLabelStyle,senderNameStyle,failedIconColor,statusPendingColor,statusIconBuilder);
+int get hashCode => Object.hashAll([runtimeType,outgoingColor,incomingColor,outgoingTextStyle,incomingTextStyle,borderRadius,timestampStyle,outgoingTimestampStyle,incomingTimestampStyle,statusColor,statusReadColor,mentionColor,editedLabelStyle,forwardedLabelColor,forwardedLabelStyle,senderNameStyle,failedIconColor,statusPendingColor,statusIconBuilder,uploadProgressColor]);
 
 @override
 String toString() {
-  return 'ChatBubbleTheme(outgoingColor: $outgoingColor, incomingColor: $incomingColor, outgoingTextStyle: $outgoingTextStyle, incomingTextStyle: $incomingTextStyle, borderRadius: $borderRadius, timestampStyle: $timestampStyle, outgoingTimestampStyle: $outgoingTimestampStyle, incomingTimestampStyle: $incomingTimestampStyle, statusColor: $statusColor, statusReadColor: $statusReadColor, mentionColor: $mentionColor, editedLabelStyle: $editedLabelStyle, forwardedLabelColor: $forwardedLabelColor, forwardedLabelStyle: $forwardedLabelStyle, senderNameStyle: $senderNameStyle, failedIconColor: $failedIconColor, statusPendingColor: $statusPendingColor, statusIconBuilder: $statusIconBuilder)';
+  return 'ChatBubbleTheme(outgoingColor: $outgoingColor, incomingColor: $incomingColor, outgoingTextStyle: $outgoingTextStyle, incomingTextStyle: $incomingTextStyle, borderRadius: $borderRadius, timestampStyle: $timestampStyle, outgoingTimestampStyle: $outgoingTimestampStyle, incomingTimestampStyle: $incomingTimestampStyle, statusColor: $statusColor, statusReadColor: $statusReadColor, mentionColor: $mentionColor, editedLabelStyle: $editedLabelStyle, forwardedLabelColor: $forwardedLabelColor, forwardedLabelStyle: $forwardedLabelStyle, senderNameStyle: $senderNameStyle, failedIconColor: $failedIconColor, statusPendingColor: $statusPendingColor, statusIconBuilder: $statusIconBuilder, uploadProgressColor: $uploadProgressColor)';
 }
 
 
@@ -68,7 +74,7 @@ abstract mixin class $ChatBubbleThemeCopyWith<$Res>  {
   factory $ChatBubbleThemeCopyWith(ChatBubbleTheme value, $Res Function(ChatBubbleTheme) _then) = _$ChatBubbleThemeCopyWithImpl;
 @useResult
 $Res call({
- Color? outgoingColor, Color? incomingColor, TextStyle? outgoingTextStyle, TextStyle? incomingTextStyle, BorderRadius? borderRadius, TextStyle? timestampStyle, TextStyle? outgoingTimestampStyle, TextStyle? incomingTimestampStyle, Color? statusColor, Color? statusReadColor, Color? mentionColor, TextStyle? editedLabelStyle, Color? forwardedLabelColor, TextStyle? forwardedLabelStyle, TextStyle? senderNameStyle, Color? failedIconColor, Color? statusPendingColor, MessageStatusIconBuilder? statusIconBuilder
+ Color? outgoingColor, Color? incomingColor, TextStyle? outgoingTextStyle, TextStyle? incomingTextStyle, BorderRadius? borderRadius, TextStyle? timestampStyle, TextStyle? outgoingTimestampStyle, TextStyle? incomingTimestampStyle, Color? statusColor, Color? statusReadColor, Color? mentionColor, TextStyle? editedLabelStyle, Color? forwardedLabelColor, TextStyle? forwardedLabelStyle, TextStyle? senderNameStyle, Color? failedIconColor, Color? statusPendingColor, MessageStatusIconBuilder? statusIconBuilder, Color? uploadProgressColor
 });
 
 
@@ -85,7 +91,7 @@ class _$ChatBubbleThemeCopyWithImpl<$Res>
 
 /// Create a copy of ChatBubbleTheme
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? outgoingColor = freezed,Object? incomingColor = freezed,Object? outgoingTextStyle = freezed,Object? incomingTextStyle = freezed,Object? borderRadius = freezed,Object? timestampStyle = freezed,Object? outgoingTimestampStyle = freezed,Object? incomingTimestampStyle = freezed,Object? statusColor = freezed,Object? statusReadColor = freezed,Object? mentionColor = freezed,Object? editedLabelStyle = freezed,Object? forwardedLabelColor = freezed,Object? forwardedLabelStyle = freezed,Object? senderNameStyle = freezed,Object? failedIconColor = freezed,Object? statusPendingColor = freezed,Object? statusIconBuilder = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? outgoingColor = freezed,Object? incomingColor = freezed,Object? outgoingTextStyle = freezed,Object? incomingTextStyle = freezed,Object? borderRadius = freezed,Object? timestampStyle = freezed,Object? outgoingTimestampStyle = freezed,Object? incomingTimestampStyle = freezed,Object? statusColor = freezed,Object? statusReadColor = freezed,Object? mentionColor = freezed,Object? editedLabelStyle = freezed,Object? forwardedLabelColor = freezed,Object? forwardedLabelStyle = freezed,Object? senderNameStyle = freezed,Object? failedIconColor = freezed,Object? statusPendingColor = freezed,Object? statusIconBuilder = freezed,Object? uploadProgressColor = freezed,}) {
   return _then(_self.copyWith(
 outgoingColor: freezed == outgoingColor ? _self.outgoingColor : outgoingColor // ignore: cast_nullable_to_non_nullable
 as Color?,incomingColor: freezed == incomingColor ? _self.incomingColor : incomingColor // ignore: cast_nullable_to_non_nullable
@@ -105,7 +111,8 @@ as TextStyle?,senderNameStyle: freezed == senderNameStyle ? _self.senderNameStyl
 as TextStyle?,failedIconColor: freezed == failedIconColor ? _self.failedIconColor : failedIconColor // ignore: cast_nullable_to_non_nullable
 as Color?,statusPendingColor: freezed == statusPendingColor ? _self.statusPendingColor : statusPendingColor // ignore: cast_nullable_to_non_nullable
 as Color?,statusIconBuilder: freezed == statusIconBuilder ? _self.statusIconBuilder : statusIconBuilder // ignore: cast_nullable_to_non_nullable
-as MessageStatusIconBuilder?,
+as MessageStatusIconBuilder?,uploadProgressColor: freezed == uploadProgressColor ? _self.uploadProgressColor : uploadProgressColor // ignore: cast_nullable_to_non_nullable
+as Color?,
   ));
 }
 
@@ -190,10 +197,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( Color? outgoingColor,  Color? incomingColor,  TextStyle? outgoingTextStyle,  TextStyle? incomingTextStyle,  BorderRadius? borderRadius,  TextStyle? timestampStyle,  TextStyle? outgoingTimestampStyle,  TextStyle? incomingTimestampStyle,  Color? statusColor,  Color? statusReadColor,  Color? mentionColor,  TextStyle? editedLabelStyle,  Color? forwardedLabelColor,  TextStyle? forwardedLabelStyle,  TextStyle? senderNameStyle,  Color? failedIconColor,  Color? statusPendingColor,  MessageStatusIconBuilder? statusIconBuilder)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( Color? outgoingColor,  Color? incomingColor,  TextStyle? outgoingTextStyle,  TextStyle? incomingTextStyle,  BorderRadius? borderRadius,  TextStyle? timestampStyle,  TextStyle? outgoingTimestampStyle,  TextStyle? incomingTimestampStyle,  Color? statusColor,  Color? statusReadColor,  Color? mentionColor,  TextStyle? editedLabelStyle,  Color? forwardedLabelColor,  TextStyle? forwardedLabelStyle,  TextStyle? senderNameStyle,  Color? failedIconColor,  Color? statusPendingColor,  MessageStatusIconBuilder? statusIconBuilder,  Color? uploadProgressColor)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ChatBubbleTheme() when $default != null:
-return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,_that.incomingTextStyle,_that.borderRadius,_that.timestampStyle,_that.outgoingTimestampStyle,_that.incomingTimestampStyle,_that.statusColor,_that.statusReadColor,_that.mentionColor,_that.editedLabelStyle,_that.forwardedLabelColor,_that.forwardedLabelStyle,_that.senderNameStyle,_that.failedIconColor,_that.statusPendingColor,_that.statusIconBuilder);case _:
+return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,_that.incomingTextStyle,_that.borderRadius,_that.timestampStyle,_that.outgoingTimestampStyle,_that.incomingTimestampStyle,_that.statusColor,_that.statusReadColor,_that.mentionColor,_that.editedLabelStyle,_that.forwardedLabelColor,_that.forwardedLabelStyle,_that.senderNameStyle,_that.failedIconColor,_that.statusPendingColor,_that.statusIconBuilder,_that.uploadProgressColor);case _:
   return orElse();
 
 }
@@ -211,10 +218,10 @@ return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( Color? outgoingColor,  Color? incomingColor,  TextStyle? outgoingTextStyle,  TextStyle? incomingTextStyle,  BorderRadius? borderRadius,  TextStyle? timestampStyle,  TextStyle? outgoingTimestampStyle,  TextStyle? incomingTimestampStyle,  Color? statusColor,  Color? statusReadColor,  Color? mentionColor,  TextStyle? editedLabelStyle,  Color? forwardedLabelColor,  TextStyle? forwardedLabelStyle,  TextStyle? senderNameStyle,  Color? failedIconColor,  Color? statusPendingColor,  MessageStatusIconBuilder? statusIconBuilder)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( Color? outgoingColor,  Color? incomingColor,  TextStyle? outgoingTextStyle,  TextStyle? incomingTextStyle,  BorderRadius? borderRadius,  TextStyle? timestampStyle,  TextStyle? outgoingTimestampStyle,  TextStyle? incomingTimestampStyle,  Color? statusColor,  Color? statusReadColor,  Color? mentionColor,  TextStyle? editedLabelStyle,  Color? forwardedLabelColor,  TextStyle? forwardedLabelStyle,  TextStyle? senderNameStyle,  Color? failedIconColor,  Color? statusPendingColor,  MessageStatusIconBuilder? statusIconBuilder,  Color? uploadProgressColor)  $default,) {final _that = this;
 switch (_that) {
 case _ChatBubbleTheme():
-return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,_that.incomingTextStyle,_that.borderRadius,_that.timestampStyle,_that.outgoingTimestampStyle,_that.incomingTimestampStyle,_that.statusColor,_that.statusReadColor,_that.mentionColor,_that.editedLabelStyle,_that.forwardedLabelColor,_that.forwardedLabelStyle,_that.senderNameStyle,_that.failedIconColor,_that.statusPendingColor,_that.statusIconBuilder);case _:
+return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,_that.incomingTextStyle,_that.borderRadius,_that.timestampStyle,_that.outgoingTimestampStyle,_that.incomingTimestampStyle,_that.statusColor,_that.statusReadColor,_that.mentionColor,_that.editedLabelStyle,_that.forwardedLabelColor,_that.forwardedLabelStyle,_that.senderNameStyle,_that.failedIconColor,_that.statusPendingColor,_that.statusIconBuilder,_that.uploadProgressColor);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -231,10 +238,10 @@ return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( Color? outgoingColor,  Color? incomingColor,  TextStyle? outgoingTextStyle,  TextStyle? incomingTextStyle,  BorderRadius? borderRadius,  TextStyle? timestampStyle,  TextStyle? outgoingTimestampStyle,  TextStyle? incomingTimestampStyle,  Color? statusColor,  Color? statusReadColor,  Color? mentionColor,  TextStyle? editedLabelStyle,  Color? forwardedLabelColor,  TextStyle? forwardedLabelStyle,  TextStyle? senderNameStyle,  Color? failedIconColor,  Color? statusPendingColor,  MessageStatusIconBuilder? statusIconBuilder)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( Color? outgoingColor,  Color? incomingColor,  TextStyle? outgoingTextStyle,  TextStyle? incomingTextStyle,  BorderRadius? borderRadius,  TextStyle? timestampStyle,  TextStyle? outgoingTimestampStyle,  TextStyle? incomingTimestampStyle,  Color? statusColor,  Color? statusReadColor,  Color? mentionColor,  TextStyle? editedLabelStyle,  Color? forwardedLabelColor,  TextStyle? forwardedLabelStyle,  TextStyle? senderNameStyle,  Color? failedIconColor,  Color? statusPendingColor,  MessageStatusIconBuilder? statusIconBuilder,  Color? uploadProgressColor)?  $default,) {final _that = this;
 switch (_that) {
 case _ChatBubbleTheme() when $default != null:
-return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,_that.incomingTextStyle,_that.borderRadius,_that.timestampStyle,_that.outgoingTimestampStyle,_that.incomingTimestampStyle,_that.statusColor,_that.statusReadColor,_that.mentionColor,_that.editedLabelStyle,_that.forwardedLabelColor,_that.forwardedLabelStyle,_that.senderNameStyle,_that.failedIconColor,_that.statusPendingColor,_that.statusIconBuilder);case _:
+return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,_that.incomingTextStyle,_that.borderRadius,_that.timestampStyle,_that.outgoingTimestampStyle,_that.incomingTimestampStyle,_that.statusColor,_that.statusReadColor,_that.mentionColor,_that.editedLabelStyle,_that.forwardedLabelColor,_that.forwardedLabelStyle,_that.senderNameStyle,_that.failedIconColor,_that.statusPendingColor,_that.statusIconBuilder,_that.uploadProgressColor);case _:
   return null;
 
 }
@@ -246,7 +253,7 @@ return $default(_that.outgoingColor,_that.incomingColor,_that.outgoingTextStyle,
 
 
 class _ChatBubbleTheme implements ChatBubbleTheme {
-  const _ChatBubbleTheme({this.outgoingColor, this.incomingColor, this.outgoingTextStyle, this.incomingTextStyle, this.borderRadius, this.timestampStyle, this.outgoingTimestampStyle, this.incomingTimestampStyle, this.statusColor, this.statusReadColor, this.mentionColor, this.editedLabelStyle, this.forwardedLabelColor, this.forwardedLabelStyle, this.senderNameStyle, this.failedIconColor, this.statusPendingColor, this.statusIconBuilder});
+  const _ChatBubbleTheme({this.outgoingColor, this.incomingColor, this.outgoingTextStyle, this.incomingTextStyle, this.borderRadius, this.timestampStyle, this.outgoingTimestampStyle, this.incomingTimestampStyle, this.statusColor, this.statusReadColor, this.mentionColor, this.editedLabelStyle, this.forwardedLabelColor, this.forwardedLabelStyle, this.senderNameStyle, this.failedIconColor, this.statusPendingColor, this.statusIconBuilder, this.uploadProgressColor});
   
 
 /// Background of bubbles authored by the current user.
@@ -290,6 +297,13 @@ class _ChatBubbleTheme implements ChatBubbleTheme {
 /// room-list preview). Return `null` for SDK default. Covers all five
 /// states: sending / sent / delivered / read / failed.
 @override final  MessageStatusIconBuilder? statusIconBuilder;
+/// Fill color of the determinate progress ring shown while a
+/// photo/video/file attachment is uploading (`AttachmentUploadRing`).
+/// Falls back to [statusColor], then to
+/// `DefaultPalette.uploadProgressColor` (the same green as the send
+/// button / unread badge), so it reads as the same family as the
+/// sent/delivered/read status ticks by default.
+@override final  Color? uploadProgressColor;
 
 /// Create a copy of ChatBubbleTheme
 /// with the given fields replaced by the non-null parameter values.
@@ -301,16 +315,16 @@ _$ChatBubbleThemeCopyWith<_ChatBubbleTheme> get copyWith => __$ChatBubbleThemeCo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChatBubbleTheme&&(identical(other.outgoingColor, outgoingColor) || other.outgoingColor == outgoingColor)&&(identical(other.incomingColor, incomingColor) || other.incomingColor == incomingColor)&&(identical(other.outgoingTextStyle, outgoingTextStyle) || other.outgoingTextStyle == outgoingTextStyle)&&(identical(other.incomingTextStyle, incomingTextStyle) || other.incomingTextStyle == incomingTextStyle)&&(identical(other.borderRadius, borderRadius) || other.borderRadius == borderRadius)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.outgoingTimestampStyle, outgoingTimestampStyle) || other.outgoingTimestampStyle == outgoingTimestampStyle)&&(identical(other.incomingTimestampStyle, incomingTimestampStyle) || other.incomingTimestampStyle == incomingTimestampStyle)&&(identical(other.statusColor, statusColor) || other.statusColor == statusColor)&&(identical(other.statusReadColor, statusReadColor) || other.statusReadColor == statusReadColor)&&(identical(other.mentionColor, mentionColor) || other.mentionColor == mentionColor)&&(identical(other.editedLabelStyle, editedLabelStyle) || other.editedLabelStyle == editedLabelStyle)&&(identical(other.forwardedLabelColor, forwardedLabelColor) || other.forwardedLabelColor == forwardedLabelColor)&&(identical(other.forwardedLabelStyle, forwardedLabelStyle) || other.forwardedLabelStyle == forwardedLabelStyle)&&(identical(other.senderNameStyle, senderNameStyle) || other.senderNameStyle == senderNameStyle)&&(identical(other.failedIconColor, failedIconColor) || other.failedIconColor == failedIconColor)&&(identical(other.statusPendingColor, statusPendingColor) || other.statusPendingColor == statusPendingColor)&&(identical(other.statusIconBuilder, statusIconBuilder) || other.statusIconBuilder == statusIconBuilder));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChatBubbleTheme&&(identical(other.outgoingColor, outgoingColor) || other.outgoingColor == outgoingColor)&&(identical(other.incomingColor, incomingColor) || other.incomingColor == incomingColor)&&(identical(other.outgoingTextStyle, outgoingTextStyle) || other.outgoingTextStyle == outgoingTextStyle)&&(identical(other.incomingTextStyle, incomingTextStyle) || other.incomingTextStyle == incomingTextStyle)&&(identical(other.borderRadius, borderRadius) || other.borderRadius == borderRadius)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.outgoingTimestampStyle, outgoingTimestampStyle) || other.outgoingTimestampStyle == outgoingTimestampStyle)&&(identical(other.incomingTimestampStyle, incomingTimestampStyle) || other.incomingTimestampStyle == incomingTimestampStyle)&&(identical(other.statusColor, statusColor) || other.statusColor == statusColor)&&(identical(other.statusReadColor, statusReadColor) || other.statusReadColor == statusReadColor)&&(identical(other.mentionColor, mentionColor) || other.mentionColor == mentionColor)&&(identical(other.editedLabelStyle, editedLabelStyle) || other.editedLabelStyle == editedLabelStyle)&&(identical(other.forwardedLabelColor, forwardedLabelColor) || other.forwardedLabelColor == forwardedLabelColor)&&(identical(other.forwardedLabelStyle, forwardedLabelStyle) || other.forwardedLabelStyle == forwardedLabelStyle)&&(identical(other.senderNameStyle, senderNameStyle) || other.senderNameStyle == senderNameStyle)&&(identical(other.failedIconColor, failedIconColor) || other.failedIconColor == failedIconColor)&&(identical(other.statusPendingColor, statusPendingColor) || other.statusPendingColor == statusPendingColor)&&(identical(other.statusIconBuilder, statusIconBuilder) || other.statusIconBuilder == statusIconBuilder)&&(identical(other.uploadProgressColor, uploadProgressColor) || other.uploadProgressColor == uploadProgressColor));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,outgoingColor,incomingColor,outgoingTextStyle,incomingTextStyle,borderRadius,timestampStyle,outgoingTimestampStyle,incomingTimestampStyle,statusColor,statusReadColor,mentionColor,editedLabelStyle,forwardedLabelColor,forwardedLabelStyle,senderNameStyle,failedIconColor,statusPendingColor,statusIconBuilder);
+int get hashCode => Object.hashAll([runtimeType,outgoingColor,incomingColor,outgoingTextStyle,incomingTextStyle,borderRadius,timestampStyle,outgoingTimestampStyle,incomingTimestampStyle,statusColor,statusReadColor,mentionColor,editedLabelStyle,forwardedLabelColor,forwardedLabelStyle,senderNameStyle,failedIconColor,statusPendingColor,statusIconBuilder,uploadProgressColor]);
 
 @override
 String toString() {
-  return 'ChatBubbleTheme(outgoingColor: $outgoingColor, incomingColor: $incomingColor, outgoingTextStyle: $outgoingTextStyle, incomingTextStyle: $incomingTextStyle, borderRadius: $borderRadius, timestampStyle: $timestampStyle, outgoingTimestampStyle: $outgoingTimestampStyle, incomingTimestampStyle: $incomingTimestampStyle, statusColor: $statusColor, statusReadColor: $statusReadColor, mentionColor: $mentionColor, editedLabelStyle: $editedLabelStyle, forwardedLabelColor: $forwardedLabelColor, forwardedLabelStyle: $forwardedLabelStyle, senderNameStyle: $senderNameStyle, failedIconColor: $failedIconColor, statusPendingColor: $statusPendingColor, statusIconBuilder: $statusIconBuilder)';
+  return 'ChatBubbleTheme(outgoingColor: $outgoingColor, incomingColor: $incomingColor, outgoingTextStyle: $outgoingTextStyle, incomingTextStyle: $incomingTextStyle, borderRadius: $borderRadius, timestampStyle: $timestampStyle, outgoingTimestampStyle: $outgoingTimestampStyle, incomingTimestampStyle: $incomingTimestampStyle, statusColor: $statusColor, statusReadColor: $statusReadColor, mentionColor: $mentionColor, editedLabelStyle: $editedLabelStyle, forwardedLabelColor: $forwardedLabelColor, forwardedLabelStyle: $forwardedLabelStyle, senderNameStyle: $senderNameStyle, failedIconColor: $failedIconColor, statusPendingColor: $statusPendingColor, statusIconBuilder: $statusIconBuilder, uploadProgressColor: $uploadProgressColor)';
 }
 
 
@@ -321,7 +335,7 @@ abstract mixin class _$ChatBubbleThemeCopyWith<$Res> implements $ChatBubbleTheme
   factory _$ChatBubbleThemeCopyWith(_ChatBubbleTheme value, $Res Function(_ChatBubbleTheme) _then) = __$ChatBubbleThemeCopyWithImpl;
 @override @useResult
 $Res call({
- Color? outgoingColor, Color? incomingColor, TextStyle? outgoingTextStyle, TextStyle? incomingTextStyle, BorderRadius? borderRadius, TextStyle? timestampStyle, TextStyle? outgoingTimestampStyle, TextStyle? incomingTimestampStyle, Color? statusColor, Color? statusReadColor, Color? mentionColor, TextStyle? editedLabelStyle, Color? forwardedLabelColor, TextStyle? forwardedLabelStyle, TextStyle? senderNameStyle, Color? failedIconColor, Color? statusPendingColor, MessageStatusIconBuilder? statusIconBuilder
+ Color? outgoingColor, Color? incomingColor, TextStyle? outgoingTextStyle, TextStyle? incomingTextStyle, BorderRadius? borderRadius, TextStyle? timestampStyle, TextStyle? outgoingTimestampStyle, TextStyle? incomingTimestampStyle, Color? statusColor, Color? statusReadColor, Color? mentionColor, TextStyle? editedLabelStyle, Color? forwardedLabelColor, TextStyle? forwardedLabelStyle, TextStyle? senderNameStyle, Color? failedIconColor, Color? statusPendingColor, MessageStatusIconBuilder? statusIconBuilder, Color? uploadProgressColor
 });
 
 
@@ -338,7 +352,7 @@ class __$ChatBubbleThemeCopyWithImpl<$Res>
 
 /// Create a copy of ChatBubbleTheme
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? outgoingColor = freezed,Object? incomingColor = freezed,Object? outgoingTextStyle = freezed,Object? incomingTextStyle = freezed,Object? borderRadius = freezed,Object? timestampStyle = freezed,Object? outgoingTimestampStyle = freezed,Object? incomingTimestampStyle = freezed,Object? statusColor = freezed,Object? statusReadColor = freezed,Object? mentionColor = freezed,Object? editedLabelStyle = freezed,Object? forwardedLabelColor = freezed,Object? forwardedLabelStyle = freezed,Object? senderNameStyle = freezed,Object? failedIconColor = freezed,Object? statusPendingColor = freezed,Object? statusIconBuilder = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? outgoingColor = freezed,Object? incomingColor = freezed,Object? outgoingTextStyle = freezed,Object? incomingTextStyle = freezed,Object? borderRadius = freezed,Object? timestampStyle = freezed,Object? outgoingTimestampStyle = freezed,Object? incomingTimestampStyle = freezed,Object? statusColor = freezed,Object? statusReadColor = freezed,Object? mentionColor = freezed,Object? editedLabelStyle = freezed,Object? forwardedLabelColor = freezed,Object? forwardedLabelStyle = freezed,Object? senderNameStyle = freezed,Object? failedIconColor = freezed,Object? statusPendingColor = freezed,Object? statusIconBuilder = freezed,Object? uploadProgressColor = freezed,}) {
   return _then(_ChatBubbleTheme(
 outgoingColor: freezed == outgoingColor ? _self.outgoingColor : outgoingColor // ignore: cast_nullable_to_non_nullable
 as Color?,incomingColor: freezed == incomingColor ? _self.incomingColor : incomingColor // ignore: cast_nullable_to_non_nullable
@@ -358,7 +372,8 @@ as TextStyle?,senderNameStyle: freezed == senderNameStyle ? _self.senderNameStyl
 as TextStyle?,failedIconColor: freezed == failedIconColor ? _self.failedIconColor : failedIconColor // ignore: cast_nullable_to_non_nullable
 as Color?,statusPendingColor: freezed == statusPendingColor ? _self.statusPendingColor : statusPendingColor // ignore: cast_nullable_to_non_nullable
 as Color?,statusIconBuilder: freezed == statusIconBuilder ? _self.statusIconBuilder : statusIconBuilder // ignore: cast_nullable_to_non_nullable
-as MessageStatusIconBuilder?,
+as MessageStatusIconBuilder?,uploadProgressColor: freezed == uploadProgressColor ? _self.uploadProgressColor : uploadProgressColor // ignore: cast_nullable_to_non_nullable
+as Color?,
   ));
 }
 

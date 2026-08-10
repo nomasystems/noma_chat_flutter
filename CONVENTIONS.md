@@ -117,12 +117,13 @@ subtype (`AuthFailure`, `NetworkFailure`, `StorageFailure`, …).
 ## 6. Adapter — internal state
 
 The adapter holds N independent state clusters (controllers, DM
-mapping, typing throttle, voice upload progress, user cache, blocked
-users, …). Today they live as separate fields on the class with
-section comments grouping them. A future milestone (1.0) will wrap
-each cluster in a private struct (`_TypingState`, `_VoiceState`,
-`_UserCacheState`, …) so `disconnect()` / `signOut()` iterate one
-container instead of remembering to clear N maps. Until then:
+mapping, typing throttle, voice upload progress, attachment-upload
+cancel tokens, user cache, blocked users, …). Today they live as
+separate fields on the class with section comments grouping them. A
+future milestone (1.0) will wrap each cluster in a private struct
+(`_TypingState`, `_VoiceState`, `_UserCacheState`, …) so
+`disconnect()` / `signOut()` iterate one container instead of
+remembering to clear N maps. Until then:
 
 * Every new state field MUST be cleared in **both** `disconnect()` and
   `signOut()`. Forgetting one is the bug class the struct refactor
@@ -325,7 +326,58 @@ await _dio.post(
 );
 ```
 
-### 10.8 Fuzz-first testing for parsers
+### 10.8 Injection seam + working built-in default
+
+Anything the SDK can do *for* the consumer, it does — and still lets the
+consumer replace it. The shape is always the same three pieces:
+
+1. An **abstract class** naming the role (`AvatarStorage`,
+   `AttachmentMediaLoader`, `VideoThumbnailer`). Never a bare typedef when
+   the collaborator holds state or has more than one method.
+2. A **working default implementation** in the same file
+   (`DefaultAvatarStorage`, `AuthenticatedAttachmentLoader`,
+   `NativeVideoThumbnailer`), wired by the constructor / `NomaChatView` with
+   `?? const TheDefault()`.
+3. **Zero `required` parameters** on the widget or facade that consumes it.
+
+The test for whether a seam is done right: a host that passes nothing gets
+the full behaviour, and a host that passes something never has to reproduce
+plumbing the SDK already owns. If turning the feature *off* is a legitimate
+choice, ship the no-op implementation too (`NoVideoThumbnailer`) rather than
+making the field nullable — `null` reads as "unset", not as "disabled".
+
+Third-party plugins live **behind** the seam, never in the calling code, so
+swapping one is a single-file change. Anything the plugin needs that the
+caller does not have (a file path where the caller holds bytes) is bridged
+inside the default implementation, not threaded through the interface.
+
+Platform coverage is decided by a getter in `PlatformSupport`, not by
+`dart:io` checks at the call site, and `pubspec.yaml`'s `platforms:` block
+stays at all six regardless — a plugin without an implementation for a
+target does not strip this package's platform tags.
+
+### 10.9 Message fields lifted out of `metadata`
+
+The backend round-trips arbitrary message metadata, which is how media
+details reach the receiver. A key that the SDK reads on **every** message of
+a kind (`mimeType`, `fileName`, `fileSize`, `thumbnailUrl`,
+`thumbnailAttachmentId`, `attachmentId`) is lifted to a first-class
+`ChatMessage` field. Doing so means touching four places, and missing any
+one of them is a silent data-loss bug:
+
+1. `lib/src/models/message.dart` — the field (+ `build_runner`).
+2. `MessageMapper._internalMetadataKeys` — so it is stripped from the public
+   `metadata` map instead of appearing twice.
+3. `MessageMapper.fromDto` — read it back out of `meta` onto the field.
+4. `lib/src/cache/serialization.dart` — **both** `messageToMap` and
+   `messageFromMap`, or the field silently vanishes on the next cold start.
+
+Keys read by exactly one bubble type and by nothing else (`waveform`,
+`duration`, `lat`, `lng`, `linkTitle`) stay in the public `metadata` map and
+are read from there. When in doubt, prefer leaving it in `metadata`: lifting
+is a breaking change to the model, un-lifting is not.
+
+### 10.10 Fuzz-first testing for parsers
 
 Any new parser (JSON deserializer, event mapper, DTO factory) must have
 a fuzz test in `test/sdk/fuzz/`. The test must cover:
