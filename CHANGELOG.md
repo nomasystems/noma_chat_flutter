@@ -6,6 +6,103 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.19.0
+
+### Added
+
+- `ChatUiAdapter.roomHydrationNotifier`, a `ValueListenable<RoomHydrationStatus>` reporting what the
+  disk pass of the room load could contribute: `pending`, `unavailable`, `empty` or `hydrated`, plus
+  how many rows were painted and which listing they came from. It updates once per `loadRooms`, as
+  soon as the cache pass has written to the room list and **before** any network pass is attempted,
+  so a host can pick its first frame — skeleton, empty state or list — without guessing. Nothing else
+  answered this: `roomListController` stays silent when `mergeRooms` changes nothing (the warm-reopen
+  case), and `onRoomsLoaded` only fires after a network pass. It is a `ValueListenable` rather than a
+  stream on purpose, so a widget that subscribes late still reads the outcome. `RoomHydrationStatus`
+  and `RoomHydrationOutcome` are exported from `package:noma_chat/noma_chat.dart`.
+- `RoomListController.unreadRoomCount()` and `unreadArchivedRoomCount()`: how many conversations carry
+  unread messages in the main list and in the archive, using the same predicates as `rooms` and
+  `archivedRooms` (`hidden` + `deletedRoomIds`) but independent of the active text filter. Both take
+  `includeMuted` (default `false`, WhatsApp parity: a muted room should not feed a badge that alerts).
+  They replace the hand-written filter over `allRooms` that every consumer was rewriting to paint a
+  tab badge or an archive header.
+- `DeliveredConfirmationCoordinator.reset()` to forget confirmed delivery cursors on sign-out or user
+  switch, plus `confirmedCursorCount` for diagnostics. `PresenceRegistry` and
+  `DeliveredConfirmationCoordinator` both accept an optional
+  `ValueListenable<ChatConnectionState> connectionState`; without it their behaviour is unchanged.
+
+### Changed
+
+- The cache pass of `loadAll` — the instant-from-disk startup — no longer emits any network request:
+  no `GET /presence`, no `members.list` per DM, no `users.get`, no delivery confirmations, no sender
+  hydration. It previously issued 1 awaited request plus 2N + M + K more right in front of the first
+  paint, and with no connectivity the awaited `presence.bootstrap()` put a full timeout ahead of it.
+- The room list no longer flashes blank on a warm reopen. The cache pass now rebuilds a DM's identity
+  — peer, title, avatar, presence — from the session's in-memory state instead of overwriting the
+  enriched row and buying it back with a `members.list`.
+- DM contact resolution reads the peer profile with an explicit `CachePolicy.cacheFirst` instead of
+  falling through to the default `networkFirst`, so a peer already on disk stops costing a
+  `GET /users/{id}` per DM per cold start. `CacheConfig.ttlUsers` still applies (6 h by default), so a
+  renamed peer refreshes on its own.
+- **Behaviour change worth noting**: the cache pass no longer collapses duplicate DM rooms for the
+  same contact, because doing so requires `members.list`, which has no cache path. If the backend
+  holds two rooms for one contact and the device has not reconciled them yet, both rows show until the
+  network pass collapses them and evicts the loser.
+- `ChatRoomsApi.getUserRooms` now tells an empty cache apart from an unreadable one. A local cache that
+  reads cleanly and holds no rooms resolves to `ChatSuccess(UserRooms(rooms: [], invitedRooms: []))`
+  rather than a cache miss — the SDK stating "this device knows you have no rooms", which is what lets
+  a host paint an honest empty state instead of a spinner. Only a cache that could not be read (I/O
+  error, corrupt store) counts as a miss, and under `CachePolicy.cacheOnly` that is the only thing
+  surfacing as a `ChatFailureResult`. Cache read failures are now logged at `warn` instead of being
+  silent.
+- A failed network pass is no longer masked when the cache answered "you have zero rooms". Masking now
+  applies only when the cache had something to paint, so a failed load stops presenting itself as a
+  successful empty one. Behaviour for a cache with rooms is unchanged.
+- `ChatUiAdapter.signOut()` routes through `ChatClient.logout()`, so client-owned session state is torn
+  down along with the adapter's — chiefly the offline queue. An attachment or message parked there by a
+  connectivity failure carries no record of who queued it and drains on the next connection, whichever
+  account that connection authenticates as. Clearing the persistent cache, all `signOut()` did before,
+  only wiped the queue's stored copy: the in-memory queue survived, re-persisted on the next enqueue,
+  and replayed the signed-out account's upload under the next user. It now also clears the client's
+  permanently-failed operation ids, its cache-manager TTL timestamps and its confirmed delivery
+  cursors, all of which belong to the account leaving. `disconnect()` is unchanged and still preserves
+  the offline queue — it remains the teardown for background/foreground transitions.
+- `ChatUiAdapter.cancelAttachmentUpload` now aborts a voice note in flight and removes its bubble;
+  previously it was a no-op for voice, which `sendVoice` did not register a cancel token for. A host
+  wiring a single cancel control to every pending row will now cancel recordings it did not cancel
+  before.
+- `disconnect(clearRooms: true)` aborts in-flight uploads along with the rest of the connection state.
+- `forward()` mints its temp id from a per-adapter sequence instead of appending the target room key,
+  so `ChatMessage.id` and the `clientMessageId` sent to the server no longer carry that suffix. Two
+  sends in the same microsecond used to collide on all three registries keyed by it.
+
+### Fixed
+
+- `attachmentUploadCancellableFor` and `voiceUploadProgressFor` no longer hand back a listenable the
+  SDK later destroys. Both registries flip the value and release the notifier instead of disposing it,
+  so a host that resolves one and subscribes itself keeps a usable object after the send ends or after
+  a `signOut()`. Previously its next `addListener` threw
+  `A ValueNotifier was used after being disposed`.
+- An attachment or voice upload whose transport raises, instead of returning a failure, now lands in
+  the same visible state as a returned failure: the row is marked failed with a retry affordance, its
+  cached copy is persisted as failed, and the bytes are offered to the offline queue. It used to strand
+  the optimistic row pending forever. `sendAttachment` and `sendVoice` honour their
+  `Future<ChatResult<ChatMessage>>` signature and answer with a `ChatFailureResult` carrying the
+  original error in `UnexpectedFailure.originalError` rather than propagating it. Such a failure is
+  deliberately not replayed by the offline queue: a raise does not prove the bytes never reached the
+  server, and re-uploading one that did would bill a duplicate blob.
+- A voice note whose upload failed is marked failed on the optimistic row again, instead of staying
+  pending forever while its cached copy and the offline queue both treated it as failed.
+- Delivery confirmations are no longer sent twice per room list sync. The same `markRoomAsDelivered`
+  fired once on the cache pass and again on the network pass, and once more on every background
+  revalidation. Only successes are remembered, so a failure is still retried.
+- An attachment upload that throws after the bytes have landed no longer leaves the progress ring and
+  its cancel control wired forever, and no longer leaks the progress notifier.
+- `LinkPreviewFetcher.fetch` keeps working for a host that narrows its return type. The `.timeout`
+  call site reified the narrowed type, so `onTimeout: () => null` threw a `_TypeError` at the call
+  boundary before subscribing.
+- Ending a session no longer leaves a stale user-cancelled mark behind.
+- A deleted row no longer exposes a "cancel upload" action to screen readers.
+
 ## 0.18.0
 
 ### Added

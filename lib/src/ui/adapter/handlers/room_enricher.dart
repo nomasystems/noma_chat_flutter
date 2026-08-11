@@ -22,6 +22,93 @@ import '../services/dm_contact_registry.dart';
 import '../services/user_cache_service.dart';
 import '../services/presence_registry.dart';
 
+/// What the cache (disk) phase of a room load was able to say, so a host
+/// can pick between "loading", "genuinely empty" and "has content" without
+/// guessing from list contents or from listener timing.
+///
+/// Carried by [RoomHydrationStatus], published on
+/// [RoomEnricher.hydrationNotifier].
+enum RoomHydrationOutcome {
+  /// The cache phase has not completed yet in this session. Nothing has
+  /// been painted from disk — show the loading state.
+  pending,
+
+  /// The cache phase ran and the local cache could not answer: none is
+  /// configured, or the read failed (missing / unreadable / corrupt
+  /// store). This is NOT a statement that the account has zero rooms;
+  /// keep showing the loading state until the network pass lands.
+  unavailable,
+
+  /// The cache phase ran, the cache answered, and there is nothing to
+  /// paint. A positive "this device knows you have no chats" — the host
+  /// can show its empty state straight away instead of a spinner.
+  empty,
+
+  /// The cache phase ran and painted [RoomHydrationStatus.roomCount]
+  /// rooms. The host has real content on screen.
+  hydrated,
+}
+
+/// Immutable snapshot of the cache phase of [RoomEnricher.loadAll],
+/// published on [RoomEnricher.hydrationNotifier] as soon as that phase has
+/// written to the room list — before any network pass runs.
+///
+/// This is the SDK's answer to "has the disk pass painted yet?". Listening
+/// to the [RoomListController] does not answer it: `mergeRooms` skips
+/// `notifyListeners()` when nothing changed, so a warm reopen whose cache
+/// returns exactly the rows already on screen produces no notification at
+/// all; and `onRoomsLoaded` only fires after a network pass. Because this
+/// is a [ValueListenable], a host that attaches late still reads the
+/// current value instead of having missed an event.
+@immutable
+class RoomHydrationStatus {
+  const RoomHydrationStatus({
+    required this.outcome,
+    required this.roomCount,
+    required this.type,
+  });
+
+  /// Status before any cache phase has completed in this session.
+  const RoomHydrationStatus.pending()
+    : outcome = RoomHydrationOutcome.pending,
+      roomCount = 0,
+      type = '';
+
+  /// Which of the three paintable states the host is in.
+  final RoomHydrationOutcome outcome;
+
+  /// Number of rows the room list holds after the cache phase wrote —
+  /// what the host can actually paint right now. `0` for every outcome
+  /// other than [RoomHydrationOutcome.hydrated].
+  final int roomCount;
+
+  /// The `type` argument of the [RoomEnricher.loadAll] call this status
+  /// came from (`'all'`, `'unread'`, …), so a host that loads more than
+  /// one listing can tell them apart. Empty string on
+  /// [RoomHydrationStatus.pending].
+  final String type;
+
+  /// `true` once the cache phase has completed at least once for this
+  /// listing — regardless of whether the cache had anything to give.
+  bool get hasRun => outcome != RoomHydrationOutcome.pending;
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is RoomHydrationStatus &&
+          other.outcome == outcome &&
+          other.roomCount == roomCount &&
+          other.type == type;
+
+  @override
+  int get hashCode => Object.hash(outcome, roomCount, type);
+
+  @override
+  String toString() =>
+      'RoomHydrationStatus(outcome: ${outcome.name}, '
+      'roomCount: $roomCount, type: $type)';
+}
+
 /// Encapsulates the "fetch room details + populate the room list" flows.
 ///
 /// Three groups of methods, in three flavours of work:
@@ -138,6 +225,35 @@ class RoomEnricher {
     return name;
   }
 
+  final ValueNotifier<RoomHydrationStatus> _hydration =
+      ValueNotifier<RoomHydrationStatus>(const RoomHydrationStatus.pending());
+
+  /// Public signal for "the cache phase of [loadAll] has painted".
+  ///
+  /// Updated once per [loadAll] call, immediately after the cache pass has
+  /// written to the room list and before the network pass is attempted.
+  /// The value tells the host whether the cache answered at all, and with
+  /// how many rows — see [RoomHydrationOutcome] for the three states a
+  /// host has to distinguish.
+  ///
+  /// Because it is a [ValueListenable] and not a stream, a host that
+  /// attaches after the cache phase already ran still reads the outcome:
+  ///
+  /// ```dart
+  /// ValueListenableBuilder<RoomHydrationStatus>(
+  ///   valueListenable: enricher.hydrationNotifier,
+  ///   builder: (context, status, _) => switch (status.outcome) {
+  ///     RoomHydrationOutcome.hydrated => RoomListView(...),
+  ///     RoomHydrationOutcome.empty => const NoChatsYet(),
+  ///     _ => const ChatListSkeleton(),
+  ///   },
+  /// );
+  /// ```
+  ValueListenable<RoomHydrationStatus> get hydrationNotifier => _hydration;
+
+  /// Releases the [hydrationNotifier]. Call from the owner's `dispose()`.
+  void dispose() => _hydration.dispose();
+
   /// Rooms currently being revalidated in the background, keyed by [type].
   /// Guards [_backgroundRevalidate] against overlapping network passes when
   /// [loadAll] is invoked repeatedly for the same type (e.g. every time a
@@ -175,7 +291,15 @@ class RoomEnricher {
       type: type,
       cachePolicy: CachePolicy.cacheOnly,
     );
+    // `isSuccess` means the cache ANSWERED, which since the empty/miss
+    // split in `RoomsApi.getUserRooms` includes answering "you have zero
+    // rooms". [hasCachedContent] is the narrower "the cache had something
+    // to paint" — the two are not interchangeable, see their use below.
     final hasCached = cachedResult.isSuccess;
+    final cached = cachedResult.dataOrNull;
+    final hasCachedContent =
+        cached != null &&
+        (cached.rooms.isNotEmpty || cached.invitedRooms.isNotEmpty);
     if (hasCached) {
       await _enrichAndSet(
         cachedResult.dataOrThrow,
@@ -184,6 +308,7 @@ class RoomEnricher {
         awaitDmResolution: false,
       );
     }
+    _publishHydration(type: type, cacheAnswered: hasCached);
 
     // Trust the cache and skip blocking on the network pass when realtime
     // is already keeping the room list fresh: after the first successful
@@ -197,6 +322,12 @@ class RoomEnricher {
     // self-heals without the caller ever seeing an empty list in between.
     // Pull-to-refresh / forced reload pass `forceNetwork: true` to force
     // the blocking path below instead.
+    //
+    // This one keys on [hasCached] on purpose, empty cache included: an
+    // account with zero rooms and a live WS connection is as up to date as
+    // one with fifty, so blocking its every screen-open on the network
+    // just to re-confirm zero is the same waste. The background
+    // revalidation still runs.
     final realtimeIsFresh =
         _initializedNotifier.value &&
         _connectionStateNotifier.value == ChatConnectionState.connected;
@@ -248,8 +379,36 @@ class RoomEnricher {
     // masking the failure there would let a resync silently do nothing
     // while still being treated as if it succeeded (e.g. consuming its
     // debounce window for no gain).
-    if (hasCached && !forceNetwork) return const ChatSuccess(null);
+    //
+    // The mask keys on [hasCachedContent], not on [hasCached]: a cache
+    // that answered "you have zero rooms" leaves the caller with nothing
+    // on screen, so swallowing the network failure there would present a
+    // failed load as a successful empty one — exactly the state a host
+    // needs to tell apart to decide between "no chats yet" and "we could
+    // not reach the server".
+    if (hasCachedContent && !forceNetwork) return const ChatSuccess(null);
     return networkResult.castFailure<void>();
+  }
+
+  /// Publishes the outcome of the cache phase on [hydrationNotifier].
+  ///
+  /// [cacheAnswered] is whether the cache read succeeded at all; the
+  /// outcome is then derived from what actually made it onto the list, so
+  /// a cache whose every room was locally deleted reports
+  /// [RoomHydrationOutcome.empty] rather than a contradictory "hydrated
+  /// with 0 rows".
+  void _publishHydration({required String type, required bool cacheAnswered}) {
+    if (_isDisposed()) return;
+    final painted = roomList.allRooms.length;
+    _hydration.value = RoomHydrationStatus(
+      outcome: !cacheAnswered
+          ? RoomHydrationOutcome.unavailable
+          : painted == 0
+          ? RoomHydrationOutcome.empty
+          : RoomHydrationOutcome.hydrated,
+      roomCount: cacheAnswered ? painted : 0,
+      type: type,
+    );
   }
 
   /// Background counterpart of the network pass in [loadAll], fired when
@@ -318,6 +477,22 @@ class RoomEnricher {
     DateTime? snapshotAt,
     int? seq,
   }) async {
+    // `detailPolicy == cacheOnly` marks the disk-only pass of [loadAll]:
+    // the caller asked for what this device already knows, with no
+    // network. `detailPolicy` used to reach only `client.rooms.get`, so
+    // everything downstream — delivery confirmations, sender hydration,
+    // presence bootstrap, DM resolution — went to the wire on the one
+    // pass whose entire purpose is painting instantly from disk (and,
+    // offline, whose awaited network call parked the first paint behind
+    // a timeout). Each of those sites is now gated on this flag; see
+    // each one for why deferring it to the network pass loses nothing.
+    //
+    // The deferral is safe by construction: the cache-trusting shortcut
+    // in [loadAll] requires `_initializedNotifier`, which only a
+    // completed network pass ever sets, so a cache pass is always
+    // followed by a network pass (foreground on a cold start,
+    // [_backgroundRevalidate] on a warm reopen) that does the full work.
+    final cacheOnlyPass = detailPolicy == CachePolicy.cacheOnly;
     final detailFutures = userRooms.rooms.map(
       (unread) => client.rooms.get(unread.roomId, cachePolicy: detailPolicy),
     );
@@ -387,11 +562,31 @@ class RoomEnricher {
         }
       }
 
+      // DM identity this session already resolved, replayed from memory
+      // instead of from the wire. [RoomListController.mergeRooms] replaces
+      // rows wholesale, so without this a cache pass on a warm reopen
+      // overwrote an enriched DM row with a blank one (`otherUserId: null`,
+      // no effective title, no peer avatar) and depended on a
+      // `members.list` round-trip to put it back — a visible flash of
+      // untitled rows, paid in network on the one pass that must not touch
+      // it. Every read here is in-memory: the contact registry, the user
+      // cache, the presence cache. Non-DM rooms and DMs never resolved on
+      // this device produce `null` and behave exactly as before.
+      final knownPeerId = dmContacts.contactIdFor(unread.roomId);
+      final knownPeer = knownPeerId == null
+          ? null
+          : _findCachedUser(knownPeerId);
+      final knownPresence = knownPeerId == null
+          ? null
+          : presence.presenceFor(knownPeerId);
+
       final base = RoomListItem(
         id: unread.roomId,
         name: detail?.name,
         subject: detail?.subject,
-        avatarUrl: detail?.avatarUrl,
+        avatarUrl: knownPeer?.avatarUrl ?? detail?.avatarUrl,
+        isOnline: knownPresence?.online,
+        presenceStatus: knownPresence?.status,
         lastMessage: isCleared ? null : unread.lastMessage,
         lastMessageTime: isCleared ? null : unread.lastMessageTime,
         lastMessageUserId: isCleared ? null : unread.lastMessageUserId,
@@ -441,17 +636,20 @@ class RoomEnricher {
         isAnnouncement: detail?.type == RoomType.announcement,
         userRole: detail?.userRole,
         memberCount: detail?.memberCount,
-        otherUserId: null,
+        otherUserId: knownPeerId,
         custom: detail?.custom,
       );
 
       // Custom resolver may already produce an effective title from the
       // detail alone (e.g. an app that maps `detail.custom['nickname']` to
-      // the title). DM-aware default needs members and arrives later via
-      // `_doResolveDmContact`.
+      // the title). The DM-aware default needs the peer: it is supplied
+      // here when the session already knows it, and otherwise arrives
+      // later via `_doResolveDmContact`.
       final effective = computeEffectiveTitle(
         currentItem: base,
         detail: detail,
+        otherMembers: knownPeer != null ? [knownPeer] : const [],
+        isDmOverride: knownPeerId != null ? true : null,
       );
       items.add(
         effective == null
@@ -589,29 +787,43 @@ class RoomEnricher {
     // Resolve DM contacts. The network pass awaits them so the room list
     // is internally consistent before `loadRooms` resolves: every DM has
     // its `otherUserId` set, `_dmRoomByContact` is populated, and any
-    // duplicate DM rooms have been collapsed. The cache pass
-    // dispatches in fire-and-forget mode to keep the first paint fast.
+    // duplicate DM rooms have been collapsed.
+    //
+    // The cache pass resolves nothing over the wire. `members.list` has no
+    // cache path at all — `MembersApi` is constructed without a
+    // `CacheManager` and `list()` takes no `cachePolicy` — so every DM
+    // here would be a mandatory `GET /rooms/{id}/members` on the one pass
+    // that must stay on disk (N requests fired at the most contended
+    // moment of app start, N failures when there is no network). What the
+    // cache pass can do it already did when building the rows above:
+    // replay the peer identity resolved earlier in this session. A DM this
+    // device has never resolved has no peer on disk to replay — no store
+    // holds room members, and `RoomDetail` carries none — so it paints
+    // with whatever the cached detail gives and is corrected by the
+    // network pass of this same [loadAll].
     final dmFutures = <Future<void>>[];
-    for (var i = 0; i < userRooms.rooms.length; i++) {
-      final unread = userRooms.rooms[i];
-      final detail = details[i].dataOrNull;
-      if (detail != null && _isDmDetail(detail)) {
-        if (awaitDmResolution) {
-          dmFutures.add(
-            _doResolveDmContact(
+    if (!cacheOnlyPass) {
+      for (var i = 0; i < userRooms.rooms.length; i++) {
+        final unread = userRooms.rooms[i];
+        final detail = details[i].dataOrNull;
+        if (detail != null && _isDmDetail(detail)) {
+          if (awaitDmResolution) {
+            dmFutures.add(
+              _doResolveDmContact(
+                unread.roomId,
+                authoritative: authoritative,
+                representsCompleteSet: representsCompleteSet,
+                seq: seq,
+              ),
+            );
+          } else {
+            resolveDmContact(
               unread.roomId,
               authoritative: authoritative,
               representsCompleteSet: representsCompleteSet,
               seq: seq,
-            ),
-          );
-        } else {
-          resolveDmContact(
-            unread.roomId,
-            authoritative: authoritative,
-            representsCompleteSet: representsCompleteSet,
-            seq: seq,
-          );
+            );
+          }
         }
       }
     }
@@ -629,16 +841,25 @@ class RoomEnricher {
     // fires `_refreshLastSenderNamesFor` and flips the row to
     // "Alice: hola" automatically. Fire-and-forget — UI refreshes
     // when each fetch resolves.
-    final senderIds = <String>{};
-    for (final room in roomList.allRooms) {
-      final senderId = room.lastMessageUserId;
-      if (senderId == null) continue;
-      if (senderId == _currentUser().id) continue;
-      if (userCache.contains(senderId)) continue;
-      senderIds.add(senderId);
-    }
-    for (final id in senderIds) {
-      unawaited(_ensureUserCachedFn(id));
+    //
+    // Not on the cache pass: `ensureUserCached` is a REST read per unknown
+    // sender and has no cache path of its own. Nothing is lost by waiting
+    // — a sender absent from the cache has no name to render either way,
+    // so the row paints identically; the network pass hydrates them and
+    // the prefix appears then. On a warm reopen the senders are already
+    // cached, so this loop was empty anyway.
+    if (!cacheOnlyPass) {
+      final senderIds = <String>{};
+      for (final room in roomList.allRooms) {
+        final senderId = room.lastMessageUserId;
+        if (senderId == null) continue;
+        if (senderId == _currentUser().id) continue;
+        if (userCache.contains(senderId)) continue;
+        senderIds.add(senderId);
+      }
+      for (final id in senderIds) {
+        unawaited(_ensureUserCachedFn(id));
+      }
     }
 
     // Confirm delivery for every room whose last message came from
@@ -650,8 +871,14 @@ class RoomEnricher {
     // offline. One consolidated cursor per room (≤1 confirmation per
     // conversation per sync); the server max-merges, so re-confirming
     // across reconnects is free.
+    //
+    // Not on the cache pass: each entry is a POST, and confirming
+    // delivery from a snapshot read off disk claims a receipt this device
+    // has not actually taken from the server yet. The network pass of the
+    // same [loadAll] sends the real ones; a reconnect re-runs them via
+    // `resync` -> `loadRooms(forceNetwork: true)`.
     final confirmDelivered = _confirmDelivered;
-    if (confirmDelivered != null) {
+    if (confirmDelivered != null && !cacheOnlyPass) {
       for (final room in roomList.allRooms) {
         final lastId = room.lastMessageId;
         final lastFrom = room.lastMessageUserId;
@@ -666,7 +893,16 @@ class RoomEnricher {
     // Bootstrap presence BEFORE returning so any consumer that reads
     // `presenceFor(userId)` right after `loadRooms()` resolves sees a
     // populated cache. Failures are swallowed (rooms keep `isOnline: null`).
-    await presence.bootstrap();
+    //
+    // Not on the cache pass: this is an AWAITED `GET /presence` with no
+    // cache path (`PresenceApi` takes no `CacheManager`), so it put a
+    // whole round-trip — a whole timeout, offline — in front of the first
+    // paint. The contract above still holds for `loadRooms()`: the
+    // blocking path always ends in a network pass, which bootstraps; and
+    // the only path that returns without one requires an already
+    // initialized, connected session, i.e. presence was bootstrapped by an
+    // earlier pass and is being kept current by `presence_changed` events.
+    if (!cacheOnlyPass) await presence.bootstrap();
   }
 
   /// Background-resolves the "other" user in a DM room and caches the
@@ -806,7 +1042,19 @@ class RoomEnricher {
       // pointing at the same user.
       ChatUser? otherUser = _findCachedUser(otherMember.userId);
       if (otherUser == null) {
-        final userResult = await client.users.get(otherMember.userId);
+        // Explicit `cacheFirst` instead of falling through to
+        // `CacheConfig.defaultReadPolicy` (`networkFirst`): we only get
+        // here on an in-memory miss, and a peer profile already on disk is
+        // a perfectly good title + avatar. Left implicit, every DM cost a
+        // `GET /users/{id}` on every cold start even though the answer was
+        // stored locally. `cacheFirst` honours `CacheConfig.ttlUsers`
+        // (6 h by default) and its timestamps survive restarts, so a
+        // renamed peer still refreshes on its own; a network failure falls
+        // back to the stale entry rather than leaving the row untitled.
+        final userResult = await client.users.get(
+          otherMember.userId,
+          cachePolicy: CachePolicy.cacheFirst,
+        );
         if (_isDisposed()) return;
         otherUser = userResult.dataOrNull;
         if (otherUser != null) {

@@ -168,7 +168,26 @@ class MessageBubble extends StatelessWidget {
   /// listenable one: it flips mid-ring, with no other reason to rebuild.
   ///
   /// `null` (the default, and what a bare bubble outside `ChatView` gets)
-  /// keeps [onCancelAttachmentUpload] exactly as wired.
+  /// keeps [onCancelAttachmentUpload] as wired: an absent signal is no
+  /// opinion, not a veto. A host driving `ChatView`/`MessageList` by hand may
+  /// wire the callback and no resolver, and it keeps the X it has always had.
+  /// Reading the absence as "not cancellable" would take a working control
+  /// off those hosts, which is a behaviour change and not a fix.
+  ///
+  /// Absent, what still bounds the X is [_cancelUploadCallback], which the
+  /// bubble evaluates for itself: no ring painted, no cancel handed to
+  /// anything — not to the media bubble, not to the screen reader. So the
+  /// worst an absent signal can cost is lateness, never an X on a row that
+  /// is not uploading. It cannot be replaced by a reading of the progress
+  /// value either, which could not carry one: the same 0.4 means "still
+  /// going up" on a live send and "abandoned" on a dead one.
+  ///
+  /// What the signal adds on top is timing. Cancelling stops being possible
+  /// the instant the bytes land, long before the ring retires, and this
+  /// flips in place so the X goes without waiting for an unrelated rebuild.
+  /// `NomaChatView` defaults `ChatViewBuilders.attachmentUploadCancellableFor`
+  /// to `ChatUiAdapter.attachmentUploadCancellableFor`; `ChatView` and
+  /// `MessageList` pass the resolver straight through.
   final ValueListenable<bool>? attachmentUploadCancellable;
 
   final Widget? avatarWidget;
@@ -628,16 +647,35 @@ class MessageBubble extends StatelessWidget {
       return _buildSystemMessage(context);
     }
 
+    final cancel = _cancelUploadCallback;
     final cancellable = attachmentUploadCancellable;
     if (cancellable == null) {
-      return _buildRow(context, onCancelAttachmentUpload);
+      // No signal is no opinion: the host's callback stands, already bounded
+      // by [_cancelUploadCallback]. Withholding it here as well would take
+      // the X off every host that wires `onCancelAttachmentUpload` without
+      // the resolver.
+      return _buildRow(context, cancel);
     }
     return ValueListenableBuilder<bool>(
       valueListenable: cancellable,
       builder: (context, canCancel, _) =>
-          _buildRow(context, canCancel ? onCancelAttachmentUpload : null),
+          _buildRow(context, canCancel ? cancel : null),
     );
   }
+
+  /// The only cancel callback this bubble ever hands out — to the media
+  /// bubble that paints the X and to the screen reader that announces it,
+  /// so the two cannot disagree. `null` unless this row is actually
+  /// painting an upload ring for an X to sit in, which is decided here from
+  /// what the widget can see for itself ([attachmentUploadProgress] and the
+  /// branch [_buildBubbleContent] will take) rather than assumed from the
+  /// send that opened the notifier: the ring outlives that send by however
+  /// long it takes the list to rebuild, so "the send ended" is not the same
+  /// statement as "this row paints no X".
+  VoidCallback? get _cancelUploadCallback =>
+      attachmentUploadProgress == null || !_paintsUploadCancel
+      ? null
+      : onCancelAttachmentUpload;
 
   Widget _buildRow(BuildContext context, VoidCallback? onCancelUpload) {
     final bubble = _buildBubble(context, onCancelUpload);
@@ -905,12 +943,16 @@ class MessageBubble extends StatelessWidget {
   }
 
   /// `true` for the bubbles that actually paint a cancel X on the upload
-  /// ring: image, video and file. Audio rows — voice notes and audio
-  /// attachments alike — render `AudioBubble`, which has no cancel control
-  /// at all, and `sendVoice` registers no cancel token behind one either,
-  /// so the progress notifier being non-null there says nothing about the
-  /// upload being abortable.
+  /// ring: image, video and file. Mirrors the branch [_buildBubbleContent]
+  /// takes, deletion first — a deleted row renders the tombstone and never
+  /// reaches the media bubbles, whatever else it still carries. Audio rows
+  /// — voice notes and audio attachments alike — render `AudioBubble`,
+  /// which has no cancel control at all. A voice clip's upload *is*
+  /// abortable (`sendVoice` registers its token like any other blob, so the
+  /// session teardown reaches it); there is simply no X on that bubble to
+  /// announce or to wire.
   bool get _paintsUploadCancel {
+    if (message.isDeleted) return false;
     if (message.messageType != MessageType.attachment) return false;
     if (message.attachmentUrl == null) return false;
     return !(_mimeType?.toLowerCase() ?? '').startsWith('audio/');
@@ -919,16 +961,16 @@ class MessageBubble extends StatelessWidget {
   /// Exposes the upload-cancel X as a screen-reader custom action — same
   /// reasoning as [_retryCustomAction]: it's a bare icon nested inside the
   /// upload-progress ring with no announcement of its own once the
-  /// bubble's own semantics excludes descendants. Gated on the X actually
-  /// being painted ([_paintsUploadCancel]).
+  /// bubble's own semantics excludes descendants. Takes [onCancelUpload] at
+  /// face value: it arrives from [_cancelUploadCallback], the one place that
+  /// decides whether an X exists at all, and re-deriving that here is how
+  /// the announcement drifted from the painting in the first place.
   Map<CustomSemanticsAction, VoidCallback>? _cancelUploadCustomAction(
     BuildContext context,
     VoidCallback? onCancelUpload,
   ) {
     final cancel = onCancelUpload;
-    if (attachmentUploadProgress == null ||
-        cancel == null ||
-        !_paintsUploadCancel) {
+    if (cancel == null) {
       return null;
     }
     return {

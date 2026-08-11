@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -15,11 +16,23 @@ void main() {
       api = _MockMessagesApi();
     });
 
-    DeliveredConfirmationCoordinator make({bool isDisposed = false}) =>
-        DeliveredConfirmationCoordinator(
-          messages: api,
-          isDisposed: () => isDisposed,
-        );
+    DeliveredConfirmationCoordinator make({
+      bool isDisposed = false,
+      ValueNotifier<ChatConnectionState>? connectionState,
+    }) => DeliveredConfirmationCoordinator(
+      messages: api,
+      isDisposed: () => isDisposed,
+      connectionState: connectionState,
+    );
+
+    void stubOk() {
+      when(
+        () => api.markRoomAsDelivered(
+          any(),
+          lastDeliveredMessageId: any(named: 'lastDeliveredMessageId'),
+        ),
+      ).thenAnswer((_) async => const ChatSuccess<void>(null));
+    }
 
     test('coalesces concurrent calls — same future, single API hit', () async {
       final completer = Completer<ChatResult<void>>();
@@ -105,6 +118,79 @@ void main() {
       final r = await coord.confirm('r1', 'm1');
       expect(r.isFailure, isTrue);
       expect(coord.inFlightCount, 0);
+    });
+
+    test('while the transport is offline no POST goes out and the caller '
+        'gets a NetworkFailure', () async {
+      stubOk();
+      final state = ValueNotifier(ChatConnectionState.disconnected);
+      addTearDown(state.dispose);
+
+      final coord = make(connectionState: state);
+      final r = await coord.confirm('r1', 'm1');
+
+      expect(r.failureOrNull, isA<NetworkFailure>());
+      expect(coord.inFlightCount, 0);
+      expect(coord.confirmedCursorCount, 0);
+      verifyNever(
+        () => api.markRoomAsDelivered(
+          any(),
+          lastDeliveredMessageId: any(named: 'lastDeliveredMessageId'),
+        ),
+      );
+    });
+
+    test('an already-confirmed cursor is never re-sent', () async {
+      stubOk();
+      final state = ValueNotifier(ChatConnectionState.connected);
+      addTearDown(state.dispose);
+
+      final coord = make(connectionState: state);
+      await coord.confirm('r1', 'm1');
+      final second = await coord.confirm('r1', 'm1');
+
+      expect(second.isSuccess, isTrue);
+      verify(
+        () => api.markRoomAsDelivered('r1', lastDeliveredMessageId: 'm1'),
+      ).called(1);
+    });
+
+    test(
+      'a failed confirmation is not recorded, so the next call retries it',
+      () async {
+        when(
+          () => api.markRoomAsDelivered(
+            any(),
+            lastDeliveredMessageId: any(named: 'lastDeliveredMessageId'),
+          ),
+        ).thenAnswer(
+          (_) async => const ChatFailureResult<void>(NetworkFailure()),
+        );
+
+        final coord = make();
+        await coord.confirm('r1', 'm1');
+        await coord.confirm('r1', 'm1');
+
+        expect(coord.confirmedCursorCount, 0);
+        verify(
+          () => api.markRoomAsDelivered('r1', lastDeliveredMessageId: 'm1'),
+        ).called(2);
+      },
+    );
+
+    test('reset forgets the confirmed cursors', () async {
+      stubOk();
+      final coord = make();
+      await coord.confirm('r1', 'm1');
+      expect(coord.confirmedCursorCount, 1);
+
+      coord.reset();
+      expect(coord.confirmedCursorCount, 0);
+
+      await coord.confirm('r1', 'm1');
+      verify(
+        () => api.markRoomAsDelivered('r1', lastDeliveredMessageId: 'm1'),
+      ).called(2);
     });
   });
 }

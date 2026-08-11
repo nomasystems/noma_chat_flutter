@@ -150,6 +150,17 @@ class RoomsApi implements ChatRoomsApi {
   /// Returns [ChatSuccess] holding a [UserRooms] that includes the list of
   /// [UnreadRoom] entries and pending [InvitedRoom] invitations.
   ///
+  /// **Reading from cache: empty is an answer, unreadable is a miss.** A
+  /// local cache that reads back with zero rooms resolves to
+  /// `ChatSuccess(UserRooms(rooms: [], invitedRooms: []))`, not to a cache
+  /// miss — that is the SDK stating "this device knows you have no rooms",
+  /// which is what lets a consumer paint an empty state instead of a
+  /// spinner. Only a cache that could not be read at all (I/O error,
+  /// corrupt store) counts as a miss, and under [CachePolicy.cacheOnly] a
+  /// miss is what surfaces as `ChatFailureResult`. Cached invitations are
+  /// returned even when there is not a single unread room, so an account
+  /// whose only content is a pending invitation still hydrates from disk.
+  ///
   /// Only a complete `'all'` listing — no [pagination] and
   /// `UserRooms.hasMore == false` — replaces the cached room set. Every
   /// other response, a truncated first page included, is merged into it:
@@ -179,8 +190,24 @@ class RoomsApi implements ChatRoomsApi {
         ttl: _cacheManager.config.ttlRooms,
         policy: cachePolicy,
         fromCache: () async {
-          final allUnreads =
-              (await _cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
+          // A cache that cannot be READ is a miss; a cache that reads back
+          // EMPTY is an answer. `ChatLocalDatasource` already keeps the two
+          // apart (`ChatSuccess(<UnreadRoom>[])` for an empty box vs
+          // `ChatFailureResult` for an I/O error), so this callback
+          // preserves that distinction instead of collapsing both into
+          // `null` — otherwise a brand-new install, a user who deleted
+          // every chat, and an unreadable store are indistinguishable from
+          // outside, and no consumer can paint an honest empty state.
+          final unreadsResult = await _cache.getUnreads();
+          if (unreadsResult.isFailure) {
+            _logger?.call(
+              'warn',
+              'rooms.getUserRooms: unread cache read failed: '
+                  '${unreadsResult.failureOrNull}',
+            );
+            return null;
+          }
+          final allUnreads = unreadsResult.dataOrNull ?? const <UnreadRoom>[];
           // The unread box is shared across the `rooms:all` and
           // `rooms:unread` freshness keys. A 'unread' view must expose only
           // rooms that still have pending messages, otherwise rooms kept by
@@ -189,10 +216,23 @@ class RoomsApi implements ChatRoomsApi {
           final unreads = type == 'unread'
               ? allUnreads.where((u) => u.unreadMessages > 0).toList()
               : allUnreads;
-          if (unreads.isEmpty) return null;
+          final invitedResult = await _cache.getInvitedRooms();
+          if (invitedResult.isFailure) {
+            _logger?.call(
+              'warn',
+              'rooms.getUserRooms: invited cache read failed: '
+                  '${invitedResult.failureOrNull}',
+            );
+            // An unreadable invitation box degrades to "no invitations"
+            // while there are rooms to show — the list is still useful and
+            // that is what this call has always done. With zero rooms it
+            // would instead be the whole answer, and claiming "you have
+            // nothing" off a box we failed to read would be a lie: report a
+            // miss so the caller falls through to the network.
+            if (unreads.isEmpty) return null;
+          }
           final invitedRooms =
-              (await _cache.getInvitedRooms()).dataOrNull ??
-              const <InvitedRoom>[];
+              invitedResult.dataOrNull ?? const <InvitedRoom>[];
           // hasMore defaults to false from cache — pagination state is not
           // cached, so the consumer should refetch from network to paginate.
           return UserRooms(rooms: unreads, invitedRooms: invitedRooms);

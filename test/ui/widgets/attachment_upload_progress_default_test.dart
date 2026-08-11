@@ -236,6 +236,57 @@ void main() {
     },
   );
 
+  testWidgets('and the X inside that ring comes from the same default wiring — '
+      'ChatUiAdapter.attachmentUploadCancellableFor, host wiring nothing', (
+    tester,
+  ) async {
+    // What `MessageBubble` leans on when it refuses to paint an X without
+    // the cancellability signal: under `NomaChatView` a missing signal
+    // really does mean "no live token", because the resolver is always
+    // wired. Nothing here sets `builders`, and the X still has to appear.
+    adapter.roomListController.addRoom(
+      const RoomListItem(id: 'room1', name: 'Team'),
+    );
+
+    await tester.pumpWidget(
+      wrap(
+        NomaChatView(
+          roomId: 'room1',
+          adapter: adapter,
+          hydrateGroupMembers: false,
+        ),
+      ),
+    );
+    await tester.pump();
+
+    unawaited(
+      adapter.messages.sendAttachment(
+        'room1',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        mimeType: 'image/png',
+      ),
+    );
+    await tester.pump();
+
+    final controller = adapter.getChatController('room1');
+    final tempId = controller.messages.last.id;
+    expect(adapter.attachmentUploadCancellableFor(tempId), isNotNull);
+
+    await tester.pump();
+    final ring = tester.widget<AttachmentUploadRing>(
+      find.byType(AttachmentUploadRing),
+    );
+    expect(
+      ring.onCancel,
+      isNotNull,
+      reason: 'the upload is abortable, so the X has to be tappable',
+    );
+
+    client.attachments.gate.complete();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+  });
+
   testWidgets(
     'a host-supplied attachmentUploadProgressFor overrides the default '
     'without breaking',

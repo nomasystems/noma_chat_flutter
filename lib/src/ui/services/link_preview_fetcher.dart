@@ -88,6 +88,9 @@ class LinkPreviewFetcher {
     evictions: _evictions,
   );
 
+  /// Overrides must keep the return type nullable: `null` is the documented
+  /// "no previewable metadata" result, and narrowing it covariantly reifies a
+  /// non-nullable future for callers that re-type or time out the result.
   Future<LinkPreviewMetadata?> fetch(String url) {
     if (_cache.containsKey(url)) {
       final cached = _cache[url];

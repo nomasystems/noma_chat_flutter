@@ -2,9 +2,33 @@ import 'package:flutter/foundation.dart';
 
 import '../../../models/attachment.dart';
 
-/// Tracks per-message [UploadCancelToken]s for photo/video/file attachments
-/// currently uploading via `ChatMessagesController.sendAttachment`, plus the
+/// Tracks per-message [UploadCancelToken]s for every blob on the wire —
+/// photo, video, file (`ChatMessagesController.sendAttachment`), the poster
+/// frame of a video, and recorded voice clips (`sendVoice`) — plus the
 /// listenable that tells the bubble whether cancelling is still possible.
+///
+/// Every upload the adapter *itself* drives registers here, because this is
+/// what the session teardown walks: `ChatUiAdapter` calls [cancelAll] the
+/// moment a session ends, and an upload absent from this map is one nothing
+/// can stop. It then lands for a session that is gone, referenced by no
+/// message, billed to the user with no API to reclaim it. Three upload
+/// paths are deliberately outside that set, and none of them can produce
+/// that orphan:
+///
+/// * `ChatMessagesController.uploadAttachment` — the host asked for the
+///   blob without a message, so the adapter has no temp id to file it
+///   under and no bubble to take down. The signature accepts the host's own
+///   [UploadCancelToken] instead: whoever owns the send owns the abort.
+/// * `NomaChatClient`'s offline-queue replay — it runs *because* a session
+///   came back, not inside one, and re-drives the whole upload + send under
+///   the queue's own retry.
+/// * `DefaultAvatarStorage` — a profile picture, not a message; nothing
+///   references it by temp id and it is not lost by a logout.
+///
+/// A cancellability signal is registered for voice clips like any other
+/// blob, but no bubble reads it: `AudioBubble` paints no progress ring, so
+/// there is no X to put on it. A clip is aborted by the teardown, or by a
+/// host calling `ChatUiAdapter.cancelAttachmentUpload` itself.
 ///
 /// Sibling to [VoiceUploadRegistry] rather than a merged concern: progress
 /// and cancellability are two signals with different lifetimes. The ring
@@ -37,6 +61,11 @@ class AttachmentUploadCancelRegistry {
   /// `null` once [retire] has run (or for an id that never uploaded) — by
   /// then the progress notifier is gone too, so there is no ring to put an
   /// X on.
+  ///
+  /// The instance handed out here is never disposed by this registry — see
+  /// [retire] — so a host that resolves the signal once and keeps it can go
+  /// on adding and removing listeners after the send is over. It simply
+  /// stays `false` forever.
   ValueListenable<bool>? cancellableFor(String tempId) => _cancellable[tempId];
 
   /// Cancels and removes the token for [tempId]. Returns `true` when an
@@ -64,8 +93,8 @@ class AttachmentUploadCancelRegistry {
   /// deletes its provisional bubble, a session going away must leave it
   /// alone. Asking here keeps that distinction independent of the order in
   /// which a teardown happens to call `cancelPendingRequests` and
-  /// [cancelAll]. A mark nobody asks about is released by [retire], so the
-  /// set cannot outlive the send that produced it.
+  /// [cancelAll]. A mark nobody asks about is released by [retire] (and by
+  /// [cancelAll]), so the set cannot outlive the send that produced it.
   bool consumeUserCancelled(String tempId) => _userCancelled.remove(tempId);
 
   /// Drops the token for [tempId] without cancelling — the upload settled
@@ -82,6 +111,19 @@ class AttachmentUploadCancelRegistry {
   /// Releases everything held for [tempId] — token, cancellability signal
   /// and any user-cancelled mark. Called from the `finally` that closes a
   /// send, so no exit path can leave an entry behind.
+  ///
+  /// The signal is flipped to `false` (by [drop]) and then let go of, never
+  /// disposed. [cancellableFor] publishes that very instance through the
+  /// public `ChatUiAdapter.attachmentUploadCancellableFor`, and a host is
+  /// entitled to hold on to what a public getter returned: disposing it
+  /// here would turn its next `addListener` — a `didUpdateWidget`, a
+  /// re-inserted element, a `ValueListenableBuilder` rebuilt over the
+  /// cached instance — into a `FlutterError` on the UI thread. Letting go
+  /// leaves nothing behind either way, because the notifier owns no
+  /// resource beyond its own listener list, and that list is a field of the
+  /// notifier: it is collected with it once this map and the host have both
+  /// dropped the reference. Retention runs notifier → listener, so an
+  /// undisposed notifier cannot pin a widget alive either.
   void retire(String tempId) {
     drop(tempId);
     _cancellable.remove(tempId);
@@ -89,9 +131,23 @@ class AttachmentUploadCancelRegistry {
   }
 
   /// Cancels and releases every outstanding token. Called from
-  /// `ChatUiAdapter`'s session teardown, mirroring
-  /// `VoiceUploadRegistry.disposeAll`. Never marks an id as user-cancelled
-  /// — see [consumeUserCancelled].
+  /// `ChatUiAdapter`'s session teardown. Never marks an id as
+  /// user-cancelled — see [consumeUserCancelled].
+  ///
+  /// Signals are flipped to `false` first, so a ring already on screen
+  /// loses its X, and then released on [retire]'s terms: dropped, never
+  /// disposed, because the same instances were published through a public
+  /// getter and a host may still be listening to them.
+  ///
+  /// User-cancelled marks go with them. Preserving a mark across a teardown
+  /// would buy nothing: this method only ever runs from
+  /// `ChatUiAdapter._resetConnectionState`, on the same line of execution
+  /// as the session-epoch bump, and both call sites that ask
+  /// [consumeUserCancelled] — `ChatMessagesController.sendAttachment` and
+  /// `sendVoice` — test that epoch and return the "session ended" failure
+  /// before their user-cancelled branch can read the answer. So the mark is
+  /// unreachable after a teardown, and keeping it is state surviving an
+  /// operation whose job is to wipe state.
   void cancelAll() {
     for (final token in _tokens.values) {
       token.cancel();

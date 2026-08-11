@@ -39,6 +39,41 @@ class _FakeFetcher implements LinkPreviewFetcher {
   );
 }
 
+/// Host-supplied fetcher that narrows the declared return type to the
+/// non-nullable form — a legal covariant override. Reifies
+/// `Future<LinkPreviewMetadata>`, so any `onTimeout: () => null` applied
+/// directly to it throws a `TypeError` at the call boundary.
+class _NarrowingFetcher implements LinkPreviewFetcher {
+  _NarrowingFetcher(this.response);
+
+  final LinkPreviewMetadata response;
+  int callCount = 0;
+
+  @override
+  Future<LinkPreviewMetadata> fetch(String url) async {
+    callCount++;
+    return response;
+  }
+
+  @override
+  void cancel(String url) {}
+
+  @override
+  void cancelAll() {}
+
+  @override
+  LinkPreviewCacheStats get cacheStats => const LinkPreviewCacheStats(
+    entries: 0,
+    capacity: 0,
+    failures: 0,
+    inFlight: 0,
+    hits: 0,
+    misses: 0,
+    failureRetries: 0,
+    evictions: 0,
+  );
+}
+
 void main() {
   late ChatController controller;
   const user = ChatUser(id: 'u1', displayName: 'Alice');
@@ -165,6 +200,46 @@ void main() {
     expect(receivedMetadata!['linkTitle'], 'Example');
     expect(receivedMetadata!['linkDescription'], 'It works');
   });
+
+  testWidgets(
+    'send-before-debounce keeps the preview when the host fetcher narrows '
+    'its return type to non-nullable',
+    (tester) async {
+      final narrowing = _NarrowingFetcher(
+        const LinkPreviewMetadata(
+          url: 'https://example.com',
+          title: 'Example',
+          description: 'It works',
+        ),
+      );
+      Map<String, dynamic>? receivedMetadata;
+
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (req) => receivedMetadata = req.metadata,
+            linkPreviewFetcher: narrowing,
+          ),
+        ),
+      );
+
+      await tester.enterText(
+        find.byType(TextField),
+        'check https://example.com',
+      );
+      // Send inside the 500ms debounce window so the blocking send-time
+      // fetch runs instead of reusing an already-rendered preview.
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.tap(find.bySemanticsLabel('Send'));
+      await tester.pumpAndSettle();
+
+      expect(narrowing.callCount, greaterThanOrEqualTo(1));
+      expect(receivedMetadata, isNotNull);
+      expect(receivedMetadata!['linkUrl'], 'https://example.com');
+      expect(receivedMetadata!['linkTitle'], 'Example');
+    },
+  );
 
   testWidgets('enableLinkPreview=false skips the fetcher entirely', (
     tester,
