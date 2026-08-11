@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -22,12 +23,37 @@ void main() {
 
     tearDown(() => roomList.dispose());
 
-    PresenceRegistry make({bool isDisposed = false}) => PresenceRegistry(
+    PresenceRegistry make({
+      bool isDisposed = false,
+      ValueNotifier<ChatConnectionState>? connectionState,
+    }) => PresenceRegistry(
       api: api,
       roomList: roomList,
       dmContacts: dmContacts,
       isDisposed: () => isDisposed,
+      connectionState: connectionState,
     );
+
+    void stubOnlineSnapshot() {
+      when(() => api.getAll()).thenAnswer(
+        (_) async => const ChatSuccess(
+          BulkPresenceResponse(
+            own: ChatPresence(
+              userId: 'me',
+              online: true,
+              status: PresenceStatus.available,
+            ),
+            contacts: [
+              ChatPresence(
+                userId: 'u1',
+                online: true,
+                status: PresenceStatus.available,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     test('presenceFor returns null when no event has landed', () {
       expect(make().presenceFor('u1'), isNull);
@@ -381,6 +407,49 @@ void main() {
         await make().bootstrap();
 
         expect(notifyCount, 0);
+      },
+    );
+
+    test('bootstrap fires no request while the transport is not connected '
+        '(GET /presence has no cache tier)', () async {
+      const room = RoomListItem(id: 'r1', otherUserId: 'u1');
+      roomList.addRoom(room);
+      stubOnlineSnapshot();
+
+      final state = ValueNotifier(ChatConnectionState.disconnected);
+      addTearDown(state.dispose);
+
+      await make(connectionState: state).bootstrap();
+
+      verifyNever(() => api.getAll());
+      expect(roomList.getRoomById('r1')!.isOnline, isNull);
+    });
+
+    test('bootstrap is gated on connected, not merely on "not disconnected" '
+        '(a reconnecting transport still skips)', () async {
+      stubOnlineSnapshot();
+
+      final state = ValueNotifier(ChatConnectionState.reconnecting);
+      addTearDown(state.dispose);
+
+      await make(connectionState: state).bootstrap();
+
+      verifyNever(() => api.getAll());
+    });
+
+    test(
+      'bootstrap hits the network once the injected state is connected',
+      () async {
+        stubOnlineSnapshot();
+
+        final state = ValueNotifier(ChatConnectionState.connected);
+        addTearDown(state.dispose);
+
+        final pm = make(connectionState: state);
+        await pm.bootstrap();
+
+        verify(() => api.getAll()).called(1);
+        expect(pm.presenceFor('u1')?.online, isTrue);
       },
     );
   });

@@ -435,6 +435,17 @@ class _MessageInputState extends State<MessageInput> {
             try {
               fetched = await _linkFetcher!
                   .fetch(url)
+                  // Re-typed to the nullable form before the deadline, and
+                  // that hop is load-bearing: `Future<T>.timeout` checks
+                  // `onTimeout` against the *runtime* `T`, so a host-injected
+                  // fetcher narrowing its override to
+                  // `Future<LinkPreviewMetadata>` — a legal covariant
+                  // override, and this fetcher is public and injectable —
+                  // makes `() => null` a TypeError raised at the call
+                  // boundary, before `timeout` subscribes to anything. The
+                  // `catch` below would swallow it and every send would ship
+                  // preview-less, silently.
+                  .then<LinkPreviewMetadata?>((preview) => preview)
                   .timeout(
                     const Duration(milliseconds: 2500),
                     onTimeout: () => null,

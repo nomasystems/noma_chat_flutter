@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/src/ui/adapter/services/voice_upload_registry.dart';
 
@@ -8,7 +7,7 @@ void main() {
 
     setUp(() => registry = VoiceUploadRegistry());
 
-    tearDown(() => registry.disposeAll());
+    tearDown(() => registry.releaseAll());
 
     test('starts empty', () {
       expect(registry.activeCount, 0);
@@ -68,20 +67,32 @@ void main() {
       expect(registry.rawNotifier('other'), isNull);
     });
 
-    test('disposeAll releases active + detached notifiers', () {
+    test('releaseAll lets go of active + detached notifiers, and leaves both '
+        'usable for a host that kept one', () {
       final n1 = registry.register('t1');
-      registry.register('t2');
+      final n2 = registry.register('t2');
       registry.complete('t2'); // t2 detached
       expect(registry.activeCount, 1);
       expect(registry.detachedCount, 1);
 
-      registry.disposeAll();
+      registry.releaseAll();
       expect(registry.activeCount, 0);
       expect(registry.detachedCount, 0);
+      expect(registry.listenableFor('t1'), isNull);
 
-      // Calling value on a disposed ChangeNotifier doesn't throw on read,
-      // but addListener does. Verify dispose actually ran.
-      expect(() => n1.addListener(() {}), throwsA(isA<FlutterError>()));
+      // Both left through `voiceUploadProgressFor` /
+      // `attachmentUploadProgressFor`; a host that resolved one and
+      // subscribed itself must not have its next addListener blow up on the
+      // UI thread because somebody signed out.
+      void listener() {}
+      expect(() => n1.addListener(listener), returnsNormally);
+      expect(() => n1.removeListener(listener), returnsNormally);
+      expect(() => n2.addListener(listener), returnsNormally);
+      expect(() => n2.removeListener(listener), returnsNormally);
+      // The teardown invents no terminal value: what each one last reported
+      // is what it still reports.
+      expect(n1.value, 0.0);
+      expect(n2.value, 1.0);
     });
 
     test('progress changes propagate via the returned ValueListenable', () {

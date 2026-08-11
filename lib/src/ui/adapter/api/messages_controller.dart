@@ -15,6 +15,12 @@ interface class ChatMessagesController {
 
   final ChatUiAdapter _a;
 
+  /// Mints the client-side identity of an optimistic row, off the adapter's
+  /// one [TempIdMinter] — shared with text sends and forwards so no two
+  /// sends can collide whichever entry point they came through. See
+  /// [TempIdMinter] for why the wall clock alone cannot keep them apart.
+  String _nextTempId() => _a._tempIds.next();
+
   /// Loads the initial page of messages for [roomId] using
   /// cache-then-network.
   Future<ChatResult<List<ChatMessage>>> load(
@@ -332,9 +338,10 @@ interface class ChatMessagesController {
     }
 
     final controller = _a._chatControllers[roomIdOrDraftKey];
-    final tempId = '_pending_${DateTime.now().microsecondsSinceEpoch}';
+    final tempId = _nextTempId();
     final progress = _a._voiceUploads.register(tempId);
     final cancelToken = _a._attachmentUploadCancels.register(tempId);
+    final release = _ProgressRelease();
     try {
       return await _sendUploadedAttachment(
         roomIdOrDraftKey,
@@ -346,12 +353,68 @@ interface class ChatMessagesController {
         tempId: tempId,
         progress: progress,
         cancelToken: cancelToken,
+        release: release,
       );
     } finally {
-      // Every exit path, thrown ones included: the entry keeps the Dio
-      // `CancelToken` — and through it the whole payload — alive, and the
-      // draft-failure returns above never reach the mid-flow cleanup.
-      _a._attachmentUploadCancels.retire(tempId);
+      _releaseUploadRegistrations(tempId, release);
+    }
+  }
+
+  /// The one place a send lets go of the two registrations it opened, run
+  /// from the `finally` that closes it — every exit path, thrown ones
+  /// included. Two things depend on that being exhaustive: the cancel entry
+  /// keeps the Dio `CancelToken`, and through it the whole payload, alive;
+  /// and a progress notifier left behind is a ring that can never come down,
+  /// on a row nothing will ever finish, wearing an X that aborts nothing.
+  ///
+  /// [release] decides which way the notifier goes, and the two are not
+  /// interchangeable. [VoiceUploadRegistry.complete] publishes a final `1.0`
+  /// and retains the notifier for teardown to dispose — correct only once
+  /// the row carries a blob of its own to render. Anything short of that —
+  /// cancelled, failed, abandoned mid-flight, thrown out of — has no `1.0`
+  /// to publish and takes [VoiceUploadRegistry.drop] instead, which lets the
+  /// bubble fall back to its failed/removed state.
+  void _releaseUploadRegistrations(String tempId, _ProgressRelease release) {
+    if (release.reachedFinalState) {
+      _a._voiceUploads.complete(tempId);
+    } else {
+      _a._voiceUploads.drop(tempId);
+    }
+    _a._attachmentUploadCancels.retire(tempId);
+  }
+
+  /// Runs an attachment upload so that a transport which *raises* ends up
+  /// where a transport which *returns* a [ChatFailureResult] ends up.
+  ///
+  /// Both send paths express every outcome as a result, and the branches
+  /// that give a bad upload its visible state — the row marked failed, the
+  /// pending copy persisted as failed, the bytes offered to the offline
+  /// queue — all hang off the returned failure. A throw crossing the await
+  /// skips the lot: the optimistic row stays pending forever, with no retry
+  /// affordance and no queue entry, and the exception escapes a signature
+  /// that promises `Future<ChatResult<ChatMessage>>`. The SDK's own REST
+  /// client cannot throw here (it maps exceptions at its boundary), but a
+  /// [ChatAttachmentsApi] supplied by the host is under no such obligation.
+  ///
+  /// The error travels on inside [UnexpectedFailure.originalError]. It is
+  /// deliberately not typed as a network failure: a raise proves nothing
+  /// about whether the bytes reached the server, and only the failures that
+  /// prove they did not are safe for the offline queue to replay — a second
+  /// upload of a blob that already landed is a duplicate the host pays for.
+  Future<ChatResult<AttachmentUploadResult>> _uploadOrFailure(
+    Future<ChatResult<AttachmentUploadResult>> Function() upload,
+  ) async {
+    try {
+      return await upload();
+    } catch (error) {
+      _a.logs?.attach(
+        ChatLogLevel.warn,
+        'attachment upload threw, treating it as a failed upload',
+        fields: {'error': error.toString()},
+      );
+      return ChatFailureResult<AttachmentUploadResult>(
+        UnexpectedFailure(error.toString(), error),
+      );
     }
   }
 
@@ -365,6 +428,7 @@ interface class ChatMessagesController {
     required String tempId,
     required ValueNotifier<double> progress,
     required UploadCancelToken cancelToken,
+    required _ProgressRelease release,
   }) async {
     final epoch = _a._sessionEpoch;
     final optimisticMetadata = <String, dynamic>{
@@ -395,7 +459,6 @@ interface class ChatMessagesController {
       final otherUserId = controller.draftOtherUserId;
       if (otherUserId == null) {
         controller.markFailed(tempId);
-        _a._voiceUploads.drop(tempId);
         return _a._emitFailure(
           const ChatFailureResult<ChatMessage>(
             ValidationFailure(
@@ -410,7 +473,6 @@ interface class ChatMessagesController {
       final materialization = await _a.ensureDmRoomMaterialized(otherUserId);
       if (materialization.isFailure) {
         controller.markFailed(tempId);
-        _a._voiceUploads.drop(tempId);
         return _a._emitFailure(
           materialization.castFailure<ChatMessage>(),
           OperationKind.uploadAttachment,
@@ -428,7 +490,6 @@ interface class ChatMessagesController {
       // inside it has already cleared the cache. Resuming would write the
       // pending row back *after* that clear — a ghost bubble on the next
       // login — and then upload and send under a session that is gone.
-      _a._voiceUploads.drop(tempId);
       return const ChatFailureResult<ChatMessage>(
         NetworkFailure('chat session ended mid-send'),
       );
@@ -442,16 +503,32 @@ interface class ChatMessagesController {
     );
     _a._roomListMutator.updateRoomLastMessage(roomId, optimistic);
 
-    final uploadResult = await _a.client.attachments.upload(
-      bytes,
-      mimeType,
-      onProgress: (sent, total) {
-        onProgress?.call(sent, total);
-        if (_a._disposed || total <= 0) return;
-        if (!_a._voiceUploads.isActive(tempId)) return;
-        progress.value = (sent / total).clamp(0.0, 1.0);
-      },
-      cancelToken: cancelToken,
+    final uploadResult = await _uploadOrFailure(
+      () => _a.client.attachments.upload(
+        bytes,
+        mimeType,
+        onProgress: (sent, total) {
+          onProgress?.call(sent, total);
+          // Second line of defence, not the mechanism. The teardown itself
+          // cancels every registered token
+          // (`AttachmentUploadCancelRegistry.cancelAll`, from
+          // `_resetConnectionState`), which is what covers the dangerous
+          // stretch: the body is fully written, no tick will ever arrive
+          // again, and the blob is about to exist with no message pointing
+          // at it. This check only shortens the window while ticks are still
+          // flowing — the epoch flips synchronously with the teardown, so a
+          // tick that lands right after it stops the transfer without
+          // waiting for anything else.
+          if (_a._sessionEndedSince(epoch)) {
+            cancelToken.cancel();
+            return;
+          }
+          if (total <= 0) return;
+          if (!_a._voiceUploads.isActive(tempId)) return;
+          progress.value = (sent / total).clamp(0.0, 1.0);
+        },
+        cancelToken: cancelToken,
+      ),
     );
     // The X and the ability to abort end at the same instant: past this
     // point the bytes have landed, so a tappable X would be inert. `drop`
@@ -468,7 +545,6 @@ interface class ChatMessagesController {
     _a._attachmentUploadCancels.drop(tempId);
 
     if (_a._sessionEndedSince(epoch)) {
-      _a._voiceUploads.drop(tempId);
       return ChatFailureResult(
         uploadResult.failureOrNull ??
             const NetworkFailure('chat session ended mid-upload'),
@@ -479,7 +555,6 @@ interface class ChatMessagesController {
       // The user chose to abort, not a network condition to recover from:
       // the provisional bubble disappears entirely instead of lingering as
       // failed, and neither the retry nor the offline-queue path fires.
-      _a._voiceUploads.drop(tempId);
       controller?.removeMessage(tempId);
       unawaited(
         _a._cache
@@ -491,7 +566,6 @@ interface class ChatMessagesController {
     }
 
     if (uploadResult.isFailure) {
-      _a._voiceUploads.drop(tempId);
       controller?.markFailed(tempId);
       unawaited(
         _a._cache
@@ -531,13 +605,17 @@ interface class ChatMessagesController {
     // Only now, with the clip itself safely uploaded: a cancel or a failure
     // above short-circuits the poster frame for free, and the ring sits at
     // 100% with no X while the extra step runs.
-    final thumbnail = await _uploadVideoThumbnail(tempId, bytes, mimeType);
+    final thumbnail = await _uploadVideoThumbnail(
+      tempId,
+      bytes,
+      mimeType,
+      epoch,
+    );
     if (_a._sessionEndedSince(epoch)) {
       // Generation can hold this for seconds; a logout inside that window
       // already cleared the cache and disposed the controllers. Writing the
       // pending row again would leave a ghost bubble for the next session,
       // and the send would go out under a session that no longer exists.
-      _a._voiceUploads.drop(tempId);
       return const ChatFailureResult<ChatMessage>(
         NetworkFailure('chat session ended mid-send'),
       );
@@ -584,7 +662,6 @@ interface class ChatMessagesController {
       clientMessageId: tempId,
     );
     if (_a._sessionEndedSince(epoch)) {
-      _a._voiceUploads.drop(tempId);
       return ChatFailureResult(
         sendResult.failureOrNull ??
             const NetworkFailure('chat session ended mid-send'),
@@ -637,11 +714,10 @@ interface class ChatMessagesController {
 
     // Same placement and same reasoning as `sendVoice`: only now does the
     // row have a state of its own to render — the uploaded URL, and either
-    // the confirmed message or the failed marker. `complete()` rather than
-    // `drop()` because the bubble may still hold the notifier until the
-    // controller swaps tempId for the real id, and a disposed one would
-    // throw on the next read.
-    _a._voiceUploads.complete(tempId);
+    // the confirmed message or the failed marker. The `finally` reads this
+    // and completes the notifier rather than dropping it, because the bubble
+    // may still hold it until the controller swaps tempId for the real id.
+    release.reachedFinalState = true;
 
     return _a._emitFailure(
       sendResult,
@@ -685,6 +761,7 @@ interface class ChatMessagesController {
     String tempId,
     Uint8List videoBytes,
     String mimeType,
+    int epoch,
   ) async {
     if (classifyMime(mimeType) != MimeKind.video) return null;
     final cancelKey = '$tempId#thumbnail';
@@ -703,12 +780,22 @@ interface class ChatMessagesController {
           // zone error, taking down a send this step must never fail.
           .then<VideoThumbnailData?>((frame) => frame)
           .timeout(RoomDefaults.videoThumbnailTimeout, onTimeout: () => null);
-      if (frame == null || _a._disposed || cancelToken.isCancelled) return null;
+      // `_sessionEndedSince` and not `_disposed`, here and below: a logout
+      // leaves the adapter alive on a new epoch, so `_disposed` reads false
+      // through the exact window this step must not start a POST in.
+      // Generation can hold the send for seconds, and a poster frame
+      // uploaded after the session behind it is gone is a billable blob no
+      // message will ever reference.
+      if (frame == null ||
+          _a._sessionEndedSince(epoch) ||
+          cancelToken.isCancelled) {
+        return null;
+      }
       final remaining =
           RoomDefaults.videoThumbnailTimeout -
           DateTime.now().difference(budgetStartedAt);
       if (remaining <= Duration.zero) return null;
-      return await _uploadThumbnailFrame(frame, cancelToken, remaining);
+      return await _uploadThumbnailFrame(frame, cancelToken, remaining, epoch);
     } catch (error) {
       cancelToken.cancel();
       _a.logs?.attach(
@@ -726,12 +813,30 @@ interface class ChatMessagesController {
     VideoThumbnailData frame,
     UploadCancelToken cancelToken,
     Duration remainingBudget,
+    int epoch,
   ) async {
     final deadline = Timer(remainingBudget, cancelToken.cancel);
     final result = await _a.client.attachments
-        .upload(frame.bytes, frame.mimeType, cancelToken: cancelToken)
+        .upload(
+          frame.bytes,
+          frame.mimeType,
+          // Same self-abort as the clip's own upload: the poster frame is a
+          // second billable blob, and a session ending inside this window
+          // would otherwise leave it behind with nothing referencing it.
+          onProgress: (_, _) {
+            if (_a._sessionEndedSince(epoch)) cancelToken.cancel();
+          },
+          cancelToken: cancelToken,
+        )
         .whenComplete(deadline.cancel);
-    if (_a._disposed) return null;
+    // Ahead of the failure branch, in the same slot and for the same reason
+    // the two send paths check the epoch straight after their own upload
+    // await: a session that ended is not an outcome to report. There it
+    // stops a teardown from marking a row failed and queueing it for
+    // offline retry; here it stops one from being logged as a thumbnail
+    // that failed, when what actually happened is that the send it belonged
+    // to no longer exists.
+    if (_a._sessionEndedSince(epoch)) return null;
     if (result.isFailure) {
       _a.logs?.attach(
         ChatLogLevel.warn,
@@ -763,6 +868,13 @@ interface class ChatMessagesController {
   /// The optimistic row carries that same `clientMessageId`, so the
   /// authoritative `new_message` event replaces it rather than painting a
   /// second bubble when the send landed but its response did not.
+  ///
+  /// The clip's upload is registered in
+  /// [AttachmentUploadCancelRegistry] exactly like `sendAttachment`'s. A
+  /// voice note is a billable blob like any other, and an upload with no
+  /// token registered is one nothing can abort: the session teardown walks
+  /// the registry, so a clip absent from it keeps going after the session
+  /// that started it is gone, and lands with no message to reference it.
   Future<ChatResult<ChatMessage>> sendVoice(
     String roomIdOrDraftKey, {
     required Uint8List audioBytes,
@@ -771,9 +883,41 @@ interface class ChatMessagesController {
     required List<int> waveform,
   }) async {
     final controller = _a._chatControllers[roomIdOrDraftKey];
-    final tempId = '_pending_${DateTime.now().microsecondsSinceEpoch}';
+    final tempId = _nextTempId();
     final progress = _a._voiceUploads.register(tempId);
+    final cancelToken = _a._attachmentUploadCancels.register(tempId);
+    final release = _ProgressRelease();
+    try {
+      return await _sendUploadedVoice(
+        roomIdOrDraftKey,
+        audioBytes: audioBytes,
+        mimeType: mimeType,
+        duration: duration,
+        waveform: waveform,
+        controller: controller,
+        tempId: tempId,
+        progress: progress,
+        cancelToken: cancelToken,
+        release: release,
+      );
+    } finally {
+      _releaseUploadRegistrations(tempId, release);
+    }
+  }
 
+  Future<ChatResult<ChatMessage>> _sendUploadedVoice(
+    String roomIdOrDraftKey, {
+    required Uint8List audioBytes,
+    required String mimeType,
+    required Duration duration,
+    required List<int> waveform,
+    required ChatController? controller,
+    required String tempId,
+    required ValueNotifier<double> progress,
+    required UploadCancelToken cancelToken,
+    required _ProgressRelease release,
+  }) async {
+    final epoch = _a._sessionEpoch;
     final optimistic = ChatMessage(
       id: tempId,
       from: _a.currentUser.id,
@@ -826,6 +970,17 @@ interface class ChatMessagesController {
       roomId = roomIdOrDraftKey;
     }
 
+    if (_a._sessionEndedSince(epoch)) {
+      // Same window `sendAttachment` closes here. Creating the room is a
+      // round trip like any other, and a logout inside it has already
+      // cleared the cache. Resuming would write the pending row back
+      // *after* that clear — a ghost bubble on the next login — and then
+      // upload and send under a session that is gone.
+      return const ChatFailureResult<ChatMessage>(
+        NetworkFailure('chat session ended mid-send'),
+      );
+    }
+
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, optimistic)
@@ -834,26 +989,68 @@ interface class ChatMessagesController {
     );
     _a._roomListMutator.updateRoomLastMessage(roomId, optimistic);
 
-    final uploadResult = await _a.client.attachments.upload(
-      audioBytes,
-      mimeType,
-      onProgress: (sent, total) {
-        if (_a._disposed || total <= 0) return;
-        // Guard against the notifier being disposed (adapter teardown).
-        if (!_a._voiceUploads.isActive(tempId)) return;
-        progress.value = (sent / total).clamp(0.0, 1.0);
-      },
+    final uploadResult = await _uploadOrFailure(
+      () => _a.client.attachments.upload(
+        audioBytes,
+        mimeType,
+        onProgress: (sent, total) {
+          // Second line of defence, not the mechanism — same reasoning as
+          // `sendAttachment`. The teardown cancels every registered token
+          // (`AttachmentUploadCancelRegistry.cancelAll`), which is what
+          // covers the stretch after the last byte is written, when no tick
+          // will ever arrive again. This only shortens the window while
+          // ticks are still flowing.
+          if (_a._sessionEndedSince(epoch)) {
+            cancelToken.cancel();
+            return;
+          }
+          if (total <= 0) return;
+          // Guard against the notifier being disposed (adapter teardown).
+          if (!_a._voiceUploads.isActive(tempId)) return;
+          progress.value = (sent / total).clamp(0.0, 1.0);
+        },
+        cancelToken: cancelToken,
+      ),
     );
+    // Past this point the bytes have landed, so nothing is left to abort:
+    // the token goes now rather than at the `finally`, exactly as in
+    // `sendAttachment`. Asking who cancelled has to happen before the drop,
+    // and before any branch below can act on the failure.
+    final userCancelled = _a._attachmentUploadCancels.consumeUserCancelled(
+      tempId,
+    );
+    _a._attachmentUploadCancels.drop(tempId);
 
-    if (_a._disposed) {
+    if (_a._sessionEndedSince(epoch)) {
+      // Wider than the `_disposed` test it replaces, and that width is the
+      // whole point: a logout leaves the adapter alive on a new epoch, so
+      // `_disposed` reads false and everything below would run — the cache
+      // written past the logout's clear, and a message posted for a session
+      // that ended. A transport that cannot honour a cancel token mid-flight
+      // (`UploadCancelToken` explicitly allows one) lands the bytes anyway,
+      // which is exactly when the orphan blob is created; refusing to build
+      // a message on top of it is what keeps the damage to the blob.
       return ChatFailureResult(
         uploadResult.failureOrNull ??
-            const NetworkFailure('adapter disposed mid-upload'),
+            const NetworkFailure('chat session ended mid-upload'),
       );
     }
 
+    if (userCancelled && uploadResult.failureOrNull is CancelledFailure) {
+      // Same rule as `sendAttachment`: an abort the user asked for leaves
+      // nothing behind — no failed bubble to retry, no offline-queue entry
+      // that would upload the abandoned clip on the next reconnect.
+      controller?.removeMessage(tempId);
+      unawaited(
+        _a._cache
+                ?.deletePendingMessage(roomId, tempId)
+                .catchError(_swallowCacheThrow) ??
+            Future.value(),
+      );
+      return uploadResult.castFailure<ChatMessage>();
+    }
+
     if (uploadResult.isFailure) {
-      _a._voiceUploads.drop(tempId);
       controller?.markFailed(tempId);
       unawaited(
         _a._cache
@@ -916,6 +1113,15 @@ interface class ChatMessagesController {
       tempId: tempId,
       clientMessageId: tempId,
     );
+    if (_a._sessionEndedSince(epoch)) {
+      // The send is a round trip too. Past this point everything below
+      // writes: the controller the teardown just disposed, and the cache it
+      // just cleared.
+      return ChatFailureResult(
+        sendResult.failureOrNull ??
+            const NetworkFailure('chat session ended mid-send'),
+      );
+    }
 
     final confirmedVoice = sendResult.isSuccess
         ? _a._ensureSentReceipt(sendResult.dataOrThrow)
@@ -961,13 +1167,14 @@ interface class ChatMessagesController {
       );
     }
 
-    // Detach the notifier from the active map. We deliberately do not
-    // call `dispose()` here: the optimistic bubble may still hold a
-    // reference until the controller's rebuild swaps tempId for the
-    // real id, and a disposed ChangeNotifier would throw on the next
-    // read. `VoiceUploadRegistry.complete()` retains it in the
-    // detached list so `disposeAll()` can release on teardown.
-    _a._voiceUploads.complete(tempId);
+    // The row finally has a state of its own to render — the uploaded URL,
+    // and either the confirmed message or the failed marker — so the
+    // `finally` detaches the notifier instead of dropping it. Detach, not
+    // dispose: the optimistic bubble may still hold a reference until the
+    // controller's rebuild swaps tempId for the real id, and
+    // `VoiceUploadRegistry.complete` keeps it alive for `releaseAll` to
+    // release on teardown.
+    release.reachedFinalState = true;
 
     return _a._emitFailure(
       sendResult,
@@ -1107,8 +1314,7 @@ interface class ChatMessagesController {
   }) async {
     final results = <ChatResult<ChatMessage>>[];
     for (final targetKey in targetRoomIds) {
-      final tempId =
-          '_pending_${DateTime.now().microsecondsSinceEpoch}_$targetKey';
+      final tempId = _nextTempId();
       final optimistic = ChatMessage(
         id: tempId,
         from: _a.currentUser.id,
@@ -1777,6 +1983,21 @@ interface class ChatMessagesController {
       ),
     );
   }
+}
+
+/// How a send that is on its way out wants its upload-progress notifier
+/// released, carried out to the `finally` that actually releases it.
+///
+/// Only the body of a send knows whether the row it painted ended up with
+/// something to render, and only the `finally` runs on every exit path —
+/// including the thrown ones the body never sees. This box is what connects
+/// the two: the body flips [reachedFinalState] at the single point where
+/// the row becomes renderable, the `finally` reads it and picks `complete`
+/// or `drop`. Left `false` — a cancel, a failure, a session that ended, an
+/// exception — the notifier is dropped, which is what takes the ring, and
+/// with it the X, off a bubble nothing is going to finish.
+class _ProgressRelease {
+  bool reachedFinalState = false;
 }
 
 /// The uploaded poster frame for a video message: a blob of its own, so it

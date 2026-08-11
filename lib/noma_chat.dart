@@ -120,6 +120,13 @@ export 'src/ui/models/voice_message_data.dart';
 export 'src/ui/adapter/chat_ui_adapter.dart';
 export 'src/ui/adapter/room_title_resolver.dart';
 export 'src/ui/adapter/operation_error.dart';
+// `ChatUiAdapter.roomHydrationNotifier` is typed on these, so by the rule
+// stated above they belong in the primary barrel and not in
+// `noma_chat_advanced.dart` — deciding what to paint on first frame is the
+// plug & play path, not a low-level knob. Narrowed with `show` because the
+// rest of that file is the internal `RoomEnricher` handler.
+export 'src/ui/adapter/handlers/room_enricher.dart'
+    show RoomHydrationOutcome, RoomHydrationStatus;
 
 // === UI: Controllers ===
 export 'src/ui/controller/audio_playback_coordinator.dart';

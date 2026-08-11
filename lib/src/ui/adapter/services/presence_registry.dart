@@ -1,4 +1,7 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../client/chat_client.dart';
+import '../../../events/chat_event.dart';
 import '../../../models/presence.dart';
 import '../../../observability/chat_logger.dart';
 import '../../controller/room_list_controller.dart';
@@ -22,17 +25,25 @@ class PresenceRegistry {
     required RoomListController roomList,
     required DmContactRegistry dmContacts,
     required bool Function() isDisposed,
+    ValueListenable<ChatConnectionState>? connectionState,
     ChatLogger? logs,
   }) : _api = api,
        _roomList = roomList,
        _dmContacts = dmContacts,
        _isDisposed = isDisposed,
+       _connectionState = connectionState,
        _logs = logs;
 
   final ChatPresenceApi _api;
   final RoomListController _roomList;
   final DmContactRegistry _dmContacts;
   final bool Function() _isDisposed;
+
+  /// Realtime connection state the [bootstrap] network gate reads — pass
+  /// the adapter's `connectionStateNotifier` here. When `null` the gate is
+  /// disabled and [bootstrap] always hits the network (legacy behaviour,
+  /// kept so a host that builds this registry standalone is unaffected).
+  final ValueListenable<ChatConnectionState>? _connectionState;
   final ChatLogger? _logs;
 
   final Map<String, ChatPresence> _cache = {};
@@ -60,7 +71,24 @@ class PresenceRegistry {
   /// listeners synchronously, so doing that once per DM room turns a
   /// reconnection with N rooms into an O(n² log n) sequence of rebuilds
   /// (and N `RoomListView` repaints) instead of one.
+  ///
+  /// **Network gate**: `GET /presence` has no cache tier, so this is an
+  /// unconditional round-trip. When a [ValueListenable] of
+  /// [ChatConnectionState] was injected and the transport is not
+  /// [ChatConnectionState.connected], the fetch is skipped outright
+  /// instead of being fired and failing — a cold start with no
+  /// connectivity must not pay (nor time out on) a request whose answer
+  /// is unreachable. Nothing is lost: the adapter's event router
+  /// re-invokes [bootstrap] on every `connected` transition, so the
+  /// snapshot lands as soon as the transport is usable.
   Future<void> bootstrap() async {
+    if (!_transportIsConnected) {
+      _logs?.presence(
+        ChatLogLevel.debug,
+        'Skipped presence bootstrap: transport not connected',
+      );
+      return;
+    }
     try {
       final startedAt = DateTime.now();
       final res = await _api.getAll();
@@ -101,6 +129,11 @@ class PresenceRegistry {
         'Failed to bootstrap chat presence: $e',
       );
     }
+  }
+
+  bool get _transportIsConnected {
+    final state = _connectionState;
+    return state == null || state.value.isConnected;
   }
 
   bool _isStaleAgainstLiveUpdate(String userId, DateTime snapshotStartedAt) {

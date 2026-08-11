@@ -111,6 +111,38 @@ void main() {
         expect(registry.activeCount, 0);
       });
 
+      test('leaves the signal usable for a host that kept it', () {
+        // `ChatUiAdapter.attachmentUploadCancellableFor` is public, so a
+        // host with its own media bubble may resolve the signal once and
+        // subscribe itself. Disposing the instance on the way out turns
+        // that host's next `addListener` — a `didUpdateWidget`, a
+        // re-inserted element — into a FlutterError on the UI thread.
+        registry.register('t1');
+        final cancellable = registry.cancellableFor('t1')!;
+
+        registry.retire('t1');
+
+        var notified = 0;
+        void listener() => notified++;
+        expect(() => cancellable.addListener(listener), returnsNormally);
+        expect(cancellable.value, isFalse);
+        expect(() => cancellable.removeListener(listener), returnsNormally);
+        expect(notified, 0);
+      });
+
+      test('is inert once a teardown already released the id', () {
+        // The ordinary shape of a logout mid-send: `cancelAll` runs from
+        // the teardown, then the send's own `finally` retires the same id.
+        registry.register('t1');
+        final cancellable = registry.cancellableFor('t1')!;
+        registry.cancelAll();
+
+        registry.retire('t1');
+
+        expect(registry.cancellableFor('t1'), isNull);
+        expect(cancellable.value, isFalse);
+      });
+
       test('cancels nothing — the token is the caller\'s to settle', () {
         final token = registry.register('t1');
         registry.drop('t1');
@@ -132,6 +164,62 @@ void main() {
       expect(registry.activeCount, 0);
     });
 
+    test('cancelAll reaches the transport rather than only raising a flag', () {
+      // The whole orphan-blob defence rests on this being a push and not a
+      // flag: the upload it has to stop is parked waiting for a response
+      // with its body fully written, so nothing on that side is going to
+      // poll `isCancelled` again. `RestClient.uploadBinary` binds the
+      // request's own Dio `CancelToken` here; a token that merely recorded
+      // the cancellation would leave the transfer running to completion.
+      final token = registry.register('t1');
+      var abortedTransfer = 0;
+      token.bindOnCancel(() => abortedTransfer++);
+
+      registry.cancelAll();
+
+      expect(abortedTransfer, 1);
+    });
+
+    test('cancel reaches the transport the same way', () {
+      final token = registry.register('t1');
+      var abortedTransfer = 0;
+      token.bindOnCancel(() => abortedTransfer++);
+
+      registry.cancel('t1');
+
+      expect(abortedTransfer, 1);
+    });
+
+    test('drop leaves the transfer alone — the bytes already landed', () {
+      final token = registry.register('t1');
+      var abortedTransfer = 0;
+      token.bindOnCancel(() => abortedTransfer++);
+
+      registry.drop('t1');
+      registry.retire('t1');
+
+      expect(abortedTransfer, 0);
+    });
+
+    test('cancelAll flips every signal it releases, and leaves them '
+        'usable', () {
+      registry.register('t1');
+      registry.register('t2');
+      final a = registry.cancellableFor('t1')!;
+      final b = registry.cancellableFor('t2')!;
+
+      registry.cancelAll();
+
+      // Flipped first so a ring on screen loses its X, then let go of —
+      // not destroyed. A teardown reaches signals a host may still hold
+      // through the public getter, exactly as `retire` does.
+      expect(a.value, isFalse);
+      expect(b.value, isFalse);
+      expect(registry.cancellableFor('t1'), isNull);
+      expect(() => a.addListener(() {}), returnsNormally);
+      expect(() => b.addListener(() {}), returnsNormally);
+    });
+
     group('user-initiated vs teardown', () {
       // Both routes surface the same `CancelledFailure` at the upload's
       // call site, but only the user's X may delete the provisional
@@ -147,6 +235,21 @@ void main() {
 
       test('cancelAll marks nothing, whenever it runs', () {
         registry.register('t1');
+
+        registry.cancelAll();
+
+        expect(registry.consumeUserCancelled('t1'), isFalse);
+      });
+
+      test('cancelAll erases a mark the user had already set', () {
+        // Preserving it would buy nothing and cost state surviving a
+        // teardown: `cancelAll` only runs from
+        // `ChatUiAdapter._resetConnectionState`, next to the session-epoch
+        // bump, and both call sites that ask `consumeUserCancelled`
+        // (`sendAttachment`, `sendVoice`) return on the epoch test before
+        // their user-cancelled branch can read the answer.
+        registry.register('t1');
+        registry.cancel('t1');
 
         registry.cancelAll();
 

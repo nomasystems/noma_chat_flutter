@@ -9,17 +9,20 @@ import 'package:flutter/foundation.dart';
 ///
 /// 1. **Active**: the notifier is in [_active], the bubble subscribes
 ///    to it, upload progress drives `notifier.value`.
-/// 2. **Completed**: upload succeeded; the notifier moves to [_detached]
-///    so the bubble can still listen (and observe the final `1.0`)
-///    until its next rebuild swaps the temp id for the server id.
-///    Dropping outright would throw on the next bubble read.
+/// 2. **Completed**: upload succeeded; the notifier moves to [_detached],
+///    which keeps it reachable from the registry while the bubble finishes
+///    observing the final `1.0` — until its next rebuild swaps the temp id
+///    for the server id.
 /// 3. **Failed**: upload failed; the notifier is dropped from active
 ///    without retention. The failed-bubble UI doesn't need it
 ///    anymore — failure is signalled via the message's `isFailed`
 ///    flag, not via the progress notifier.
 ///
-/// `disposeAll()` is the catch-all teardown — called from
-/// `ChatUiAdapter.dispose()`.
+/// [releaseAll] is the catch-all teardown — called from
+/// `ChatUiAdapter._resetSessionState`, so from both `signOut()` and
+/// `dispose()`. Nothing here ever destroys a notifier: they leave the SDK
+/// through public getters, and what has been handed out is not ours to
+/// kill. See [releaseAll].
 class VoiceUploadRegistry {
   final Map<String, ValueNotifier<double>> _active = {};
   final List<ValueNotifier<double>> _detached = [];
@@ -34,8 +37,11 @@ class VoiceUploadRegistry {
   }
 
   /// Read-only listenable for [tempId], or `null` when no upload is
-  /// active for that id. Used by `ChatUiAdapter.voiceUploadProgressFor`
-  /// (the public API consumed by `AudioBubble`).
+  /// active for that id. This is the object the public getters
+  /// `ChatUiAdapter.voiceUploadProgressFor` (consumed by `AudioBubble`) and
+  /// `ChatUiAdapter.attachmentUploadProgressFor` (the upload ring on every
+  /// other kind of blob) return, so it outlives this registry whenever a
+  /// host keeps it — which is why [releaseAll] never destroys one.
   ValueListenable<double>? listenableFor(String tempId) => _active[tempId];
 
   /// `true` while [tempId] has an active upload notifier. Used by the
@@ -74,16 +80,32 @@ class VoiceUploadRegistry {
     _active.remove(tempId);
   }
 
-  /// Releases every notifier — active AND detached. Called from
-  /// `ChatUiAdapter.dispose()` and `ChatUiAdapter.logout()`.
-  void disposeAll() {
-    for (final n in _active.values) {
-      n.dispose();
-    }
+  /// Lets go of every notifier — active AND detached — without destroying
+  /// any of them. Runs from `ChatUiAdapter._resetSessionState`, which means
+  /// on every `signOut()`, not only on `dispose()`.
+  ///
+  /// Deliberately disposes nothing — the same decision
+  /// `AttachmentUploadCancelRegistry` took for its cancel signals, and for
+  /// the same reason. These notifiers are published by
+  /// `ChatUiAdapter.voiceUploadProgressFor` and
+  /// `ChatUiAdapter.attachmentUploadProgressFor`, and a host is entitled to
+  /// resolve one once and subscribe to it itself instead of re-reading the
+  /// getter on every build. Disposing here turns that host's next
+  /// `addListener` — a `didUpdateWidget`, a re-inserted element, a
+  /// `ValueListenableBuilder` rebuilt over the instance it kept — into
+  /// `FlutterError: A ValueNotifier<double> was used after being disposed`,
+  /// on the UI thread, in release builds too. Dropping the references
+  /// instead costs nothing: a notifier nobody holds is garbage, its listener
+  /// list included, and that list can only retain its listeners, never the
+  /// other way round.
+  ///
+  /// No terminal value is published on the way out either, unlike the cancel
+  /// registry's `false`. "No upload in flight" is expressed by the getters
+  /// answering `null`, not by a number: `1.0` would claim a clip that never
+  /// landed and `0.0` an upload back at the start, so the last real progress
+  /// is what stays.
+  void releaseAll() {
     _active.clear();
-    for (final n in _detached) {
-      n.dispose();
-    }
     _detached.clear();
   }
 

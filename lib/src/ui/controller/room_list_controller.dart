@@ -129,6 +129,60 @@ class RoomListController extends ChangeNotifier {
   /// `true` when at least one room is archived (ignoring the text filter).
   bool get hasArchivedRooms => _rooms.any((r) => r.hidden && !_isDeleted(r.id));
 
+  /// How many conversations of the MAIN list carry unread messages.
+  ///
+  /// Counts exactly the rooms [rooms] is built from — `!hidden` and not in
+  /// [deletedRoomIds] — with `unreadCount > 0`. Use it for the app/tab badge:
+  /// every room it counts has a row the user can open (and thus clear) from
+  /// the main list, and the count drops to zero the moment those rows are
+  /// read, archived or deleted.
+  ///
+  /// Deliberately IGNORES the text [filter], unlike [rooms]: a badge that
+  /// shrank while the user typed in the search box would be lying about the
+  /// mailbox. [rooms] is a view; this is a total.
+  ///
+  /// [includeMuted] `false` (the default) skips rooms the user muted
+  /// ([RoomListItem.muted]) — WhatsApp parity: a muted conversation must not
+  /// drive an alerting badge. Pass `true` for an inbox-style "unread
+  /// conversations" total where mute only silences notifications. Mute expiry
+  /// is not evaluated locally: the flag is whatever the server last said, the
+  /// same value the room tile paints its muted icon from.
+  ///
+  /// The archived half of the list is counted by [unreadArchivedRoomCount].
+  /// The two are disjoint, and together they cover every non-deleted room, so
+  /// `unreadRoomCount() + unreadArchivedRoomCount()` is the whole-account
+  /// unread-conversation count under the same mute policy.
+  int unreadRoomCount({bool includeMuted = false}) =>
+      _countUnread(archived: false, includeMuted: includeMuted);
+
+  /// How many ARCHIVED conversations carry unread messages.
+  ///
+  /// Counts exactly the rooms [archivedRooms] is built from — `hidden` and not
+  /// in [deletedRoomIds] — with `unreadCount > 0`; same [filter]-independence
+  /// and same [includeMuted] policy as [unreadRoomCount], which counts the
+  /// complementary (main-list) half.
+  ///
+  /// Archiving a room keeps its unread count (it is only moved out of the main
+  /// list), and an incoming message bumps that count without unarchiving the
+  /// room, so `hidden && unreadCount > 0` is a reachable and durable state. Show
+  /// this number on the "Archived" section header: a consumer whose badge
+  /// counts only [unreadRoomCount] otherwise leaves those rooms with no visible
+  /// trace at all.
+  int unreadArchivedRoomCount({bool includeMuted = false}) =>
+      _countUnread(archived: true, includeMuted: includeMuted);
+
+  int _countUnread({required bool archived, required bool includeMuted}) {
+    var count = 0;
+    for (final room in _rooms) {
+      if (room.hidden != archived) continue;
+      if (_isDeleted(room.id)) continue;
+      if (room.unreadCount <= 0) continue;
+      if (!includeMuted && room.muted) continue;
+      count++;
+    }
+    return count;
+  }
+
   bool _isDeleted(String roomId) => _deletedRoomIds.contains(roomId);
 
   Set<String> get selectedIds => Set.unmodifiable(_selectedIds);

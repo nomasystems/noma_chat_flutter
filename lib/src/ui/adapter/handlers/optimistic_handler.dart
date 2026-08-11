@@ -12,6 +12,7 @@ import '../../controller/room_list_controller.dart';
 import '../operation_error.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/pending_reactions_registry.dart';
+import '../services/temp_id_minter.dart';
 
 /// Optimistic-UI mutating operations the adapter exposes publicly
 /// (`sendMessage`, `editMessage`, `deleteMessage`, `sendReaction`,
@@ -42,6 +43,7 @@ class OptimisticHandler {
     )
     updateRoomReactionPreview,
     required ChatMessage Function(ChatMessage message) ensureSentReceipt,
+    required this.tempIds,
     required bool Function(ChatFailure? failure) isBlockedError,
     required bool Function(ChatFailure? failure) isMutedError,
     void Function(String roomId)? onModerationLock,
@@ -81,6 +83,11 @@ class OptimisticHandler {
   final PendingReactionsRegistry pendingReactions;
   final ChatLocalDatasource? cache;
   final ChatLogger? _logs;
+
+  /// The adapter's one minter — the same instance the upload paths and
+  /// forwards draw from. Injected rather than owned: a counter of its own
+  /// here would let a text send mint an id an upload has already taken.
+  final TempIdMinter tempIds;
 
   final ChatUser Function() _currentUser;
   final Future<ChatResult<String>> Function(String otherUserId)
@@ -131,7 +138,7 @@ class OptimisticHandler {
     OperationKind? operationKind,
   }) async {
     final controller = controllers[roomIdOrDraftKey];
-    final tempId = '_pending_${DateTime.now().microsecondsSinceEpoch}';
+    final tempId = tempIds.next();
 
     final optimistic = ChatMessage(
       id: tempId,

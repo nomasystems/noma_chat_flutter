@@ -425,8 +425,9 @@ void main() {
 
   group('DM dedupe cache-vs-authoritative eviction', () {
     test(
-      'a cache pass suppresses the losing DM room from display but leaves '
-      'the persistent cache untouched; only an authoritative pass evicts it',
+      'a cache pass leaves both duplicate DM rows alone — it has no way to '
+      'learn they share a peer without network; the authoritative pass '
+      'collapses them and evicts the loser from the persistent cache',
       () async {
         final mock = MockChatClient(currentUserId: 'me');
         final counting = _CountingRoomsClient(mock);
@@ -452,9 +453,9 @@ void main() {
         counting.rooms.gate = gate;
 
         await adapter.rooms.load();
-        // The cache pass's fire-and-forget DM resolution needs a beat to
-        // settle; the background revalidation is frozen on the gate before
-        // it can touch anything.
+        // Give any stray async work a beat to settle; the background
+        // revalidation is frozen on the gate before it can touch anything,
+        // so only the cache pass has run.
         await Future<void>.delayed(const Duration(milliseconds: 30));
 
         expect(
@@ -469,13 +470,30 @@ void main() {
             .toSet();
         expect(
           visibleAfterCache.intersection({'room1', 'room2'}),
-          hasLength(1),
-          reason: 'the losing row must still be suppressed from display',
+          hasLength(2),
+          reason:
+              'both rows are still shown: telling two DM rooms apart '
+              'requires knowing their peers, and the only source of that is '
+              '`members.list`, which has no cache path — so the cache pass '
+              'cannot dedupe without emitting network on the one pass that '
+              'must not. Two rows for the same contact is a rare, readable '
+              'and self-correcting first paint; the price of deduping it '
+              'here is a mandatory request per DM at app start.',
         );
 
         gate.complete();
         await Future<void>.delayed(const Duration(milliseconds: 30));
 
+        expect(
+          adapter.roomListController.allRooms
+              .map((r) => r.id)
+              .toSet()
+              .intersection({'room1', 'room2'}),
+          hasLength(1),
+          reason:
+              'the authoritative background revalidation collapses the '
+              'duplicate pair down to the preferred row',
+        );
         expect(
           cache.deleteRoomCalls,
           greaterThan(0),

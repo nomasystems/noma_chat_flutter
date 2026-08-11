@@ -178,7 +178,9 @@ void main() {
       // ahead of any tearDown.
       final handle = tester.ensureSemantics();
       final progress = ValueNotifier<double>(0.4);
+      final cancellable = ValueNotifier<bool>(true);
       addTearDown(progress.dispose);
+      addTearDown(cancellable.dispose);
 
       await tester.pumpWidget(
         wrap(
@@ -187,6 +189,7 @@ void main() {
             isOutgoing: true,
             attachmentUploadProgress: progress,
             audioUploadProgress: progress,
+            attachmentUploadCancellable: cancellable,
             onCancelAttachmentUpload: () {},
           ),
         ),
@@ -207,10 +210,8 @@ void main() {
       return labels;
     }
 
-    testWidgets('is not announced on an uploading voice note — sendVoice '
-        'registers no cancel token and AudioBubble paints no X', (
-      tester,
-    ) async {
+    testWidgets('is not announced on an uploading voice note — the clip is '
+        'cancellable, but AudioBubble paints no X to announce', (tester) async {
       expect(
         await customActionLabels(tester, voiceNote(), find.byType(AudioBubble)),
         isEmpty,

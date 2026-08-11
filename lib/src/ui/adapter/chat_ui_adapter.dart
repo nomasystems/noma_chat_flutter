@@ -60,6 +60,7 @@ import 'services/dm_contact_registry.dart';
 import 'services/mark_as_read_coordinator.dart';
 import 'services/operation_hub.dart';
 import 'services/pending_reactions_registry.dart';
+import 'services/temp_id_minter.dart';
 import 'services/typing_timer_registry.dart';
 import 'services/user_cache_service.dart';
 import 'services/voice_upload_registry.dart';
@@ -503,6 +504,42 @@ class ChatUiAdapter {
   /// Becomes `true` after the first successful [loadRooms] call.
   ValueNotifier<bool> get initializedNotifier => _lifecycle.initialized;
 
+  /// What the cache (disk) phase of the room load was able to say, so a
+  /// host can pick between "still loading", "genuinely empty" and "has
+  /// content" without guessing.
+  ///
+  /// Updated once per [loadRooms] call, immediately after the cache pass
+  /// has written to [roomListController] and *before* the network pass is
+  /// attempted — which is what makes it usable as the first-paint decision
+  /// on a cold, offline or slow start.
+  ///
+  /// Nothing else on this adapter answers the question. Listening to
+  /// [roomListController] does not: its `mergeRooms` skips
+  /// `notifyListeners()` when the merge changed nothing, so a warm reopen
+  /// whose cache returns exactly the rows already on screen emits no
+  /// notification at all. [onRoomsLoaded] does not either: it only fires
+  /// after a network pass. And because this is a [ValueListenable] rather
+  /// than a stream, a widget that attaches after the cache phase already
+  /// ran still reads the outcome instead of having missed it.
+  ///
+  /// ```dart
+  /// ValueListenableBuilder<RoomHydrationStatus>(
+  ///   valueListenable: adapter.roomHydrationNotifier,
+  ///   builder: (context, status, _) => switch (status.outcome) {
+  ///     RoomHydrationOutcome.hydrated => RoomListView(...),
+  ///     RoomHydrationOutcome.empty => const NoChatsYet(),
+  ///     // pending / unavailable — the cache has not answered (or could
+  ///     // not), so "no chats" would be a guess. Keep the skeleton up
+  ///     // until the network pass lands.
+  ///     _ => const ChatListSkeleton(),
+  ///   },
+  /// );
+  /// ```
+  ///
+  /// Released by [dispose]; do not listen after that.
+  ValueListenable<RoomHydrationStatus> get roomHydrationNotifier =>
+      _enricher.hydrationNotifier;
+
   /// Fires after each [loadRooms] completes with the loaded room list.
   /// Consumers can use this to enrich metadata (e.g. display names, avatars).
   final void Function(List<RoomListItem> rooms)? onRoomsLoaded;
@@ -539,6 +576,12 @@ class ChatUiAdapter {
     roomList: roomListController,
     dmContacts: _dmContacts,
     isDisposed: () => _disposed,
+    // Arms the registry's network gate: `GET /presence` has no cache tier,
+    // so a cold start with no transport would otherwise fire it and wait for
+    // it to time out. The event router re-invokes `bootstrap()` on every
+    // `connected` transition, so nothing is lost by skipping it while
+    // offline.
+    connectionState: connectionStateNotifier,
     logs: logs,
   );
 
@@ -622,6 +665,7 @@ class ChatUiAdapter {
           messageId,
         ),
     ensureSentReceipt: _ensureSentReceipt,
+    tempIds: _tempIds,
     isBlockedError: _isBlockedError,
     isMutedError: _isMutedError,
     // 403 "muted" on send → re-fetch the room detail so `selfMuted`
@@ -721,6 +765,12 @@ class ChatUiAdapter {
       DeliveredConfirmationCoordinator(
         messages: client.messages,
         isDisposed: () => _disposed,
+        // Arms the coordinator's network gate. The room sync fires one
+        // confirmation per unread room on its cache pass, which on a cold
+        // offline start means N doomed requests racing the first paint. The
+        // adapter re-runs the sync on every reconnect, so a dropped offline
+        // confirmation is re-sent then.
+        connectionState: connectionStateNotifier,
       );
   // Both ARE cancelled, in `_cancelSubscriptions` below, via locals
   // snapshotted from these fields — see that method's doc comment for why
@@ -1333,6 +1383,29 @@ class ChatUiAdapter {
   void _resetConnectionState({bool clearRooms = true}) {
     if (clearRooms) {
       _sessionEpoch++;
+      // Paired with the bump, on the same line of execution, because the
+      // window where an upload turns into an orphan blob has no other
+      // trigger. `onProgress` cannot carry the abort: it stops firing when
+      // the last byte of the body is written, which is precisely when the
+      // bytes are billable and no message references them yet. An upload
+      // parked there waiting for its response never ticks again, so an
+      // abort that lives inside the tick never runs — the clip lands for a
+      // session that is gone, and no API can reclaim it.
+      //
+      // This reaches it from outside the transfer, tick or no tick, and the
+      // reach is a real abort rather than a flag someone has to notice:
+      // `UploadCancelToken.cancel` runs the callback `RestClient.uploadBinary`
+      // bound to it (`bindOnCancel`), which cancels the request's own Dio
+      // `CancelToken` and tears the connection down. Nothing polls
+      // `isCancelled` for this to work.
+      //
+      // A host-supplied `ChatAttachmentsApi` is free to accept the token and
+      // ignore it — `UploadCancelToken`'s own contract says so — and then
+      // the bytes do land. That case is not covered here but downstream: the
+      // epoch each send captured no longer matches, so `sendAttachment` and
+      // `sendVoice` refuse to build a message on the blob instead of posting
+      // one into a session that is over.
+      _attachmentUploadCancels.cancelAll();
       _chatControllers.disposeAll();
       _dmContacts.clear();
       _activeRoomId = null;
@@ -1343,20 +1416,29 @@ class ChatUiAdapter {
   }
 
   /// Wipes every in-memory registry the adapter owns — both the
-  /// per-connection state ([_resetConnectionState]) and the
-  /// cross-session caches (user cache, blocked users, presence,
-  /// pending-reaction suppression, voice-upload progress, attachment-upload
-  /// cancel tokens). Shared by [signOut] and [dispose] so neither can drift
-  /// from the full state inventory: adding a new registry to the adapter
-  /// means clearing it here once, and both teardown paths pick it up.
+  /// per-connection state ([_resetConnectionState], which also aborts every
+  /// in-flight upload) and the cross-session caches (user cache, blocked
+  /// users, presence, confirmed delivered cursors, pending-reaction
+  /// suppression, voice-upload progress).
+  /// Shared by [signOut] and [dispose] so neither can drift from the full
+  /// state inventory: adding a new registry to the adapter means clearing it
+  /// here once, and both teardown paths pick it up.
   void _resetSessionState() {
+    // Runs first: it cancels the upload tokens, so the progress notifiers
+    // let go of just below are released after their transfers were told to
+    // stop, not while one is still writing to them. (Nothing here disposes
+    // a notifier — they are published through the adapter's getters and a
+    // host may hold one; the registry only drops its references.)
     _resetConnectionState();
     _userCacheService.clear();
     _blockedUsers.clear();
     _presence.clear();
+    // The suppression map is keyed by room id alone, so a cursor confirmed
+    // for the outgoing identity would silently suppress the incoming one's
+    // first confirmation for the same room.
+    _deliveredCoord.reset();
     _pendingReactionsRegistry.clear();
-    _voiceUploads.disposeAll();
-    _attachmentUploadCancels.cancelAll();
+    _voiceUploads.releaseAll();
   }
 
   /// One-shot teardown for "logout" flows: disconnects, wipes every
@@ -1366,16 +1448,47 @@ class ChatUiAdapter {
   /// shape as a fresh instance — safe to either dispose or reconnect
   /// with a new user.
   ///
-  /// Hosts typically call this from a "Log out" menu item; in the
-  /// example app the chat-list overflow wires it. Subsequent operations
-  /// on this adapter throw because [_disposed] is set. Pair with
+  /// Hosts typically call this from a "Log out" menu item. Pair with
   /// [NomaChat.dispose] on the facade to release the cache datasource
   /// as well.
+  ///
+  /// Routes through [ChatClient.logout] so the client-owned session state
+  /// goes too — above all the offline queue. A send or an upload that
+  /// failed on a connectivity error is parked there
+  /// (`client.enqueueOfflineAttachment`) with no record of who queued it,
+  /// and it drains on the *next* connection whoever that connection now
+  /// authenticates as: without this call an attachment queued by the
+  /// account being signed out would be uploaded and posted under the
+  /// account that signs in next. Clearing the persistent cache alone is
+  /// not enough — that only wipes the queue's persisted copy, and the
+  /// client's in-memory queue survives it and re-persists on the next
+  /// enqueue. Unconditional because [signOut] has exactly one meaning: a
+  /// teardown the queue is meant to survive — backgrounding, a connection
+  /// blip — is [disconnect], which leaves both the queue and the caches
+  /// alone.
+  ///
+  /// This does **not** set [_disposed] — the adapter deliberately stays
+  /// usable so the next user can sign in on the same instance. Anything
+  /// long-running that has to notice the logout therefore has to test
+  /// [_sessionEndedSince] and not [_disposed]; the two upload paths capture
+  /// the epoch up front for exactly this reason.
   Future<void> signOut() async {
     await disconnect();
+    // Before the logout below, not after: it bumps the session epoch and
+    // aborts the in-flight uploads, and an upload aborted after the queue
+    // was emptied would re-enqueue itself into the session that just ended.
     _resetSessionState();
     initializedNotifier.value = false;
     connectionStateNotifier.value = ChatConnectionState.disconnected;
+    try {
+      await client.logout();
+    } catch (_) {
+      // best-effort, like the cache clear below: `logout` ends with its own
+      // cache wipe, so a datasource that throws there must not turn a
+      // logout into a failure the host has to handle. The queue clear runs
+      // before that wipe, so it has already happened by the time a cache
+      // error can surface here.
+    }
     try {
       await _cache?.clear();
     } catch (_) {
@@ -1482,6 +1595,10 @@ class ChatUiAdapter {
     client.cancelPendingRequests('dispose');
     await client.disconnect();
     _resetSessionState();
+    // Owns `roomHydrationNotifier`. Safe here: `_lifecycle.dispose()` above
+    // already flipped the disposed flag the enricher's publish path checks,
+    // so no in-flight load can write to the notifier after this point.
+    _enricher.dispose();
     roomListController.dispose();
     _currentUserListenable.dispose();
     _userCacheListenable.dispose();
@@ -1853,17 +1970,32 @@ class ChatUiAdapter {
 
   /// Per-message upload progress notifiers (0..1) for voice messages
   /// that are being uploaded right now. Backed by [VoiceUploadRegistry]
-  /// so the lifecycle (register → complete vs drop → disposeAll) lives
-  /// in its own tested service rather than scattered across this
-  /// class.
+  /// so the lifecycle (`register` → `complete` vs `drop`, then the
+  /// session-teardown sweep) lives in its own tested service rather than
+  /// scattered across this class.
+  ///
+  /// The teardown sweep drops the registry's references and destroys
+  /// nothing: these notifiers leave the SDK through
+  /// [voiceUploadProgressFor] / [attachmentUploadProgressFor], and a host
+  /// that resolved one once and subscribed to it directly would get a
+  /// use-after-dispose on its next rebuild. See [VoiceUploadRegistry] for
+  /// the full argument.
   final VoiceUploadRegistry _voiceUploads = VoiceUploadRegistry();
 
-  /// Cancel tokens for attachments currently uploading via
-  /// `messages.sendAttachment` — see [cancelAttachmentUpload]. Kept apart
-  /// from [_voiceUploads]: a progress notifier and a cancel token have
-  /// unrelated lifecycles (see [AttachmentUploadCancelRegistry]'s doc).
+  /// Cancel tokens for every blob currently on the wire — `sendAttachment`,
+  /// its poster frame, and `sendVoice` — see [cancelAttachmentUpload], and
+  /// [_resetConnectionState], which cancels the lot when a session ends.
+  /// Kept apart from [_voiceUploads]: a progress notifier and a cancel token
+  /// have unrelated lifecycles (see [AttachmentUploadCancelRegistry]'s doc).
   final AttachmentUploadCancelRegistry _attachmentUploadCancels =
       AttachmentUploadCancelRegistry();
+
+  /// The single source of optimistic-row ids for this adapter — text sends
+  /// ([OptimisticHandler]), forwards and both upload paths draw from it, so
+  /// no two sends can mint the same string whichever entry point they came
+  /// through. See [TempIdMinter] for why one shared counter and not one per
+  /// call site.
+  final TempIdMinter _tempIds = TempIdMinter();
 
   /// Returns a listenable for the upload progress of a pending voice message.
   /// Returns `null` if there is no upload in flight for that id.
@@ -1894,11 +2026,12 @@ class ChatUiAdapter {
   ValueListenable<bool>? attachmentUploadCancellableFor(String messageId) =>
       _attachmentUploadCancels.cancellableFor(messageId);
 
-  /// Cancels the in-flight `messages.sendAttachment` upload for [messageId]
-  /// (the temp id of the still-uploading provisional message) and leaves no
-  /// trace of it: the provisional bubble is removed rather than left behind
-  /// as failed — the user chose to abort, so there is nothing to retry. See
-  /// `ChatMessagesController.sendAttachment` for the cleanup this triggers.
+  /// Cancels the in-flight `messages.sendAttachment` or `messages.sendVoice`
+  /// upload for [messageId] (the temp id of the still-uploading provisional
+  /// message) and leaves no trace of it: the provisional bubble is removed
+  /// rather than left behind as failed — the user chose to abort, so there
+  /// is nothing to retry. See `ChatMessagesController.sendAttachment` for
+  /// the cleanup this triggers; `sendVoice` performs the same one.
   ///
   /// No-op if no upload is in flight for [messageId] — e.g. it already
   /// finished, already failed, or was already cancelled.
