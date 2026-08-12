@@ -244,7 +244,9 @@ Set<String> _declarationsUnderSweep() {
     File('lib/src/client/chat_client.dart'),
   ]..sort((a, b) => a.path.compareTo(b.path));
 
-  final classPattern = RegExp(r'^(?:abstract\s+)?(?:final\s+|base\s+)?class\s+(\w+)');
+  final classPattern = RegExp(
+    r'^(?:abstract\s+)?(?:final\s+|base\s+)?class\s+(\w+)',
+  );
   final methodPattern = RegExp(r'^\s*(?:Future|Stream)<.*>\s+(\w+)\s*\(');
   final policyPattern = RegExp(r'\bCachePolicy\??\s+cachePolicy\b');
 

@@ -217,7 +217,10 @@ void main() {
     await store.saveRoomMembers(
       'dm1',
       const ChatPaginatedResponse(
-        items: [RoomUser(userId: 'me'), RoomUser(userId: 'bob')],
+        items: [
+          RoomUser(userId: 'me'),
+          RoomUser(userId: 'bob'),
+        ],
         hasMore: false,
         totalCount: 2,
       ),
@@ -238,7 +241,10 @@ void main() {
     await store.saveRoomMembers(
       'dm1',
       const ChatPaginatedResponse(
-        items: [RoomUser(userId: 'me'), RoomUser(userId: 'bob')],
+        items: [
+          RoomUser(userId: 'me'),
+          RoomUser(userId: 'bob'),
+        ],
         hasMore: false,
         totalCount: 2,
       ),
@@ -269,7 +275,10 @@ void main() {
     await store.saveRoomMembers(
       'dm1',
       const ChatPaginatedResponse(
-        items: [RoomUser(userId: 'me'), RoomUser(userId: 'bob')],
+        items: [
+          RoomUser(userId: 'me'),
+          RoomUser(userId: 'bob'),
+        ],
         hasMore: false,
         totalCount: 2,
       ),
@@ -302,7 +311,10 @@ void main() {
     await store.saveRoomMembers(
       'dm1',
       const ChatPaginatedResponse(
-        items: [RoomUser(userId: 'me'), RoomUser(userId: 'bob')],
+        items: [
+          RoomUser(userId: 'me'),
+          RoomUser(userId: 'bob'),
+        ],
         hasMore: false,
         totalCount: 2,
       ),
@@ -360,7 +372,10 @@ void main() {
     await store.saveRoomMembers(
       'dm1',
       const ChatPaginatedResponse(
-        items: [RoomUser(userId: 'me'), RoomUser(userId: 'bob')],
+        items: [
+          RoomUser(userId: 'me'),
+          RoomUser(userId: 'bob'),
+        ],
         hasMore: false,
         totalCount: 2,
       ),

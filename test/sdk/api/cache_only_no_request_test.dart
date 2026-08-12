@@ -179,9 +179,7 @@ void main() {
         rest: rest,
         cache: cache,
         cacheManager: CacheManager(
-          config: const CacheConfig(
-            defaultReadPolicy: CachePolicy.networkOnly,
-          ),
+          config: const CacheConfig(defaultReadPolicy: CachePolicy.networkOnly),
         ),
       );
 

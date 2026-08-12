@@ -166,24 +166,27 @@ void main() {
     client.rooms.cacheResult = ChatSuccess(roomsWith(ids));
   }
 
-  test('the cached rooms are on screen BEFORE the handshake resolves', () async {
-    seed(['r1', 'r2']);
-    final gate = Completer<void>();
-    client.connectGate = gate;
+  test(
+    'the cached rooms are on screen BEFORE the handshake resolves',
+    () async {
+      seed(['r1', 'r2']);
+      final gate = Completer<void>();
+      client.connectGate = gate;
 
-    final connecting = adapter.connect();
-    await pumpEventQueue();
+      final connecting = adapter.connect();
+      await pumpEventQueue();
 
-    expect(adapter.roomListController.allRooms.map((r) => r.id), [
-      'r1',
-      'r2',
-    ]);
-    expect(gate.isCompleted, isFalse);
-    expect(client.connectCalls, 1);
+      expect(adapter.roomListController.allRooms.map((r) => r.id), [
+        'r1',
+        'r2',
+      ]);
+      expect(gate.isCompleted, isFalse);
+      expect(client.connectCalls, 1);
 
-    gate.complete();
-    await connecting;
-  });
+      gate.complete();
+      await connecting;
+    },
+  );
 
   test('connect() reads disk only — it never fetches the room list', () async {
     seed(['r1']);
@@ -333,15 +336,18 @@ void main() {
     expect(paintedWhenNetworkFired, 1);
   });
 
-  test('a host that hydrated first makes connect() skip its own pass', () async {
-    seed(['r1']);
+  test(
+    'a host that hydrated first makes connect() skip its own pass',
+    () async {
+      seed(['r1']);
 
-    final status = await adapter.rooms.hydrate();
-    expect(status.outcome, RoomHydrationOutcome.hydrated);
-    expect(client.rooms.cacheReads, 1);
+      final status = await adapter.rooms.hydrate();
+      expect(status.outcome, RoomHydrationOutcome.hydrated);
+      expect(client.rooms.cacheReads, 1);
 
-    await adapter.connect();
+      await adapter.connect();
 
-    expect(client.rooms.cacheReads, 1);
-  });
+      expect(client.rooms.cacheReads, 1);
+    },
+  );
 }

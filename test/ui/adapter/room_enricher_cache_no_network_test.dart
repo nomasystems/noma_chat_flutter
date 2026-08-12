@@ -259,19 +259,21 @@ void main() {
       expect(hydratedSenders, isEmpty);
     });
 
-    test('resolves DM contacts from disk alone — every read the resolution '
-        'makes carries cacheOnly, so none of them can reach the wire',
-        () async {
-      await enricher.loadAll();
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+    test(
+      'resolves DM contacts from disk alone — every read the resolution '
+      'makes carries cacheOnly, so none of them can reach the wire',
+      () async {
+        await enricher.loadAll();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(client.members.listPolicies, isNotEmpty);
-      expect(
-        client.members.listPolicies,
-        everyElement(CachePolicy.cacheOnly),
-      );
-      expect(client.users.getPolicies, everyElement(CachePolicy.cacheOnly));
-    });
+        expect(client.members.listPolicies, isNotEmpty);
+        expect(
+          client.members.listPolicies,
+          everyElement(CachePolicy.cacheOnly),
+        );
+        expect(client.users.getPolicies, everyElement(CachePolicy.cacheOnly));
+      },
+    );
 
     test('still paints every cached row', () async {
       await enricher.loadAll();
@@ -299,10 +301,7 @@ void main() {
       expect(row.avatarUrl, 'https://cdn/bob.png');
       // The peer was already in memory, so the resolution never had to ask
       // for the profile at all; the roster read it did make stayed on disk.
-      expect(
-        client.members.listPolicies,
-        everyElement(CachePolicy.cacheOnly),
-      );
+      expect(client.members.listPolicies, everyElement(CachePolicy.cacheOnly));
       expect(client.users.getPolicies, isEmpty);
     });
 

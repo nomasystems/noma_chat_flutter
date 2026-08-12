@@ -90,13 +90,13 @@ void main() {
       manageAppLifecycle: false,
     );
     adapter.start();
-    adapter.roomListController.addRoom(const RoomListItem(id: 'r1', name: 'R1'));
+    adapter.roomListController.addRoom(
+      const RoomListItem(id: 'r1', name: 'R1'),
+    );
 
     when(
-      () => rest.getWithTotalCount(
-        any(),
-        queryParams: any(named: 'queryParams'),
-      ),
+      () =>
+          rest.getWithTotalCount(any(), queryParams: any(named: 'queryParams')),
     ).thenAnswer(
       (_) async => (
         {
@@ -124,10 +124,7 @@ void main() {
   }
 
   int fetches() => verify(
-    () => rest.getWithTotalCount(
-      any(),
-      queryParams: any(named: 'queryParams'),
-    ),
+    () => rest.getWithTotalCount(any(), queryParams: any(named: 'queryParams')),
   ).callCount;
 
   Future<int> fetchesAfterCacheFirstRead() async {
