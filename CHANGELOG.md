@@ -6,6 +6,81 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.20.0
+
+### Added
+
+- `ChatRoomsController.hydrate({type})` — the disk half of `rooms.load()`, callable on its own.
+  Returns the `RoomHydrationStatus` it published on `roomHydrationNotifier`. It never emits a
+  request, and it is safe **before** `connect()` and before the user exists server-side: nothing it
+  reads is set up by either. Until now `loadAll` was the only door to the cache, so a host could not
+  paint from disk without first paying for a handshake — a cache-first SDK handing its cached rows
+  out behind a network round-trip. Concurrent calls share a single pass, and it deliberately does
+  **not** mark the list initialized: `initializedNotifier` and `onRoomsLoaded` still mean "a network
+  pass completed".
+- `ChatMembersApi.list` accepts `cachePolicy`, and the roster is now persisted locally under
+  `members:$roomId` with a new `CacheConfig.ttlMembers` (12 h, matching `ttlRooms`). The cache path
+  is deliberately narrow: it applies **only** when `pagination` is `null` **and** `expand` is empty.
+  Any other shape goes straight to the network in both directions — one record per room cannot answer
+  "page 3", and serving a bare cached roster to a caller that asked for `expand: [users]` would blank
+  every name and avatar it was about to render. Naming **no** `cachePolicy` keeps the pre-cache
+  semantics exactly: the call goes to the network and a failed fetch is a `ChatFailureResult`, never
+  the roster on disk. Deferring to `CacheConfig.defaultReadPolicy` (`networkFirst`) instead would have
+  flipped every existing caller's `fold(showError, render)` into "render a stale roster, never show an
+  error" without a line of their code changing. The answer is still written through to the cache
+  either way, so a `CachePolicy.cacheOnly` reader — the SDK's own disk-only hydration pass, or yours —
+  finds it there. Opt into the offline fallback by naming the policy you want.
+- `ChatLocalDatasource.saveRoomMembers` / `getRoomMembers` / `deleteRoomMembers`, with default no-op
+  implementations so a third-party datasource keeps compiling and keeps working. `getRoomMembers`
+  keeps "nothing stored" (`ChatSuccess(null)`) apart from "the store could not be read"
+  (`ChatFailureResult`), the same distinction `getUserRooms` documents. `HiveChatDatasource` stores
+  them in a new `chat_room_members` box, cascaded from `deleteRoom`, from room eviction and from
+  `clear()`; no schema bump is needed (a box that does not exist opens empty).
+
+### Changed
+
+- `ChatUiAdapter.connect()` now hydrates the room list from disk before opening the socket, when the
+  host has not already called `rooms.hydrate()` itself. A host that does nothing gets its cached rows
+  ahead of the handshake instead of after it. The cost is local I/O in front of the connection; a
+  store that throws is logged and skipped, because an unreadable cache must never stop a connection.
+  `signOut()` / `dispose()` rearm it, so the next session hydrates again; `disconnect()` does not, so
+  a background→foreground cycle will not overwrite rows that realtime events already advanced.
+- **A cold start now names its DM rows from disk.** The cache pass of `loadAll` resolves DM contacts
+  again — with `CachePolicy.cacheOnly` threaded through both `members.list` and the peer's
+  `users.get`, so it still emits nothing. Before, a device that had never resolved a DM *in this
+  session* painted it anonymous (no title, no avatar) until the network pass landed, and with no
+  connectivity, forever — even with the peer's profile sitting on disk. The session's in-memory
+  replay added in 0.19.0 only ever covered a warm reopen.
+- **Reverses a 0.19.0 behaviour note**: the cache pass collapses duplicate DM rooms for the same
+  contact again, now that it can tell they share a peer without emitting anything. It still never
+  *persists* the loser's eviction — only an authoritative (network) pass does that.
+- The cached roster is invalidated by every local mutation that can change it (`invite`, `remove`,
+  `leave`, `updateRole`, `ban`, `unban`; `invite` / `remove` / `leave` also drop `roomDetail:$roomId`
+  because they move `memberCount`) and by every remote roster event, through the single
+  `ChatUiAdapter.notifyRoomMembersChanged` chokepoint. `UserRoleChangedEvent` now goes through that
+  chokepoint too — it did not before, and a role travels *in* the cached row, so a promotion to admin
+  would otherwise have rendered stale for a whole TTL. `muteUser` / `unmuteUser` deliberately do not
+  invalidate: the mute flag does not ride on `RoomUser`.
+
+### Fixed
+
+- `CachePolicy.cacheOnly` no longer reaches the network on a client built without a cache.
+  `users.get`, `rooms.getUserRooms`, `rooms.get`, `members.list`, `contacts.list`, `messages.list`
+  and `messages.getReactions` all fell through to their network branch when there was no store to
+  read, so the one policy whose contract is that it emits nothing issued a request per call — one
+  per conversation on the disk-only hydration pass. They now answer the same miss `CacheManager`
+  answers for an empty store: `NetworkFailure('No cached data available')`. If you pass `cacheOnly`
+  on a cache-less client expecting data, name the policy you actually want.
+- On a client that *has* a cache, `messages.getReactions` resolved under
+  `CacheConfig.defaultReadPolicy` (`networkFirst`) instead of the policy passed, so an explicit
+  `cacheOnly` still fetched.
+
+### Breaking
+
+- `ChatMembersApi.list` gained an optional named `CachePolicy? cachePolicy`. Callers are unaffected;
+  any class that `implements ChatMembersApi` and declares `list` explicitly must add the parameter.
+  Fakes that fall back to `noSuchMethod` keep compiling. See `MIGRATING.md`.
+
 ## 0.19.0
 
 ### Added

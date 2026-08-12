@@ -27,6 +27,16 @@ class _NoopAuth extends AuthInterceptor {
 /// a response that has not started arriving. Without the bridge every layer
 /// above still behaves — the flag flips, the failure is reported — while the
 /// bytes finish going out and land as a blob no message references.
+///
+/// This file is the ONLY mutant-killer for three lines of `rest_client.dart`,
+/// which is why it stays even though no line of any recent diff can turn it
+/// red: the `bindOnCancel` bridge inside `uploadBinary` (three tests here go
+/// red without it), the `DioExceptionType.cancel` + `_uploadCancelledReason`
+/// mapping to `ChatCancelledException` (two), and the `if (cancelToken !=
+/// null)` that keeps a caller-less upload from minting a token
+/// `cancelPendingRequests` could mistake for a cancelled upload (one). It is
+/// a transport contract test, not diff characterisation — read it as such
+/// before pruning it.
 void main() {
   late _MockDio dio;
   late RestClient rest;

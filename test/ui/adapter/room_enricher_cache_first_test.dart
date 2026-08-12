@@ -425,9 +425,9 @@ void main() {
 
   group('DM dedupe cache-vs-authoritative eviction', () {
     test(
-      'a cache pass leaves both duplicate DM rows alone — it has no way to '
-      'learn they share a peer without network; the authoritative pass '
-      'collapses them and evicts the loser from the persistent cache',
+      'a cache pass hides the losing duplicate DM row but never evicts it '
+      'from the persistent cache; only the authoritative pass persists the '
+      'removal',
       () async {
         final mock = MockChatClient(currentUserId: 'me');
         final counting = _CountingRoomsClient(mock);
@@ -470,15 +470,11 @@ void main() {
             .toSet();
         expect(
           visibleAfterCache.intersection({'room1', 'room2'}),
-          hasLength(2),
+          hasLength(1),
           reason:
-              'both rows are still shown: telling two DM rooms apart '
-              'requires knowing their peers, and the only source of that is '
-              '`members.list`, which has no cache path — so the cache pass '
-              'cannot dedupe without emitting network on the one pass that '
-              'must not. Two rows for the same contact is a rare, readable '
-              'and self-correcting first paint; the price of deduping it '
-              'here is a mandatory request per DM at app start.',
+              'the roster is cacheable now, so the cache pass can tell the '
+              'two rooms share a peer without emitting anything — and two '
+              'rows for the same contact is never a correct first paint.',
         );
 
         gate.complete();
@@ -491,8 +487,8 @@ void main() {
               .intersection({'room1', 'room2'}),
           hasLength(1),
           reason:
-              'the authoritative background revalidation collapses the '
-              'duplicate pair down to the preferred row',
+              'the authoritative background revalidation keeps the same '
+              'preferred row the cache pass picked',
         );
         expect(
           cache.deleteRoomCalls,

@@ -81,8 +81,17 @@ class RestMessagesApi implements ChatMessagesApi {
   /// [unreadOnly] — when `true` returns only messages the current user has not
   /// read yet. Defaults to `null` (all messages).
   ///
-  /// [cachePolicy] — cache strategy. The cache decorator layer honours this;
-  /// the REST layer ignores it and always fetches from the network.
+  /// [cachePolicy] — cache strategy. [CachedMessagesApi] is the layer that
+  /// resolves it against the local store; this layer has no store, so every
+  /// policy but one means "fetch". The exception is
+  /// [CachePolicy.cacheOnly]: with no cache there is nothing to read, so it
+  /// answers the same miss [CacheManager] answers for an empty store rather
+  /// than reaching for the network. That policy's whole contract is that it
+  /// emits no request, and the adapter leans on it — `messages.load` and
+  /// `loadMore` open with a `cacheOnly` pass to paint instantly, and
+  /// `loadStarred` probes with one before falling back. On a client built
+  /// without a cache those passes were silently duplicating the network
+  /// fetch that follows them.
   ///
   /// Returns [ChatSuccess] holding a [ChatPaginatedResponse] of [ChatMessage]
   /// items, newest-first. [ChatPaginatedResponse.hasMore] indicates whether
@@ -108,6 +117,23 @@ class RestMessagesApi implements ChatMessagesApi {
     ChatCursorPaginationParams? pagination,
     bool? unreadOnly,
     CachePolicy? cachePolicy,
+  }) {
+    if (cachePolicy == CachePolicy.cacheOnly) {
+      return Future.value(
+        const ChatFailureResult(NetworkFailure('No cached data available')),
+      );
+    }
+    return _listFromNetwork(
+      roomId,
+      pagination: pagination,
+      unreadOnly: unreadOnly,
+    );
+  }
+
+  Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> _listFromNetwork(
+    String roomId, {
+    ChatCursorPaginationParams? pagination,
+    bool? unreadOnly,
   }) => safeApiCall(() async {
     final (json, totalCount) = await rest.getWithTotalCount(
       '/rooms/$roomId/messages',
@@ -465,12 +491,23 @@ class RestMessagesApi implements ChatMessagesApi {
     )
     bool forceRefresh = false,
     CachePolicy? cachePolicy,
-  }) => safeApiCall(() async {
-    final json = await rest.get('/rooms/$roomId/messages/$messageId/reactions');
-    return (json['reactions'] as List? ?? [])
-        .map((e) => MessageMapper.reactionFromJson(e as Map<String, dynamic>))
-        .toList();
-  });
+  }) {
+    // Same rule as [list]: no store here, so `cacheOnly` is a miss and
+    // never a request.
+    if (cachePolicy == CachePolicy.cacheOnly) {
+      return Future.value(
+        const ChatFailureResult(NetworkFailure('No cached data available')),
+      );
+    }
+    return safeApiCall(() async {
+      final json = await rest.get(
+        '/rooms/$roomId/messages/$messageId/reactions',
+      );
+      return (json['reactions'] as List? ?? [])
+          .map((e) => MessageMapper.reactionFromJson(e as Map<String, dynamic>))
+          .toList();
+    });
+  }
 
   @override
   Future<ChatResult<void>> addReaction(

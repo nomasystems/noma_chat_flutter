@@ -1,3 +1,4 @@
+import '../core/pagination.dart';
 import '../core/result.dart';
 import '../models/contact.dart';
 import '../models/invited_room.dart';
@@ -6,6 +7,7 @@ import '../models/pin.dart';
 import '../models/reaction.dart';
 import '../models/read_receipt.dart';
 import '../models/room.dart';
+import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
 
@@ -20,7 +22,8 @@ import '../models/user.dart';
 ///
 /// Implementations may enforce a max messages per room limit via
 /// eviction. [deleteRoom] must cascade to room details, messages,
-/// unreads, and invited rooms. [dispose] is intentionally NOT wrapped
+/// unreads, invited rooms, and the member roster. [dispose] is
+/// intentionally NOT wrapped
 /// in [ChatResult] — it is a lifecycle hook called once at shutdown and
 /// errors there are non-actionable.
 abstract class ChatLocalDatasource {
@@ -149,6 +152,30 @@ abstract class ChatLocalDatasource {
     List<ReadReceipt> receipts,
   );
   Future<ChatResult<List<ReadReceipt>>> getReceipts(String roomId);
+
+  /// Room member roster, as returned by an UNPAGINATED, UNEXPANDED
+  /// `members.list` — the only shape `MembersApi` caches, so one record
+  /// per room can never be served to a caller that asked for a different
+  /// one. `hasMore` and `totalCount` travel with the items because a hit
+  /// that invented them would break the paginator of a large group.
+  ///
+  /// [getRoomMembers] distinguishes the two "no items" cases the way
+  /// [getRoom] / [getRoomDetail] do: `ChatSuccess(null)` means "nothing
+  /// stored for this room" and [ChatFailureResult] means "the store could
+  /// not be read". Collapsing them would let a `cacheOnly` read answer
+  /// "this room has no members" off a box that failed to open.
+  ///
+  /// Default implementations are no-ops so non-persistent datasources keep
+  /// working, at the cost of a roster that does not survive a restart.
+  Future<ChatResult<void>> saveRoomMembers(
+    String roomId,
+    ChatPaginatedResponse<RoomUser> members,
+  ) async => const ChatSuccess(null);
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>?>> getRoomMembers(
+    String roomId,
+  ) async => const ChatSuccess(null);
+  Future<ChatResult<void>> deleteRoomMembers(String roomId) async =>
+      const ChatSuccess(null);
 
   // Offline queue
   Future<ChatResult<void>> saveOfflineQueue(

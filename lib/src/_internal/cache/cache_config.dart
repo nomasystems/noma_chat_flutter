@@ -9,6 +9,13 @@ class CacheConfig {
   final Duration ttlMessages;
   final Duration ttlRooms;
   final Duration ttlUsers;
+
+  /// Freshness window for a room's cached member roster
+  /// (`members:$roomId`). Matches [ttlRooms] by default: a roster changes
+  /// at the pace of the room, not of the message stream, and every local
+  /// mutation plus every `user_joined` / `user_left` / `user_role_changed`
+  /// event invalidates the key outright.
+  final Duration ttlMembers;
   final CachePolicy defaultReadPolicy;
   final int offlineQueueMaxRetries;
 
@@ -28,6 +35,7 @@ class CacheConfig {
     this.ttlMessages = const Duration(hours: 24),
     this.ttlRooms = const Duration(hours: 12),
     this.ttlUsers = const Duration(hours: 6),
+    this.ttlMembers = const Duration(hours: 12),
     this.defaultReadPolicy = CachePolicy.networkFirst,
     this.offlineQueueMaxRetries = 5,
     this.offlineQueueMaxAttachmentBytes = 10 * 1024 * 1024,

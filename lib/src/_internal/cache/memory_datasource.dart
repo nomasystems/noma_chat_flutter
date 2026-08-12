@@ -1,3 +1,4 @@
+import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../models/contact.dart';
 import '../../models/invited_room.dart';
@@ -6,6 +7,7 @@ import '../../models/pin.dart';
 import '../../models/reaction.dart';
 import '../../models/read_receipt.dart';
 import '../../models/room.dart';
+import '../../models/room_user.dart';
 import '../../models/unread_room.dart';
 import '../../models/user.dart';
 import '../../cache/local_datasource.dart';
@@ -27,6 +29,7 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
   final Map<String, Map<String, List<AggregatedReaction>>> _reactions = {};
   final Map<String, List<MessagePin>> _pins = {};
   final Map<String, List<ReadReceipt>> _receipts = {};
+  final Map<String, ChatPaginatedResponse<RoomUser>> _roomMembers = {};
   final Map<String, List<PendingChatMessage>> _pendingMessages = {};
   final Map<String, DateTime> _clearedAt = {};
   Map<String, DateTime> _cacheManagerTimestamps = const <String, DateTime>{};
@@ -157,6 +160,7 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
     _reactions.remove(roomId);
     _pins.remove(roomId);
     _receipts.remove(roomId);
+    _roomMembers.remove(roomId);
     return const ChatSuccess(null);
   }
 
@@ -363,6 +367,27 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
     return ChatSuccess(_receipts[roomId] ?? const []);
   }
 
+  // Room members
+  @override
+  Future<ChatResult<void>> saveRoomMembers(
+    String roomId,
+    ChatPaginatedResponse<RoomUser> members,
+  ) async {
+    _roomMembers[roomId] = members;
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>?>> getRoomMembers(
+    String roomId,
+  ) async => ChatSuccess(_roomMembers[roomId]);
+
+  @override
+  Future<ChatResult<void>> deleteRoomMembers(String roomId) async {
+    _roomMembers.remove(roomId);
+    return const ChatSuccess(null);
+  }
+
   @override
   Future<ChatResult<void>> clear() async {
     _messages.clear();
@@ -378,6 +403,7 @@ class MemoryChatLocalDatasource implements ChatLocalDatasource {
     _reactions.clear();
     _pins.clear();
     _receipts.clear();
+    _roomMembers.clear();
     _clearedAt.clear();
     _cacheManagerTimestamps = const <String, DateTime>{};
     return const ChatSuccess(null);

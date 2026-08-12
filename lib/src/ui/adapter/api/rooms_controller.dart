@@ -48,6 +48,28 @@ interface class ChatRoomsController {
     return completer.future;
   }
 
+  /// Paints the room list from the local cache alone. Never emits a
+  /// request.
+  ///
+  /// The disk half of [load], callable on its own so a host has rows on
+  /// screen from the first frame instead of after a handshake. Safe
+  /// BEFORE [ChatUiAdapter.connect] and before the user exists
+  /// server-side. Meant to be called once per session; [ChatUiAdapter.connect]
+  /// already does it when the host has not, so calling it is an
+  /// optimisation, never a requirement.
+  ///
+  /// Does not mark the list initialized: [ChatUiAdapter.initializedNotifier]
+  /// and `onRoomsLoaded` still mean "a network pass completed". Read the
+  /// returned [RoomHydrationStatus] (or [ChatUiAdapter.roomHydrationNotifier])
+  /// to tell "hydrated" from "this device knows you have no chats" and from
+  /// "the store could not be read".
+  ///
+  /// Deliberately NOT deduped through [load]'s completer slot: a [load]
+  /// arriving while a hydrate is in flight must still run its own network
+  /// pass, not inherit a disk-only future and silently skip it.
+  Future<RoomHydrationStatus> hydrate({String type = 'all'}) =>
+      _a._enricher.hydrateFromCache(type: type);
+
   /// Mutes [roomId] (optimistic). Pass [until] for a timed mute
   /// (WhatsApp-style 8h / 1 week); omit it for a permanent mute. The room
   /// tile reflects [RoomListItem.muteUntil] until the next list refresh.

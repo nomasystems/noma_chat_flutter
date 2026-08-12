@@ -34,6 +34,7 @@ Email the maintainers (`security@nomasystems.com`) and we will respond within
 - The default `HiveChatDatasource` writes JSON blobs to per-room and per-entity Hive boxes under the app's documents directory.
 - Encryption is opt-in via `NomaChat.create(encryptionCipher: HiveAesCipher(key))`. When set, every box is opened with the cipher; reads on an unencrypted box silently recreate it (`box_corrupted` metric is emitted).
 - **The cipher key is the consumer's responsibility.** Suggested wiring on iOS / Android: derive a stable key from `flutter_secure_storage`, generate one on first launch, and rotate by invoking `await chat.dispose(); await Hive.deleteFromDisk();` before re-creating the chat with a new cipher.
+- Since 0.20.0 the `chat_room_members` box persists, per room, the user ids and roles of the other members. This is not a new class of data on the device — `chat_users` already stores full peer profiles — and the box inherits the same cipher and the same per-user scoping as every other global box. It is cascaded away by `deleteRoom`, by room eviction and by `clear()` (so sign-out takes it), and it is listed here because "who is in which room" is a social graph, which is worth naming even when the data itself already existed.
 
 ### Logging
 

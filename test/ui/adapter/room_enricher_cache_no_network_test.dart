@@ -46,21 +46,31 @@ class _ScriptedRoomsApi implements ChatRoomsApi {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// Counts the three REST reads the cache phase used to emit, so a test can
-/// assert on "did this pass touch the wire" rather than on timing.
+/// Counts the reads the cache phase emits and records the policy each one
+/// carried, so a test can assert on "did this pass touch the wire" rather
+/// than on timing. The mock ignores the policy, so the policy list is the
+/// only evidence a real cached API would have stayed on disk.
 class _CountingMembersApi implements ChatMembersApi {
   _CountingMembersApi(this._delegate);
   final ChatMembersApi _delegate;
   int listCalls = 0;
+  final List<CachePolicy?> listPolicies = [];
 
   @override
   Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
     ChatPaginationParams? pagination,
     List<RoomMemberExpand> expand = const [],
+    CachePolicy? cachePolicy,
   }) {
     listCalls++;
-    return _delegate.list(roomId, pagination: pagination, expand: expand);
+    listPolicies.add(cachePolicy);
+    return _delegate.list(
+      roomId,
+      pagination: pagination,
+      expand: expand,
+      cachePolicy: cachePolicy,
+    );
   }
 
   @override
@@ -249,13 +259,18 @@ void main() {
       expect(hydratedSenders, isEmpty);
     });
 
-    test('does not resolve DM contacts — `members.list` has no cache path, '
-        'so each DM would be a mandatory request', () async {
+    test('resolves DM contacts from disk alone — every read the resolution '
+        'makes carries cacheOnly, so none of them can reach the wire',
+        () async {
       await enricher.loadAll();
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(client.members.listCalls, 0);
-      expect(client.users.getPolicies, isEmpty);
+      expect(client.members.listPolicies, isNotEmpty);
+      expect(
+        client.members.listPolicies,
+        everyElement(CachePolicy.cacheOnly),
+      );
+      expect(client.users.getPolicies, everyElement(CachePolicy.cacheOnly));
     });
 
     test('still paints every cached row', () async {
@@ -282,7 +297,12 @@ void main() {
       expect(row.otherUserId, 'bob');
       expect(row.displayName, 'Bob');
       expect(row.avatarUrl, 'https://cdn/bob.png');
-      expect(client.members.listCalls, 0);
+      // The peer was already in memory, so the resolution never had to ask
+      // for the profile at all; the roster read it did make stayed on disk.
+      expect(
+        client.members.listPolicies,
+        everyElement(CachePolicy.cacheOnly),
+      );
       expect(client.users.getPolicies, isEmpty);
     });
 

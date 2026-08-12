@@ -98,6 +98,7 @@ class _PaginatingMembersApi implements ChatMembersApi {
     String roomId, {
     ChatPaginationParams? pagination,
     List<RoomMemberExpand> expand = const [],
+    CachePolicy? cachePolicy,
   }) async {
     listCallCount++;
     receivedPagination.add(pagination);

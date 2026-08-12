@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:hive_ce/hive_ce.dart';
 import 'package:flutter/foundation.dart';
 
+import '../core/pagination.dart';
 import '../core/result.dart';
 import '../models/contact.dart';
 import '../models/invited_room.dart';
@@ -11,6 +12,7 @@ import '../models/pin.dart';
 import '../models/reaction.dart';
 import '../models/read_receipt.dart';
 import '../models/room.dart';
+import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
 import 'local_datasource.dart';
@@ -59,6 +61,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
   static const String _boxOfflineQueue = 'chat_offline_queue';
   static const String _boxPins = 'chat_pins';
   static const String _boxReceipts = 'chat_receipts';
+  static const String _boxMembers = 'chat_room_members';
 
   // Every global box, in adoption order. `_boxMeta` is handled apart
   // because it is opened before the registry exists.
@@ -73,6 +76,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
     _boxOfflineQueue,
     _boxPins,
     _boxReceipts,
+    _boxMembers,
   ];
 
   // === Per-room box prefixes ===
@@ -1715,6 +1719,10 @@ class HiveChatDatasource implements ChatLocalDatasource {
               final receiptsBox = await _box(_boxReceipts);
               await receiptsBox.delete(roomId);
             },
+            () async {
+              final membersBox = await _box(_boxMembers);
+              await membersBox.delete(roomId);
+            },
             () async => clearPendingMessages(roomId),
             // NOTE: the `clearedAt_$roomId` cutoff is deliberately NOT
             // deleted here. It is a never-evictable per-user marker (twin
@@ -2262,6 +2270,59 @@ class HiveChatDatasource implements ChatLocalDatasource {
     });
   }
 
+  // Room members
+
+  @override
+  Future<ChatResult<void>> saveRoomMembers(
+    String roomId,
+    ChatPaginatedResponse<RoomUser> members,
+  ) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxMembers);
+      await _safeWrite(
+        'saveRoomMembers',
+        () => box.put(roomId, {
+          'items': members.items.map(roomUserToMap).toList(),
+          'hasMore': members.hasMore,
+          if (members.totalCount != null) 'totalCount': members.totalCount,
+        }),
+      );
+    });
+  }
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>?>> getRoomMembers(
+    String roomId,
+  ) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxMembers);
+      final raw = box.get(roomId);
+      if (raw == null) return null;
+      final items =
+          (raw['items'] as List?)?.cast<Map<dynamic, dynamic>>() ?? [];
+      return ChatPaginatedResponse(
+        items: _safeDeserialize(
+          items,
+          (m) => roomUserFromMap(m),
+          boxName: 'roomMembers',
+        ),
+        hasMore: raw['hasMore'] == true,
+        totalCount: raw['totalCount'] as int?,
+      );
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> deleteRoomMembers(String roomId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxMembers);
+      await _safeWrite('deleteRoomMembers', () => box.delete(roomId));
+    });
+  }
+
   // TTL expiration — delegates to the eviction policy. Kept as a
   // private method so the create() factory can call it inline.
   Future<void> _expireOldMessages() => _eviction.expireOldMessages(
@@ -2308,6 +2369,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
     final invitedBox = await _box(_boxInvited);
     final pinsBox = await _box(_boxPins);
     final receiptsBox = await _box(_boxReceipts);
+    final membersBox = await _box(_boxMembers);
     for (final roomId in toRemove) {
       await _withRoomLock(roomId, () async {
         await _safeWrite('evictRooms details', () => detailsBox.delete(roomId));
@@ -2320,6 +2382,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
           'evictRooms receipts',
           () => receiptsBox.delete(roomId),
         );
+        await _safeWrite('evictRooms members', () => membersBox.delete(roomId));
         // The `clearedAt_$roomId` cutoff is intentionally preserved
         // across eviction (never-evictable per-user marker, twin of
         // `deletedRoomIds`) so a deleted chat reappears EMPTY rather
@@ -2547,11 +2610,26 @@ class HiveChatDatasource implements ChatLocalDatasource {
       final owner = _metaBox.isOpen ? _metaBox.get(_cacheOwnerKey) : null;
       final migration = _metaBox.isOpen ? _readMigrationRecord() : null;
       await _registry.clearAll();
-      // `clearAll` only reaches boxes this instance has open. Every
-      // per-room box of a tracked room that was never opened this session
-      // still holds data on disk — messages, unsent drafts and reactions
-      // alike — so all three prefixes have to be removed, not just
-      // messages.
+      // `clearAll` only reaches boxes this instance has open, and
+      // `_openCoreBoxes` opens only the ones the first paint needs. The
+      // rest — rosters, pins, receipts — are opened lazily by the feature
+      // that uses them, so a session that signs out without opening a
+      // group leaves the previous session's roster (third-party ids,
+      // display names and avatar urls) legible on disk. Delete every
+      // global box this instance never opened; the registry recreates it
+      // empty the next time anything asks for it. `_boxMeta` is excluded
+      // on purpose — it is owned directly and emptied below, minus the
+      // identity keys.
+      for (final name in _globalBoxNames) {
+        if (name == _boxMeta || _isTracked(name)) continue;
+        try {
+          await Hive.deleteBoxFromDisk(_physical(name));
+        } catch (_) {}
+      }
+      // Every per-room box of a tracked room that was never opened this
+      // session still holds data on disk — messages, unsent drafts and
+      // reactions alike — so all three prefixes have to be removed, not
+      // just messages.
       for (final roomId in _getMessageRoomIds()) {
         for (final name in _perRoomBoxNames(roomId)) {
           if (_isTracked(name)) continue;

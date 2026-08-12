@@ -37,6 +37,19 @@ void main() {
       await ds.saveCacheTimestamps({'rooms': DateTime(2026)});
     });
 
+    test('room-member hooks are no-op successes — a datasource that never '
+        'learned about rosters keeps compiling and keeps working', () async {
+      expect(
+        (await ds.saveRoomMembers(
+          'r',
+          const ChatPaginatedResponse(items: [], hasMore: false),
+        )).isSuccess,
+        isTrue,
+      );
+      expect((await ds.getRoomMembers('r')).dataOrThrow, isNull);
+      expect((await ds.deleteRoomMembers('r')).isSuccess, isTrue);
+    });
+
     test('kicked-room hooks are no-op successes', () async {
       expect((await ds.markKicked('r')).isSuccess, isTrue);
       expect((await ds.unmarkKicked('r')).isSuccess, isTrue);

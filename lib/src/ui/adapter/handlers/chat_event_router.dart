@@ -50,6 +50,7 @@ class ChatEventRouterDeps {
     required this.addSystemMessageFn,
     required this.addRoomFromDetailFn,
     required this.enrichRoomFromDetailFn,
+    required this.notifyRoomMembersChangedFn,
     required this.updateRoomLastMessage,
     required this.updateRoomListReceipt,
     required this.updateRoomReactionPreview,
@@ -104,6 +105,10 @@ class ChatEventRouterDeps {
   final void Function(String roomId, {ChatMessage? lastMessage})
   addRoomFromDetailFn;
   final void Function(String roomId) enrichRoomFromDetailFn;
+
+  /// The adapter's single "this room's roster changed" chokepoint: fires
+  /// `roomMembersListenable` and drops the cached roster's TTL entry.
+  final void Function(String roomId) notifyRoomMembersChangedFn;
   final void Function(String roomId, ChatMessage message) updateRoomLastMessage;
   final void Function(String roomId, String messageId, ReceiptStatus status)
   updateRoomListReceipt;
@@ -218,6 +223,8 @@ class ChatEventRouter {
       _deps.addRoomFromDetailFn(roomId, lastMessage: lastMessage);
   void _enrichRoomFromDetailFn(String roomId) =>
       _deps.enrichRoomFromDetailFn(roomId);
+  void _notifyRoomMembersChangedFn(String roomId) =>
+      _deps.notifyRoomMembersChangedFn(roomId);
   void _updateRoomLastMessage(String roomId, ChatMessage message) =>
       _deps.updateRoomLastMessage(roomId, message);
   void _updateRoomListReceipt(
@@ -409,6 +416,10 @@ class ChatEventRouter {
           actorUserId: actorUserId,
         );
       case UserRoleChangedEvent(:final roomId, :final userId):
+        // Roles ride on the cached roster row, so a promotion has to go
+        // through the same chokepoint a join/leave does — otherwise the
+        // new admin keeps rendering as a plain member for a whole TTL.
+        _notifyRoomMembersChangedFn(roomId);
         _enrichRoomFromDetailFn(roomId);
         _addSystemMessageFn(roomId, 'user_role_changed', userId);
       case ConnectedEvent():

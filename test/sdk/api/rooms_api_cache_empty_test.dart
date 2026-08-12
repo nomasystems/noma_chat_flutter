@@ -110,6 +110,47 @@ void main() {
     },
   );
 
+  group('a client built with no cache at all', () {
+    late RoomsApi bare;
+
+    setUp(() => bare = RoomsApi(rest: rest));
+
+    test('answers a cacheOnly listing with a miss instead of a GET '
+        '/rooms', () async {
+      final result = await bare.getUserRooms(
+        cachePolicy: CachePolicy.cacheOnly,
+      );
+
+      expect(result.isFailure, isTrue);
+      verifyNever(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      );
+    });
+
+    test('answers a cacheOnly room detail with a miss instead of a GET '
+        '/rooms/{id} — the hydration pass makes one call per room', () async {
+      final result = await bare.get('r1', cachePolicy: CachePolicy.cacheOnly);
+
+      expect(result.isFailure, isTrue);
+      verifyNever(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      );
+    });
+
+    test('still reaches the network when no policy forbids it', () async {
+      when(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      ).thenAnswer((_) async => {'rooms': [], 'invitedRooms': []});
+
+      final result = await bare.getUserRooms();
+
+      expect(result.isSuccess, isTrue);
+      verify(
+        () => rest.get(any(), queryParams: any(named: 'queryParams')),
+      ).called(1);
+    });
+  });
+
   test('a full cache with nothing left unread is an empty success for the '
       '"unread" view, not a miss', () async {
     when(() => cache.getUnreads()).thenAnswer(

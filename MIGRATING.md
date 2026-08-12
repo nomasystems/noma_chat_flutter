@@ -1,5 +1,112 @@
 # Migration guide
 
+## 0.19.x → 0.20.0
+
+### Breaking: `ChatMembersApi.list` gained `cachePolicy`
+
+**What fails.** Only a class that `implements ChatMembersApi` and declares
+`list` explicitly — in practice a hand-written test fake:
+
+```
+'_FakeMembersApi.list' isn't a valid override of 'ChatMembersApi.list'.
+```
+
+Production code that *calls* `members.list` is unaffected, and so are fakes
+that fall back to `noSuchMethod`. `MembersApi` and `MockMembersApi` already
+have it.
+
+**The fix.** One parameter, forwarded like the ones next to it:
+
+```dart
+  @override
+  Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
+    String roomId, {
+    ChatPaginationParams? pagination,
+    List<RoomMemberExpand> expand = const [],
+    CachePolicy? cachePolicy,          // add this
+  }) => _delegate.list(
+    roomId,
+    pagination: pagination,
+    expand: expand,
+    cachePolicy: cachePolicy,          // and forward it
+  );
+```
+
+### The roster cache only covers one shape
+
+`cachePolicy` is honoured **only** when `pagination` is `null` and `expand`
+is empty. Any other shape bypasses the cache in both directions, whatever
+you pass. This is not an oversight: one record per room cannot answer "page
+3" of a large group, and handing a bare cached roster to a caller that asked
+for `expand: [users]` would blank every name and avatar it was about to
+render. A paginated/expanded screen (such as the built-in
+`GroupMembersView`) behaves exactly as it did in 0.19.x.
+
+### Naming no `cachePolicy` is not the same as naming the default
+
+`members.list` without a `cachePolicy` keeps 0.19.x semantics down to the
+letter: it goes to the network, and a failed fetch is a `ChatFailureResult`
+— you never get the roster from disk behind your back. It does **not** fall
+back to `CacheConfig.defaultReadPolicy` (`networkFirst`), which would have
+turned every existing `fold(showError, render)` into "render a stale roster,
+never show an error" without a line of your code changing.
+
+The response is still written through to the cache either way, so the
+disk-only readers find it there: the SDK's own hydration pass, and any
+`CachePolicy.cacheOnly` call of your own. The offline fallback is one
+argument away when you want it:
+
+```dart
+// 0.19.x behaviour, unchanged: the network answers, or the call fails.
+await chat.client.members.list(roomId);
+
+// Opt in: network first, the roster on disk when the network is down.
+await chat.client.members.list(
+  roomId,
+  cachePolicy: CachePolicy.networkFirst,
+);
+```
+
+### `cacheOnly` on a cache-less client is a miss, not a fetch
+
+If you build the SDK without a cache and pass `CachePolicy.cacheOnly`, the
+call no longer falls through to the network. `users.get`,
+`rooms.getUserRooms`, `rooms.get`, `members.list`, `contacts.list`,
+`messages.list` and `messages.getReactions` now answer
+`NetworkFailure('No cached data available')` — the same miss they report
+for an empty store. That policy's contract is that it emits nothing, and
+the SDK's own disk-only passes lean on it.
+
+Nothing to change unless you were using `cacheOnly` as "read it, cache or
+no cache". Name the policy you actually want there: `networkFirst` for
+disk-when-offline, or no policy at all for the pre-cache semantics
+(network answer, or a failure).
+
+### `connect()` now touches the disk before the socket
+
+`ChatUiAdapter.connect()` hydrates the room list from the local store before
+opening the connection, unless you already called `rooms.hydrate()`. Nothing
+to change — but if you time your connection, expect the local read in that
+measurement. A store that throws is logged through `adapter.logger` and
+skipped; it never fails the connect.
+
+If you want rows on screen even earlier (before you connect at all), call it
+yourself:
+
+```dart
+await adapter.rooms.hydrate();   // paints from disk, emits nothing
+// ... your own gating, then:
+await adapter.connect();         // sees the hydration already done, skips it
+```
+
+### Behaviour: cold-start DM rows are named again
+
+The disk pass now resolves DM identities from the cached roster instead of
+leaving them anonymous until the network answered. It still emits nothing.
+As a consequence, duplicate DM rooms for one contact collapse on the cache
+pass again (0.19.0 let both rows show until the network pass) — the loser is
+only *persisted* as removed by an authoritative pass, exactly as before.
+
 ## 0.13.x → 0.14.0
 
 Only one item can break your build, and it only affects test code. The rest

@@ -160,6 +160,8 @@ class RoomsApi implements ChatRoomsApi {
   /// miss is what surfaces as `ChatFailureResult`. Cached invitations are
   /// returned even when there is not a single unread room, so an account
   /// whose only content is a pending invitation still hydrates from disk.
+  /// A client built with no cache at all is a permanent miss under that
+  /// policy — never a request.
   ///
   /// Only a complete `'all'` listing — no [pagination] and
   /// `UserRooms.hasMore == false` — replaces the cached room set. Every
@@ -268,6 +270,18 @@ class RoomsApi implements ChatRoomsApi {
         },
       );
     }
+    // No cache configured: there is no disk for `cacheOnly` to read, so it
+    // reports the same miss [CacheManager] reports for an empty store
+    // instead of reaching for the network. That policy's whole contract is
+    // that it emits nothing — the room-list hydration pass paints from it
+    // before `connect()` completes, and a request here would put the
+    // socket behind a `GET /rooms` on the one path documented never to
+    // make one.
+    if (cachePolicy == CachePolicy.cacheOnly) {
+      return Future.value(
+        const ChatFailureResult(NetworkFailure('No cached data available')),
+      );
+    }
     return safeApiCall(() async {
       final json = await _rest.get(
         '/rooms',
@@ -315,6 +329,15 @@ class RoomsApi implements ChatRoomsApi {
           return RoomMapper.detailFromJson(json);
         }),
         saveToCache: (detail) => _cache.saveRoomDetail(detail),
+      );
+    }
+    // Same rule as [getUserRooms]: with no cache configured a `cacheOnly`
+    // read is a miss, not a `GET /rooms/{id}`. The hydration pass calls
+    // this once per room, so the fallback turned one forbidden request
+    // into as many as the user has conversations.
+    if (cachePolicy == CachePolicy.cacheOnly) {
+      return Future.value(
+        const ChatFailureResult(NetworkFailure('No cached data available')),
       );
     }
     return safeApiCall(() async {

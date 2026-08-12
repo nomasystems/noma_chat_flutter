@@ -337,6 +337,11 @@ class CachedMessagesApi extends RestMessagesApi {
     return _cacheManager.resolve<List<AggregatedReaction>>(
       key: 'reactions:$roomId:$messageId',
       ttl: _cacheManager.config.ttlMessages,
+      // Without this the policy reached only the invalidation above and the
+      // resolve ran on `CacheConfig.defaultReadPolicy` — so a caller asking
+      // for [CachePolicy.cacheOnly] got a `networkFirst` resolve and a
+      // request on the one policy that must emit none.
+      policy: effectivePolicy,
       fromCache: () async {
         final cached =
             (await _cache.getReactions(roomId, messageId)).dataOrNull ??

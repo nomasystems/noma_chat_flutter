@@ -708,5 +708,59 @@ void main() {
       handle.dispose();
       progress.dispose();
     });
+
+    testWidgets('is not announced at all when the host wired no callback — '
+        'a label with nothing behind it is worse than no label', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      final progress = ValueNotifier<double>(0.4);
+      final cancellable = ValueNotifier<bool>(true);
+
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: uploadingPhoto(),
+            isOutgoing: true,
+            attachmentUploadProgress: progress,
+            attachmentUploadCancellable: cancellable,
+          ),
+        ),
+      );
+
+      // Everything that would normally produce the affordance is present:
+      // a ring is painted and the signal says the upload can still be
+      // aborted. The only thing missing is somebody to call.
+      expect(find.byType(AttachmentUploadRing), findsOne);
+      expect(ringOf(tester).onCancel, isNull);
+      expect(actionLabelsAt(tester, find.byType(ImageBubble)), isEmpty);
+
+      handle.dispose();
+      progress.dispose();
+      cancellable.dispose();
+    });
+
+    testWidgets('the announcement comes from the resolved callback, not '
+        'from the raw host one: no ring, no action, even with the host '
+        'callback wired', (tester) async {
+      final handle = tester.ensureSemantics();
+      var cancelled = 0;
+
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: uploadingPhoto(),
+            isOutgoing: true,
+            onCancelAttachmentUpload: () => cancelled++,
+          ),
+        ),
+      );
+
+      expect(find.byType(AttachmentUploadRing), findsNothing);
+      expect(actionLabelsAt(tester, find.byType(ImageBubble)), isEmpty);
+      expect(cancelled, 0);
+
+      handle.dispose();
+    });
   });
 }
