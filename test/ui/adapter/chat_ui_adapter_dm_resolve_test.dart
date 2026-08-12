@@ -16,6 +16,7 @@ class _FailableMembersApi implements ChatMembersApi {
     String roomId, {
     ChatPaginationParams? pagination,
     List<RoomMemberExpand> expand = const [],
+    CachePolicy? cachePolicy,
   }) {
     if (throwOnList) throw StateError('members.list threw synchronously');
     if (failList) {
@@ -23,7 +24,12 @@ class _FailableMembersApi implements ChatMembersApi {
         const ChatFailureResult(ServerFailure(statusCode: 500)),
       );
     }
-    return _delegate.list(roomId, pagination: pagination, expand: expand);
+    return _delegate.list(
+      roomId,
+      pagination: pagination,
+      expand: expand,
+      cachePolicy: cachePolicy,
+    );
   }
 
   @override

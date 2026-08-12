@@ -970,6 +970,57 @@ switch (res) {
 }
 ```
 
+##### Caching the roster — one shape only
+
+`members.list` also takes `cachePolicy`, but it is honoured **only for the
+bare shape**: no `pagination` and no `expand`. Every other shape goes
+straight to the network in both directions, whatever you pass — it is
+neither read from nor written to the cache. One record per room cannot
+answer "page 3" of a large group, and serving a bare cached roster to a
+caller that asked for `expand: [users]` would blank every name and avatar it
+was about to render.
+
+So a "participants" screen that paginates or expands keeps behaving exactly
+as before, while a plain roster read becomes instant on a warm start:
+
+```dart
+// Cached under `members:$roomId`, TTL `CacheConfig.ttlMembers` (12 h).
+final res = await chat.client.members.list(
+  roomId,
+  cachePolicy: CachePolicy.cacheFirst,
+);
+```
+
+The key is dropped on every local membership mutation (`invite`, `remove`,
+`leave`, `updateRole`, `ban`, `unban` — not `muteUser`, whose flag does not
+ride on `RoomUser`) and, when you use `ChatUiAdapter`, on every remote
+`user_joined` / `user_left` / `user_role_changed` event.
+
+##### Naming no policy is not the same as naming the default
+
+`members.list` without a `cachePolicy` behaves exactly as it did before the
+roster cache existed: it fetches from the network, and a failed fetch is a
+`ChatFailureResult` — never the roster on disk. It deliberately does **not**
+fall back to `CacheConfig.defaultReadPolicy` (`networkFirst`); that would
+have turned every existing `fold(showError, render)` into "render a stale
+roster, never show an error" without a line of your code changing.
+
+The response is written through to the cache either way, so the disk-only
+readers still find it there: the SDK's own hydration pass, and any
+`CachePolicy.cacheOnly` read of your own. The offline fallback is one
+argument away when you want it:
+
+```dart
+// Pre-cache semantics: the network answers, or the call fails.
+final res = await chat.client.members.list(roomId);
+
+// Opt in to the fallback: network first, disk when the network is down.
+final res = await chat.client.members.list(
+  roomId,
+  cachePolicy: CachePolicy.networkFirst,
+);
+```
+
 `displayName` / `avatarUrl` are `null` when `expand` is omitted (or when a
 backend ignores the param), so the field-resolution fallback through the user
 cache still works unchanged. The built-in `GroupMembersView` widget already

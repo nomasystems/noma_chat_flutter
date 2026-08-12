@@ -518,3 +518,31 @@ ReadReceipt receiptFromMap(Map<String, dynamic> map) => ReadReceipt(
       ? DateTime.tryParse(map['lastDeliveredAt'] as String)
       : null,
 );
+
+// --- Room members ---
+
+/// Serialises [u] with the role in its WIRE form (`RoomRole.member` →
+/// `'user'`), so a cached roster and a freshly fetched one carry the same
+/// vocabulary and a future reader cannot tell them apart.
+Map<String, dynamic> roomUserToMap(RoomUser u) => {
+  'userId': u.userId,
+  'role': u.role.toJson(),
+  if (u.displayName != null) 'displayName': u.displayName,
+  if (u.avatarUrl != null) 'avatarUrl': u.avatarUrl,
+};
+
+/// Reads back a row written by [roomUserToMap].
+///
+/// An unrecognised role degrades to [RoomRole.member] rather than
+/// throwing: a store written by a newer SDK that learned a fourth role
+/// must not make the whole roster unreadable.
+RoomUser roomUserFromMap(Map<String, dynamic> map) => RoomUser(
+  userId: map['userId'] as String? ?? '',
+  role: switch (map['role']) {
+    'owner' => RoomRole.owner,
+    'admin' => RoomRole.admin,
+    _ => RoomRole.member,
+  },
+  displayName: map['displayName'] as String?,
+  avatarUrl: map['avatarUrl'] as String?,
+);

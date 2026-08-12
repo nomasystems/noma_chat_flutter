@@ -650,6 +650,7 @@ class MockMembersApi implements ChatMembersApi {
     String roomId, {
     ChatPaginationParams? pagination,
     List<RoomMemberExpand> expand = const [],
+    CachePolicy? cachePolicy,
   }) async {
     final room = _client._rooms[roomId];
     if (room == null) return const ChatFailureResult(NotFoundFailure());

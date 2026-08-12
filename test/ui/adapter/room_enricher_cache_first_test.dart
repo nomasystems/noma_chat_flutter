@@ -424,87 +424,80 @@ void main() {
   });
 
   group('DM dedupe cache-vs-authoritative eviction', () {
-    test(
-      'a cache pass leaves both duplicate DM rows alone — it has no way to '
-      'learn they share a peer without network; the authoritative pass '
-      'collapses them and evicts the loser from the persistent cache',
-      () async {
-        final mock = MockChatClient(currentUserId: 'me');
-        final counting = _CountingRoomsClient(mock);
-        final cache = _RecordingCache();
-        final adapter = ChatUiAdapter(
-          client: counting,
-          currentUser: me,
-          cache: cache,
-          manageAppLifecycle: false,
-        );
-        adapter.start();
-        mock.seedRoom(const ChatRoom(id: 'boot', name: 'Bootstrap'));
-        await counting.connect();
-        await Future<void>.delayed(Duration.zero);
-        await adapter.rooms.load();
-        expect(adapter.initializedNotifier.value, isTrue);
+    test('a cache pass hides the losing duplicate DM row but never evicts it '
+        'from the persistent cache; only the authoritative pass persists the '
+        'removal', () async {
+      final mock = MockChatClient(currentUserId: 'me');
+      final counting = _CountingRoomsClient(mock);
+      final cache = _RecordingCache();
+      final adapter = ChatUiAdapter(
+        client: counting,
+        currentUser: me,
+        cache: cache,
+        manageAppLifecycle: false,
+      );
+      adapter.start();
+      mock.seedRoom(const ChatRoom(id: 'boot', name: 'Bootstrap'));
+      await counting.connect();
+      await Future<void>.delayed(Duration.zero);
+      await adapter.rooms.load();
+      expect(adapter.initializedNotifier.value, isTrue);
 
-        mock.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
-        mock.seedRoom(const ChatRoom(id: 'room1', members: ['me', 'bob']));
-        mock.seedRoom(const ChatRoom(id: 'room2', members: ['me', 'bob']));
+      mock.seedUser(const ChatUser(id: 'bob', displayName: 'Bob'));
+      mock.seedRoom(const ChatRoom(id: 'room1', members: ['me', 'bob']));
+      mock.seedRoom(const ChatRoom(id: 'room2', members: ['me', 'bob']));
 
-        final gate = Completer<void>();
-        counting.rooms.gate = gate;
+      final gate = Completer<void>();
+      counting.rooms.gate = gate;
 
-        await adapter.rooms.load();
-        // Give any stray async work a beat to settle; the background
-        // revalidation is frozen on the gate before it can touch anything,
-        // so only the cache pass has run.
-        await Future<void>.delayed(const Duration(milliseconds: 30));
+      await adapter.rooms.load();
+      // Give any stray async work a beat to settle; the background
+      // revalidation is frozen on the gate before it can touch anything,
+      // so only the cache pass has run.
+      await Future<void>.delayed(const Duration(milliseconds: 30));
 
-        expect(
-          cache.deleteRoomCalls,
-          0,
-          reason:
-              'a non-authoritative (cache) pass must never evict the '
-              'persistent cache for the losing DM room',
-        );
-        final visibleAfterCache = adapter.roomListController.allRooms
+      expect(
+        cache.deleteRoomCalls,
+        0,
+        reason:
+            'a non-authoritative (cache) pass must never evict the '
+            'persistent cache for the losing DM room',
+      );
+      final visibleAfterCache = adapter.roomListController.allRooms
+          .map((r) => r.id)
+          .toSet();
+      expect(
+        visibleAfterCache.intersection({'room1', 'room2'}),
+        hasLength(1),
+        reason:
+            'the roster is cacheable now, so the cache pass can tell the '
+            'two rooms share a peer without emitting anything — and two '
+            'rows for the same contact is never a correct first paint.',
+      );
+
+      gate.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 30));
+
+      expect(
+        adapter.roomListController.allRooms
             .map((r) => r.id)
-            .toSet();
-        expect(
-          visibleAfterCache.intersection({'room1', 'room2'}),
-          hasLength(2),
-          reason:
-              'both rows are still shown: telling two DM rooms apart '
-              'requires knowing their peers, and the only source of that is '
-              '`members.list`, which has no cache path — so the cache pass '
-              'cannot dedupe without emitting network on the one pass that '
-              'must not. Two rows for the same contact is a rare, readable '
-              'and self-correcting first paint; the price of deduping it '
-              'here is a mandatory request per DM at app start.',
-        );
+            .toSet()
+            .intersection({'room1', 'room2'}),
+        hasLength(1),
+        reason:
+            'the authoritative background revalidation keeps the same '
+            'preferred row the cache pass picked',
+      );
+      expect(
+        cache.deleteRoomCalls,
+        greaterThan(0),
+        reason:
+            'the authoritative background revalidation must evict the '
+            'losing DM room from the persistent cache',
+      );
 
-        gate.complete();
-        await Future<void>.delayed(const Duration(milliseconds: 30));
-
-        expect(
-          adapter.roomListController.allRooms
-              .map((r) => r.id)
-              .toSet()
-              .intersection({'room1', 'room2'}),
-          hasLength(1),
-          reason:
-              'the authoritative background revalidation collapses the '
-              'duplicate pair down to the preferred row',
-        );
-        expect(
-          cache.deleteRoomCalls,
-          greaterThan(0),
-          reason:
-              'the authoritative background revalidation must evict the '
-              'losing DM room from the persistent cache',
-        );
-
-        await adapter.dispose();
-        await mock.dispose();
-      },
-    );
+      await adapter.dispose();
+      await mock.dispose();
+    });
   });
 }

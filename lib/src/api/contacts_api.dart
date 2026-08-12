@@ -70,6 +70,19 @@ class ContactsApi implements ChatContactsApi {
         saveToCache: (data) => _cache.saveContacts(data.items),
       );
     }
+    // No cache configured: there is nothing on disk to read, so
+    // [CachePolicy.cacheOnly] reports the same miss [CacheManager] reports
+    // for an empty store instead of falling through to the network — that
+    // policy is chosen precisely because it must not reach the wire. A
+    // paginated read on a client that HAS a cache still goes to the
+    // network whatever the policy, the same bypass `MembersApi.list`
+    // documents for the shapes one cached record cannot answer.
+    if ((_cacheManager == null || _cache == null) &&
+        cachePolicy == CachePolicy.cacheOnly) {
+      return Future.value(
+        const ChatFailureResult(NetworkFailure('No cached data available')),
+      );
+    }
     return safeApiCall(() async {
       final (json, totalCount) = await _rest.getWithTotalCount(
         '/contacts',

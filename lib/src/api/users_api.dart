@@ -63,6 +63,19 @@ class UsersApi implements ChatUsersApi {
         saveToCache: (user) => _cache.saveUsers([user]),
       );
     }
+    // Same rule as `RoomsApi.getUserRooms` / `MembersApi.list`: a client
+    // built with no cache has no disk for `cacheOnly` to read, so it
+    // answers the same miss [CacheManager] answers for an empty store
+    // instead of reaching for the network. That policy's whole contract
+    // is that it emits nothing — the disk-only pass resolves each DM
+    // peer's profile through here, so the fallback turned one forbidden
+    // request into one per conversation on the pass that must paint from
+    // disk alone.
+    if (cachePolicy == CachePolicy.cacheOnly) {
+      return Future.value(
+        const ChatFailureResult(NetworkFailure('No cached data available')),
+      );
+    }
     return safeApiCall(() async {
       final json = await _rest.get('/users/$userId');
       return UserMapper.fromJson(_unwrapUser(json));

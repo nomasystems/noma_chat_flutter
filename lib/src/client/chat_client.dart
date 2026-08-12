@@ -628,10 +628,20 @@ abstract class ChatMembersApi {
   ///   }
   /// }
   /// ```
+  ///
+  /// [cachePolicy] selects the cache strategy — but **only the bare shape
+  /// is cacheable**: the roster is read from and written to the local
+  /// store solely when [pagination] is `null` AND [expand] is empty. Any
+  /// other shape goes straight to the network whatever [cachePolicy] says.
+  /// That is deliberate and load-bearing: one record per room cannot stand
+  /// in for page 3 of a large group, and serving a bare cached roster to a
+  /// caller that asked for `expand: [users]` would blank every name and
+  /// avatar on screen.
   Future<ChatResult<ChatPaginatedResponse<RoomUser>>> list(
     String roomId, {
     ChatPaginationParams? pagination,
     List<RoomMemberExpand> expand,
+    CachePolicy? cachePolicy,
   });
 
   /// Invites users to a room. The [mode] controls the membership flow:

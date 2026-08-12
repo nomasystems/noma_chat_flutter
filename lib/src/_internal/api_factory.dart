@@ -66,7 +66,13 @@ class ApiFactory {
     logger: logger,
   );
 
-  MembersApi members() => MembersApi(rest: rest, userId: userId);
+  MembersApi members() => MembersApi(
+    rest: rest,
+    userId: userId,
+    cache: cache,
+    cacheManager: cacheManager,
+    logger: logger,
+  );
 
   ChatMessagesApi messages() => buildMessagesApi(
     rest: rest,

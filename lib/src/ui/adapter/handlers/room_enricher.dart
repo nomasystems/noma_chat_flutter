@@ -109,6 +109,26 @@ class RoomHydrationStatus {
       'roomCount: $roomCount, type: $type)';
 }
 
+/// Internal outcome of one disk phase, richer than the public
+/// [RoomHydrationStatus] it publishes.
+///
+/// [RoomEnricher.loadAll] needs the two raw booleans the cache read
+/// produced, not the projection: [cacheHadContent] is what the cache
+/// RETURNED, while [RoomHydrationStatus.outcome] is what actually made it
+/// onto the list (locally-deleted rooms excluded). Deriving one from the
+/// other would silently change which failures `loadAll` masks.
+class _HydrationPass {
+  const _HydrationPass({
+    required this.status,
+    required this.cacheAnswered,
+    required this.cacheHadContent,
+  });
+
+  final RoomHydrationStatus status;
+  final bool cacheAnswered;
+  final bool cacheHadContent;
+}
+
 /// Encapsulates the "fetch room details + populate the room list" flows.
 ///
 /// Three groups of methods, in three flavours of work:
@@ -280,21 +300,95 @@ class RoomEnricher {
   /// instead of waiting out the real default.
   final Duration _revalidateDebounce;
 
-  Future<ChatResult<void>> loadAll({
-    String type = 'all',
-    bool forceNetwork = false,
-    bool revalidateInBackground = true,
-  }) async {
-    // Phase 1: Instant load from cache (fire-and-forget DM resolution to
-    // keep the first paint snappy — the network pass will await it).
+  /// Whether the disk phase ([hydrateFromCache]) has completed at least
+  /// once since the last [resetSession].
+  ///
+  /// Tracked explicitly rather than derived from [initializedNotifier]:
+  /// that one answers "has a NETWORK pass completed?", a different
+  /// question. A session that never reaches the network would leave it
+  /// `false` forever, so every reconnect would re-hydrate and overwrite
+  /// rows already advanced by realtime events with the disk snapshot.
+  bool get hasHydratedFromCache => _hydratedThisSession;
+  bool _hydratedThisSession = false;
+
+  /// Single-flight slot for [hydrateFromCache]. Two concurrent callers
+  /// (the adapter's `connect()` and a host that hydrates on its own) must
+  /// share one cache read + one `_enrichAndSet`, not race two.
+  Future<_HydrationPass>? _hydrationInFlight;
+
+  /// The session every pass belongs to, captured before its first
+  /// `await` and bumped by [resetSession].
+  ///
+  /// A pass that started under an older epoch must not report itself as
+  /// this session's hydration when it lands — a sign-out racing an
+  /// in-flight `connect()` would otherwise leave the incoming session
+  /// believing it had already read the disk. Nor may it paint: every
+  /// write this class makes to [roomList] and to the notifiers is gated
+  /// on [_stale]. Guarding on `_isDisposed()` alone is not enough,
+  /// because `signOut()` deliberately does NOT dispose the adapter (the
+  /// instance stays usable so the next user can sign in on it), so a pass
+  /// started by the outgoing identity is still "alive" when it lands and
+  /// would merge that identity's rooms into the incoming one's list —
+  /// non-authoritatively, so nothing would ever prune them again.
+  int _sessionEpoch = 0;
+
+  /// Whether [epoch] is no longer the running session — either the
+  /// adapter was disposed or a [resetSession] happened while the pass
+  /// that captured it was awaiting.
+  bool _stale(int epoch) => _isDisposed() || epoch != _sessionEpoch;
+
+  /// Rearms [hasHydratedFromCache] so the next session hydrates again.
+  /// Invoked from the adapter's shared session-teardown inventory.
+  void resetSession() {
+    _sessionEpoch++;
+    _hydratedThisSession = false;
+    _hydrationInFlight = null;
+  }
+
+  /// Paints the room list from the local cache. Never touches the network.
+  ///
+  /// This is the disk phase of [loadAll] on its own, exposed so a host can
+  /// have content on screen before anything else happens: it is safe to
+  /// call BEFORE `connect()` and before the user has been created
+  /// server-side, because nothing it reads is set up by either (the local
+  /// store is open from client construction and `cacheOnly` reads bypass
+  /// the TTL ledger entirely).
+  ///
+  /// It deliberately does NOT set [initializedNotifier] nor fire
+  /// `onRoomsLoaded`: both remain the exclusive signal of a completed
+  /// network pass, so a host that gates on "the list is authoritative"
+  /// keeps gating on the same thing it did before.
+  ///
+  /// Concurrent calls share a single pass. Returns the
+  /// [RoomHydrationStatus] published on [hydrationNotifier].
+  Future<RoomHydrationStatus> hydrateFromCache({String type = 'all'}) async =>
+      (await _hydrate(type)).status;
+
+  Future<_HydrationPass> _hydrate(String type) {
+    final inFlight = _hydrationInFlight;
+    if (inFlight != null) return inFlight;
+    final pass = () async {
+      try {
+        return await _runHydration(type);
+      } finally {
+        _hydrationInFlight = null;
+      }
+    }();
+    _hydrationInFlight = pass;
+    return pass;
+  }
+
+  Future<_HydrationPass> _runHydration(String type) async {
+    final epoch = _sessionEpoch;
     final cachedResult = await client.rooms.getUserRooms(
       type: type,
       cachePolicy: CachePolicy.cacheOnly,
     );
     // `isSuccess` means the cache ANSWERED, which since the empty/miss
     // split in `RoomsApi.getUserRooms` includes answering "you have zero
-    // rooms". [hasCachedContent] is the narrower "the cache had something
-    // to paint" — the two are not interchangeable, see their use below.
+    // rooms". [_HydrationPass.cacheHadContent] is the narrower "the cache
+    // had something to paint" — the two are not interchangeable, see
+    // their use in [loadAll].
     final hasCached = cachedResult.isSuccess;
     final cached = cachedResult.dataOrNull;
     final hasCachedContent =
@@ -303,12 +397,32 @@ class RoomEnricher {
     if (hasCached) {
       await _enrichAndSet(
         cachedResult.dataOrThrow,
+        epoch: epoch,
         type: type,
         detailPolicy: CachePolicy.cacheOnly,
         awaitDmResolution: false,
       );
     }
-    _publishHydration(type: type, cacheAnswered: hasCached);
+    _publishHydration(type: type, cacheAnswered: hasCached, epoch: epoch);
+    if (epoch == _sessionEpoch) _hydratedThisSession = true;
+    return _HydrationPass(
+      status: _hydration.value,
+      cacheAnswered: hasCached,
+      cacheHadContent: hasCachedContent,
+    );
+  }
+
+  Future<ChatResult<void>> loadAll({
+    String type = 'all',
+    bool forceNetwork = false,
+    bool revalidateInBackground = true,
+  }) async {
+    final epoch = _sessionEpoch;
+    // Phase 1: Instant load from cache (fire-and-forget DM resolution to
+    // keep the first paint snappy — the network pass will await it).
+    final hydration = await _hydrate(type);
+    final hasCached = hydration.cacheAnswered;
+    final hasCachedContent = hydration.cacheHadContent;
 
     // Trust the cache and skip blocking on the network pass when realtime
     // is already keeping the room list fresh: after the first successful
@@ -359,13 +473,14 @@ class RoomEnricher {
     if (networkResult.isSuccess) {
       await _enrichAndSet(
         networkResult.dataOrThrow,
+        epoch: epoch,
         type: type,
         awaitDmResolution: true,
         authoritative: true,
         snapshotAt: snapshotAt,
         seq: seq,
       );
-      if (_isDisposed()) return const ChatSuccess(null);
+      if (_stale(epoch)) return const ChatSuccess(null);
       _initializedNotifier.value = true;
       _onRoomsLoaded?.call(roomList.allRooms);
       return const ChatSuccess(null);
@@ -397,8 +512,12 @@ class RoomEnricher {
   /// a cache whose every room was locally deleted reports
   /// [RoomHydrationOutcome.empty] rather than a contradictory "hydrated
   /// with 0 rows".
-  void _publishHydration({required String type, required bool cacheAnswered}) {
-    if (_isDisposed()) return;
+  void _publishHydration({
+    required String type,
+    required bool cacheAnswered,
+    required int epoch,
+  }) {
+    if (_stale(epoch)) return;
     final painted = roomList.allRooms.length;
     _hydration.value = RoomHydrationStatus(
       outcome: !cacheAnswered
@@ -438,29 +557,31 @@ class RoomEnricher {
   /// [type] (e.g. open/close/reopen the same screen) only revalidates once
   /// per window instead of re-fetching + re-enriching every time.
   Future<void> _backgroundRevalidate(String type) async {
+    final epoch = _sessionEpoch;
     final now = DateTime.now();
     final last = _lastRevalidatedAt[type];
     if (last != null && now.difference(last) < _revalidateDebounce) return;
     if (!_revalidating.add(type)) return;
     _lastRevalidatedAt[type] = now;
     try {
-      if (_isDisposed()) return;
+      if (_stale(epoch)) return;
       final snapshotAt = DateTime.now();
       final seq = roomList.nextSeq();
       final result = await client.rooms.getUserRooms(
         type: type,
         cachePolicy: CachePolicy.networkOnly,
       );
-      if (_isDisposed() || result.isFailure) return;
+      if (_stale(epoch) || result.isFailure) return;
       await _enrichAndSet(
         result.dataOrThrow,
+        epoch: epoch,
         type: type,
         awaitDmResolution: true,
         authoritative: true,
         snapshotAt: snapshotAt,
         seq: seq,
       );
-      if (_isDisposed()) return;
+      if (_stale(epoch)) return;
       _initializedNotifier.value = true;
       _onRoomsLoaded?.call(roomList.allRooms);
     } finally {
@@ -468,8 +589,15 @@ class RoomEnricher {
     }
   }
 
+  /// Builds the enriched rows for [userRooms] and paints them.
+  ///
+  /// [epoch] is the session the caller captured before its first `await`
+  /// (see [_sessionEpoch]). Every write below is gated on it, so a pass
+  /// whose session ended mid-flight is dropped instead of merged into
+  /// whatever session is running when it lands.
   Future<void> _enrichAndSet(
     UserRooms userRooms, {
+    required int epoch,
     String type = 'all',
     CachePolicy? detailPolicy,
     bool awaitDmResolution = false,
@@ -543,20 +671,28 @@ class RoomEnricher {
             unread.lastMessageTime!.isAfter(clearedAt);
         if (resurrected) {
           deletedRoomIds.remove(unread.roomId);
-          unawaited(
-            client.rooms
-                .clearRoomDeleted(unread.roomId)
-                .catchError(
-                  (_) => const ChatFailureResult<void>(
-                    UnexpectedFailure('clearRoomDeleted threw'),
+          // Gated on the epoch for the same reason the paint below is: a
+          // pass that started under the outgoing identity would otherwise
+          // still be writing to the store after `signOut()` cleared it,
+          // and the id of a room the previous user deleted would survive
+          // into the next session's cache. Skipping the write costs this
+          // pass nothing — it is about to be dropped whole at [_stale].
+          if (!_stale(epoch)) {
+            unawaited(
+              client.rooms
+                  .clearRoomDeleted(unread.roomId)
+                  .catchError(
+                    (_) => const ChatFailureResult<void>(
+                      UnexpectedFailure('clearRoomDeleted threw'),
+                    ),
                   ),
-                ),
-          );
-          unawaited(
-            (localCacheForDeleted?.clearDeletedRoom(unread.roomId) ??
-                    Future<void>.value())
-                .catchError((_) {}),
-          );
+            );
+            unawaited(
+              (localCacheForDeleted?.clearDeletedRoom(unread.roomId) ??
+                      Future<void>.value())
+                  .catchError((_) {}),
+            );
+          }
         } else {
           continue;
         }
@@ -715,16 +851,21 @@ class RoomEnricher {
               if (authoritative) {
                 // Network pass: the backend authoritatively returned
                 // this room → admin re-added the user. Clear the local
-                // kicked flag so it doesn't linger.
-                unawaited(
-                  localCache
-                      .unmarkKicked(kickedId)
-                      .catchError(
-                        (Object _) => const ChatFailureResult<void>(
-                          UnexpectedFailure('cache mutator threw'),
+                // kicked flag so it doesn't linger. Epoch-gated like
+                // every other write in this pass: a pass belonging to the
+                // identity that just signed out must not put ids back
+                // into the store after `clear()` emptied it.
+                if (!_stale(epoch)) {
+                  unawaited(
+                    localCache
+                        .unmarkKicked(kickedId)
+                        .catchError(
+                          (Object _) => const ChatFailureResult<void>(
+                            UnexpectedFailure('cache mutator threw'),
+                          ),
                         ),
-                      ),
-                );
+                  );
+                }
               } else {
                 // Cache pass: a stale unreads box may still list the
                 // room — do NOT treat it as a re-add and do NOT clear
@@ -753,7 +894,7 @@ class RoomEnricher {
       }
     }
 
-    if (_isDisposed()) return;
+    if (_stale(epoch)) return;
     // Only `type == 'all'` with no `hasMore` is the complete room set
     // (mirrors `RoomsApi.getUserRooms`'s cache-write distinction) — a
     // filtered or paginated view never prunes. Computed once and reused by
@@ -789,47 +930,48 @@ class RoomEnricher {
     // its `otherUserId` set, `_dmRoomByContact` is populated, and any
     // duplicate DM rooms have been collapsed.
     //
-    // The cache pass resolves nothing over the wire. `members.list` has no
-    // cache path at all — `MembersApi` is constructed without a
-    // `CacheManager` and `list()` takes no `cachePolicy` — so every DM
-    // here would be a mandatory `GET /rooms/{id}/members` on the one pass
-    // that must stay on disk (N requests fired at the most contended
-    // moment of app start, N failures when there is no network). What the
-    // cache pass can do it already did when building the rows above:
-    // replay the peer identity resolved earlier in this session. A DM this
-    // device has never resolved has no peer on disk to replay — no store
-    // holds room members, and `RoomDetail` carries none — so it paints
-    // with whatever the cached detail gives and is corrected by the
-    // network pass of this same [loadAll].
+    // The cache pass resolves them too, but with [CachePolicy.cacheOnly]
+    // threaded all the way down: `members.list` and the peer's
+    // `users.get` both read the local store and stop there, so the pass
+    // stays at zero requests while still recovering the peer identity of
+    // a DM this session has never seen. Replaying `dmContacts` (done when
+    // the rows were built above) only covers a warm reopen; on a cold
+    // start that registry is empty and the roster on disk is the only
+    // thing that can name the row. A DM with no roster stored falls
+    // through to a miss and paints exactly as it did before, corrected by
+    // the network pass of this same [loadAll].
+    final dmPolicy = cacheOnlyPass ? CachePolicy.cacheOnly : null;
     final dmFutures = <Future<void>>[];
-    if (!cacheOnlyPass) {
-      for (var i = 0; i < userRooms.rooms.length; i++) {
-        final unread = userRooms.rooms[i];
-        final detail = details[i].dataOrNull;
-        if (detail != null && _isDmDetail(detail)) {
-          if (awaitDmResolution) {
-            dmFutures.add(
-              _doResolveDmContact(
-                unread.roomId,
-                authoritative: authoritative,
-                representsCompleteSet: representsCompleteSet,
-                seq: seq,
-              ),
-            );
-          } else {
-            resolveDmContact(
+    for (var i = 0; i < userRooms.rooms.length; i++) {
+      final unread = userRooms.rooms[i];
+      final detail = details[i].dataOrNull;
+      if (detail != null && _isDmDetail(detail)) {
+        if (awaitDmResolution) {
+          dmFutures.add(
+            _doResolveDmContact(
               unread.roomId,
               authoritative: authoritative,
               representsCompleteSet: representsCompleteSet,
               seq: seq,
-            );
-          }
+              cachePolicy: dmPolicy,
+              epoch: epoch,
+            ),
+          );
+        } else {
+          resolveDmContact(
+            unread.roomId,
+            authoritative: authoritative,
+            representsCompleteSet: representsCompleteSet,
+            seq: seq,
+            cachePolicy: dmPolicy,
+            epoch: epoch,
+          );
         }
       }
     }
     if (dmFutures.isNotEmpty) {
       await Future.wait(dmFutures);
-      if (_isDisposed()) return;
+      if (_stale(epoch)) return;
     }
 
     // Pre-fetch the user behind every `lastMessageUserId` we don't yet
@@ -918,11 +1060,21 @@ class RoomEnricher {
   /// `true`, the persisted removal additionally requires
   /// [RoomListController.allowsInferredPrune] to agree — see
   /// [_doResolveDmContact].
+  ///
+  /// [cachePolicy] is threaded into every read this makes — the roster and
+  /// the peer profile. `null` keeps each call's own default; passing
+  /// [CachePolicy.cacheOnly] makes the whole resolution disk-only, which
+  /// is what the cache pass of [loadAll] does.
+  ///
+  /// [epoch] is the session this resolution belongs to; omitted, it is the
+  /// session running at the call. See [_sessionEpoch].
   void resolveDmContact(
     String roomId, {
     bool authoritative = true,
     bool representsCompleteSet = true,
     int? seq,
+    CachePolicy? cachePolicy,
+    int? epoch,
   }) {
     unawaited(
       _doResolveDmContact(
@@ -930,6 +1082,8 @@ class RoomEnricher {
         authoritative: authoritative,
         representsCompleteSet: representsCompleteSet,
         seq: seq,
+        cachePolicy: cachePolicy,
+        epoch: epoch,
       ),
     );
   }
@@ -939,10 +1093,16 @@ class RoomEnricher {
     bool authoritative = true,
     bool representsCompleteSet = true,
     int? seq,
+    CachePolicy? cachePolicy,
+    int? epoch,
   }) async {
+    final passEpoch = epoch ?? _sessionEpoch;
     try {
-      final membersResult = await client.members.list(roomId);
-      if (_isDisposed()) return;
+      final membersResult = await client.members.list(
+        roomId,
+        cachePolicy: cachePolicy,
+      );
+      if (_stale(passEpoch)) return;
       if (membersResult.isFailure) {
         _logger?.call(
           'warn',
@@ -1051,11 +1211,13 @@ class RoomEnricher {
         // (6 h by default) and its timestamps survive restarts, so a
         // renamed peer still refreshes on its own; a network failure falls
         // back to the stale entry rather than leaving the row untitled.
+        // An inherited [cachePolicy] wins: a disk-only pass must not reach
+        // the wire through this door either.
         final userResult = await client.users.get(
           otherMember.userId,
-          cachePolicy: CachePolicy.cacheFirst,
+          cachePolicy: cachePolicy ?? CachePolicy.cacheFirst,
         );
-        if (_isDisposed()) return;
+        if (_stale(passEpoch)) return;
         otherUser = userResult.dataOrNull;
         if (otherUser != null) {
           _cacheUsersFn([otherUser]);

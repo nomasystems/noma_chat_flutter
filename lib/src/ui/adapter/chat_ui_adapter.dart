@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show NetworkImage;
 import 'package:intl/intl.dart';
 import '../../_internal/cache/cache_manager.dart' show MetricCallback;
+import '../../api/members_api.dart' show MembersApi;
 import '../../cache/cache_policy.dart';
 import '../../cache/local_datasource.dart';
 import '../../client/chat_client.dart';
@@ -238,8 +239,16 @@ class ChatUiAdapter {
   /// `user_joined` / `user_left` event, regardless of whether a chat
   /// controller is open for the room, so a roster view that isn't the
   /// active screen still refreshes.
+  ///
+  /// Also drops the cached roster's TTL entry. This is THE chokepoint for
+  /// "the members of this room changed", so putting the invalidation here
+  /// rather than at each event site makes it impossible to add a fourth
+  /// trigger that forgets it. Only the real [MembersApi] keeps a TTL
+  /// ledger — a custom or mock client has nothing to invalidate.
   void notifyRoomMembersChanged(String roomId) {
     if (_disposed) return;
+    final membersApi = client.members;
+    if (membersApi is MembersApi) membersApi.invalidateRoster(roomId);
     _lastMembersChangedRoomId = roomId;
     _roomMembersListenable.emit();
   }
@@ -1206,9 +1215,22 @@ class ChatUiAdapter {
   }
 
   /// Connects to the server and starts listening for real-time events.
+  ///
+  /// Hydrates the room list from disk first (see [ChatRoomsController.hydrate])
+  /// when the host has not already done so, so a cache-first SDK never
+  /// hands over its cached rows behind a handshake. That adds local I/O
+  /// ahead of the socket; a store that throws is logged and skipped —
+  /// an unreadable cache must never stop a connection.
   Future<void> connect() async {
     _cancelSubscriptions();
     start();
+    if (!_enricher.hasHydratedFromCache) {
+      try {
+        await rooms.hydrate();
+      } catch (e) {
+        logger?.call('warn', 'connect: cache hydration failed: $e');
+      }
+    }
     await client.connect();
   }
 
@@ -1439,6 +1461,7 @@ class ChatUiAdapter {
     _deliveredCoord.reset();
     _pendingReactionsRegistry.clear();
     _voiceUploads.releaseAll();
+    _enricher.resetSession();
   }
 
   /// One-shot teardown for "logout" flows: disconnects, wipes every
@@ -2391,6 +2414,7 @@ class ChatUiAdapter {
       addSystemMessageFn: _memberEventHandler.addSystemMessage,
       addRoomFromDetailFn: _addRoomFromDetail,
       enrichRoomFromDetailFn: _enrichRoomFromDetail,
+      notifyRoomMembersChangedFn: notifyRoomMembersChanged,
       updateRoomLastMessage: (roomId, message) =>
           _roomListMutator.updateRoomLastMessage(roomId, message),
       updateRoomListReceipt: (roomId, messageId, status) =>

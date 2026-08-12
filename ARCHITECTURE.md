@@ -141,9 +141,13 @@ interval clamped to a 5 s floor) and `manual` (`ManualTransport`).
 
 **Cache policies** (`CachePolicy`): `cacheFirst`, `networkFirst`, `cacheOnly`, `networkOnly`.
 
+**Cache keys and TTLs** (`CacheConfig`): `rooms:$type` / `roomDetail:$roomId` (`ttlRooms`, 12 h), `user:$userId` (`ttlUsers`, 6 h), `messages:$roomId:…` (`ttlMessages`, 24 h), `members:$roomId` (`ttlMembers`, 12 h), plus `contacts`, `reactions:$roomId:$messageId`, `pins:$roomId`, `receipts:$roomId`.
+
+**Member rosters**: `members:$roomId` holds only the unpaginated, unexpanded `members.list` response (items + `hasMore` + `totalCount`), in the `chat_room_members` box. Any paginated or expanded call bypasses the cache in both directions — one record per room cannot stand in for another page, and a bare roster served to an expanded caller would blank the names and avatars on screen. Invalidated by every local membership mutation and, through `ChatUiAdapter.notifyRoomMembersChanged`, by every `user_joined` / `user_left` / `user_role_changed` event.
+
 **Cache-then-network** (stale-while-revalidate):
 - `loadMessages` runs a `cacheOnly` phase (instant) + `networkOnly` phase with delta sync (`after=newestCachedTimestamp`).
-- `loadRooms` same pattern with `cacheOnly` enrichment in the cache phase.
+- `loadRooms` same pattern with `cacheOnly` enrichment in the cache phase. The cache phase is also reachable on its own via `rooms.hydrate()`, and `connect()` runs it before the handshake when the host has not.
 
 ## UI Adapter (`ChatUiAdapter`)
 
