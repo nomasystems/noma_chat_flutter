@@ -51,6 +51,21 @@ class MediaItem {
   final AttachmentRef? thumbnailRef;
 }
 
+/// Stable suffix identifying [item] inside the gallery's instrumentation ids:
+/// the attachment id when the backend sent one, otherwise the url + sender +
+/// timestamp triple these rows have always been kept apart by. Shared by the
+/// grid cells of [MediaGalleryView] and the rows of `DocsListView` so the same
+/// attachment answers to the same suffix on both tabs.
+String attachmentSemanticsId(MediaItem item) {
+  final id = item.attachmentRef?.attachmentId;
+  if (id != null && id.isNotEmpty) return id;
+  return '${item.url}-${item.senderId}-${item.timestamp}';
+}
+
+/// Instrumentation id of the grid cell rendering [item] in [MediaGalleryView].
+String mediaCellSemanticsId(MediaItem item) =>
+    'chat_gallery_media_${attachmentSemanticsId(item)}';
+
 /// Grid view of [MediaItem]s, used as the Media tab of [MediaGalleryPage].
 class MediaGalleryView extends StatelessWidget {
   const MediaGalleryView({
@@ -93,10 +108,14 @@ class MediaGalleryView extends StatelessWidget {
               .toList();
 
     if (visible.isEmpty) {
-      return EmptyState(
-        icon: Icons.photo_library_outlined,
-        title: theme.l10nOf(context).noMedia,
-        theme: theme,
+      return Semantics(
+        identifier: 'chat_gallery_media_empty',
+        child: EmptyState(
+          key: const ValueKey('chat_gallery_media_empty'),
+          icon: Icons.photo_library_outlined,
+          title: theme.l10nOf(context).noMedia,
+          theme: theme,
+        ),
       );
     }
 
@@ -111,6 +130,7 @@ class MediaGalleryView extends StatelessWidget {
       itemBuilder: (context, index) {
         final item = visible[index];
         return _MediaCell(
+          key: ValueKey(mediaCellSemanticsId(item)),
           item: item,
           theme: theme,
           mediaLoader: mediaLoader,
@@ -125,6 +145,7 @@ class _MediaCell extends StatelessWidget {
   const _MediaCell({
     required this.item,
     required this.theme,
+    super.key,
     this.onTap,
     this.mediaLoader,
   });
@@ -187,28 +208,31 @@ class _MediaCell extends StatelessWidget {
     if (item.type == MediaItemType.file) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(4),
-        child: InkWell(
-          onTap: onTap,
-          child: Container(
-            color: Colors.grey.shade100,
-            padding: const EdgeInsets.all(8),
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(
-                  _fileIcon(item.mimeType),
-                  size: 32,
-                  color: Colors.grey.shade600,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  item.fileName ?? theme.l10nOf(context).file,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
-                ),
-              ],
+        child: Semantics(
+          identifier: mediaCellSemanticsId(item),
+          child: InkWell(
+            onTap: onTap,
+            child: Container(
+              color: Colors.grey.shade100,
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _fileIcon(item.mimeType),
+                    size: 32,
+                    color: Colors.grey.shade600,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    item.fileName ?? theme.l10nOf(context).file,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
@@ -218,6 +242,7 @@ class _MediaCell extends StatelessWidget {
     return ClipRRect(
       borderRadius: BorderRadius.circular(4),
       child: Semantics(
+        identifier: mediaCellSemanticsId(item),
         label: item.type == MediaItemType.video
             ? theme.l10nOf(context).videoPreview
             : theme.l10nOf(context).imagePreview,

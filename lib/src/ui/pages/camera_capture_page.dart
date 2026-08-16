@@ -751,12 +751,19 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     return Stack(
       fit: StackFit.expand,
       children: [
-        KeyedSubtree(key: const ValueKey('preview'), child: _buildPreview()),
+        KeyedSubtree(
+          key: const ValueKey('chat_camera_preview'),
+          child: Semantics(
+            identifier: 'chat_camera_preview',
+            child: _buildPreview(),
+          ),
+        ),
         Positioned(
-          key: const ValueKey('close'),
+          key: const ValueKey('chat_camera_close'),
           top: 8,
           left: 8,
           child: Semantics(
+            identifier: 'chat_camera_close',
             button: true,
             label: l10n.close,
             child: IconButton(
@@ -766,11 +773,12 @@ class _CameraCapturePageState extends State<CameraCapturePage>
           ),
         ),
         Positioned(
-          key: const ValueKey('flip'),
+          key: const ValueKey('chat_camera_flip'),
           top: 8,
           right: 8,
           child: _cameras.length > 1 && !_recordingGate.isRecording
               ? Semantics(
+                  identifier: 'chat_camera_flip',
                   button: true,
                   enabled: _canSwitchCamera,
                   label: l10n.switchCamera,
@@ -788,84 +796,94 @@ class _CameraCapturePageState extends State<CameraCapturePage>
               : const SizedBox.shrink(),
         ),
         Positioned(
-          key: const ValueKey('recordingPill'),
+          key: const ValueKey('chat_camera_recording_pill'),
           top: 16,
           left: 0,
           right: 0,
           child: _recordingGate.isRecording
               ? Center(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _recordingColor.withValues(alpha: 0.85),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.fiber_manual_record,
-                          color: foreground,
-                          size: 12,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          _formatElapsed(_recordingElapsed),
-                          style: TextStyle(
+                  child: Semantics(
+                    identifier: 'chat_camera_recording_pill',
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: _recordingColor.withValues(alpha: 0.85),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.fiber_manual_record,
                             color: foreground,
-                            fontWeight: FontWeight.w600,
+                            size: 12,
                           ),
-                        ),
-                      ],
+                          const SizedBox(width: 6),
+                          Text(
+                            _formatElapsed(_recordingElapsed),
+                            style: TextStyle(
+                              color: foreground,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 )
               : const SizedBox.shrink(),
         ),
         Positioned(
-          key: const ValueKey('controls'),
+          key: const ValueKey('chat_camera_controls'),
           bottom: 32,
           left: 0,
           right: 0,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_interruptionNotice != null && _error == null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
+          child: Semantics(
+            identifier: 'chat_camera_controls',
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_interruptionNotice != null && _error == null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Semantics(
+                      identifier: 'chat_camera_interruption_notice',
+                      child: Container(
+                        key: const ValueKey('chat_camera_interruption_notice'),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
+                        ),
+                        decoration: BoxDecoration(
+                          color:
+                              theme.cameraCaptureOverlayColor ??
+                              DefaultPalette.cameraCaptureOverlay,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          _interruptionNotice!,
+                          textAlign: TextAlign.center,
+                          style: _hintStyle(emphasis: true),
+                        ),
+                      ),
                     ),
-                    decoration: BoxDecoration(
-                      color:
-                          theme.cameraCaptureOverlayColor ??
-                          DefaultPalette.cameraCaptureOverlay,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                  ),
+                if (_error == null)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 16),
                     child: Text(
-                      _interruptionNotice!,
-                      textAlign: TextAlign.center,
-                      style: _hintStyle(emphasis: true),
+                      _recordingGate.isRecording
+                          ? l10n.cameraRecordingHint
+                          : l10n.cameraTapForPhoto,
+                      style: _hintStyle(),
                     ),
                   ),
-                ),
-              if (_error == null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: Text(
-                    _recordingGate.isRecording
-                        ? l10n.cameraRecordingHint
-                        : l10n.cameraTapForPhoto,
-                    style: _hintStyle(),
-                  ),
-                ),
-              _buildCaptureButton(),
-            ],
+                _buildCaptureButton(),
+              ],
+            ),
           ),
         ),
       ],
@@ -885,27 +903,35 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     }
     if (_error != null) {
       return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _error!,
-                textAlign: TextAlign.center,
-                style: TextStyle(color: _foreground, fontSize: 16),
-              ),
-              if (_showSettingsCta) ...[
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: openAppSettings,
-                    child: Text(_l10n.openSettings),
-                  ),
+        key: const ValueKey('chat_camera_error'),
+        child: Semantics(
+          identifier: 'chat_camera_error',
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: _foreground, fontSize: 16),
                 ),
+                if (_showSettingsCta) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Semantics(
+                      identifier: 'chat_camera_open_settings',
+                      child: FilledButton(
+                        key: const ValueKey('chat_camera_open_settings'),
+                        onPressed: openAppSettings,
+                        child: Text(_l10n.openSettings),
+                      ),
+                    ),
+                  ),
+                ],
               ],
-            ],
+            ),
           ),
         ),
       );
@@ -981,6 +1007,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     final isRecording = _recordingGate.isRecording;
 
     return CameraCaptureButton(
+      key: const ValueKey('chat_camera_shutter'),
       ready: ready,
       isRecording: isRecording,
       theme: widget.theme,
@@ -1035,6 +1062,7 @@ class CameraCaptureButton extends StatelessWidget {
         : foreground;
 
     return Semantics(
+      identifier: 'chat_camera_shutter',
       button: true,
       label: isRecording ? l10n.cameraRecordingHint : l10n.cameraTapForPhoto,
       // The actions have to live on this node: `ExcludeSemantics` below keeps

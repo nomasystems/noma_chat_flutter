@@ -6,6 +6,84 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.22.0 - 2026-08-16
+
+Minor bump, not a patch on `0.21.0`: the release adds public API (one
+constructor field and seven exported helpers). Nothing is removed and no
+signature changes, so a host that upgrades and rebuilds compiles untouched.
+
+### Added
+
+- **Stable automation names on the chat room and its eleven internal surfaces.**
+  49 names (39 fixed, 10 templated on a row's own id) now travel with the widgets
+  the SDK paints: the composer field, the send and attach buttons, every message
+  bubble, reaction pills and the reaction picker, the media / documents / links
+  gallery and its tabs, the full-screen image viewer, starred messages, in-room
+  search, the attachment sheet and the camera's viewfinder, shutter and review
+  step — including their loading, empty and error states. Every name is published
+  **twice with the same literal**: as the widget's `ValueKey`, which is what
+  `find.byKey` and an `integration_test` see from inside the app, and as
+  `Semantics(identifier:)`, which surfaces outside it as `resource-id` on Android
+  and `accessibilityIdentifier` on iOS, so the same string drives a widget test, a
+  UiAutomator dump and an XCUITest run. Names read `<area>_<element>_<kind>` in
+  lower snake case under a `chat_` prefix (`chat_send_button`,
+  `chat_gallery_media_tab`, `chat_camera_review_send`); collection rows carry
+  their own id (`chat_message_<messageId>`, `chat_starred_item_<messageId>`).
+  Accessibility is untouched: where a `Semantics` node already existed only
+  `identifier:` was added, so every label, `button`/`enabled` flag and custom
+  action reads exactly as before, and no `Semantics` was nested inside another.
+- `AttachmentSheetOption.identifier` — optional, `null` by default. Names a row of
+  `AttachmentPickerSheet` for automation: the string becomes both the row's
+  `ValueKey` and its `Semantics.identifier`, so a driver points at an option
+  regardless of the locale its `label` renders in. The four built-in rows carry
+  `chat_attachment_option_camera` / `_gallery` / `_file` / `_location`; a host row
+  in `extraOptions` that passes nothing falls back to
+  `chat_attachment_option_extra_<position>`, stable only while the list keeps its
+  order — pass a name of your own when it does not.
+- Seven exported helpers that build the templated names, so a test asks the SDK
+  for a row's name instead of re-deriving the format: `attachmentSemanticsId`,
+  `mediaCellSemanticsId`, `docRowSemanticsId` (`media_gallery_view.dart`,
+  `docs_list_view.dart`), `linkRowSemanticsId`, `searchResultSemanticsId`,
+  `starredRowSemanticsId` and `starredUnstarSemanticsId`. `attachmentSemanticsId`
+  is the shared suffix — the backend's `attachmentId` when it sent one, otherwise
+  the url + sender + timestamp triple — so the same attachment answers to the same
+  name on the Media grid and on the Docs list.
+
+### Changed
+
+- **Widget keys renamed to the new naming.** The five bare keys on the camera
+  screen (`preview`, `close`, `flip`, `recordingPill`, `controls`) are now
+  `chat_camera_preview`, `chat_camera_close`, `chat_camera_flip`,
+  `chat_camera_recording_pill` and `chat_camera_controls`. Three list
+  reconciliation keys gain the matching prefix while keeping the identity they
+  already carried: a message row goes from `ValueKey(message.id)` to
+  `chat_message_<messageId>`, a documents row from
+  `<url>-<senderId>-<timestamp>` to `chat_gallery_doc_<attachmentId>` (falling
+  back to that same triple when the backend sent no attachment id), and a links
+  row from `<url>-<timestamp>` to `chat_gallery_link_<url>-<timestamp>`. Gallery
+  grid cells, which reconciled by position, gain a key of their own —
+  `chat_gallery_media_<attachmentId>`, with the same fallback as the documents
+  row. None of these keys is part of the exported
+  API and none was ever documented as one, so nothing to compile breaks; a host
+  that hardcoded one of the old strings in its **own** widget tests updates the
+  string.
+- The `MediaGalleryPage` tabs are built with `Tab(child: Text(...))` instead of
+  `Tab(text: ...)` so the name rides the label. The `Text` is a verbatim copy of
+  what `Tab` builds internally for `text:` (`softWrap: false`,
+  `overflow: TextOverflow.fade`), and the widgets stay `Tab`s, so the tab bar
+  measures and renders identically.
+
+### Known limitations
+
+- The package publishes the names and nothing else: turning the semantics tree on
+  is the host's call (`WidgetsBinding.instance.ensureSemantics()` under a test
+  flavour, or the platform's own accessibility service). Without it the
+  `Semantics` half is invisible to a native driver, while the `ValueKey` half
+  works regardless.
+- Surfaces the host owns are still the host's to name — the `AppBar` around
+  `MessageSearchView` and `StarredMessagesView`, and any attachment sheet injected
+  in place of the SDK's own.
+
 ## 0.21.0 - 2026-08-15
 
 Minor bump, not a patch on `0.20.0`: the enum addition below is a source break

@@ -885,6 +885,7 @@ class MessageBubble extends StatelessWidget {
     VoidCallback? onCancelUpload,
   ) {
     return Semantics(
+      identifier: 'chat_message_${message.id}',
       label: _buildSemanticLabel(context),
       excludeSemantics: true,
       onLongPress: onLongPress,

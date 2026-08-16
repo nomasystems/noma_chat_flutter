@@ -25,6 +25,12 @@ class SharedLink {
   final String? contextSnippet;
 }
 
+/// Instrumentation id of the row rendering [link] in [LinksListView]. Carries
+/// exactly the url + timestamp identity the tile's reconciliation key already
+/// carried.
+String linkRowSemanticsId(SharedLink link) =>
+    'chat_gallery_link_${link.url}-${link.timestamp}';
+
 /// Lists URLs extracted client-side from regular text messages. Designed for
 /// the "Links" tab of [MediaGalleryPage], where the surface is intentionally
 /// limited to messages already present in the local cache (no extra round trip).
@@ -99,10 +105,14 @@ class LinksListView extends StatelessWidget {
   Widget build(BuildContext context) {
     final links = precomputedLinks ?? extract(messages);
     if (links.isEmpty) {
-      return EmptyState(
-        icon: Icons.link_off,
-        title: theme.l10nOf(context).galleryNoLinks,
-        theme: theme,
+      return Semantics(
+        identifier: 'chat_gallery_links_empty',
+        child: EmptyState(
+          key: const ValueKey('chat_gallery_links_empty'),
+          icon: Icons.link_off,
+          title: theme.l10nOf(context).galleryNoLinks,
+          theme: theme,
+        ),
       );
     }
     return ListView.separated(
@@ -133,25 +143,29 @@ class LinksListView extends StatelessWidget {
             subtitleParts.add(resolved);
           }
         }
-        return ListTile(
-          // Stable identity per link so Flutter doesn't recycle tiles
-          // across renders of the same message gallery.
-          key: ValueKey('${link.url}-${link.timestamp}'),
-          leading: CircleAvatar(
-            backgroundColor: Colors.grey.shade200,
-            foregroundColor: Colors.grey.shade700,
-            child: const Icon(Icons.link),
+        final rowId = linkRowSemanticsId(link);
+        return Semantics(
+          identifier: rowId,
+          child: ListTile(
+            // Stable identity per link so Flutter doesn't recycle tiles
+            // across renders of the same message gallery.
+            key: ValueKey(rowId),
+            leading: CircleAvatar(
+              backgroundColor: Colors.grey.shade200,
+              foregroundColor: Colors.grey.shade700,
+              child: const Icon(Icons.link),
+            ),
+            title: Text(link.url, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: subtitleParts.isEmpty
+                ? null
+                : Text(
+                    subtitleParts.join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+            onTap: onTapLink != null ? () => onTapLink!(link) : null,
           ),
-          title: Text(link.url, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: subtitleParts.isEmpty
-              ? null
-              : Text(
-                  subtitleParts.join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-          onTap: onTapLink != null ? () => onTapLink!(link) : null,
         );
       },
     );
