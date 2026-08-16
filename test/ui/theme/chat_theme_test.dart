@@ -101,26 +101,31 @@ void main() {
       'lightPreset': ChatTheme.lightPreset,
       'darkPreset': ChatTheme.darkPreset,
     }.entries) {
-      test('${entry.key} dresses the search screen like every other surface', () {
-        final theme = entry.value();
-        final unset = searchSlots(
-          theme,
-        ).entries.where((slot) => slot.value == null).map((s) => s.key);
+      test(
+        '${entry.key} dresses the search screen like every other surface',
+        () {
+          final theme = entry.value();
+          final unset = searchSlots(
+            theme,
+          ).entries.where((slot) => slot.value == null).map((s) => s.key);
 
-        expect(
-          unset,
-          isEmpty,
-          reason: 'a preset that skips a slot leaves the search screen half '
-              'stock-Material inside a fully themed app',
-        );
-        expect(theme.messageSearchFieldBorderRadius, isNotNull);
-        expect(
-          theme.messageSearchProgressColor,
-          theme.input.sendButtonColor,
-          reason: 'the spinner is the preset accent, same as the fallback '
-              'chain would have picked',
-        );
-      });
+          expect(
+            unset,
+            isEmpty,
+            reason:
+                'a preset that skips a slot leaves the search screen half '
+                'stock-Material inside a fully themed app',
+          );
+          expect(theme.messageSearchFieldBorderRadius, isNotNull);
+          expect(
+            theme.messageSearchProgressColor,
+            theme.input.sendButtonColor,
+            reason:
+                'the spinner is the preset accent, same as the fallback '
+                'chain would have picked',
+          );
+        },
+      );
     }
 
     test('the light preset keeps the chat wallpaper off the search page', () {
@@ -129,7 +134,8 @@ void main() {
       expect(
         light.messageSearchBackgroundColor,
         isNot(light.backgroundColor),
-        reason: 'the beige wallpaper behind a tabbed list of results reads '
+        reason:
+            'the beige wallpaper behind a tabbed list of results reads '
             'as a stray panel, the same reasoning the gallery slots carry',
       );
       expect(

@@ -211,7 +211,8 @@ void main() {
       expect(
         player.disposed..sort(),
         <int>[1, 2],
-        reason: 'every superseded take has to release its own player, and '
+        reason:
+            'every superseded take has to release its own player, and '
             'only the take on screen survives',
       );
 

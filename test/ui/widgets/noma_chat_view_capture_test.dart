@@ -379,7 +379,8 @@ void main() {
       expect(
         find.text('host clip preview'),
         findsOneWidget,
-        reason: 'the slot is documented as the escape hatch from the '
+        reason:
+            'the slot is documented as the escape hatch from the '
             'video_player dependency, so it has to be reachable from here',
       );
       expect(find.byType(CameraVideoPreview), findsNothing);
