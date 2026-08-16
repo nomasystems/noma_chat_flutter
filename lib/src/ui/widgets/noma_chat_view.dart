@@ -560,6 +560,7 @@ class _NomaChatViewState extends State<NomaChatView> {
           user.attachmentUrlResolver ?? adapter.defaultAttachmentUrlResolver,
       attachmentMediaLoader:
           user.attachmentMediaLoader ?? adapter.defaultAttachmentMediaLoader,
+      videoPreviewBuilder: user.videoPreviewBuilder,
     );
   }
 
@@ -763,8 +764,20 @@ class _NomaChatViewState extends State<NomaChatView> {
   /// Camera row has to do both jobs — tap for a still, hold for a clip —
   /// and `image_picker` can only hand back one or the other, chosen before
   /// the user ever sees a viewfinder.
+  ///
+  /// What comes back has already been confirmed on the capture screen's own
+  /// review step, so this method only ever sees shots the user chose to
+  /// send: a retake or a discard resolves to `null` here.
+  ///
+  /// [ChatViewBuilders.videoPreviewBuilder] rides along so a host can keep
+  /// `video_player` out of its build — this is the only path that reaches
+  /// the review step's clip preview.
   Future<void> _captureAndSend(String sendKey) async {
-    final shot = await CameraCapturePage.show(context: context, theme: _theme);
+    final shot = await CameraCapturePage.show(
+      context: context,
+      theme: _theme,
+      videoPreviewBuilder: widget.builders?.videoPreviewBuilder,
+    );
     if (shot == null) return;
     try {
       if (!mounted) return;

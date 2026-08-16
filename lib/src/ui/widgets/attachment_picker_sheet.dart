@@ -62,10 +62,10 @@ class AttachmentPickerSheet extends StatelessWidget {
   /// Opens the camera. `null` drops the row entirely.
   ///
   /// `NomaChatView` fills this in for you: on Android / iOS with the SDK's
-  /// own [CameraCapturePage] (tap for a still, hold for a clip) and
-  /// elsewhere with `image_picker`'s system camera, both sending the
-  /// capture straight to the room. Set `ChatViewCallbacks.onPickCamera` to
-  /// take the flow over.
+  /// own [CameraCapturePage] (tap for a still, hold for a clip, then confirm
+  /// on its review step) and elsewhere with `image_picker`'s system camera,
+  /// both sending the confirmed capture to the room. Set
+  /// `ChatViewCallbacks.onPickCamera` to take the flow over.
   final VoidCallback? onPickCamera;
   final VoidCallback? onPickGallery;
   final VoidCallback? onPickFile;

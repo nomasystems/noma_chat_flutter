@@ -78,10 +78,14 @@ abstract class ChatBubbleTheme with _$ChatBubbleTheme {
 
     /// Fill color of the determinate progress ring shown while a
     /// photo/video/file attachment is uploading (`AttachmentUploadRing`).
-    /// Falls back to [statusColor], then to
-    /// `DefaultPalette.uploadProgressColor` (the same green as the send
-    /// button / unread badge), so it reads as the same family as the
-    /// sent/delivered/read status ticks by default.
+    /// Falls back to [statusReadColor], then [statusColor], then to
+    /// `DefaultPalette.uploadProgressColor`.
+    ///
+    /// The read tick comes first because both mark the same thing — the
+    /// message made it — so a host that themes its read ticks gets a ring in
+    /// that colour for free. Falling back to [statusColor] instead painted the
+    /// ring in the muted grey of a *pending* tick, which reads as the opposite
+    /// of progress.
     Color? uploadProgressColor,
   }) = _ChatBubbleTheme;
 }

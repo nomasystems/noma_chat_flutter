@@ -316,6 +316,7 @@ interface class ChatMessagesController {
     final violation = policy.validate(
       mimeType: mimeType,
       sizeBytes: bytes.length,
+      fileName: fileName,
     );
     if (violation != null) {
       return _a._emitFailure(
@@ -329,6 +330,8 @@ interface class ChatMessagesController {
                 'actualBytes': violation.actualBytes,
                 'maxBytes': violation.maxBytes,
               },
+              if (violation.extension != null)
+                'extension': violation.extension!,
             },
           ),
         ),

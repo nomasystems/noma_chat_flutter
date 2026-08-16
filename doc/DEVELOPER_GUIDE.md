@@ -1266,8 +1266,9 @@ Supply your own `attachmentUploadProgressFor` on `ChatViewBuilders` only if
 you need a different resolver (it wins over the default).
 
 The ring itself is determinate and fills in
-`ChatBubbleTheme.uploadProgressColor` (falls back to `statusColor`, then to
-the same green as the send button / unread badge), with an X centered on
+`ChatBubbleTheme.uploadProgressColor` (falls back to `statusReadColor`, then
+`statusColor`, then to the same green as the send button / unread badge — the
+read tick first, since both mark "it made it"), with an X centered on
 top that cancels the upload — never the retry arrow, which only ever
 belongs to a message that has actually failed (see below). `NomaChatView`
 wires the X **by default** too: `ChatViewCallbacks.onCancelAttachmentUpload`
@@ -1418,6 +1419,46 @@ only the 25 MB fallback cap applies, no MIME whitelist) and
 limits). Clone either with `copyWith(...)` rather than hand-rolling a new
 policy for small tweaks.
 
+##### Dangerous extensions — `deniedExtensions`
+
+The generic "File" picker (`AttachmentPickers.pickFile`, wired to
+`NomaChatView`'s File row) is **default-allow**: with no `allowedExtensions`
+passed to the system picker, a user can pick anything, including a file
+whose extension nobody thought to whitelist (`.xyz`, `.log`, `.md5`, a
+proprietary export, …). What keeps that from also letting through an
+OS-executable dropper is `AttachmentPolicy.deniedExtensions` — checked by
+`validate()` ahead of `allowedMimeTypes` and the size cap, and applied at
+both pick time and send time (`sendAttachment` re-validates by file name
+too, so a host that builds `bytes` itself instead of going through
+`AttachmentPickers` still gets the same floor).
+
+```dart
+// Defaults to AttachmentPolicy.defaultDeniedExtensions — exe, msi, bat,
+// cmd, com, scr, pif, cpl, msc, apk, dex, sh, ps1, vbs, vbe, jse, wsf,
+// wsh, reg, jar — every AttachmentPolicy (including `unrestricted` and
+// `whatsappLike`) carries it unless a host opts out.
+const noApks = AttachmentPolicy(
+  deniedExtensions: {...AttachmentPolicy.defaultDeniedExtensions, 'ipa'},
+);
+
+// Disables the deny-list entirely — the host takes on the risk itself.
+const noExtensionCheck = AttachmentPolicy(deniedExtensions: {});
+```
+
+A denied extension is reported through the same `onRejected` callback as
+any other policy violation, under `AttachmentRejectReason.mimeNotAllowed`
+(there is no separate reason — see the enum's dartdoc for why), so no host
+`switch` over `AttachmentRejectReason` needs a new case to keep compiling.
+
+Only a trailing token that looks like an extension is matched — up to eight
+ASCII letters or digits — so `report.final version` carries no extension as
+far as the deny-list is concerned. A file name whose tail *spells* a denied
+extension without being one (`newsletter-acme.com`) is refused all the same:
+nothing in the name separates a TLD from a DOS executable, and Windows runs
+`.com` through `PATHEXT` whatever the bytes hold. Hosts that would rather
+take that trade the other way drop the entry:
+`copyWith(deniedExtensions: {...AttachmentPolicy.defaultDeniedExtensions}..remove('com'))`.
+
 #### Surfacing a rejected pick — `onRejected`
 
 #### Photo metadata is stripped for you
@@ -1507,10 +1548,12 @@ own from `rejection.reason` plus `ChatUiLocalizations.attachmentTooLarge` /
 `.attachmentTypeNotAllowed` / `.attachmentUnreadable`.
 
 `NomaChatView`'s built-in Camera/Gallery/File rows call `AttachmentPickers`
-with the default `AttachmentPolicy.unrestricted` and no `onRejected` — if
-your app wants a stricter policy and a visible rejection, override the
-picker callbacks (they replace the built-in row's action entirely, not just
-its icon):
+with `NomaChatView.defaultAttachmentPolicy` (or `NomaChatView.attachmentPolicy`
+when you set it) and an `onRejected` that shows the rejection in a
+`SnackBar` via `ChatUiLocalizations`, so a rejected pick is never silent
+even with zero extra wiring. If your app wants a different policy (or a
+different rejection UI), override the picker callbacks (they replace the
+built-in row's action entirely, not just its icon):
 
 ```dart
 NomaChatView(
@@ -2125,6 +2168,7 @@ remainder). Pass `leadingBuilder` to render avatars next to each name.
 | `GroupInfoPage` | Edit group name, avatar, add/remove/promote members |
 | `ProfileSettingsPage` | User profile with avatar picker + crop |
 | `MediaGalleryPage` | Scrollable gallery of all room attachments |
+| `CameraCapturePage` | The SDK's own camera (tap for a still, hold for a clip) with a WhatsApp-style review step before anything is sent |
 | `MessageSearchView` | Full-text message search with result highlighting |
 
 ### Message search — room-scoped vs global
@@ -2175,6 +2219,68 @@ switch (res) {
 > response gives you no built-in way to tell which room each hit belongs
 > to; a UI would need the backend to echo the room id in `metadata` to
 > group results per-conversation. See `ISSUES.md`.
+
+#### Theming the search screen
+
+`MessageSearchView` is a plain body widget — the host owns the `Scaffold`
+and the `AppBar` around it, and themes those with its own design system.
+Everything the SDK paints inside reads from `ChatTheme`'s flat
+`messageSearch*` slots:
+
+| Slot | Applies to | Falls back to |
+|---|---|---|
+| `messageSearchBackgroundColor` | Surface behind field + results | transparent (the host `Scaffold`) |
+| `messageSearchFieldFillColor` | Query field fill (also turns `filled` on) | unfilled |
+| `messageSearchFieldTextStyle` | Typed query text | ambient Material |
+| `messageSearchFieldHintStyle` | "Search messages" placeholder | ambient Material |
+| `messageSearchFieldCursorColor` | Caret | ambient `TextSelectionTheme` |
+| `messageSearchFieldBorderColor` | Outline colour, idle and enabled. Focused widens the stroke and tints towards `messageSearchFieldCursorColor` (when set) so the ring stays visible | ambient input decoration |
+| `messageSearchFieldBorderRadius` | Outline radius, stamped onto whichever border is in play — themed colour or the ambient one | Material default (4) |
+| `messageSearchFieldIconColor` | Magnifier + clear button | ambient icon theme |
+| `messageSearchResultTitleStyle` | Result row sender name | 14 / w600 |
+| `messageSearchResultSnippetStyle` | Non-matching snippet text | 13 / grey 600 |
+| `messageSearchResultHighlightStyle` | Matching substrings | the snippet style made bold |
+| `messageSearchResultTimestampStyle` | Trailing timestamp | 11 / grey 500 |
+| `messageSearchEmptyTextStyle` | "No results" copy | `emptyStateTitleStyle`, then 16 / grey 500 |
+| `messageSearchProgressColor` | First-page spinner | `input.sendButtonColor` |
+
+Every slot is `null` by default, so a host that themes none of them keeps
+the look the widget has always had — and an unset slot really does defer to
+the app: the query field never forces `filled: false` over an ambient
+`InputDecorationTheme.filled`, and a radius set without a colour reshapes
+whichever border your `InputDecorationTheme` already draws for that state
+(idle, enabled, focused) instead of repainting it black or replacing its
+shape. Setting `messageSearchFieldBorderColor` gives every state that
+colour, *except* focused, which is deliberately not a repaint of enabled: it
+draws a wider stroke and, when `messageSearchFieldCursorColor` is also set,
+tints towards it — otherwise a themed border reads as "always the same
+colour, never focused". Theming the ambient `InputDecorationTheme.focusedBorder`
+directly still wins verbatim over this heuristic, for a host that wants
+exact control over the focus ring.
+
+The four built-in presets (`ChatTheme.lightPreset()`, `darkPreset()`,
+`branded()`, `highContrast()`) already fill these slots, so the search
+screen follows a preset the same way every other surface does. `branded`
+tints only the accent-carrying ones (caret, match highlight, spinner) and
+leaves the surfaces on the fallback chain.
+
+```dart
+MessageSearchView(
+  controller: controller,
+  roomId: roomId,
+  theme: myTheme.copyWith(
+    messageSearchBackgroundColor: Colors.white,
+    messageSearchFieldFillColor: const Color(0xFFF5F5F5),
+    messageSearchFieldBorderColor: const Color(0xFFE0E0E0),
+    messageSearchFieldBorderRadius: BorderRadius.circular(12),
+    messageSearchResultHighlightStyle: const TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w700,
+      color: Color(0xFFEA6D28),
+    ),
+  ),
+);
+```
 
 ### Bubble types
 
@@ -2526,6 +2632,91 @@ Contract worth knowing before you plug something in:
   play button; a host-supplied implementation is free to work everywhere.
 - **Videos sent before this existed have no poster frame and never will** —
   they render exactly as they always did.
+
+---
+
+### In-app camera capture — the review step
+
+On Android and iOS the composer's Camera row opens `CameraCapturePage`, the
+SDK's own viewfinder (tap the shutter for a still, hold it for a clip).
+`image_picker`'s system camera cannot do both from one entry point, which is
+why this screen exists; `PlatformSupport.supportsInAppCameraCapture` gates
+it and everywhere else falls back to `image_picker`.
+
+**The shutter never sends.** Whatever it produces lands on
+`CameraCaptureReview` — the still full-screen, the clip playable — with
+three ways out:
+
+| Control | What it does |
+|---|---|
+| **Send** (filled circle, bottom right) | Pops the capture back to the caller. The only path that sends. |
+| **Retake** (bottom left) | Deletes this take and returns to the live viewfinder, camera still bound so the next shot is immediate. |
+| **Discard** (✕, top left) | Deletes the take and leaves the screen, resolving `null` exactly like cancelling did. |
+
+The system back gesture on the review is a **retake**, not an exit: backing
+out of a take you just shot should not also close the camera.
+
+Nothing on the page needs wiring — `NomaChatView` gets the review step with
+zero configuration, and `_captureAndSend` only ever sees confirmed captures.
+Unconfirmed ones are deleted by the page itself: the camera plugins write
+into the app cache and nothing else ever collects it.
+
+If you drive the screen yourself, `CameraCapturePage.show()` still resolves
+to a `CameraCaptureResult?` — `null` now also covers "the user discarded it":
+
+```dart
+final shot = await CameraCapturePage.show(context: context, theme: myTheme);
+if (shot == null) return;               // cancelled, or discarded on review
+await chat.adapter.messages.sendAttachment(
+  roomId,
+  bytes: await shot.file.readAsBytes(),
+  mimeType: shot.mimeType,
+  fileName: shot.fileName,
+);
+```
+
+**Swapping the clip preview.** Playback is `video_player`, wrapped in
+`CameraVideoPreview` (tap to play, tap to pause, a finished clip restarts).
+Replace it when your app already ships a player, or to avoid a second video
+stack entirely:
+
+```dart
+CameraCapturePage.show(
+  context: context,
+  theme: myTheme,
+  videoPreviewBuilder: (context, file, theme) => MyPlayer(path: file.path),
+);
+```
+
+The builder only has to paint the clip — Send / Retake / Discard stay the
+SDK's. It is never consulted for a still. A clip the platform decoder cannot
+open falls back to a static placeholder rather than blocking the step, so a
+capture whose preview failed can still be sent or thrown away.
+
+Inside `NomaChatView` — which opens this screen itself from the composer's
+Camera row — the same seam is `ChatViewBuilders.videoPreviewBuilder`:
+
+```dart
+NomaChatView(
+  roomId: roomId,
+  adapter: chat.adapter,
+  builders: ChatViewBuilders(
+    videoPreviewBuilder: (context, file, theme) => MyPlayer(path: file.path),
+  ),
+)
+```
+
+Wire it and nothing the SDK renders touches `video_player`; leave it unset
+and `CameraVideoPreview` is used. A bare `ChatView` ignores the slot: it
+never opens the camera.
+
+**Theming and strings.** The review reads the same `cameraCapture*` slots as
+the viewfinder, plus two of its own: `cameraCaptureSendButtonColor` (fill of
+the Send button, default the send-green) and
+`cameraCaptureReviewActionStyle` (the Retake label, falling back to
+`cameraCaptureHintStyle`). Its labels are `ChatUiLocalizations.send`,
+`.cameraRetake` and `.cameraDiscard`; the clip preview announces
+`.playPreview` / `.pausePreview`.
 
 ---
 

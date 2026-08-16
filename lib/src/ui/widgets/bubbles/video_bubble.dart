@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -105,12 +106,31 @@ class VideoBubble extends StatefulWidget {
 }
 
 class _VideoBubbleState extends State<VideoBubble> {
+  /// Cap applied to the poster frame's own height when the theme sets none,
+  /// mirroring `ImageBubble`'s default so a clip and a photo of the same
+  /// shape occupy the same bubble.
+  static const double _defaultVideoMaxHeight = 250;
+
+  /// Height of every state that has no real frame to size from — pending
+  /// download, upload/failed placeholders, a broken or absent thumbnail. The
+  /// pre-intrinsic look of the bubble, unchanged from before the bubble
+  /// learned to take the clip's own shape: full width, fixed height.
+  /// [_maxHeight] only caps the REAL poster frame once its dimensions are
+  /// known; letting it size the placeholders made an empty grey box taller
+  /// than any actual content and collapsed the plain-URL error state to the
+  /// width of its icon.
+  static const double _placeholderHeight = 180;
+
   String? _resolvedThumbnailUrl;
   bool _retried = false;
 
   Uint8List? _thumbnailBytes;
   Object? _thumbnailBytesError;
   bool _thumbnailBytesRetried = false;
+
+  Size? _intrinsicSize;
+  ImageStream? _dimensionsStream;
+  ImageStreamListener? _dimensionsListener;
 
   bool get _usesMediaLoader =>
       widget.mediaLoader != null && widget.thumbnailRef != null;
@@ -139,6 +159,8 @@ class _VideoBubbleState extends State<VideoBubble> {
       _thumbnailBytesRetried = false;
       _thumbnailBytes = null;
       _thumbnailBytesError = null;
+      _intrinsicSize = null;
+      _stopListeningForDimensions();
       if (_usesMediaLoader) {
         _loadThumbnailBytes();
       } else {
@@ -160,6 +182,7 @@ class _VideoBubbleState extends State<VideoBubble> {
               _thumbnailBytes = bytes;
               _thumbnailBytesError = null;
             });
+            _listenForDimensions(bytes);
           })
           .catchError((Object error) {
             uiDebugLog(
@@ -177,6 +200,67 @@ class _VideoBubbleState extends State<VideoBubble> {
     if (_thumbnailBytesRetried) return;
     _thumbnailBytesRetried = true;
     _loadThumbnailBytes();
+  }
+
+  /// Reads the decoded poster frame's pixel dimensions so the bubble can take
+  /// the clip's real shape. Resolves the very same `MemoryImage` the rendering
+  /// `Image.memory` builds (equal bytes ⇒ equal cache key), so it costs a
+  /// cache hit rather than a second decode. Same mechanism as `ImageBubble`.
+  void _listenForDimensions(Uint8List bytes) {
+    _stopListeningForDimensions();
+    final stream = MemoryImage(bytes).resolve(ImageConfiguration.empty);
+    final listener = ImageStreamListener((info, _) {
+      final size = Size(
+        info.image.width.toDouble(),
+        info.image.height.toDouble(),
+      );
+      info.dispose();
+      if (!mounted || _intrinsicSize == size) return;
+      setState(() => _intrinsicSize = size);
+    }, onError: (_, __) {});
+    _dimensionsStream = stream;
+    _dimensionsListener = listener;
+    stream.addListener(listener);
+  }
+
+  void _stopListeningForDimensions() {
+    final stream = _dimensionsStream;
+    final listener = _dimensionsListener;
+    if (stream != null && listener != null) {
+      stream.removeListener(listener);
+    }
+    _dimensionsStream = null;
+    _dimensionsListener = null;
+  }
+
+  double get _maxHeight => widget.theme.videoHeight ?? _defaultVideoMaxHeight;
+
+  /// Size the poster frame is painted at: its own aspect ratio scaled down
+  /// (never up) to fit the bubble's width and [_maxHeight]. `null` until the
+  /// dimensions are known, and for the whole life of the plain-URL path,
+  /// where the thumbnail self-sizes inside a `ConstrainedBox` instead.
+  Size? _mediaSize(BoxConstraints constraints) {
+    final intrinsic = _intrinsicSize;
+    if (intrinsic == null || intrinsic.width <= 0 || intrinsic.height <= 0) {
+      return null;
+    }
+    if (!constraints.maxWidth.isFinite || constraints.maxWidth <= 0) {
+      return null;
+    }
+    final scale = math.min(
+      1.0,
+      math.min(
+        constraints.maxWidth / intrinsic.width,
+        _maxHeight / intrinsic.height,
+      ),
+    );
+    return Size(intrinsic.width * scale, intrinsic.height * scale);
+  }
+
+  @override
+  void dispose() {
+    _stopListeningForDimensions();
+    super.dispose();
   }
 
   void _resolve() {
@@ -228,115 +312,143 @@ class _VideoBubbleState extends State<VideoBubble> {
         // No tap-to-open while the upload is still in flight, nor once it
         // has failed.
         onTap: uploadProgress == null && !showFailed ? widget.onTap : null,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius:
-                  theme.videoBorderRadius ??
-                  theme.imageBorderRadius ??
-                  BorderRadius.circular(8),
-              child: uploadProgress != null
-                  ? AttachmentUploadPlaceholder(
-                      progress: uploadProgress,
-                      theme: theme,
-                      height: theme.videoHeight ?? 180,
-                      icon: Icons.videocam,
-                      onCancel: widget.onCancelUpload,
-                    )
-                  : showFailed
-                  ? AttachmentFailedPlaceholder(
-                      theme: theme,
-                      height: theme.videoHeight ?? 180,
-                      icon: Icons.videocam,
-                      onRetry: widget.onRetry,
-                    )
-                  : Stack(
-                      alignment: Alignment.center,
-                      children: [
-                        if (_usesMediaLoader)
-                          _buildAuthenticatedThumbnail(theme)
-                        else if (thumbnailUrl != null)
-                          CachedNetworkImage(
-                            key: ValueKey(thumbnailUrl),
-                            imageUrl: thumbnailUrl,
-                            cacheKey: widget.thumbnailRef?.attachmentId,
-                            fit: BoxFit.cover,
-                            height: theme.videoHeight ?? 180,
-                            width: double.infinity,
-                            placeholder: (_, __) => Container(
-                              height: theme.videoHeight ?? 180,
-                              color:
-                                  theme.videoPlaceholderColor ?? Colors.black26,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final mediaSize = _mediaSize(constraints);
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ClipRRect(
+                  borderRadius:
+                      theme.videoBorderRadius ??
+                      theme.imageBorderRadius ??
+                      BorderRadius.circular(8),
+                  // Tight box at the clip's real aspect ratio once the poster
+                  // frame's dimensions are known, so a portrait video is no
+                  // longer cropped into a fixed-height landscape strip.
+                  child: SizedBox(
+                    width: mediaSize?.width,
+                    height: mediaSize?.height,
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxHeight: _maxHeight),
+                      child: uploadProgress != null
+                          ? AttachmentUploadPlaceholder(
+                              progress: uploadProgress,
+                              theme: theme,
+                              height: _placeholderHeight,
+                              icon: Icons.videocam,
+                              onCancel: widget.onCancelUpload,
+                            )
+                          : showFailed
+                          ? AttachmentFailedPlaceholder(
+                              theme: theme,
+                              height: _placeholderHeight,
+                              icon: Icons.videocam,
+                              onRetry: widget.onRetry,
+                            )
+                          : Stack(
+                              alignment: Alignment.center,
+                              children: [
+                                if (_usesMediaLoader)
+                                  _buildAuthenticatedThumbnail(theme)
+                                else if (thumbnailUrl != null)
+                                  CachedNetworkImage(
+                                    key: ValueKey(thumbnailUrl),
+                                    imageUrl: thumbnailUrl,
+                                    cacheKey: widget.thumbnailRef?.attachmentId,
+                                    fit: BoxFit.contain,
+                                    placeholder: (_, __) => Container(
+                                      height: _placeholderHeight,
+                                      width: double.infinity,
+                                      color:
+                                          theme.videoPlaceholderColor ??
+                                          Colors.black26,
+                                    ),
+                                    errorWidget: (_, __, ___) {
+                                      _retryAfterError();
+                                      return Container(
+                                        height: _placeholderHeight,
+                                        width: double.infinity,
+                                        color:
+                                            theme.videoPlaceholderColor ??
+                                            Colors.black26,
+                                        child: Icon(
+                                          Icons.videocam,
+                                          color:
+                                              theme.videoPlaceholderIconColor ??
+                                              Colors.white54,
+                                        ),
+                                      );
+                                    },
+                                  )
+                                else
+                                  Container(
+                                    height: _placeholderHeight,
+                                    width: double.infinity,
+                                    color:
+                                        theme.videoPlaceholderColor ??
+                                        Colors.black26,
+                                    child: const Icon(
+                                      Icons.videocam,
+                                      color: Colors.white54,
+                                      size: 48,
+                                    ),
+                                  ),
+                                if (widget.onTap != null)
+                                  Container(
+                                    width: 56,
+                                    height: 56,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          theme.videoPlayIconBackgroundColor ??
+                                          Colors.black54,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: Icon(
+                                      Icons.play_arrow,
+                                      color:
+                                          theme.videoPlayIconColor ??
+                                          Colors.white,
+                                      size: 32,
+                                    ),
+                                  ),
+                              ],
                             ),
-                            errorWidget: (_, __, ___) {
-                              _retryAfterError();
-                              return Container(
-                                height: theme.videoHeight ?? 180,
-                                color:
-                                    theme.videoPlaceholderColor ??
-                                    Colors.black26,
-                                child: Icon(
-                                  Icons.videocam,
-                                  color:
-                                      theme.videoPlaceholderIconColor ??
-                                      Colors.white54,
-                                ),
-                              );
-                            },
-                          )
-                        else
-                          Container(
-                            height: theme.videoHeight ?? 180,
-                            width: double.infinity,
-                            color:
-                                theme.videoPlaceholderColor ?? Colors.black26,
-                            child: const Icon(
-                              Icons.videocam,
-                              color: Colors.white54,
-                              size: 48,
-                            ),
-                          ),
-                        if (widget.onTap != null)
-                          Container(
-                            width: 56,
-                            height: 56,
-                            decoration: BoxDecoration(
-                              color:
-                                  theme.videoPlayIconBackgroundColor ??
-                                  Colors.black54,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Icon(
-                              Icons.play_arrow,
-                              color: theme.videoPlayIconColor ?? Colors.white,
-                              size: 32,
-                            ),
-                          ),
-                      ],
                     ),
-            ),
-            if (caption != null && caption.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Text(
-                caption,
-                style: theme.imageCaptionStyle ?? const TextStyle(fontSize: 14),
-              ),
-            ],
-            if (timestamp != null || statusWidget != null) ...[
-              const SizedBox(height: 2),
-              Align(
-                alignment: Alignment.centerRight,
-                child: BubbleMetadataRow(
-                  theme: theme,
-                  isOutgoing: widget.isOutgoing,
-                  timestamp: timestamp,
-                  statusWidget: statusWidget,
-                  gap: 4,
+                  ),
                 ),
-              ),
-            ],
-          ],
+                if (caption != null && caption.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    caption,
+                    style:
+                        theme.imageCaptionStyle ??
+                        const TextStyle(fontSize: 14),
+                  ),
+                ],
+                if (timestamp != null || statusWidget != null) ...[
+                  const SizedBox(height: 2),
+                  // Bound to the thumbnail's width, not the bubble's: a bare
+                  // `Align` expands to the incoming max width and would drag
+                  // the column back out to full width.
+                  SizedBox(
+                    width: mediaSize?.width,
+                    child: Align(
+                      alignment: Alignment.centerRight,
+                      child: BubbleMetadataRow(
+                        theme: theme,
+                        isOutgoing: widget.isOutgoing,
+                        timestamp: timestamp,
+                        statusWidget: statusWidget,
+                        gap: 4,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            );
+          },
         ),
       ),
     );
@@ -348,10 +460,11 @@ class _VideoBubbleState extends State<VideoBubble> {
   Widget _buildAuthenticatedThumbnail(ChatTheme theme) {
     final error = _thumbnailBytesError;
     final bytes = _thumbnailBytes;
-    final height = theme.videoHeight ?? 180;
+    const height = _placeholderHeight;
     if (error != null && bytes == null) {
       return Container(
         height: height,
+        width: double.infinity,
         color: theme.videoPlaceholderColor ?? Colors.black26,
         child: Icon(
           Icons.videocam,
@@ -362,20 +475,20 @@ class _VideoBubbleState extends State<VideoBubble> {
     if (bytes == null) {
       return Container(
         height: height,
+        width: double.infinity,
         color: theme.videoPlaceholderColor ?? Colors.black26,
       );
     }
     return Image.memory(
       bytes,
       key: ValueKey(widget.thumbnailRef?.attachmentId ?? widget.thumbnailUrl),
-      fit: BoxFit.cover,
-      height: height,
-      width: double.infinity,
+      fit: BoxFit.contain,
       errorBuilder: (_, error, __) {
         uiDebugLog('VideoBubble', 'Image.memory decode failed: $error');
         _retryThumbnailBytesAfterError();
         return Container(
           height: height,
+          width: double.infinity,
           color: theme.videoPlaceholderColor ?? Colors.black26,
           child: Icon(
             Icons.videocam,

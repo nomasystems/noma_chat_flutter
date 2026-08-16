@@ -91,11 +91,9 @@ void main() {
 
       final controller = await openRoom(cache, [delivered]);
 
-      expect(
-        controller.messages.map((m) => m.id),
-        ['srv-1'],
-        reason: 'the pending row must not replace the authoritative message',
-      );
+      expect(controller.messages.map((m) => m.id), [
+        'srv-1',
+      ], reason: 'the pending row must not replace the authoritative message');
       expect(controller.isFailed('srv-1'), isFalse);
       expect(controller.isFailed('_pending_1'), isFalse);
       expect(
@@ -127,11 +125,9 @@ void main() {
 
     final controller = await openRoom(cache, [delivered]);
 
-    expect(
-      controller.messages.map((m) => m.id),
-      ['srv-2'],
-      reason: 'with no key on either side the old heuristic is all there is',
-    );
+    expect(controller.messages.map((m) => m.id), [
+      'srv-2',
+    ], reason: 'with no key on either side the old heuristic is all there is');
     expect((await cache.getPendingMessages('r1')).dataOrThrow, isEmpty);
   });
 

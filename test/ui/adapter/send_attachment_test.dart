@@ -91,6 +91,51 @@ void main() {
     expect(controller.isFailed(controller.messages.single.id), isTrue);
   });
 
+  test('a dangerous extension is refused on the upload path too, not only at '
+      'pick time', () async {
+    // The pickers are not the only door into the upload: a host that builds
+    // the bytes itself (web drag-and-drop, a share-intent handler) reaches
+    // `sendAttachment` directly. The deny-list floor has to hold here, under
+    // the *default* policy — no whitelist configured.
+    final controller = adapter.getChatController('r1');
+
+    final result = await adapter.messages.sendAttachment(
+      'r1',
+      bytes: bytes,
+      mimeType: 'application/octet-stream',
+      fileName: 'payload.exe',
+    );
+
+    expect(result.isFailure, isTrue);
+    final failure = result.failureOrNull;
+    expect(failure, isA<ValidationFailure>());
+    expect(
+      (failure! as ValidationFailure).errors,
+      allOf(
+        containsPair(
+          'kind',
+          AttachmentPolicyViolationKind.extensionDenied.name,
+        ),
+        containsPair('extension', 'exe'),
+      ),
+    );
+    expect(client.attachments.uploadCount, 0);
+    expect(controller.messages, isEmpty);
+  });
+
+  test('an uncommon-but-safe extension uploads under the default policy — '
+      'the floor is a deny-list, not a whitelist (D-13)', () async {
+    final result = await adapter.messages.sendAttachment(
+      'r1',
+      bytes: bytes,
+      mimeType: 'application/octet-stream',
+      fileName: 'checksum-export.xyz',
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(client.attachments.uploadCount, 1);
+  });
+
   test('a policy violation never paints a bubble at all', () async {
     final controller = adapter.getChatController('r1');
 

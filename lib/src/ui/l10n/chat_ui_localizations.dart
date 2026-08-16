@@ -249,6 +249,7 @@ class ChatUiLocalizations {
     this.retry = 'Retry',
     this.clearText = 'Clear',
     this.playPreview = 'Play preview',
+    this.pausePreview = 'Pause preview',
     this.cancel = 'Cancel',
     this.clearChat = 'Clear chat',
     this.clearChatConfirmTitle = 'Clear chat?',
@@ -305,6 +306,8 @@ class ChatUiLocalizations {
     this.cameraRecordingHint = 'Hold to record, tap to stop',
     this.cameraUnavailable = 'Could not start the camera',
     this.cameraPermissionDenied = 'You need to allow camera access',
+    this.cameraRetake = 'Retake',
+    this.cameraDiscard = 'Discard',
     this.switchCamera = 'Switch camera',
     this.openSettings = 'Open settings',
     this.changesSaved = 'Changes saved',
@@ -701,6 +704,10 @@ class ChatUiLocalizations {
   final String retry;
   final String clearText;
   final String playPreview;
+
+  /// Pauses the clip playing on the capture-review step. The
+  /// counterpart of [playPreview], which starts it.
+  final String pausePreview;
   final String cancel;
   final String clearChat;
   final String clearChatConfirmTitle;
@@ -751,6 +758,14 @@ class ChatUiLocalizations {
   final String cameraRecordingHint;
   final String cameraUnavailable;
   final String cameraPermissionDenied;
+
+  /// Throws the shot away and goes back to the live camera, on the
+  /// capture-review step (`CameraCaptureReview`).
+  final String cameraRetake;
+
+  /// Leaves the capture screen without sending anything, on the same
+  /// review step.
+  final String cameraDiscard;
   final String switchCamera;
   final String openSettings;
   final String changesSaved;
@@ -1164,6 +1179,7 @@ class ChatUiLocalizations {
     String? retry,
     String? clearText,
     String? playPreview,
+    String? pausePreview,
     String? about,
     String? audioPauseLabel,
     String? audioPlayLabel,
@@ -1188,6 +1204,8 @@ class ChatUiLocalizations {
     String? cameraRecordingHint,
     String? cameraUnavailable,
     String? cameraPermissionDenied,
+    String? cameraRetake,
+    String? cameraDiscard,
     String? switchCamera,
     String? openSettings,
     String? profile,
@@ -1445,6 +1463,7 @@ class ChatUiLocalizations {
       retry: retry ?? this.retry,
       clearText: clearText ?? this.clearText,
       playPreview: playPreview ?? this.playPreview,
+      pausePreview: pausePreview ?? this.pausePreview,
       about: about ?? this.about,
       audioPauseLabel: audioPauseLabel ?? this.audioPauseLabel,
       audioPlayLabel: audioPlayLabel ?? this.audioPlayLabel,
@@ -1473,6 +1492,8 @@ class ChatUiLocalizations {
       cameraUnavailable: cameraUnavailable ?? this.cameraUnavailable,
       cameraPermissionDenied:
           cameraPermissionDenied ?? this.cameraPermissionDenied,
+      cameraRetake: cameraRetake ?? this.cameraRetake,
+      cameraDiscard: cameraDiscard ?? this.cameraDiscard,
       switchCamera: switchCamera ?? this.switchCamera,
       openSettings: openSettings ?? this.openSettings,
       profile: profile ?? this.profile,
@@ -1836,6 +1857,7 @@ class ChatUiLocalizations {
     moreOptions: 'Más opciones',
     clearText: 'Borrar',
     playPreview: 'Reproducir vista previa',
+    pausePreview: 'Pausar vista previa',
     cancel: 'Cancelar',
     clearChat: 'Vaciar chat',
     clearChatConfirmTitle: '¿Vaciar chat?',
@@ -1888,6 +1910,8 @@ class ChatUiLocalizations {
     cameraRecordingHint: 'Mantén pulsado para grabar, pulsa para detener',
     cameraUnavailable: 'No se pudo iniciar la cámara',
     cameraPermissionDenied: 'Necesitas permitir el acceso a la cámara',
+    cameraRetake: 'Repetir',
+    cameraDiscard: 'Descartar',
     switchCamera: 'Cambiar de cámara',
     openSettings: 'Abrir ajustes',
     changesSaved: 'Cambios guardados',
@@ -2169,6 +2193,7 @@ class ChatUiLocalizations {
     moreOptions: 'Plus d\'options',
     clearText: 'Effacer',
     playPreview: 'Lire l\'aperçu',
+    pausePreview: 'Mettre l\'aperçu en pause',
     takePhoto: 'Prendre une photo',
     chooseFromGallery: 'Choisir depuis la galerie',
     viewPhoto: 'Voir la photo',
@@ -2183,6 +2208,8 @@ class ChatUiLocalizations {
         'Maintiens appuyé pour enregistrer, appuie pour arrêter',
     cameraUnavailable: 'Impossible de démarrer la caméra',
     cameraPermissionDenied: "Tu dois autoriser l'accès à la caméra",
+    cameraRetake: 'Reprendre',
+    cameraDiscard: 'Supprimer',
     switchCamera: 'Changer de caméra',
     openSettings: 'Ouvrir les réglages',
     changesSaved: 'Modifications enregistrées',
@@ -2466,6 +2493,7 @@ class ChatUiLocalizations {
     moreOptions: 'Weitere Optionen',
     clearText: 'Löschen',
     playPreview: 'Vorschau abspielen',
+    pausePreview: 'Vorschau pausieren',
     takePhoto: 'Foto aufnehmen',
     chooseFromGallery: 'Aus Galerie wählen',
     viewPhoto: 'Foto ansehen',
@@ -2479,6 +2507,8 @@ class ChatUiLocalizations {
     cameraRecordingHint: 'Gedrückt halten zum Aufnehmen, tippen zum Stoppen',
     cameraUnavailable: 'Die Kamera konnte nicht gestartet werden',
     cameraPermissionDenied: 'Du musst den Zugriff auf die Kamera erlauben',
+    cameraRetake: 'Neu aufnehmen',
+    cameraDiscard: 'Verwerfen',
     switchCamera: 'Kamera wechseln',
     openSettings: 'Einstellungen öffnen',
     changesSaved: 'Änderungen gespeichert',
@@ -2758,6 +2788,7 @@ class ChatUiLocalizations {
     moreOptions: 'Altre opzioni',
     clearText: 'Cancella',
     playPreview: 'Riproduci anteprima',
+    pausePreview: 'Metti in pausa l\'anteprima',
     takePhoto: 'Scatta foto',
     chooseFromGallery: 'Scegli dalla galleria',
     viewPhoto: 'Visualizza foto',
@@ -2771,6 +2802,8 @@ class ChatUiLocalizations {
     cameraRecordingHint: 'Tieni premuto per registrare, tocca per fermare',
     cameraUnavailable: 'Non è stato possibile avviare la fotocamera',
     cameraPermissionDenied: "Devi consentire l'accesso alla fotocamera",
+    cameraRetake: 'Ripeti',
+    cameraDiscard: 'Scarta',
     switchCamera: 'Cambia fotocamera',
     openSettings: 'Apri impostazioni',
     changesSaved: 'Modifiche salvate',
@@ -3050,6 +3083,7 @@ class ChatUiLocalizations {
     moreOptions: 'Mais opções',
     clearText: 'Limpar',
     playPreview: 'Reproduzir prévia',
+    pausePreview: 'Pausar a prévia',
     takePhoto: 'Tirar foto',
     chooseFromGallery: 'Escolher da galeria',
     viewPhoto: 'Ver foto',
@@ -3063,6 +3097,8 @@ class ChatUiLocalizations {
     cameraRecordingHint: 'Mantém pressionado para gravar, toca para parar',
     cameraUnavailable: 'Não foi possível iniciar a câmara',
     cameraPermissionDenied: 'Precisas de permitir o acesso à câmara',
+    cameraRetake: 'Repetir',
+    cameraDiscard: 'Descartar',
     switchCamera: 'Mudar de câmara',
     openSettings: 'Abrir definições',
     changesSaved: 'Alterações guardadas',
@@ -3337,6 +3373,7 @@ class ChatUiLocalizations {
     moreOptions: 'Més opcions',
     clearText: 'Esborrar',
     playPreview: 'Reprodueix la vista prèvia',
+    pausePreview: 'Atura la vista prèvia',
     takePhoto: 'Fer foto',
     chooseFromGallery: 'Triar de la galeria',
     viewPhoto: 'Veure foto',
@@ -3350,6 +3387,8 @@ class ChatUiLocalizations {
     cameraRecordingHint: 'Mantén premut per gravar, toca per aturar',
     cameraUnavailable: "No s'ha pogut iniciar la càmera",
     cameraPermissionDenied: "Necessites permetre l'accés a la càmera",
+    cameraRetake: 'Repeteix',
+    cameraDiscard: 'Descarta',
     switchCamera: 'Canviar de càmera',
     openSettings: 'Obrir configuració',
     changesSaved: 'Canvis desats',
@@ -4578,6 +4617,7 @@ class ChatUiLocalizations {
     String? retry,
     String? clearText,
     String? playPreview,
+    String? pausePreview,
     String? cancel,
     String? clearChat,
     String? clearChatConfirmTitle,
@@ -4627,6 +4667,8 @@ class ChatUiLocalizations {
     String? cameraRecordingHint,
     String? cameraUnavailable,
     String? cameraPermissionDenied,
+    String? cameraRetake,
+    String? cameraDiscard,
     String? switchCamera,
     String? openSettings,
     String? changesSaved,
@@ -4864,6 +4906,7 @@ class ChatUiLocalizations {
         retry: retry,
         clearText: clearText,
         playPreview: playPreview,
+        pausePreview: pausePreview,
         cancel: cancel,
         clearChat: clearChat,
         clearChatConfirmTitle: clearChatConfirmTitle,
@@ -4913,6 +4956,8 @@ class ChatUiLocalizations {
         cameraRecordingHint: cameraRecordingHint,
         cameraUnavailable: cameraUnavailable,
         cameraPermissionDenied: cameraPermissionDenied,
+        cameraRetake: cameraRetake,
+        cameraDiscard: cameraDiscard,
         switchCamera: switchCamera,
         openSettings: openSettings,
         changesSaved: changesSaved,

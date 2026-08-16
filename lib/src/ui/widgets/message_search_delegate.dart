@@ -62,9 +62,79 @@ class _MessageSearchViewState extends State<MessageSearchView> {
     });
   }
 
+  /// Stamps [radius] onto [border]'s shape without touching its colour or
+  /// width. Borders that aren't `Outline`/`Underline` (a host's custom
+  /// [InputBorder] subclass) don't expose a radius to stamp, so they pass
+  /// through unchanged rather than being silently replaced.
+  InputBorder _withRadius(InputBorder border, BorderRadius? radius) {
+    if (radius == null) return border;
+    return switch (border) {
+      final OutlineInputBorder b => b.copyWith(borderRadius: radius),
+      final UnderlineInputBorder b => b.copyWith(borderRadius: radius),
+      _ => border,
+    };
+  }
+
+  /// Per-state outline for the query field, given the [ambient] border the
+  /// host's own `InputDecorationTheme` would have drawn in that state.
+  ///
+  /// Returns `null` — "leave the ambient decoration alone" — unless the host
+  /// themed [ChatTheme.messageSearchFieldBorderColor]. Absent that, this
+  /// degrades to [ambient] wholesale (shape, colour, width) rather than
+  /// replacing it, stamping the themed radius on top when one is set — a
+  /// radius is a shape tweak, not licence to repaint or reshape a border the
+  /// host never asked to have touched.
+  ///
+  /// [focused] additionally distinguishes the focus ring from the idle
+  /// border when the host's colour slot *is* set — that slot is one colour
+  /// for every state, so without this the field loses its focus indicator
+  /// (focused reads identical to enabled). The ring widens and, when the
+  /// theme also carries a [ChatTheme.messageSearchFieldCursorColor] accent,
+  /// tints towards it. A host that themes the ambient
+  /// `InputDecorationTheme.focusedBorder` directly opts out of this
+  /// heuristic — that explicit slot always wins verbatim.
+  InputBorder? _fieldBorder(
+    ChatTheme theme,
+    InputBorder? ambient, {
+    bool focused = false,
+  }) {
+    final color = theme.messageSearchFieldBorderColor;
+    final radius = theme.messageSearchFieldBorderRadius;
+    if (color == null) {
+      if (ambient == null) return null;
+      return _withRadius(ambient, radius);
+    }
+    if (focused && ambient != null) return _withRadius(ambient, radius);
+    return OutlineInputBorder(
+      borderRadius: radius ?? const BorderRadius.all(Radius.circular(4)),
+      borderSide: BorderSide(
+        color: focused ? (theme.messageSearchFieldCursorColor ?? color) : color,
+        width: focused ? 2 : 1,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final theme = widget.theme;
+    final ambient = InputDecorationTheme.of(context);
+    final border =
+        _fieldBorder(theme, ambient.border) ??
+        OutlineInputBorder(
+          borderRadius:
+              theme.messageSearchFieldBorderRadius ??
+              const BorderRadius.all(Radius.circular(4)),
+          borderSide: const BorderSide(),
+        );
+    final enabledBorder = _fieldBorder(theme, ambient.enabledBorder);
+    final focusedBorder = _fieldBorder(
+      theme,
+      ambient.focusedBorder,
+      focused: true,
+    );
+    final fillColor = theme.messageSearchFieldFillColor;
+    final iconColor = theme.messageSearchFieldIconColor;
+    final content = Column(
       children: [
         Padding(
           // Match the horizontal/vertical rhythm used by RoomSearchBar
@@ -73,20 +143,28 @@ class _MessageSearchViewState extends State<MessageSearchView> {
           child: TextField(
             controller: _textController,
             onChanged: _onQueryChanged,
+            style: theme.messageSearchFieldTextStyle,
+            cursorColor: theme.messageSearchFieldCursorColor,
             // Outlined style aligned with RoomSearchBar + the host app's
             // login / onboarding TextFields. Earlier "pill" treatment
             // (filled + rounded 24 + borderSide.none) was inconsistent
             // with the rest of the surface and felt out of place.
             decoration: InputDecoration(
-              hintText: widget.theme.l10nOf(context).searchMessages,
-              prefixIcon: const Icon(Icons.search, size: 20),
+              hintText: theme.l10nOf(context).searchMessages,
+              hintStyle: theme.messageSearchFieldHintStyle,
+              // `null`, not `false`: an explicit `false` overrides an
+              // ambient `InputDecorationTheme.filled: true` and strips the
+              // fill off a field the host's own theme fills everywhere else.
+              filled: fillColor != null ? true : null,
+              fillColor: fillColor,
+              prefixIcon: Icon(Icons.search, size: 20, color: iconColor),
               suffixIcon: ValueListenableBuilder<TextEditingValue>(
                 valueListenable: _textController,
                 builder: (_, value, __) {
                   if (value.text.isEmpty) return const SizedBox.shrink();
                   return IconButton(
-                    icon: const Icon(Icons.close, size: 18),
-                    tooltip: widget.theme.l10nOf(context).clearText,
+                    icon: Icon(Icons.close, size: 18, color: iconColor),
+                    tooltip: theme.l10nOf(context).clearText,
                     onPressed: () {
                       _textController.clear();
                       _onQueryChanged('');
@@ -94,7 +172,13 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   );
                 },
               ),
-              border: const OutlineInputBorder(),
+              // The catch-all fallback `InputDecorator` reaches for whenever
+              // a more specific slot (enabled/focused/error/disabled) is
+              // left null — degraded above to the ambient border (radius
+              // stamped on top) unless the host themed a colour.
+              border: border,
+              enabledBorder: enabledBorder,
+              focusedBorder: focusedBorder,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 12,
                 vertical: 10,
@@ -111,7 +195,9 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   widget.controller.results.isEmpty) {
                 return Center(
                   child: CircularProgressIndicator(
-                    color: widget.theme.input.sendButtonColor,
+                    color:
+                        theme.messageSearchProgressColor ??
+                        theme.input.sendButtonColor,
                   ),
                 );
               }
@@ -121,10 +207,11 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   !widget.controller.isLoading) {
                 return Center(
                   child: Text(
-                    widget.theme.l10nOf(context).noResults,
+                    theme.l10nOf(context).noResults,
                     style:
-                        widget.theme.emptyStateTitleStyle ??
-                        TextStyle(fontSize: 16, color: Colors.grey.shade500),
+                        theme.messageSearchEmptyTextStyle ??
+                        theme.emptyStateTitleStyle ??
+                        _defaultEmptyStyle,
                   ),
                 );
               }
@@ -134,6 +221,15 @@ class _MessageSearchViewState extends State<MessageSearchView> {
               }
 
               final results = _dedupeById(widget.controller.results);
+              final snippetStyle =
+                  theme.messageSearchResultSnippetStyle ?? _defaultSnippetStyle;
+              final highlightStyle =
+                  theme.messageSearchResultHighlightStyle ??
+                  (theme.messageSearchResultSnippetStyle == null
+                      ? _defaultHighlightStyle
+                      : snippetStyle.merge(
+                          const TextStyle(fontWeight: FontWeight.w700),
+                        ));
 
               return ListView.builder(
                 itemCount: results.length,
@@ -149,35 +245,25 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                       : DateFormatter.formatSeparator(
                           message.timestamp,
                           now: now,
-                          todayLabel: widget.theme.l10nOf(context).today,
-                          yesterdayLabel: widget.theme
-                              .l10nOf(context)
-                              .yesterday,
+                          todayLabel: theme.l10nOf(context).today,
+                          yesterdayLabel: theme.l10nOf(context).yesterday,
                         );
                   return ListTile(
                     title: Text(
                       senderName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
-                      ),
+                      style:
+                          theme.messageSearchResultTitleStyle ??
+                          _defaultTitleStyle,
                     ),
                     subtitle: Text.rich(
                       TextSpan(
                         children: _highlightSpans(
                           message.text ?? '',
                           widget.controller.query,
-                          baseStyle: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade600,
-                          ),
-                          matchStyle: TextStyle(
-                            fontSize: 13,
-                            color: Colors.grey.shade900,
-                            fontWeight: FontWeight.w700,
-                          ),
+                          baseStyle: snippetStyle,
+                          matchStyle: highlightStyle,
                         ),
                       ),
                       maxLines: 2,
@@ -185,10 +271,9 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                     ),
                     trailing: Text(
                       timeStr,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey.shade500,
-                      ),
+                      style:
+                          theme.messageSearchResultTimestampStyle ??
+                          _defaultTimestampStyle,
                     ),
                     onTap: () =>
                         widget.onMessageTap?.call(widget.roomId, message.id),
@@ -200,8 +285,37 @@ class _MessageSearchViewState extends State<MessageSearchView> {
         ),
       ],
     );
+
+    final background = theme.messageSearchBackgroundColor;
+    if (background == null) return content;
+    return ColoredBox(color: background, child: content);
   }
 }
+
+/// Baselines reproducing the look the view had before the
+/// `messageSearch*` theme slots existed, so an unthemed host is
+/// pixel-identical to the previous release.
+const TextStyle _defaultTitleStyle = TextStyle(
+  fontWeight: FontWeight.w600,
+  fontSize: 14,
+);
+const TextStyle _defaultSnippetStyle = TextStyle(
+  fontSize: 13,
+  color: Color(0xFF757575),
+);
+const TextStyle _defaultHighlightStyle = TextStyle(
+  fontSize: 13,
+  color: Color(0xFF212121),
+  fontWeight: FontWeight.w700,
+);
+const TextStyle _defaultTimestampStyle = TextStyle(
+  fontSize: 11,
+  color: Color(0xFF9E9E9E),
+);
+const TextStyle _defaultEmptyStyle = TextStyle(
+  fontSize: 16,
+  color: Color(0xFF9E9E9E),
+);
 
 /// Drops duplicate results by [ChatMessage.id], keeping the first
 /// occurrence's position. A message can legitimately appear more than once

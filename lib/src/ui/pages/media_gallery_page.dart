@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../client/chat_client.dart';
@@ -37,6 +39,8 @@ class MediaGalleryPage extends StatefulWidget {
     this.includeAudioFiles = false,
     this.senderNameResolver,
     this.mediaLoader,
+    this.urlResolver,
+    this.logger,
   });
 
   final ChatClient client;
@@ -45,6 +49,18 @@ class MediaGalleryPage extends StatefulWidget {
   final ValueChanged<MediaItem>? onTapMedia;
   final ValueChanged<MediaItem>? onTapDoc;
   final ValueChanged<SharedLink>? onTapLink;
+
+  /// Re-mints the signed URL of a row before the default open handler
+  /// downloads it. `null` (default) builds a [SignedAttachmentUrlResolver]
+  /// over [client], the same one the chat bubbles get — a gallery row is the
+  /// same attachment seen from another screen, and its mint-time URL has
+  /// usually expired by the time it is tapped.
+  final AttachmentUrlResolver? urlResolver;
+
+  /// Receives the reason an attachment failed to open. `null` (default)
+  /// drops it: the opener never throws into the UI, so without a logger a
+  /// failed download is indistinguishable from a dead tap.
+  final void Function(String level, String message)? logger;
 
   /// Fetches attachment bytes through the authenticated client and renders
   /// from memory instead of handing the grid/viewer a signed URL that 401s
@@ -90,6 +106,12 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
   late final AttachmentMediaLoader _loader =
       widget.mediaLoader ??
       AuthenticatedAttachmentLoader(client: widget.client);
+
+  /// Same fallback shape as [_loader]: the host's resolver wins, otherwise the
+  /// page mints its own over the client.
+  late final AttachmentUrlResolver _urlResolver =
+      widget.urlResolver ??
+      SignedAttachmentUrlResolver(client: widget.client).resolve;
 
   @override
   void initState() {
@@ -229,13 +251,23 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     return b.compareTo(a);
   }
 
-  void _defaultOpenDoc(MediaItem item) {
+  /// Opens a document/video row through the platform opener.
+  ///
+  /// The URL is re-minted first, exactly as the chat bubble's own open path
+  /// does: `MediaItem.url` is the mint-time signed link the backend put on the
+  /// message, and by the time somebody scrolls the gallery it has usually
+  /// expired. Handing the stale one to the downloader made it fail, and the
+  /// opener swallows failures, so the tap did nothing at all.
+  Future<void> _defaultOpenDoc(MediaItem item) async {
     if (item.url.isEmpty) return;
-    openAttachmentFile(
+    final ref = item.attachmentRef;
+    final url = ref == null ? item.url : await _urlResolver(ref);
+    await openAttachmentFile(
       client: widget.client,
-      url: item.url,
+      url: url,
       fileName: item.fileName,
       mimeType: item.mimeType,
+      logger: widget.logger,
     );
   }
 
@@ -254,7 +286,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
       return;
     }
     // No in-SDK video player — hand videos to the platform opener like docs.
-    _defaultOpenDoc(item);
+    unawaited(_defaultOpenDoc(item));
   }
 
   /// Opens a shared link in the system browser. The row's URL is sender
@@ -271,7 +303,8 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     final theme = widget.theme;
     final l10n = theme.l10nOf(context);
     return Scaffold(
-      backgroundColor: theme.backgroundColor,
+      backgroundColor:
+          theme.galleryBackgroundColor ?? theme.galleryAppBarBackgroundColor,
       appBar: AppBar(
         backgroundColor: theme.galleryAppBarBackgroundColor,
         foregroundColor: theme.galleryAppBarForegroundColor,

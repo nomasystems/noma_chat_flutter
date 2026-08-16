@@ -7,6 +7,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
+
+import '../../_helpers/fake_video_player_platform.dart';
 
 const _permissionChannel = MethodChannel(
   'flutter.baseflow.com/permissions/methods',
@@ -21,6 +24,7 @@ const _microphoneDeniedMessage = 'Microphone permission denied';
 const _cameraPermissionMessage = 'You need to allow camera access';
 const _openSettingsLabel = 'Open settings';
 const _tapForPhotoHint = 'Tap for photo, hold for video';
+const _clipPreviewMarker = 'clip preview';
 
 const _backCamera = CameraDescription(
   name: 'back',
@@ -185,6 +189,16 @@ class _FakeCameraPlatform extends CameraPlatform {
   }
 }
 
+/// Watches what the pushed capture screen hands back to its caller.
+class _CaptureHost {
+  /// How many times the route resolved — the capture screen is only allowed
+  /// to leave once, and only when the user asked it to.
+  int returns = 0;
+
+  /// What it resolved with. `null` for a discard or a cancellation.
+  CameraCaptureResult? result;
+}
+
 void main() {
   late List<List<int>> requestedPermissions;
   late List<int> checkedPermissions;
@@ -195,6 +209,15 @@ void main() {
   late int cameraRequestResult;
   late bool permissionPluginBusy;
   Completer<void>? microphoneRequestGate;
+  XFile? previewedClip;
+
+  /// Stands in for the `video_player`-backed preview: the review's own
+  /// controls are what these tests are about, and a decoder is not part of
+  /// them.
+  Widget stubVideoPreview(BuildContext context, XFile file, ChatTheme theme) {
+    previewedClip = file;
+    return const Center(child: Text(_clipPreviewMarker));
+  }
 
   setUp(() {
     requestedPermissions = [];
@@ -206,6 +229,7 @@ void main() {
     cameraRequestResult = _granted;
     permissionPluginBusy = false;
     microphoneRequestGate = null;
+    previewedClip = null;
     CameraPlatform.instance = camera;
 
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
@@ -281,6 +305,62 @@ void main() {
   IconButton flipButton(WidgetTester tester) => tester.widget<IconButton>(
     find.widgetWithIcon(IconButton, Icons.flip_camera_ios),
   );
+
+  /// Mounts the capture screen the way a host does — pushed onto a route
+  /// that is still there afterwards — so what the screen pops (and whether
+  /// it pops at all) is observable.
+  Future<_CaptureHost> pumpHostedPage(
+    WidgetTester tester, {
+    CameraVideoPreviewBuilder? videoPreviewBuilder,
+    ChatTheme theme = ChatTheme.defaults,
+  }) async {
+    final host = _CaptureHost();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  final popped = await Navigator.of(context)
+                      .push<CameraCaptureResult>(
+                        MaterialPageRoute<CameraCaptureResult>(
+                          builder: (_) => CameraCapturePage(
+                            theme: theme,
+                            videoPreviewBuilder: videoPreviewBuilder,
+                          ),
+                        ),
+                      );
+                  host.returns++;
+                  host.result = popped;
+                },
+                child: const Text('open camera'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open camera'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await settle(tester, 8);
+    return host;
+  }
+
+  /// Taps the shutter and lets the still land wherever it lands.
+  Future<void> shootPhoto(WidgetTester tester) async {
+    await tester.tap(find.byType(CameraCaptureButton));
+    await settle(tester, 8);
+  }
+
+  /// Holds the shutter, releases it, and lets the clip land.
+  Future<void> shootClip(WidgetTester tester) async {
+    final gesture = await holdShutter(tester);
+    await settle(tester, 4);
+    await gesture.up();
+    await settle(tester, 8);
+  }
 
   testWidgets(
     'capture button exposes a semantic label so a screen reader user can '
@@ -456,11 +536,10 @@ void main() {
         await tester.pump();
       }
 
-      expect(
-        camera.createdWithAudio,
-        [false, true],
-        reason: 'granting the microphone must rebind the camera with audio',
-      );
+      expect(camera.createdWithAudio, [
+        false,
+        true,
+      ], reason: 'granting the microphone must rebind the camera with audio');
       expect(
         camera.startedRecordings,
         isEmpty,
@@ -1076,6 +1155,242 @@ void main() {
             'clearing the bind flag has to reach a frame on its own — nothing '
             'else rebuilds this screen after a mic-grant rebind',
       );
+    },
+  );
+
+  testWidgets(
+    'a still lands on a review step instead of leaving the moment the '
+    'shutter is released',
+    (tester) async {
+      final host = await pumpHostedPage(tester);
+
+      await shootPhoto(tester);
+
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
+      expect(
+        find.byType(CameraCaptureButton),
+        findsNothing,
+        reason: 'the viewfinder is behind the review, not next to it',
+      );
+      expect(
+        host.returns,
+        0,
+        reason: 'nothing may reach the caller before the user confirms',
+      );
+    },
+  );
+
+  testWidgets(
+    'sending from the review hands the capture back exactly once, and it is '
+    'the shot that was taken',
+    (tester) async {
+      final host = await pumpHostedPage(tester);
+      await shootPhoto(tester);
+
+      await tester.tap(find.byIcon(Icons.send));
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+
+      expect(host.returns, 1);
+      expect(host.result, isNotNull);
+      expect(host.result!.isVideo, isFalse);
+      expect(host.result!.file.path, '/tmp/shot.jpg');
+      expect(host.result!.mimeType, 'image/jpeg');
+      expect(
+        find.byType(CameraCaptureReview),
+        findsNothing,
+        reason: 'the capture screen is gone once the shot is on its way',
+      );
+    },
+  );
+
+  testWidgets(
+    'retaking throws the still away, puts the viewfinder back and sends '
+    'nothing',
+    (tester) async {
+      final host = await pumpHostedPage(tester);
+      await shootPhoto(tester);
+
+      await tester.tap(find.text('Retake'));
+      await settle(tester, 8);
+
+      expect(find.byType(CameraCaptureReview), findsNothing);
+      expect(find.byType(CameraCaptureButton), findsOneWidget);
+      expect(find.text(_tapForPhotoHint), findsOneWidget);
+      expect(host.returns, 0, reason: 'a retake is not an exit');
+      expect(
+        shutter(tester).ready,
+        isTrue,
+        reason: 'the camera stayed bound, so the next shot is immediate',
+      );
+
+      // And the second take really is a second take.
+      await shootPhoto(tester);
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
+      expect(host.returns, 0);
+    },
+  );
+
+  testWidgets(
+    'discarding from the review leaves the camera with nothing sent',
+    (tester) async {
+      final host = await pumpHostedPage(tester);
+      await shootPhoto(tester);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+
+      expect(host.returns, 1);
+      expect(
+        host.result,
+        isNull,
+        reason: 'a discard resolves like the viewfinder\'s own close button',
+      );
+      expect(find.byType(CameraCapturePage), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'a clip lands on the same review step, playable, and is not sent on '
+    'release',
+    (tester) async {
+      final host = await pumpHostedPage(
+        tester,
+        videoPreviewBuilder: stubVideoPreview,
+      );
+
+      await shootClip(tester);
+
+      expect(camera.startedRecordings, hasLength(1));
+      expect(camera.stoppedRecordings, hasLength(1));
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
+      expect(
+        find.text(_clipPreviewMarker),
+        findsOneWidget,
+        reason: 'the clip is previewed, not just described',
+      );
+      expect(previewedClip?.path, '/tmp/clip.mp4');
+      expect(host.returns, 0);
+    },
+  );
+
+  testWidgets('sending a clip from the review hands back the recorded file', (
+    tester,
+  ) async {
+    final host = await pumpHostedPage(
+      tester,
+      videoPreviewBuilder: stubVideoPreview,
+    );
+    await shootClip(tester);
+
+    await tester.tap(find.byIcon(Icons.send));
+    await settle(tester, 8);
+    await tester.pumpAndSettle();
+
+    expect(host.returns, 1);
+    expect(host.result, isNotNull);
+    expect(host.result!.isVideo, isTrue);
+    expect(host.result!.file.path, '/tmp/clip.mp4');
+    expect(host.result!.mimeType, 'video/mp4');
+  });
+
+  testWidgets(
+    'retaking a clip goes back to a camera that can record again, with '
+    'nothing sent',
+    (tester) async {
+      final host = await pumpHostedPage(
+        tester,
+        videoPreviewBuilder: stubVideoPreview,
+      );
+      await shootClip(tester);
+
+      await tester.tap(find.text('Retake'));
+      await settle(tester, 8);
+
+      expect(find.byType(CameraCaptureReview), findsNothing);
+      expect(shutter(tester).isRecording, isFalse);
+      expect(host.returns, 0);
+
+      await shootClip(tester);
+
+      expect(
+        camera.startedRecordings,
+        hasLength(2),
+        reason: 'the gate has to be free again after the first clip',
+      );
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
+      expect(host.returns, 0);
+    },
+  );
+
+  testWidgets('discarding a clip leaves the camera with nothing sent', (
+    tester,
+  ) async {
+    final host = await pumpHostedPage(
+      tester,
+      videoPreviewBuilder: stubVideoPreview,
+    );
+    await shootClip(tester);
+
+    await tester.tap(find.byIcon(Icons.close));
+    await settle(tester, 8);
+    await tester.pumpAndSettle();
+
+    expect(host.returns, 1);
+    expect(host.result, isNull);
+    expect(find.byType(CameraCapturePage), findsNothing);
+  });
+
+  testWidgets(
+    'the system back gesture on the review is a retake, not a silent exit '
+    'that drops the take on the floor',
+    (tester) async {
+      final host = await pumpHostedPage(tester);
+      await shootPhoto(tester);
+
+      await tester.binding.handlePopRoute();
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CameraCaptureReview), findsNothing);
+      expect(find.byType(CameraCaptureButton), findsOneWidget);
+      expect(
+        host.returns,
+        0,
+        reason: 'back on the review belongs to the review, not to the route',
+      );
+    },
+  );
+
+  testWidgets(
+    'the review honours the theme instead of hardcoding the send green',
+    (tester) async {
+      const brand = Color(0xFF0044AA);
+      await pumpHostedPage(
+        tester,
+        theme: const ChatTheme(cameraCaptureSendButtonColor: brand),
+      );
+
+      await shootPhoto(tester);
+
+      final button = tester.widget<FilledButton>(
+        find.widgetWithIcon(FilledButton, Icons.send),
+      );
+      expect(button.style?.backgroundColor?.resolve(<WidgetState>{}), brand);
+    },
+  );
+
+  testWidgets(
+    'a clip with no preview builder falls back to the SDK\'s own player',
+    (tester) async {
+      VideoPlayerPlatform.instance = FakeVideoPlayerPlatform();
+      await pumpHostedPage(tester);
+
+      await shootClip(tester);
+
+      expect(find.byType(CameraVideoPreview), findsOneWidget);
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
     },
   );
 }
