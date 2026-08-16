@@ -110,6 +110,22 @@ void main() {
       },
     );
 
+    test('a delivered clip leaves the gate ready for the retake that may '
+        'follow, since the capture is now reviewed before it is sent', () {
+      final gate = CameraRecordingGate();
+      gate.completeStart(gate.beginStart());
+      gate.requestStop();
+      gate.completeStop();
+
+      // The user looked at the take, did not like it, and holds the shutter
+      // again — no teardown and no rebind in between.
+      final retake = gate.beginStart();
+      expect(retake, isNotNull);
+      expect(gate.completeStart(retake), CameraStartOutcome.recording);
+      expect(gate.isRecording, isTrue);
+      expect(gate.requestStop(), isTrue);
+    });
+
     test(
       'the session token a stop captured goes stale when it is interrupted',
       () {

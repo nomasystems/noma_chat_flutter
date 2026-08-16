@@ -86,6 +86,7 @@ class AttachmentUploadRing extends StatelessWidget {
                     strokeWidth: 3,
                     valueColor: AlwaysStoppedAnimation<Color>(
                       theme.bubble.uploadProgressColor ??
+                          theme.bubble.statusReadColor ??
                           theme.bubble.statusColor ??
                           DefaultPalette.uploadProgressColor,
                     ),

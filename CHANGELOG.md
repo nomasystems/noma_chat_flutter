@@ -6,6 +6,126 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.21.0 - 2026-08-15
+
+Minor bump, not a patch on `0.20.0`: the enum addition below is a source break
+for hosts that switch over it exhaustively, the camera stops sending on its
+own, and the package gains a `video_player` dependency.
+
+### Added
+
+- **A confirmation step between the shutter and the send.** `CameraCapturePage` no
+  longer hands a capture back the moment the finger lifts: what the shutter produces
+  lands on `CameraCaptureReview` (exported, and usable on its own — a plain widget
+  with no routing baked in) with exactly three ways out. **Send** is the only one that
+  returns the capture; **Retake** deletes the file and goes back to the live
+  viewfinder; **Discard** leaves the camera with nothing. The system back gesture on
+  the review is a retake, not a silent exit. A capture nobody confirmed is deleted on
+  teardown — including the case where the host pops the route out from under the
+  review — because nothing else collects the camera's cache directory. Three new
+  strings (`cameraRetake`, `cameraDiscard`, `pausePreview`) in every locale that
+  already translated the `camera*` family; `send`, `playPreview` and `close` are
+  reused.
+- `video_player` is now a dependency, used by exactly one widget:
+  `CameraVideoPreview`, the review step's playable clip (tap to play, tap to pause, a
+  finished clip restarts from the first frame; a container the platform decoder cannot
+  open degrades to a static placeholder so the capture stays sendable). Hosts that
+  would rather not ship a second video stack replace it wholesale — through
+  `CameraCapturePage(videoPreviewBuilder: …)` when they push the screen themselves, or
+  through the new `ChatViewBuilders.videoPreviewBuilder` for the flow `NomaChatView`
+  opens from the composer's Camera row. With the slot wired, nothing the SDK renders
+  touches `video_player`.
+- `ChatTheme.cameraCaptureSendButtonColor` and `ChatTheme.cameraCaptureReviewActionStyle`
+  — the review step's Send button fill (defaults to `DefaultPalette.cameraCaptureSendButton`,
+  the same green as the composer's send button) and its Retake label style (falls back
+  to `cameraCaptureHintStyle`, then to the capture screen's own white-on-black).
+- 14 flat `ChatTheme` slots for the in-room search screen, so it stops looking
+  stock-Material inside a themed app: `messageSearchBackgroundColor`,
+  `messageSearchFieldFillColor`, `messageSearchFieldTextStyle`,
+  `messageSearchFieldHintStyle`, `messageSearchFieldCursorColor`,
+  `messageSearchFieldBorderColor`, `messageSearchFieldBorderRadius`,
+  `messageSearchFieldIconColor`, `messageSearchResultTitleStyle`,
+  `messageSearchResultSnippetStyle`, `messageSearchResultHighlightStyle`,
+  `messageSearchResultTimestampStyle`, `messageSearchEmptyTextStyle`,
+  `messageSearchProgressColor`. The split of responsibilities is unchanged — the host
+  still owns the `Scaffold` and `AppBar` around `MessageSearchView`, the SDK themes
+  what it paints inside. Every slot is `null` by default and an unthemed host renders
+  exactly as before; all four presets (`lightPreset`, `darkPreset`, `branded`,
+  `highContrast`) now fill them, so the search screen follows a preset like every
+  other surface. No new strings.
+- `ChatTheme.galleryBackgroundColor` — the surface behind the media gallery's
+  media / documents / links tabs, which until now inherited the `Scaffold` default and
+  read as a stray grey panel under a host that tints its own pages. Falls back to
+  `galleryAppBarBackgroundColor`, then to the `Scaffold` default. Deliberately not
+  `backgroundColor`: that one is the chat wallpaper.
+- `AttachmentPolicy.deniedExtensions`, defaulting to
+  `AttachmentPolicy.defaultDeniedExtensions` — 20 OS-executable and script-dropper
+  extensions (`exe`, `msi`, `bat`, `cmd`, `com`, `scr`, `pif`, `cpl`, `msc`, `apk`,
+  `dex`, `sh`, `ps1`, `vbs`, `vbe`, `jse`, `wsf`, `wsh`, `reg`, `jar`). It is a
+  constructor default, so every existing policy inherits it, including
+  `AttachmentPolicy.unrestricted` and `NomaChatView.defaultAttachmentPolicy`. The
+  point is the stance it makes safe: a chat can now be **default-allow** — send any
+  file type, except the dangerous ones — instead of reaching for `allowedMimeTypes`
+  and rejecting every uncommon-but-safe extension (`.xyz`, `.log`, a proprietary
+  export) as collateral. Only a trailing token shaped like an extension (≤ 8 ASCII
+  alphanumerics) is matched, so a prose tail (`report.final version`) is not an
+  extension; a name whose tail spells a denied one (`newsletter-acme.com`) is
+  refused on purpose. Narrow, widen or disable it with
+  `copyWith(deniedExtensions: {...})` — `{}` turns the check off entirely.
+- `AttachmentPolicy.validate` takes an optional `fileName`, and `deniesFileName`
+  answers the extension question on its own. Both `AttachmentPickers.pickFile` and
+  `ChatMessagesController.sendAttachment` now pass it, so the floor holds on the
+  upload path a host reaches directly (web drag-and-drop, a share-intent handler),
+  not only behind the pickers. The image/video pick paths are unchanged — they pass
+  no `fileName` and behave exactly as before.
+
+### Changed
+
+- **Breaking (behaviour):** the in-app camera does not auto-send any more. Tapping the
+  shutter or releasing a hold-to-record now opens the review step described above
+  instead of resolving `CameraCapturePage.show()`. The signature is unchanged — it
+  still returns `CameraCaptureResult?` — but `null` now also means "the user discarded
+  the take on the review", not only "cancelled before capturing". Hosts that treat
+  `null` as a cancellation need no changes; hosts that assumed a non-null result
+  followed every shutter press do. `NomaChatView` handles this itself: its Camera row
+  only ever sees captures the user confirmed.
+- `ChatTheme.videoHeight` is a **maximum**, not a fixed height. The video bubble's
+  poster frame is painted at the clip's own aspect ratio, scaled down to fit the bubble
+  width and this ceiling, so a portrait clip is no longer stretched into a landscape
+  strip. The default is now 250 (was an exact 180), matching `imageMaxHeight` so a clip
+  and a photo of the same shape take the same room. States with no real frame to size
+  from — pending download, upload and failure placeholders, a missing thumbnail — keep
+  the previous full-width / 180 look. A host that set `videoHeight` to pin a row height
+  gets a shorter bubble for a landscape clip than before.
+  `RoomDefaults.videoThumbnailMaxWidth` follows it from 480 to 720: on a portrait clip
+  the long edge is now the height, and 480 left the poster frame visibly soft on a
+  dense screen. It is still tens of kilobytes at `videoThumbnailQuality`.
+- `ChatBubbleTheme.uploadProgressColor` falls back to `statusReadColor` before
+  `statusColor` (and only then to `DefaultPalette.uploadProgressColor`). The ring and
+  the read tick mark the same thing — the message made it — so a host that themes its
+  read ticks now gets the ring for free; the old chain painted it in the muted grey of
+  a *pending* tick, which reads as the opposite of progress. Hosts that theme
+  `statusColor` but not `statusReadColor` are unaffected.
+- The search screen's query field defers to the app's own `InputDecorationTheme` where
+  its slots are unset: it no longer passes an explicit `filled: false` (which
+  overrode an ambient `filled: true`), and `messageSearchFieldBorderRadius` set
+  *without* `messageSearchFieldBorderColor` now reshapes the outline the ambient theme
+  draws — border, enabled *and* focused — instead of replacing it (a radius alone
+  previously discarded the ambient `border` slot specifically, painting the SDK's own
+  outline over whatever shape the host had drawn there). And with
+  `messageSearchFieldBorderColor` set — as all three colour presets now do — the
+  focused state is no longer a repaint of the enabled one: it widens and, when the
+  theme also carries `messageSearchFieldCursorColor`, tints towards it, so a focused
+  query field keeps a visible ring instead of looking identical to an idle one. A host
+  that themes the ambient `InputDecorationTheme.focusedBorder` directly still wins
+  verbatim over this heuristic.
+- **Breaking (source):** `AttachmentPolicyViolationKind` gains a third value,
+  `extensionDenied`. Exhaustive `switch`es over it stop compiling until the case is
+  added. `AttachmentRejectReason` is deliberately **not** touched: a denied extension
+  is reported as `mimeNotAllowed`, reusing the existing
+  `ChatUiLocalizations.attachmentTypeNotAllowed` string in every locale, so hosts
+  switching on a rejection's `reason` (and their l10n) need no changes at all.
+
 ## 0.20.0
 
 ### Added

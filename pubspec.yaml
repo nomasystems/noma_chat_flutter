@@ -3,7 +3,7 @@ description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and ready-to-use UI components for the Nomasystems chat
   backend.
-version: 0.20.0
+version: 0.21.0
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
@@ -120,6 +120,17 @@ dependencies:
   # the work goes to a background isolate (see
   # `PlatformSupport.supportsBackgroundIsolates`).
   image: ^4.5.0
+  # Plays the clip back inside `CameraCaptureReview`, the confirmation step
+  # between the shutter and the send. `get_thumbnail_video` above only
+  # extracts a still, and a poster frame is not a review: the user has to be
+  # able to watch what they just recorded before it leaves the device.
+  # Federated for android / ios / macos / web, so the `platforms:` block
+  # above is unaffected for the same reason `camera` states — and desktop
+  # never reaches this screen anyway
+  # (`PlatformSupport.supportsInAppCameraCapture`). Hosts that would rather
+  # not ship a second video stack can swap the preview out through
+  # `CameraCapturePage(videoPreviewBuilder: …)`.
+  video_player: ^2.9.2
   characters: ^1.4.0
   shared_preferences: ^2.2.0
   uuid: ^4.0.0
@@ -139,3 +150,7 @@ dev_dependencies:
   # `camera`) so the camera-capture tests can swap `CameraPlatform.instance`
   # for a fake without a `depend_on_referenced_packages` ignore.
   camera_platform_interface: ^2.12.0
+  # Same reason, for `VideoPlayerPlatform.instance`: the capture-review tests
+  # drive playback against a fake player instead of a decoder that does not
+  # exist under `flutter test`.
+  video_player_platform_interface: ^6.2.0

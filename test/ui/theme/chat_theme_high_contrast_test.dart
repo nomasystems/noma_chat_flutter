@@ -25,6 +25,28 @@ void main() {
       expect(hc.l10n, isNotNull);
       expect(hc.backgroundColor, isNotNull);
     });
+
+    test('the search screen follows the same rules as every other surface', () {
+      final hc = ChatTheme.highContrast();
+
+      expect(hc.messageSearchBackgroundColor, isNotNull);
+      expect(hc.messageSearchFieldBorderColor, isNotNull);
+      expect(hc.messageSearchFieldIconColor, isNotNull);
+      expect(hc.messageSearchProgressColor, isNotNull);
+      for (final style in [
+        hc.messageSearchFieldTextStyle,
+        hc.messageSearchFieldHintStyle,
+        hc.messageSearchResultTitleStyle,
+        hc.messageSearchResultSnippetStyle,
+        hc.messageSearchResultHighlightStyle,
+        hc.messageSearchResultTimestampStyle,
+        hc.messageSearchEmptyTextStyle,
+      ]) {
+        expect(style, isNotNull);
+        expect(style!.color, isNotNull);
+        expect(style.fontSize, greaterThanOrEqualTo(16));
+      }
+    });
   });
 
   group('MessageBubble accessibility', () {

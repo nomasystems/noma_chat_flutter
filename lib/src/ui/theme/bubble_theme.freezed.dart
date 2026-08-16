@@ -39,10 +39,14 @@ mixin _$ChatBubbleTheme {
 /// states: sending / sent / delivered / read / failed.
  MessageStatusIconBuilder? get statusIconBuilder;/// Fill color of the determinate progress ring shown while a
 /// photo/video/file attachment is uploading (`AttachmentUploadRing`).
-/// Falls back to [statusColor], then to
-/// `DefaultPalette.uploadProgressColor` (the same green as the send
-/// button / unread badge), so it reads as the same family as the
-/// sent/delivered/read status ticks by default.
+/// Falls back to [statusReadColor], then [statusColor], then to
+/// `DefaultPalette.uploadProgressColor`.
+///
+/// The read tick comes first because both mark the same thing — the
+/// message made it — so a host that themes its read ticks gets a ring in
+/// that colour for free. Falling back to [statusColor] instead painted the
+/// ring in the muted grey of a *pending* tick, which reads as the opposite
+/// of progress.
  Color? get uploadProgressColor;
 /// Create a copy of ChatBubbleTheme
 /// with the given fields replaced by the non-null parameter values.
@@ -299,10 +303,14 @@ class _ChatBubbleTheme implements ChatBubbleTheme {
 @override final  MessageStatusIconBuilder? statusIconBuilder;
 /// Fill color of the determinate progress ring shown while a
 /// photo/video/file attachment is uploading (`AttachmentUploadRing`).
-/// Falls back to [statusColor], then to
-/// `DefaultPalette.uploadProgressColor` (the same green as the send
-/// button / unread badge), so it reads as the same family as the
-/// sent/delivered/read status ticks by default.
+/// Falls back to [statusReadColor], then [statusColor], then to
+/// `DefaultPalette.uploadProgressColor`.
+///
+/// The read tick comes first because both mark the same thing — the
+/// message made it — so a host that themes its read ticks gets a ring in
+/// that colour for free. Falling back to [statusColor] instead painted the
+/// ring in the muted grey of a *pending* tick, which reads as the opposite
+/// of progress.
 @override final  Color? uploadProgressColor;
 
 /// Create a copy of ChatBubbleTheme

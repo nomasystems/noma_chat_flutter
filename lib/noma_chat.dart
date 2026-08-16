@@ -251,8 +251,10 @@ export 'src/ui/widgets/mention_overlay.dart';
 export 'src/ui/widgets/media_gallery_view.dart';
 export 'src/ui/widgets/swipe_to_reply.dart';
 export 'src/ui/widgets/typing_status_text.dart';
+export 'src/ui/widgets/camera_video_preview.dart';
 
 // === UI: Pages ===
 export 'src/ui/pages/camera_capture_page.dart';
+export 'src/ui/pages/camera_capture_review.dart';
 export 'src/ui/pages/media_gallery_page.dart';
 export 'src/ui/pages/starred_messages_page.dart';

@@ -312,8 +312,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // Not `backgroundColor` (0xFF123456): that one is the chat wallpaper, and
+    // behind a plain tabbed list it read as a stray grey panel. The body
+    // follows the gallery's own app bar unless the host overrides it.
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
-    expect(scaffold.backgroundColor, const Color(0xFF123456));
+    expect(scaffold.backgroundColor, const Color(0xFF654321));
 
     final appBar = tester.widget<AppBar>(find.byType(AppBar));
     expect(appBar.backgroundColor, const Color(0xFF654321));
@@ -322,6 +325,25 @@ void main() {
     final tabBar = tester.widget<TabBar>(find.byType(TabBar));
     expect(tabBar.indicatorColor, const Color(0xFF00FF00));
     expect(tabBar.labelColor, const Color(0xFFAABBCC));
+  });
+
+  testWidgets('an explicit galleryBackgroundColor overrides the app bar one', (
+    tester,
+  ) async {
+    const theme = ChatTheme(
+      backgroundColor: Color(0xFF123456),
+      galleryAppBarBackgroundColor: Color(0xFF654321),
+      galleryBackgroundColor: Color(0xFF0A0B0C),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaGalleryPage(client: client, roomId: 'room-1', theme: theme),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+    expect(scaffold.backgroundColor, const Color(0xFF0A0B0C));
   });
 
   testWidgets('leaves the ambient Material chrome untouched when the theme '

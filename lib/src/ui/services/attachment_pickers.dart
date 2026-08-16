@@ -194,11 +194,18 @@ class AttachmentPickers {
     }
   }
 
-  /// Opens a generic file picker. When [allowedExtensions] is non-empty
-  /// (e.g. `['pdf', 'docx']`), restricts the picker to those types at
-  /// the system level. The [policy] is then evaluated post-pick to
-  /// catch mime-type and size violations not expressible as extension
-  /// lists. Returns null on cancellation or rejection.
+  /// Opens a generic file picker. Default-allow: with [allowedExtensions]
+  /// left empty (the default), the system picker offers every file type —
+  /// [policy]'s [AttachmentPolicy.deniedExtensions] is what keeps an
+  /// OS-executable dropper out, not an allow-list a host has to maintain.
+  /// When [allowedExtensions] is non-empty (e.g. `['pdf', 'docx']`), it
+  /// restricts the picker to those types at the system level instead —
+  /// useful for a narrow "attach a document" flow, but opt-in, since
+  /// `file_picker`'s `FileType.custom` + extension list has platform quirks
+  /// of its own (e.g. failing outright on iOS for some extension/UTI
+  /// mappings). Either way [policy] is evaluated post-pick to catch mime-
+  /// type, size and dangerous-extension violations. Returns null on
+  /// cancellation or rejection.
   static Future<AttachmentPickResult?> pickFile({
     List<String> allowedExtensions = const [],
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
@@ -235,6 +242,7 @@ class AttachmentPickers {
       final violation = policy.validate(
         mimeType: pick.mimeType,
         sizeBytes: pick.size,
+        fileName: pick.fileName,
       );
       if (violation != null) {
         logger?.call('warn', 'pickFile rejected: $violation');

@@ -241,8 +241,9 @@ inherit transitively.
 ### 2b. Platform config for the in-app camera
 
 The composer's Camera row opens `CameraCapturePage`, the SDK's own
-full-screen viewfinder (tap the shutter for a still, hold it for a clip),
-backed by `camera` + `permission_handler`. It runs on Android and iOS —
+full-screen viewfinder (tap the shutter for a still, hold it for a clip,
+then confirm on the review step), backed by `camera` + `permission_handler`,
+with `video_player` behind the review's clip playback. It runs on Android and iOS —
 `PlatformSupport.supportsInAppCameraCapture` — and everywhere else the
 composer falls back to `image_picker`'s system camera.
 

@@ -9,6 +9,7 @@ import '../../models/user.dart';
 import '../models/reaction_user.dart';
 import '../models/send_message_request.dart';
 import '../models/voice_message_data.dart';
+import '../pages/camera_capture_review.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
@@ -45,6 +46,7 @@ class ChatViewBuilders {
     this.statusIconBuilder,
     this.attachmentUrlResolver,
     this.attachmentMediaLoader,
+    this.videoPreviewBuilder,
   });
 
   /// Overrides the bubble long-press / right-click context menu. When
@@ -186,6 +188,20 @@ class ChatViewBuilders {
   /// adapter's default `AuthenticatedAttachmentLoader` automatically when
   /// this is left unset.
   final AttachmentMediaLoader? attachmentMediaLoader;
+
+  /// Replaces the playable preview of a clip on the in-app camera's review
+  /// step — the confirmation between the shutter and the send. `null` (the
+  /// default) uses [CameraVideoPreview], which is the SDK's only use of the
+  /// `video_player` dependency: wire this to a player the host app already
+  /// ships, or to something cheaper than a decoder, and nothing in the chat
+  /// UI touches `video_player` any more.
+  ///
+  /// Only consulted by [NomaChatView], which owns the capture flow behind
+  /// the composer's Camera row — a bare [ChatView] never opens the camera
+  /// itself, so it reads this slot for nothing. It lives here anyway so a
+  /// host finds it next to every other builder instead of hunting for a
+  /// second bag of overrides.
+  final CameraVideoPreviewBuilder? videoPreviewBuilder;
 }
 
 /// Imperative callbacks fired by [ChatView] in response to user

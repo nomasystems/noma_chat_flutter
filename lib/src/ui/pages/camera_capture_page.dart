@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
@@ -12,11 +13,19 @@ import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
 import '../theme/default_palette.dart';
 import '../utils/platform_support.dart';
+import 'camera_capture_review.dart';
 import 'camera_recording_gate.dart';
 
 /// Full-screen in-app camera: tap the shutter for a still, hold it to
 /// record a clip. Pops with a [CameraCaptureResult], or `null` when the
 /// user backs out.
+///
+/// The shutter never sends. Whatever it produces lands on an in-flow
+/// review step ([CameraCaptureReview]) showing the still full-screen or
+/// the clip playable, and only its Send button pops the capture back to
+/// the caller; Retake returns to the viewfinder and Discard leaves with
+/// nothing. Captures the user did not confirm are deleted here, since
+/// nobody downstream ever learns they existed.
 ///
 /// This is the SDK's own capture screen, not `image_picker`'s system
 /// camera — it is what makes "hold to record" possible at all, and it
@@ -28,16 +37,27 @@ import 'camera_recording_gate.dart';
 /// attachment sheet's Camera row and sends what comes back; wire
 /// `ChatViewCallbacks.onPickCamera` to replace that flow entirely.
 class CameraCapturePage extends StatefulWidget {
-  const CameraCapturePage({super.key, this.theme = ChatTheme.defaults});
+  const CameraCapturePage({
+    super.key,
+    this.theme = ChatTheme.defaults,
+    this.videoPreviewBuilder,
+  });
 
   final ChatTheme theme;
 
-  /// Pushes the capture screen and returns what the user shot, or `null`
-  /// on cancellation (and on platforms without an in-app camera).
+  /// Replaces the review step's clip preview. `null` plays the capture
+  /// with `video_player` through [CameraVideoPreview]. Never consulted for
+  /// a still.
+  final CameraVideoPreviewBuilder? videoPreviewBuilder;
+
+  /// Pushes the capture screen and returns what the user confirmed on the
+  /// review step, or `null` when nothing was confirmed — a discard, a
+  /// cancellation, or a platform without an in-app camera.
   static Future<CameraCaptureResult?> show({
     required BuildContext context,
     ChatTheme theme = ChatTheme.defaults,
     bool fullscreenDialog = true,
+    CameraVideoPreviewBuilder? videoPreviewBuilder,
   }) {
     if (!PlatformSupport.supportsInAppCameraCapture) {
       return Future<CameraCaptureResult?>.value();
@@ -45,7 +65,10 @@ class CameraCapturePage extends StatefulWidget {
     return Navigator.of(context).push<CameraCaptureResult>(
       MaterialPageRoute<CameraCaptureResult>(
         fullscreenDialog: fullscreenDialog,
-        builder: (_) => CameraCapturePage(theme: theme),
+        builder: (_) => CameraCapturePage(
+          theme: theme,
+          videoPreviewBuilder: videoPreviewBuilder,
+        ),
       ),
     );
   }
@@ -85,6 +108,14 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // Kept apart from [_error]: rebinding the preview clears the error, and the
   // user still has to learn that the clip they were recording is gone.
   String? _interruptionNotice;
+  // The capture waiting on the review step. While it is set the viewfinder
+  // is off-screen and no gesture on this page can send anything — only the
+  // review's own Send button pops.
+  CameraCaptureResult? _pendingCapture;
+  // Whether [_pendingCapture] has been handed to the caller. Everything
+  // else — a discard, a host popping this route, a teardown — leaves a file
+  // in the app cache that only [dispose] is left to collect.
+  bool _captureConfirmed = false;
 
   ChatUiLocalizations get _l10n => widget.theme.l10nOf(context);
 
@@ -99,6 +130,13 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _recordingTimer?.cancel();
+    final pending = _pendingCapture;
+    _pendingCapture = null;
+    if (pending != null && !_captureConfirmed) {
+      // The screen is leaving with a take nobody accepted — a discard, or a
+      // host popping this route out from under the review.
+      unawaited(_deleteCapture(pending));
+    }
     final controller = _controller;
     _controller = null;
     if (_recordingGate.isStarting) {
@@ -405,9 +443,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     try {
       final file = await controller.takePicture();
       if (!mounted) return;
-      Navigator.of(
-        context,
-      ).pop(CameraCaptureResult(file: file, isVideo: false));
+      _presentForReview(CameraCaptureResult(file: file, isVideo: false));
     } on Object catch (error, stack) {
       // Not just `Exception`: `takePicture` signs off by writing to the
       // controller's value, so a teardown landing mid-capture raises a
@@ -583,7 +619,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       // user the clip was lost and rebound the preview behind it.
       if (_recordingGate.isStale(session) || !mounted) return;
       setState(() => _recordingElapsed = Duration.zero);
-      Navigator.of(context).pop(CameraCaptureResult(file: file, isVideo: true));
+      _presentForReview(CameraCaptureResult(file: file, isVideo: true));
     } on Object catch (error, stack) {
       // Not just `Exception`: `stopVideoRecording` signs off by writing to the
       // controller's value, which raises a `FlutterError` once a teardown has
@@ -599,6 +635,56 @@ class _CameraCapturePageState extends State<CameraCapturePage>
         _recordingElapsed = Duration.zero;
         _error = _l10n.cameraUnavailable;
       });
+    }
+  }
+
+  /// Puts a fresh capture on the review step. The camera stays bound
+  /// behind it so Retake is instant instead of a second cold start.
+  void _presentForReview(CameraCaptureResult capture) {
+    setState(() {
+      _pendingCapture = capture;
+      _interruptionNotice = null;
+    });
+  }
+
+  /// Confirms the capture: the one path on this screen that sends.
+  ///
+  /// The pending capture is deliberately left in place across the pop, so
+  /// the review — not a viewfinder nobody asked for — is what stays on
+  /// screen through the exit transition. [_captureConfirmed] is what stops
+  /// [dispose] from deleting the file the caller now owns.
+  void _sendPendingCapture() {
+    final capture = _pendingCapture;
+    if (capture == null) return;
+    _captureConfirmed = true;
+    Navigator.of(context).pop(capture);
+  }
+
+  /// Throws the take away and goes back to the live preview. The one exit
+  /// that keeps the screen alive, so it collects the file itself.
+  void _retakePendingCapture() {
+    final capture = _pendingCapture;
+    if (capture == null) return;
+    setState(() => _pendingCapture = null);
+    unawaited(_deleteCapture(capture));
+  }
+
+  /// Leaves the camera without sending, exactly like the viewfinder's own
+  /// close button. [dispose] collects the file on the way out.
+  void _discardPendingCapture() {
+    if (_pendingCapture == null) return;
+    Navigator.of(context).pop();
+  }
+
+  /// Removes a capture nobody will ever ask for. The camera plugins write
+  /// into the app cache and nothing else collects it, so an unconfirmed
+  /// take would otherwise sit there at full size until the OS reclaims it.
+  Future<void> _deleteCapture(CameraCaptureResult capture) async {
+    try {
+      await File(capture.file.path).delete();
+    } on Object catch (error) {
+      // Routine: a test double or a platform that already moved the file.
+      uiDebugLog('CameraCapturePage', 'could not delete capture: $error');
     }
   }
 
@@ -622,34 +708,69 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
-    final l10n = _l10n;
-    final foreground = _foreground;
     return Scaffold(
       backgroundColor:
           theme.cameraCaptureBackgroundColor ??
           DefaultPalette.cameraCaptureBackground,
       body: SafeArea(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            _buildPreview(),
-            Positioned(
-              top: 8,
-              left: 8,
-              child: Semantics(
-                button: true,
-                label: l10n.close,
-                child: IconButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: Icon(Icons.close, color: foreground, size: 28),
-                ),
-              ),
+        child: _pendingCapture == null ? _buildViewfinder() : _buildReview(),
+      ),
+    );
+  }
+
+  /// The review step, plus the back-gesture contract that goes with it: on
+  /// this screen "back" means "shoot again", not "leave with the take
+  /// silently dropped on the floor".
+  Widget _buildReview() {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _retakePendingCapture();
+      },
+      child: CameraCaptureReview(
+        result: _pendingCapture!,
+        theme: widget.theme,
+        videoPreviewBuilder: widget.videoPreviewBuilder,
+        onSend: _sendPendingCapture,
+        onRetake: _retakePendingCapture,
+        onDiscard: _discardPendingCapture,
+      ),
+    );
+  }
+
+  Widget _buildViewfinder() {
+    final theme = widget.theme;
+    final l10n = _l10n;
+    final foreground = _foreground;
+    // Every slot is keyed and unconditional. A `Stack` matches children by
+    // position, so an overlay that comes and goes (the recording pill) used
+    // to shift the shutter one place down the list and rebuild its
+    // `GestureDetector` from scratch — mid-press, on any device with a
+    // single lens, which loses the release that ends the clip.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        KeyedSubtree(key: const ValueKey('preview'), child: _buildPreview()),
+        Positioned(
+          key: const ValueKey('close'),
+          top: 8,
+          left: 8,
+          child: Semantics(
+            button: true,
+            label: l10n.close,
+            child: IconButton(
+              onPressed: () => Navigator.of(context).pop(),
+              icon: Icon(Icons.close, color: foreground, size: 28),
             ),
-            if (_cameras.length > 1 && !_recordingGate.isRecording)
-              Positioned(
-                top: 8,
-                right: 8,
-                child: Semantics(
+          ),
+        ),
+        Positioned(
+          key: const ValueKey('flip'),
+          top: 8,
+          right: 8,
+          child: _cameras.length > 1 && !_recordingGate.isRecording
+              ? Semantics(
                   button: true,
                   enabled: _canSwitchCamera,
                   label: l10n.switchCamera,
@@ -663,14 +784,16 @@ class _CameraCapturePageState extends State<CameraCapturePage>
                       size: 28,
                     ),
                   ),
-                ),
-              ),
-            if (_recordingGate.isRecording)
-              Positioned(
-                top: 16,
-                left: 0,
-                right: 0,
-                child: Center(
+                )
+              : const SizedBox.shrink(),
+        ),
+        Positioned(
+          key: const ValueKey('recordingPill'),
+          top: 16,
+          left: 0,
+          right: 0,
+          child: _recordingGate.isRecording
+              ? Center(
                   child: Container(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
@@ -699,53 +822,53 @@ class _CameraCapturePageState extends State<CameraCapturePage>
                       ],
                     ),
                   ),
-                ),
-              ),
-            Positioned(
-              bottom: 32,
-              left: 0,
-              right: 0,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_interruptionNotice != null && _error == null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color:
-                              theme.cameraCaptureOverlayColor ??
-                              DefaultPalette.cameraCaptureOverlay,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          _interruptionNotice!,
-                          textAlign: TextAlign.center,
-                          style: _hintStyle(emphasis: true),
-                        ),
-                      ),
-                    ),
-                  if (_error == null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(
-                        _recordingGate.isRecording
-                            ? l10n.cameraRecordingHint
-                            : l10n.cameraTapForPhoto,
-                        style: _hintStyle(),
-                      ),
-                    ),
-                  _buildCaptureButton(),
-                ],
-              ),
-            ),
-          ],
+                )
+              : const SizedBox.shrink(),
         ),
-      ),
+        Positioned(
+          key: const ValueKey('controls'),
+          bottom: 32,
+          left: 0,
+          right: 0,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_interruptionNotice != null && _error == null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color:
+                          theme.cameraCaptureOverlayColor ??
+                          DefaultPalette.cameraCaptureOverlay,
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Text(
+                      _interruptionNotice!,
+                      textAlign: TextAlign.center,
+                      style: _hintStyle(emphasis: true),
+                    ),
+                  ),
+                ),
+              if (_error == null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: Text(
+                    _recordingGate.isRecording
+                        ? l10n.cameraRecordingHint
+                        : l10n.cameraTapForPhoto,
+                    style: _hintStyle(),
+                  ),
+                ),
+              _buildCaptureButton(),
+            ],
+          ),
+        ),
+      ],
     );
   }
 

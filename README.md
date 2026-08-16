@@ -140,10 +140,11 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
   X that aborts the transfer mid-flight and removes the provisional bubble,
   wired by default; the retry arrow shows only after a genuine failure
 - Built-in camera screen wired by default — tap the shutter for a photo,
-  hold it to record a clip, pinch to zoom, flip the lens; EXIF is stripped
-  and the capture is sent without leaving the chat. Override the whole flow
-  with `ChatViewCallbacks.onPickCamera`, or push `CameraCapturePage.show()`
-  yourself and keep the result
+  hold it to record a clip, pinch to zoom, flip the lens; every capture then
+  lands on a WhatsApp-style review step (send / retake / discard) and only a
+  confirmed one is sent, EXIF stripped, without leaving the chat. Override
+  the whole flow with `ChatViewCallbacks.onPickCamera`, or push
+  `CameraCapturePage.show()` yourself and keep the result
 - Attachment picker rejections (too large, wrong type, unreadable) surface
   via `onRejected` instead of a silent drop
 - Voice recording with lock-to-record gesture
@@ -226,7 +227,7 @@ See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+
 
 | Feature | Status | Notes |
 |---|---|---|
-| In-app camera (`CameraCapturePage`) | **Production** on Android / iOS · Limited elsewhere | Tap the shutter for a photo, hold it to record a clip; pinch to zoom, flip lens, permission recovery via Settings. On desktop and web the composer's Camera row falls back to `image_picker`'s system camera (stills only) — `PlatformSupport.supportsInAppCameraCapture`. |
+| In-app camera (`CameraCapturePage`) | **Production** on Android / iOS · Limited elsewhere | Tap the shutter for a photo, hold it to record a clip, then confirm on the review step (full-screen still or playable clip, send / retake / discard); pinch to zoom, flip lens, permission recovery via Settings. On desktop and web the composer's Camera row falls back to `image_picker`'s system camera (stills only) — `PlatformSupport.supportsInAppCameraCapture`. |
 | Video poster frames (`VideoThumbnailer`) | **Production** on Android / iOS · Limited elsewhere | Sending a video generates a preview frame and uploads it as a second small blob, so the bubble shows a real still instead of a grey placeholder. The backend never transcodes, so the sender is the only place this can happen. Off on desktop (no plugin implementation) and on web (the extractor needs a file path, which web has no equivalent of, and every attachment URL needs a Bearer token) — `PlatformSupport.supportsVideoThumbnails`. Where it is off, and for videos sent before it existed, the bubble keeps the placeholder + play button. |
 
 ### ⚠️ Android: adopting `noma_chat` makes your app camera-required on Google Play

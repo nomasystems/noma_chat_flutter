@@ -32,8 +32,9 @@ part 'chat_theme.freezed.dart';
 ///
 /// Everything else (background, avatar, presence dots, audio, video,
 /// file, link preview, location, banners, reaction picker, context menus,
-/// scroll-to-bottom, attachment picker, image viewer…) lives as flat
-/// fields on [ChatTheme] itself.
+/// scroll-to-bottom, attachment picker, image viewer, media gallery,
+/// camera capture, message search…) lives as flat fields on [ChatTheme]
+/// itself.
 ///
 /// ## Picking a starting point
 ///
@@ -111,6 +112,13 @@ abstract class ChatTheme with _$ChatTheme {
     Color? videoPlayIconColor,
     Color? videoPlayIconBackgroundColor,
     Color? videoPlaceholderIconColor,
+
+    /// Ceiling on the height of a video bubble's poster frame. The frame is
+    /// painted at the clip's own aspect ratio, scaled down to fit the bubble
+    /// width and this height — it is a maximum, not a fixed height, so a
+    /// portrait clip is no longer cropped into a landscape strip. Defaults to
+    /// 250, matching [imageMaxHeight]'s default, so a clip and a photo of the
+    /// same shape take the same room.
     double? videoHeight,
     Color? videoPlaceholderColor,
     BorderRadius? videoBorderRadius,
@@ -177,6 +185,16 @@ abstract class ChatTheme with _$ChatTheme {
     /// [RoomDefaults.cameraShutterSize].
     double? cameraCaptureShutterSize,
 
+    /// Fill of the "send this shot" button on the capture-review step —
+    /// the confirmation the shutter lands on before anything is sent.
+    /// Falls back to [DefaultPalette.cameraCaptureSendButton].
+    Color? cameraCaptureSendButtonColor,
+
+    /// Style of the review step's Retake label. Falls back to
+    /// [cameraCaptureHintStyle], and then to the same white-on-black the
+    /// rest of the capture screen uses.
+    TextStyle? cameraCaptureReviewActionStyle,
+
     // Presence dots
     Color? presenceAvailableColor,
     Color? presenceAwayColor,
@@ -190,6 +208,79 @@ abstract class ChatTheme with _$ChatTheme {
     Color? galleryAppBarBackgroundColor,
     Color? galleryAppBarForegroundColor,
     Color? galleryTabIndicatorColor,
+
+    /// Surface behind the gallery's media / documents / links tabs. Falls
+    /// back to [galleryAppBarBackgroundColor], and only then to the
+    /// `Scaffold` default.
+    ///
+    /// Deliberately **not** [backgroundColor]: that one is the chat
+    /// wallpaper, which hosts routinely tint (WhatsApp-style) and which
+    /// reads as a stray grey panel once it sits behind a plain tabbed list
+    /// instead of behind bubbles.
+    Color? galleryBackgroundColor,
+
+    // In-room message search (`MessageSearchView`). The host owns the
+    // `Scaffold` / `AppBar` around the view, so these slots cover only
+    // what the SDK paints: the surface, the query field and the results.
+    // Every one of them is `null` by default and falls back to the look
+    // the widget had before they existed.
+    /// Surface painted behind the search field and the result list. Falls
+    /// back to transparent, i.e. the host `Scaffold`'s own background.
+    ///
+    /// Deliberately **not** [backgroundColor]: that one is the chat
+    /// wallpaper, same reasoning as [galleryBackgroundColor].
+    Color? messageSearchBackgroundColor,
+
+    /// Fill of the query field. When non-`null` the field is rendered
+    /// filled; when `null` it keeps the unfilled outlined treatment.
+    Color? messageSearchFieldFillColor,
+
+    /// Style of the text the user types into the query field.
+    TextStyle? messageSearchFieldTextStyle,
+
+    /// Style of the query field's placeholder
+    /// ([ChatUiLocalizations.searchMessages]).
+    TextStyle? messageSearchFieldHintStyle,
+
+    /// Caret colour inside the query field. Falls back to the ambient
+    /// Material `TextSelectionTheme`.
+    Color? messageSearchFieldCursorColor,
+
+    /// Colour of the query field's outline in every state (idle, focused,
+    /// disabled). Falls back to the ambient Material input decoration.
+    Color? messageSearchFieldBorderColor,
+
+    /// Corner radius of the query field's outline. Falls back to the
+    /// square-ish Material `OutlineInputBorder` default.
+    BorderRadius? messageSearchFieldBorderRadius,
+
+    /// Tint of the leading magnifier and of the trailing clear button.
+    /// Falls back to the ambient icon theme.
+    Color? messageSearchFieldIconColor,
+
+    /// Style of a result row's top line — the sender's display name.
+    TextStyle? messageSearchResultTitleStyle,
+
+    /// Style of a result row's message snippet, for the portions that do
+    /// **not** match the query.
+    TextStyle? messageSearchResultSnippetStyle,
+
+    /// Style of the matched substrings inside a result snippet. Falls back
+    /// to [messageSearchResultSnippetStyle] made bold, so theming only the
+    /// snippet still yields a legible highlight.
+    TextStyle? messageSearchResultHighlightStyle,
+
+    /// Style of a result row's trailing timestamp.
+    TextStyle? messageSearchResultTimestampStyle,
+
+    /// Style of the "no results" copy. Falls back to
+    /// [emptyStateTitleStyle], keeping search aligned with every other
+    /// empty surface in the SDK unless it is themed apart.
+    TextStyle? messageSearchEmptyTextStyle,
+
+    /// Tint of the spinner shown while the first page of results is in
+    /// flight. Falls back to [ChatInputTheme.sendButtonColor].
+    Color? messageSearchProgressColor,
   }) = _ChatTheme;
 
   /// Empty defaults — every slot is `null` and falls back to the
@@ -284,6 +375,44 @@ abstract class ChatTheme with _$ChatTheme {
       presenceAwayColor: Color(0xFFFFB300),
       presenceBusyColor: Color(0xFFE53935),
       presenceDndColor: Color(0xFFE53935),
+      // Search is a plain page, not the chat: it takes the surface colour,
+      // never the wallpaper. Everything else borrows the room list's
+      // typography, which is the closest thing to it on screen — a list of
+      // name + preview + timestamp rows.
+      messageSearchBackgroundColor: surfaceLight,
+      messageSearchFieldFillColor: surfaceMuted,
+      messageSearchFieldTextStyle: TextStyle(color: textPrimary, fontSize: 14),
+      messageSearchFieldHintStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 14,
+      ),
+      messageSearchFieldCursorColor: accentGreen,
+      messageSearchFieldBorderColor: Color(0xFFE0E0E0),
+      messageSearchFieldBorderRadius: BorderRadius.all(Radius.circular(12)),
+      messageSearchFieldIconColor: textSecondary,
+      messageSearchResultTitleStyle: TextStyle(
+        color: textPrimary,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
+      messageSearchResultSnippetStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 14,
+      ),
+      messageSearchResultHighlightStyle: TextStyle(
+        color: textPrimary,
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
+      messageSearchResultTimestampStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 12,
+      ),
+      messageSearchEmptyTextStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 16,
+      ),
+      messageSearchProgressColor: accentGreen,
     );
   }
 
@@ -373,6 +502,44 @@ abstract class ChatTheme with _$ChatTheme {
       audioListenedIconColor: accentBlue,
       audioUnlistenedIconColor: Color(0xFFB0BEC5),
       linkPreviewBackgroundColor: surfaceInput,
+      // Same reading as the light preset: the page surface, the composer's
+      // fill for the query field, room-list typography for the rows. The
+      // outline is a shade lighter than the fill so the field still has an
+      // edge on a dark surface.
+      messageSearchBackgroundColor: surfaceDark,
+      messageSearchFieldFillColor: Color(0xFF37474F),
+      messageSearchFieldTextStyle: TextStyle(color: textPrimary, fontSize: 14),
+      messageSearchFieldHintStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 14,
+      ),
+      messageSearchFieldCursorColor: accentTeal,
+      messageSearchFieldBorderColor: Color(0xFF455A64),
+      messageSearchFieldBorderRadius: BorderRadius.all(Radius.circular(12)),
+      messageSearchFieldIconColor: textSecondary,
+      messageSearchResultTitleStyle: TextStyle(
+        color: textPrimary,
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+      ),
+      messageSearchResultSnippetStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 14,
+      ),
+      messageSearchResultHighlightStyle: TextStyle(
+        color: textPrimary,
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
+      messageSearchResultTimestampStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 12,
+      ),
+      messageSearchEmptyTextStyle: TextStyle(
+        color: textSecondary,
+        fontSize: 16,
+      ),
+      messageSearchProgressColor: accentTeal,
     );
   }
 
@@ -423,6 +590,19 @@ abstract class ChatTheme with _$ChatTheme {
       audioListenedIconColor: accent,
       audioSeekBarActiveColor: accent,
       reactionSelectedBorderColor: accent,
+      // Only the accent-carrying slots of the search screen. Its surfaces
+      // and body text stay unthemed on purpose, exactly like the rest of
+      // this factory: a brand colour is a tint, not a palette, and the
+      // fallback chain already lands on the ambient look.
+      messageSearchFieldCursorColor: accent,
+      // 13 is the size of the snippet this span sits inside; leaving it out
+      // would let the match jump to the ambient body size mid-sentence.
+      messageSearchResultHighlightStyle: TextStyle(
+        color: accent,
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+      ),
+      messageSearchProgressColor: accent,
     );
   }
 
@@ -494,6 +674,48 @@ abstract class ChatTheme with _$ChatTheme {
       fontSize: 16,
       fontWeight: FontWeight.bold,
     ),
+    // Search follows the same rules as every other surface here: pure
+    // black on pure white, 16px+ text, a border that is actually visible.
+    // The radius is left unset so the field keeps the square 4px outline
+    // the rest of this preset implies.
+    messageSearchBackgroundColor: Color(0xFFFFFFFF),
+    messageSearchFieldFillColor: Color(0xFFFFFFFF),
+    messageSearchFieldTextStyle: TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 18,
+    ),
+    messageSearchFieldHintStyle: TextStyle(
+      color: Color(0xFF424242),
+      fontSize: 18,
+    ),
+    messageSearchFieldCursorColor: Color(0xFF000000),
+    messageSearchFieldBorderColor: Color(0xFF000000),
+    messageSearchFieldIconColor: Color(0xFF000000),
+    messageSearchResultTitleStyle: TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 18,
+      fontWeight: FontWeight.bold,
+    ),
+    messageSearchResultSnippetStyle: TextStyle(
+      color: Color(0xFF424242),
+      fontSize: 16,
+    ),
+    messageSearchResultHighlightStyle: TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 16,
+      fontWeight: FontWeight.bold,
+    ),
+    messageSearchResultTimestampStyle: TextStyle(
+      color: Color(0xFF424242),
+      fontSize: 16,
+      fontWeight: FontWeight.w500,
+    ),
+    messageSearchEmptyTextStyle: TextStyle(
+      color: Color(0xFF000000),
+      fontSize: 18,
+      fontWeight: FontWeight.bold,
+    ),
+    messageSearchProgressColor: Color(0xFF000000),
   );
 }
 

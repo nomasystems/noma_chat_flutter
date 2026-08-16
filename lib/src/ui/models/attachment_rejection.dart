@@ -8,7 +8,10 @@ enum AttachmentRejectReason {
   tooLarge,
 
   /// The file's mime type isn't in the active [AttachmentPolicy]'s
-  /// whitelist.
+  /// whitelist, **or** its extension is on [AttachmentPolicy.deniedExtensions]
+  /// (an OS-executable dropper by default) — the two are reported under the
+  /// same reason since both mean "this file's type may not be sent here";
+  /// see [AttachmentRejection.fromPolicyViolation].
   mimeNotAllowed,
 
   /// The picked file's bytes could not be read (plugin/platform error) —
@@ -54,6 +57,16 @@ class AttachmentRejection {
   final String message;
 
   /// Builds the rejection for an [AttachmentPolicyViolation].
+  ///
+  /// [AttachmentPolicyViolationKind.extensionDenied] reuses
+  /// [AttachmentRejectReason.mimeNotAllowed] rather than a reason of its
+  /// own: both describe "this file's type may not be sent here", and every
+  /// [AttachmentRejectReason] switch in the SDK (and in host apps) is
+  /// written as an exhaustive 3-case match, so this keeps a dangerous-
+  /// extension rejection a drop-in replacement for a mime rejection instead
+  /// of a breaking addition. [message] still names the extension so a host
+  /// reading it directly (rather than switching on [reason]) can tell the
+  /// two apart.
   factory AttachmentRejection.fromPolicyViolation(
     AttachmentPolicyViolation violation, {
     String? fileName,
@@ -74,6 +87,13 @@ class AttachmentRejection {
       mimeType: violation.mimeType,
       reason: AttachmentRejectReason.mimeNotAllowed,
       message: 'File type "${violation.mimeType}" is not allowed.',
+    ),
+    AttachmentPolicyViolationKind.extensionDenied => AttachmentRejection(
+      fileName: fileName,
+      sizeBytes: sizeBytes,
+      mimeType: violation.mimeType,
+      reason: AttachmentRejectReason.mimeNotAllowed,
+      message: 'File type ".${violation.extension}" cannot be sent.',
     ),
   };
 

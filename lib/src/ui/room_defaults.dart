@@ -70,11 +70,14 @@ abstract final class RoomDefaults {
   static const double cameraShutterSize = 84;
 
   /// Longest edge, in pixels, of the poster frame generated for an
-  /// outgoing video. 480 covers the widest bubble on a 3x phone at the
-  /// ~180px height `ChatTheme.videoHeight` defaults to, and keeps the
-  /// extra blob in the tens of kilobytes so it never competes with the
-  /// clip itself for upload bandwidth.
-  static const int videoThumbnailMaxWidth = 480;
+  /// outgoing video. 720 covers the tallest bubble a portrait clip can now
+  /// claim — `VideoBubble` paints the frame at the clip's own aspect ratio
+  /// capped at `ChatTheme.videoHeight` (250 by default), so the long edge is
+  /// the *height* for anything portrait, which 480 left visibly soft on a
+  /// dense screen. Still tens of kilobytes at
+  /// [videoThumbnailQuality], so it never competes with the clip itself for
+  /// upload bandwidth.
+  static const int videoThumbnailMaxWidth = 720;
 
   /// JPEG quality (0-100) for that poster frame. Matches
   /// [avatarPickerCompressQuality]: visually indistinguishable at bubble

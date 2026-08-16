@@ -61,4 +61,10 @@ abstract final class DefaultPalette {
   /// Translucent backing behind the camera screen's advisory notice, so the
   /// text stays readable over a bright preview.
   static const Color cameraCaptureOverlay = Color(0x99000000);
+
+  /// Fill of the "send this shot" button on the capture-review step. The
+  /// same green [uploadProgressColor] and `ChatTheme.lightPreset()` use for
+  /// the composer's send button, so confirming a capture reads as the same
+  /// action it continues into.
+  static const Color cameraCaptureSendButton = Color(0xFF25D366);
 }
