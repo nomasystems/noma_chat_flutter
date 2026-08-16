@@ -314,20 +314,60 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
           indicatorColor: theme.galleryTabIndicatorColor,
           labelColor: theme.galleryAppBarForegroundColor,
           tabs: [
-            Tab(text: l10n.galleryMediaTab),
-            Tab(text: l10n.galleryDocsTab),
-            Tab(text: l10n.galleryLinksTab),
+            Tab(
+              key: const ValueKey('chat_gallery_media_tab'),
+              child: Semantics(
+                identifier: 'chat_gallery_media_tab',
+                child: Text(
+                  l10n.galleryMediaTab,
+                  softWrap: false,
+                  overflow: TextOverflow.fade,
+                ),
+              ),
+            ),
+            Tab(
+              key: const ValueKey('chat_gallery_docs_tab'),
+              child: Semantics(
+                identifier: 'chat_gallery_docs_tab',
+                child: Text(
+                  l10n.galleryDocsTab,
+                  softWrap: false,
+                  overflow: TextOverflow.fade,
+                ),
+              ),
+            ),
+            Tab(
+              key: const ValueKey('chat_gallery_links_tab'),
+              child: Semantics(
+                identifier: 'chat_gallery_links_tab',
+                child: Text(
+                  l10n.galleryLinksTab,
+                  softWrap: false,
+                  overflow: TextOverflow.fade,
+                ),
+              ),
+            ),
           ],
         ),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? Center(
+              key: const ValueKey('chat_gallery_loading'),
+              child: Semantics(
+                identifier: 'chat_gallery_loading',
+                child: const CircularProgressIndicator(),
+              ),
+            )
           : _errorMessage != null
-          ? EmptyState(
-              icon: Icons.error_outline,
-              title: l10n.connectionError,
-              subtitle: _errorMessage,
-              theme: widget.theme,
+          ? Semantics(
+              identifier: 'chat_gallery_error',
+              child: EmptyState(
+                key: const ValueKey('chat_gallery_error'),
+                icon: Icons.error_outline,
+                title: l10n.connectionError,
+                subtitle: _errorMessage,
+                theme: widget.theme,
+              ),
             )
           : TabBarView(
               controller: _tabController,
@@ -378,10 +418,14 @@ class _DocsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (items.isEmpty) {
-      return EmptyState(
-        icon: Icons.insert_drive_file_outlined,
-        title: theme.l10nOf(context).galleryNoDocs,
-        theme: theme,
+      return Semantics(
+        identifier: 'chat_gallery_docs_empty',
+        child: EmptyState(
+          key: const ValueKey('chat_gallery_docs_empty'),
+          icon: Icons.insert_drive_file_outlined,
+          title: theme.l10nOf(context).galleryNoDocs,
+          theme: theme,
+        ),
       );
     }
     return DocsListView(
@@ -411,10 +455,14 @@ class _LinksTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final links = LinksListView.extract(messages);
     if (links.isEmpty) {
-      return EmptyState(
-        icon: Icons.link_off,
-        title: theme.l10nOf(context).galleryNoLinks,
-        theme: theme,
+      return Semantics(
+        identifier: 'chat_gallery_links_empty',
+        child: EmptyState(
+          key: const ValueKey('chat_gallery_links_empty'),
+          icon: Icons.link_off,
+          title: theme.l10nOf(context).galleryNoLinks,
+          theme: theme,
+        ),
       );
     }
     return LinksListView.fromLinks(

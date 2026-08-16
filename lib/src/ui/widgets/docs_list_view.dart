@@ -5,6 +5,12 @@ import '../utils/date_formatter.dart';
 import 'empty_state.dart';
 import 'media_gallery_view.dart';
 
+/// Instrumentation id of the row rendering [item] in [DocsListView]. Built on
+/// [attachmentSemanticsId], so it carries exactly the identity the tile's
+/// reconciliation key already carried.
+String docRowSemanticsId(MediaItem item) =>
+    'chat_gallery_doc_${attachmentSemanticsId(item)}';
+
 /// Displays a list of document attachments (PDFs, docs, spreadsheets, archives,
 /// generic files). Audio attachments are excluded by default to mirror
 /// WhatsApp's "Docs" tab behaviour.
@@ -63,10 +69,14 @@ class DocsListView extends StatelessWidget {
     }).toList();
 
     if (visible.isEmpty) {
-      return EmptyState(
-        icon: Icons.insert_drive_file_outlined,
-        title: theme.l10nOf(context).galleryNoDocs,
-        theme: theme,
+      return Semantics(
+        identifier: 'chat_gallery_docs_empty',
+        child: EmptyState(
+          key: const ValueKey('chat_gallery_docs_empty'),
+          icon: Icons.insert_drive_file_outlined,
+          title: theme.l10nOf(context).galleryNoDocs,
+          theme: theme,
+        ),
       );
     }
 
@@ -98,30 +108,34 @@ class DocsListView extends StatelessWidget {
             subtitleParts.add(resolved);
           }
         }
-        return ListTile(
-          // Stable identity per attachment so Flutter doesn't reuse
-          // tile state across docs when the gallery refreshes. Files
-          // dedupe by url + sender + timestamp (MediaItem has no id).
-          key: ValueKey('${item.url}-${item.senderId}-${item.timestamp}'),
-          leading: CircleAvatar(
-            backgroundColor: Colors.grey.shade200,
-            foregroundColor: iconColor,
-            child: Icon(_iconFor(item.mimeType)),
+        final rowId = docRowSemanticsId(item);
+        return Semantics(
+          identifier: rowId,
+          child: ListTile(
+            // Stable identity per attachment so Flutter doesn't reuse
+            // tile state across docs when the gallery refreshes. Files
+            // dedupe by url + sender + timestamp (MediaItem has no id).
+            key: ValueKey(rowId),
+            leading: CircleAvatar(
+              backgroundColor: Colors.grey.shade200,
+              foregroundColor: iconColor,
+              child: Icon(_iconFor(item.mimeType)),
+            ),
+            title: Text(
+              item.fileName ?? theme.l10nOf(context).file,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: subtitleParts.isEmpty
+                ? null
+                : Text(
+                    subtitleParts.join(' · '),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  ),
+            onTap: onTapItem != null ? () => onTapItem!(item) : null,
           ),
-          title: Text(
-            item.fileName ?? theme.l10nOf(context).file,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: subtitleParts.isEmpty
-              ? null
-              : Text(
-                  subtitleParts.join(' · '),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
-                ),
-          onTap: onTapItem != null ? () => onTapItem!(item) : null,
         );
       },
     );

@@ -179,11 +179,13 @@ class _CameraVideoPreviewState extends State<CameraVideoPreview> {
     }
     final isPlaying = controller.value.isPlaying;
     return Semantics(
+      identifier: 'chat_camera_review_play',
       button: true,
       label: isPlaying ? l10n.pausePreview : l10n.playPreview,
       onTap: _togglePlayback,
       child: ExcludeSemantics(
         child: GestureDetector(
+          key: const ValueKey('chat_camera_review_play'),
           behavior: HitTestBehavior.opaque,
           onTap: _togglePlayback,
           child: Stack(

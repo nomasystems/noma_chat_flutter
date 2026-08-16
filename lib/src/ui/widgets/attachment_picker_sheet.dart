@@ -16,11 +16,20 @@ class AttachmentSheetOption {
     this.iconColor,
     this.circleColor,
     this.previewBuilder,
+    this.identifier,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+
+  /// Names this row for automation: it becomes both the row's `ValueKey` and
+  /// its `Semantics.identifier`, so a test or a native driver can point at
+  /// exactly this option regardless of the locale [label] renders in. `null`
+  /// falls back to `chat_attachment_option_extra_<position>`, which is stable
+  /// only as long as the host keeps [AttachmentPickerSheet.extraOptions] in
+  /// the same order — pass a name of your own when that is not guaranteed.
+  final String? identifier;
 
   /// Overrides the theme's `attachmentPickerIconColor` for this row only.
   final Color? iconColor;
@@ -127,58 +136,71 @@ class AttachmentPickerSheet extends StatelessWidget {
           icon: Icons.camera_alt,
           label: cameraLabel,
           onTap: onPickCamera!,
+          identifier: 'chat_attachment_option_camera',
         ),
       if (onPickGallery != null)
         AttachmentSheetOption(
           icon: Icons.photo_library,
           label: galleryLabel,
           onTap: onPickGallery!,
+          identifier: 'chat_attachment_option_gallery',
         ),
       if (onPickFile != null)
         AttachmentSheetOption(
           icon: Icons.insert_drive_file,
           label: fileLabel,
           onTap: onPickFile!,
+          identifier: 'chat_attachment_option_file',
         ),
       if (onShareLocation != null)
         AttachmentSheetOption(
           icon: Icons.location_on,
           label: locationLabel,
           onTap: onShareLocation!,
+          identifier: 'chat_attachment_option_location',
         ),
     ];
     final all = [...builtIn, ...extraOptions];
 
-    return SafeArea(
-      child: SizedBox(
-        width: double.infinity,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-          child: Wrap(
-            alignment: WrapAlignment.spaceEvenly,
-            spacing: 16,
-            runSpacing: 20,
-            children: [
-              for (final o in all)
-                _PickerOption(
-                  icon: o.icon,
-                  label: o.label,
-                  circleColor:
-                      o.circleColor ?? theme.attachmentPickerCircleColor,
-                  iconColor: o.iconColor ?? theme.attachmentPickerIconColor,
-                  labelStyle: theme.attachmentPickerLabelStyle,
-                  previewBuilder: o.previewBuilder,
-                  onTap: () {
-                    Navigator.pop(context);
-                    o.onTap();
-                  },
-                ),
-            ],
+    return Semantics(
+      identifier: 'chat_attachment_sheet',
+      child: SafeArea(
+        key: const ValueKey('chat_attachment_sheet'),
+        child: SizedBox(
+          width: double.infinity,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+            child: Wrap(
+              alignment: WrapAlignment.spaceEvenly,
+              spacing: 16,
+              runSpacing: 20,
+              children: [
+                for (final (index, o) in all.indexed)
+                  _PickerOption(
+                    key: ValueKey(_optionId(o, index - builtIn.length)),
+                    identifier: _optionId(o, index - builtIn.length),
+                    icon: o.icon,
+                    label: o.label,
+                    circleColor:
+                        o.circleColor ?? theme.attachmentPickerCircleColor,
+                    iconColor: o.iconColor ?? theme.attachmentPickerIconColor,
+                    labelStyle: theme.attachmentPickerLabelStyle,
+                    previewBuilder: o.previewBuilder,
+                    onTap: () {
+                      Navigator.pop(context);
+                      o.onTap();
+                    },
+                  ),
+              ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  static String _optionId(AttachmentSheetOption option, int extraIndex) =>
+      option.identifier ?? 'chat_attachment_option_extra_$extraIndex';
 }
 
 class _PickerOption extends StatelessWidget {
@@ -186,6 +208,8 @@ class _PickerOption extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    required this.identifier,
+    super.key,
     this.circleColor,
     this.iconColor,
     this.labelStyle,
@@ -195,6 +219,7 @@ class _PickerOption extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final String identifier;
   final Color? circleColor;
   final Color? iconColor;
   final TextStyle? labelStyle;
@@ -203,27 +228,30 @@ class _PickerOption extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final builder = previewBuilder;
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 56,
-            height: 56,
-            child: builder != null
-                ? builder(context)
-                : Container(
-                    decoration: BoxDecoration(
-                      color: circleColor ?? Colors.grey.shade200,
-                      shape: BoxShape.circle,
+    return Semantics(
+      identifier: identifier,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 56,
+              height: 56,
+              child: builder != null
+                  ? builder(context)
+                  : Container(
+                      decoration: BoxDecoration(
+                        color: circleColor ?? Colors.grey.shade200,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(icon, size: 28, color: iconColor),
                     ),
-                    child: Icon(icon, size: 28, color: iconColor),
-                  ),
-          ),
-          const SizedBox(height: 8),
-          Text(label, style: labelStyle ?? const TextStyle(fontSize: 12)),
-        ],
+            ),
+            const SizedBox(height: 8),
+            Text(label, style: labelStyle ?? const TextStyle(fontSize: 12)),
+          ],
+        ),
       ),
     );
   }

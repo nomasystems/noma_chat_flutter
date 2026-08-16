@@ -39,6 +39,8 @@ class ReactionBar extends StatelessWidget {
         }
 
         return Semantics(
+          key: ValueKey('chat_reaction_${entry.key}'),
+          identifier: 'chat_reaction_${entry.key}',
           label: '${entry.key} ${entry.value}',
           button: true,
           // `onTap` re-declared here (not just relied on via the child

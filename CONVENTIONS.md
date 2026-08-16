@@ -404,3 +404,57 @@ The test must never `expect(result, isNotNull)` on individual random
 inputs — only `returnsNormally`. Parsers return `null` for unrecognised
 payloads by design. See `test/sdk/fuzz/event_parser_fuzz_test.dart` for
 a complete reference.
+
+### 10.11 Test identifiers — one name, published twice
+
+Anything a test or an automation driver has to point at (a button, a field,
+a row, a loading/empty/error state) carries a name, and that **same literal**
+is published in two places:
+
+```dart
+Semantics(
+  identifier: 'chat_send_button',
+  child: IconButton(key: const ValueKey('chat_send_button'), …),
+)
+```
+
+Both halves are required because they are read from opposite sides. The
+`ValueKey` is what works **inside** the app — `find.byKey` in a widget test,
+an `integration_test`, the VM Service. The `Semantics(identifier:)` is what
+works **outside** it — Flutter maps it to `resource-id` in an Android
+UiAutomator dump and to `accessibilityIdentifier` for XCUITest / idb. Ship
+one half and the element is unreachable from the other side; ship two
+different strings and every harness needs a translation table.
+
+Naming: `<area>_<element>_<kind>`, lower snake case, English, under the
+`chat_` scope prefix — `chat_message_input`, `chat_gallery_media_tab`,
+`chat_camera_review_send`. Elements of a collection interpolate their own
+id rather than an index (`chat_message_$messageId`,
+`chat_starred_item_$messageId`, `chat_gallery_doc_$attachmentId`), and when
+the two halves are built in different files the name comes from one shared
+helper (`docRowSemanticsId`, `searchResultSemanticsId`) so a mismatch is not
+expressible.
+
+Accessibility outranks instrumentation, always:
+
+* Never nest a `Semantics` inside another. If the widget already has one,
+  add the `identifier:` parameter to the existing node.
+* Never degrade what is already there — a `label`, `hint`, `button`,
+  `enabled`, `excludeSemantics` or a custom action stays exactly as it was.
+  The identifier is a name, not a description: it is never a substitute for
+  a screen-reader label.
+* A node added purely to carry a name is bare — `identifier:` only, no
+  `container: true`, no `label`, no flags — so it merges into the node the
+  widget already publishes instead of creating a sibling that steals focus.
+
+Renaming a key that a list uses for reconciliation is allowed, but the new
+name must **wrap the identity the old one carried** (id, or the same tuple
+as before), never replace it with a positional one, and any code that parses
+the key back (`findChildIndexCallback`) is updated in the same change.
+
+A name is proven by a test that asserts on the **semantics tree**, not just
+the widget tree: `find.bySemanticsIdentifier(name)` (or
+`tester.getSemantics(...)` with `isSemantics(identifier: …, label: …)`) plus
+`find.byKey(ValueKey(name))`, under a `tester.ensureSemantics()` handle that
+`tearDown` disposes. Turning the semantics tree on in production is the
+host's decision — `ensureSemantics` never appears under `lib/`.

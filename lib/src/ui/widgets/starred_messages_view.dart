@@ -6,6 +6,16 @@ import '../adapter/chat_ui_adapter.dart';
 import '../theme/chat_theme.dart';
 import 'chat_room_options_menu.dart';
 
+/// Instrumentation id of the [StarredMessagesView] row bookmarking the message
+/// with id [messageId].
+String starredRowSemanticsId(String messageId) =>
+    'chat_starred_item_$messageId';
+
+/// Instrumentation id of the trailing unstar toggle on the [StarredMessagesView]
+/// row for [messageId].
+String starredUnstarSemanticsId(String messageId) =>
+    'chat_starred_unstar_$messageId';
+
 /// WhatsApp-style "Starred messages" list: the current user's bookmarked
 /// messages across every room, most recent first.
 ///
@@ -144,20 +154,30 @@ class _StarredMessagesViewState extends State<StarredMessagesView> {
       future: _future,
       builder: (context, snapshot) {
         if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
+          return Center(
+            key: const ValueKey('chat_starred_loading'),
+            child: Semantics(
+              identifier: 'chat_starred_loading',
+              child: const CircularProgressIndicator(),
+            ),
+          );
         }
         final items = (snapshot.data ?? const <StarredMessage>[])
             .where((s) => !_removed.contains(s.messageId))
             .toList();
         if (items.isEmpty) {
           return widget.emptyBuilder?.call(context) ??
-              Center(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Text(
-                    l10n.noStarredMessages,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Theme.of(context).hintColor),
+              Semantics(
+                identifier: 'chat_starred_empty',
+                child: Center(
+                  key: const ValueKey('chat_starred_empty'),
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Text(
+                      l10n.noStarredMessages,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Theme.of(context).hintColor),
+                    ),
                   ),
                 ),
               );
@@ -171,25 +191,35 @@ class _StarredMessagesViewState extends State<StarredMessagesView> {
             final room =
                 widget.roomTitleFor?.call(starred.roomId) ?? starred.roomId;
             final body = starred.preview ?? room;
-            return ListTile(
-              isThreeLine: false,
-              title: Text(body, maxLines: 2, overflow: TextOverflow.ellipsis),
-              subtitle: Text(
-                '$room  ·  ${df.format(starred.starredAt.toLocal())}',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+            final rowId = starredRowSemanticsId(starred.messageId);
+            final unstarId = starredUnstarSemanticsId(starred.messageId);
+            return Semantics(
+              identifier: rowId,
+              child: ListTile(
+                key: ValueKey(rowId),
+                isThreeLine: false,
+                title: Text(body, maxLines: 2, overflow: TextOverflow.ellipsis),
+                subtitle: Text(
+                  '$room  ·  ${df.format(starred.starredAt.toLocal())}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: widget.onUnstar == null
+                    ? null
+                    : Semantics(
+                        identifier: unstarId,
+                        child: IconButton(
+                          key: ValueKey(unstarId),
+                          icon: const Icon(Icons.star),
+                          color: Colors.amber,
+                          tooltip: l10n.unstar,
+                          onPressed: () => _confirmUnstar(starred),
+                        ),
+                      ),
+                onTap: widget.onOpen == null
+                    ? null
+                    : () => widget.onOpen!(starred),
               ),
-              trailing: widget.onUnstar == null
-                  ? null
-                  : IconButton(
-                      icon: const Icon(Icons.star),
-                      color: Colors.amber,
-                      tooltip: l10n.unstar,
-                      onPressed: () => _confirmUnstar(starred),
-                    ),
-              onTap: widget.onOpen == null
-                  ? null
-                  : () => widget.onOpen!(starred),
             );
           },
         );

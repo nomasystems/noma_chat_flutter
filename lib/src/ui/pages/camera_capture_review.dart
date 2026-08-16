@@ -87,11 +87,19 @@ class CameraCaptureReview extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        _buildMedia(context),
+        Semantics(
+          identifier: 'chat_camera_review_media',
+          child: KeyedSubtree(
+            key: const ValueKey('chat_camera_review_media'),
+            child: _buildMedia(context),
+          ),
+        ),
         Positioned(
+          key: const ValueKey('chat_camera_review_discard'),
           top: 8,
           left: 8,
           child: Semantics(
+            identifier: 'chat_camera_review_discard',
             button: true,
             label: l10n.cameraDiscard,
             child: IconButton(
@@ -107,16 +115,22 @@ class CameraCaptureReview extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              TextButton.icon(
-                onPressed: onRetake,
-                style: TextButton.styleFrom(foregroundColor: foreground),
-                icon: Icon(Icons.replay, color: foreground),
-                label: Text(l10n.cameraRetake, style: _actionStyle()),
+              Semantics(
+                identifier: 'chat_camera_review_retake',
+                child: TextButton.icon(
+                  key: const ValueKey('chat_camera_review_retake'),
+                  onPressed: onRetake,
+                  style: TextButton.styleFrom(foregroundColor: foreground),
+                  icon: Icon(Icons.replay, color: foreground),
+                  label: Text(l10n.cameraRetake, style: _actionStyle()),
+                ),
               ),
               Semantics(
+                identifier: 'chat_camera_review_send',
                 button: true,
                 label: l10n.send,
                 child: FilledButton(
+                  key: const ValueKey('chat_camera_review_send'),
                   onPressed: onSend,
                   style: FilledButton.styleFrom(
                     backgroundColor:

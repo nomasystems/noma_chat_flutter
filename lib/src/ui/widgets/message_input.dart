@@ -869,29 +869,34 @@ class _MessageInputState extends State<MessageInput> {
             const SizedBox(width: 16),
           ],
           Expanded(
-            child: TextField(
-              controller: _textController,
-              focusNode: _focusNode,
-              maxLines: widget.maxLines,
-              minLines: 1,
-              textCapitalization: TextCapitalization.sentences,
-              textAlignVertical: TextAlignVertical.center,
-              style: widget.theme.input.textStyle,
-              decoration: InputDecoration(
-                hintText: widget.theme.l10nOf(context).writeMessage,
-                hintStyle: widget.theme.input.hintStyle,
-                hintMaxLines: 1,
-                border: _composerBorder(),
-                enabledBorder: _composerBorder(),
-                focusedBorder: _composerBorder(),
-                disabledBorder: _composerBorder(),
-                filled: true,
-                fillColor: widget.theme.input.fillColor ?? Colors.grey.shade100,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
+            child: Semantics(
+              identifier: 'chat_message_input',
+              child: TextField(
+                key: const ValueKey('chat_message_input'),
+                controller: _textController,
+                focusNode: _focusNode,
+                maxLines: widget.maxLines,
+                minLines: 1,
+                textCapitalization: TextCapitalization.sentences,
+                textAlignVertical: TextAlignVertical.center,
+                style: widget.theme.input.textStyle,
+                decoration: InputDecoration(
+                  hintText: widget.theme.l10nOf(context).writeMessage,
+                  hintStyle: widget.theme.input.hintStyle,
+                  hintMaxLines: 1,
+                  border: _composerBorder(),
+                  enabledBorder: _composerBorder(),
+                  focusedBorder: _composerBorder(),
+                  disabledBorder: _composerBorder(),
+                  filled: true,
+                  fillColor:
+                      widget.theme.input.fillColor ?? Colors.grey.shade100,
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  isDense: true,
                 ),
-                isDense: true,
               ),
             ),
           ),
@@ -926,6 +931,8 @@ class _MessageInputState extends State<MessageInput> {
 
   Widget _buildSendButton() {
     return Semantics(
+      key: const ValueKey('chat_send_button'),
+      identifier: 'chat_send_button',
       label: widget.theme.l10nOf(context).send,
       button: true,
       enabled: _hasText,
@@ -965,6 +972,8 @@ class _MessageInputState extends State<MessageInput> {
 
   Widget _buildAttachButton() {
     return Semantics(
+      key: const ValueKey('chat_attach_button'),
+      identifier: 'chat_attach_button',
       label: widget.theme.l10nOf(context).gallery,
       button: true,
       child: GestureDetector(

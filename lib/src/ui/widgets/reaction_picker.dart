@@ -31,6 +31,8 @@ class ReactionPicker extends StatelessWidget {
           children: [
             ...reactions.map((emoji) {
               return Semantics(
+                key: ValueKey('chat_reaction_picker_$emoji'),
+                identifier: 'chat_reaction_picker_$emoji',
                 label: emoji,
                 button: true,
                 child: GestureDetector(
@@ -52,6 +54,8 @@ class ReactionPicker extends StatelessWidget {
             }),
             if (showExpandButton)
               Semantics(
+                key: const ValueKey('chat_reaction_picker_more'),
+                identifier: 'chat_reaction_picker_more',
                 label: theme.l10nOf(context).moreEmojis,
                 button: true,
                 child: GestureDetector(

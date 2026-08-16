@@ -6,6 +6,11 @@ import '../controller/message_search_controller.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
 
+/// Instrumentation id of the [MessageSearchView] row for the message with id
+/// [messageId].
+String searchResultSemanticsId(String messageId) =>
+    'chat_search_result_$messageId';
+
 /// Full-text search UI for messages within a room, with debounced input and result tapping.
 class MessageSearchView extends StatefulWidget {
   const MessageSearchView({
@@ -140,50 +145,58 @@ class _MessageSearchViewState extends State<MessageSearchView> {
           // Match the horizontal/vertical rhythm used by RoomSearchBar
           // so the chat-list and in-room search look identical.
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: TextField(
-            controller: _textController,
-            onChanged: _onQueryChanged,
-            style: theme.messageSearchFieldTextStyle,
-            cursorColor: theme.messageSearchFieldCursorColor,
-            // Outlined style aligned with RoomSearchBar + the host app's
-            // login / onboarding TextFields. Earlier "pill" treatment
-            // (filled + rounded 24 + borderSide.none) was inconsistent
-            // with the rest of the surface and felt out of place.
-            decoration: InputDecoration(
-              hintText: theme.l10nOf(context).searchMessages,
-              hintStyle: theme.messageSearchFieldHintStyle,
-              // `null`, not `false`: an explicit `false` overrides an
-              // ambient `InputDecorationTheme.filled: true` and strips the
-              // fill off a field the host's own theme fills everywhere else.
-              filled: fillColor != null ? true : null,
-              fillColor: fillColor,
-              prefixIcon: Icon(Icons.search, size: 20, color: iconColor),
-              suffixIcon: ValueListenableBuilder<TextEditingValue>(
-                valueListenable: _textController,
-                builder: (_, value, __) {
-                  if (value.text.isEmpty) return const SizedBox.shrink();
-                  return IconButton(
-                    icon: Icon(Icons.close, size: 18, color: iconColor),
-                    tooltip: theme.l10nOf(context).clearText,
-                    onPressed: () {
-                      _textController.clear();
-                      _onQueryChanged('');
-                    },
-                  );
-                },
+          child: Semantics(
+            identifier: 'chat_search_input',
+            child: TextField(
+              key: const ValueKey('chat_search_input'),
+              controller: _textController,
+              onChanged: _onQueryChanged,
+              style: theme.messageSearchFieldTextStyle,
+              cursorColor: theme.messageSearchFieldCursorColor,
+              // Outlined style aligned with RoomSearchBar + the host app's
+              // login / onboarding TextFields. Earlier "pill" treatment
+              // (filled + rounded 24 + borderSide.none) was inconsistent
+              // with the rest of the surface and felt out of place.
+              decoration: InputDecoration(
+                hintText: theme.l10nOf(context).searchMessages,
+                hintStyle: theme.messageSearchFieldHintStyle,
+                // `null`, not `false`: an explicit `false` overrides an
+                // ambient `InputDecorationTheme.filled: true` and strips the
+                // fill off a field the host's own theme fills everywhere else.
+                filled: fillColor != null ? true : null,
+                fillColor: fillColor,
+                prefixIcon: Icon(Icons.search, size: 20, color: iconColor),
+                suffixIcon: ValueListenableBuilder<TextEditingValue>(
+                  valueListenable: _textController,
+                  builder: (_, value, __) {
+                    if (value.text.isEmpty) return const SizedBox.shrink();
+                    return Semantics(
+                      identifier: 'chat_search_clear',
+                      child: IconButton(
+                        key: const ValueKey('chat_search_clear'),
+                        icon: Icon(Icons.close, size: 18, color: iconColor),
+                        tooltip: theme.l10nOf(context).clearText,
+                        onPressed: () {
+                          _textController.clear();
+                          _onQueryChanged('');
+                        },
+                      ),
+                    );
+                  },
+                ),
+                // The catch-all fallback `InputDecorator` reaches for whenever
+                // a more specific slot (enabled/focused/error/disabled) is
+                // left null — degraded above to the ambient border (radius
+                // stamped on top) unless the host themed a colour.
+                border: border,
+                enabledBorder: enabledBorder,
+                focusedBorder: focusedBorder,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                isDense: true,
               ),
-              // The catch-all fallback `InputDecorator` reaches for whenever
-              // a more specific slot (enabled/focused/error/disabled) is
-              // left null — degraded above to the ambient border (radius
-              // stamped on top) unless the host themed a colour.
-              border: border,
-              enabledBorder: enabledBorder,
-              focusedBorder: focusedBorder,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 10,
-              ),
-              isDense: true,
             ),
           ),
         ),
@@ -194,10 +207,14 @@ class _MessageSearchViewState extends State<MessageSearchView> {
               if (widget.controller.isLoading &&
                   widget.controller.results.isEmpty) {
                 return Center(
-                  child: CircularProgressIndicator(
-                    color:
-                        theme.messageSearchProgressColor ??
-                        theme.input.sendButtonColor,
+                  key: const ValueKey('chat_search_loading'),
+                  child: Semantics(
+                    identifier: 'chat_search_loading',
+                    child: CircularProgressIndicator(
+                      color:
+                          theme.messageSearchProgressColor ??
+                          theme.input.sendButtonColor,
+                    ),
                   ),
                 );
               }
@@ -206,12 +223,16 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                   widget.controller.results.isEmpty &&
                   !widget.controller.isLoading) {
                 return Center(
-                  child: Text(
-                    theme.l10nOf(context).noResults,
-                    style:
-                        theme.messageSearchEmptyTextStyle ??
-                        theme.emptyStateTitleStyle ??
-                        _defaultEmptyStyle,
+                  key: const ValueKey('chat_search_empty'),
+                  child: Semantics(
+                    identifier: 'chat_search_empty',
+                    child: Text(
+                      theme.l10nOf(context).noResults,
+                      style:
+                          theme.messageSearchEmptyTextStyle ??
+                          theme.emptyStateTitleStyle ??
+                          _defaultEmptyStyle,
+                    ),
                   ),
                 );
               }
@@ -248,35 +269,40 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                           todayLabel: theme.l10nOf(context).today,
                           yesterdayLabel: theme.l10nOf(context).yesterday,
                         );
-                  return ListTile(
-                    title: Text(
-                      senderName,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style:
-                          theme.messageSearchResultTitleStyle ??
-                          _defaultTitleStyle,
-                    ),
-                    subtitle: Text.rich(
-                      TextSpan(
-                        children: _highlightSpans(
-                          message.text ?? '',
-                          widget.controller.query,
-                          baseStyle: snippetStyle,
-                          matchStyle: highlightStyle,
-                        ),
+                  final rowId = searchResultSemanticsId(message.id);
+                  return Semantics(
+                    identifier: rowId,
+                    child: ListTile(
+                      key: ValueKey(rowId),
+                      title: Text(
+                        senderName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style:
+                            theme.messageSearchResultTitleStyle ??
+                            _defaultTitleStyle,
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                      subtitle: Text.rich(
+                        TextSpan(
+                          children: _highlightSpans(
+                            message.text ?? '',
+                            widget.controller.query,
+                            baseStyle: snippetStyle,
+                            matchStyle: highlightStyle,
+                          ),
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      trailing: Text(
+                        timeStr,
+                        style:
+                            theme.messageSearchResultTimestampStyle ??
+                            _defaultTimestampStyle,
+                      ),
+                      onTap: () =>
+                          widget.onMessageTap?.call(widget.roomId, message.id),
                     ),
-                    trailing: Text(
-                      timeStr,
-                      style:
-                          theme.messageSearchResultTimestampStyle ??
-                          _defaultTimestampStyle,
-                    ),
-                    onTap: () =>
-                        widget.onMessageTap?.call(widget.roomId, message.id),
                   );
                 },
               );

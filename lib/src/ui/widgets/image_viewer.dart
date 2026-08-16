@@ -75,17 +75,27 @@ class ImageViewer extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: Icon(
-            Icons.close,
-            color: theme.imageViewerIconColor ?? Colors.white,
+        leading: Semantics(
+          identifier: 'chat_image_viewer_close',
+          child: IconButton(
+            key: const ValueKey('chat_image_viewer_close'),
+            icon: Icon(
+              Icons.close,
+              color: theme.imageViewerIconColor ?? Colors.white,
+            ),
+            tooltip: theme.l10nOf(context).close,
+            onPressed: () => Navigator.of(context).pop(),
           ),
-          tooltip: theme.l10nOf(context).close,
-          onPressed: () => Navigator.of(context).pop(),
         ),
       ),
       extendBodyBehindAppBar: true,
-      body: Center(child: image),
+      body: Semantics(
+        identifier: 'chat_image_viewer_image',
+        child: Center(
+          key: const ValueKey('chat_image_viewer_image'),
+          child: image,
+        ),
+      ),
     );
   }
 }

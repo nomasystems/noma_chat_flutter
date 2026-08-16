@@ -20,6 +20,11 @@ import 'unread_divider.dart';
 import 'user_avatar.dart';
 import '../../_internal/ui_debug_log.dart';
 
+/// Prefix of every message bubble's `ValueKey`, kept identical to the
+/// `Semantics(identifier:)` the bubble publishes so the same name addresses
+/// the row from a widget test and from a native driver.
+const String _messageBubbleKeyPrefix = 'chat_message_';
+
 /// Scrollable list of message bubbles with date separators, typing indicator,
 /// scroll-to-bottom button, and automatic pagination on scroll.
 class MessageList extends StatefulWidget {
@@ -657,7 +662,10 @@ class _MessageListState extends State<MessageList> {
 
   int? _findChildIndex(Key key, List<ChatMessage> messages, bool showTyping) {
     if (key is ValueKey<String>) {
-      final index = messages.indexWhere((m) => m.id == key.value);
+      final value = key.value;
+      if (!value.startsWith(_messageBubbleKeyPrefix)) return null;
+      final messageId = value.substring(_messageBubbleKeyPrefix.length);
+      final index = messages.indexWhere((m) => m.id == messageId);
       if (index == -1) return null;
       final reverseIndex = messages.length - 1 - index;
       return showTyping ? reverseIndex + 1 : reverseIndex;
@@ -861,7 +869,7 @@ class _MessageListState extends State<MessageList> {
         : _senderName(msg.from);
 
     return MessageBubble(
-      key: ValueKey(msg.id),
+      key: ValueKey('$_messageBubbleKeyPrefix${msg.id}'),
       message: msg,
       isOutgoing: isOutgoing,
       maxBubbleWidth: maxBubbleWidth,
