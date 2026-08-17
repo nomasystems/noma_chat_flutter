@@ -178,6 +178,10 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Light / dark presets, high-contrast WCAG-AAA mode
 - Localized out of the box: `en`, `es`, `fr`, `de`, `it`, `pt`, `ca`, `sv`, `no`, `da`, `pl`, `cs`
 
+**Automation**
+- Stable names on the chat room and its eleven internal surfaces — see
+  [Test identifiers](#test-identifiers) below
+
 ---
 
 ## Theming
@@ -332,6 +336,39 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 ## Troubleshooting
 
 Common issues and fixes are documented in the [Developer Guide — Troubleshooting](./doc/DEVELOPER_GUIDE.md#troubleshooting) section.
+
+## Test identifiers
+
+Every actionable control, observable state and collection row the SDK paints
+carries a stable name, published **twice with the same literal**: as the
+widget's `ValueKey` — what `find.byKey` and an `integration_test` see from
+inside the app — and as `Semantics(identifier:)`, which surfaces outside it as
+`resource-id` on Android and `accessibilityIdentifier` on iOS. The same string
+drives a widget test, a UiAutomator dump and an XCUITest run.
+
+Names read `<area>_<element>_<kind>` in lower snake case under a `chat_` prefix
+(`chat_message_input`, `chat_send_button`, `chat_gallery_media_tab`,
+`chat_camera_review_send`); collection rows carry their own id
+(`chat_message_<messageId>`, `chat_starred_item_<messageId>`). For the templated
+ones, ask the SDK instead of re-deriving the format — `attachmentSemanticsId`,
+`mediaCellSemanticsId`, `docRowSemanticsId`, `linkRowSemanticsId`,
+`searchResultSemanticsId`, `starredRowSemanticsId` and
+`starredUnstarSemanticsId` are exported.
+
+`AttachmentSheetOption.identifier` names a row of the attachment sheet, so a
+driver points at an option regardless of the locale its `label` renders in. A
+row in `extraOptions` that passes nothing falls back to
+`chat_attachment_option_extra_<position>`, stable only while the list keeps its
+order.
+
+Two caveats. Turning the semantics tree on is **your** call
+(`WidgetsBinding.instance.ensureSemantics()` under a test flavour, or the
+platform's own accessibility service) — without it the `Semantics` half is
+invisible to a native driver, while the `ValueKey` half works regardless. And
+surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
+`StarredMessagesView`, and any attachment sheet injected in place of the SDK's.
+
+The full convention lives in [`CONVENTIONS.md` §10.11](./CONVENTIONS.md).
 
 ## Development
 
