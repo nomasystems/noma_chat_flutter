@@ -757,37 +757,31 @@ class MessageBubble extends StatelessWidget {
               : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
         : defaultRadius;
 
-    return GestureDetector(
-      onLongPress: onLongPress,
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: maxBubbleWidth ?? MediaQuery.sizeOf(context).width * 0.75,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: bubbleColor,
-          borderRadius: bubbleRadius,
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isPinned || _isStarred)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 4),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isPinned) _buildPinBadge(context),
-                    if (isPinned && _isStarred) const SizedBox(width: 6),
-                    if (_isStarred) _buildStarBadge(),
-                  ],
-                ),
+    return Container(
+      constraints: BoxConstraints(
+        maxWidth: maxBubbleWidth ?? MediaQuery.sizeOf(context).width * 0.75,
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isPinned || _isStarred)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (isPinned) _buildPinBadge(context),
+                  if (isPinned && _isStarred) const SizedBox(width: 6),
+                  if (_isStarred) _buildStarBadge(),
+                ],
               ),
-            if (senderName != null && !isOutgoing) _buildSenderName(),
-            _buildBubbleContent(context, onCancelUpload),
-          ],
-        ),
+            ),
+          if (senderName != null && !isOutgoing) _buildSenderName(),
+          _buildBubbleContent(context, onCancelUpload),
+        ],
       ),
     );
   }
@@ -1080,6 +1074,27 @@ class MessageBubble extends StatelessWidget {
         : semanticBodyWithStatus;
   }
 
+  /// The row's long-press affordance, spanning avatar, side gap and the
+  /// bubble alike (WhatsApp behaviour) instead of the bubble's own box.
+  ///
+  /// `opaque` is what buys the empty half of the row: without it the
+  /// detector only sees the pixels its painted descendants claim, which is
+  /// the bubble again. `excludeFromSemantics` is what keeps the row out of
+  /// the accessibility tree — a `GestureDetector` publishes its own node
+  /// carrying a `longPress` action, and on iOS an action alone makes a node
+  /// focusable, so the row would become a second, label-less VoiceOver stop
+  /// stacked over the bubble's. The screen-reader long press stays declared
+  /// once, on the bubble's own `Semantics` in [_wrapWithSemantics].
+  Widget _wrapWithRowLongPress(Widget row) {
+    if (onLongPress == null) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      excludeFromSemantics: true,
+      onLongPress: onLongPress,
+      child: row,
+    );
+  }
+
   Widget _buildAlignedRow(Widget content) {
     const avatarSize = 28.0;
     const avatarGap = 8.0;
@@ -1087,41 +1102,45 @@ class MessageBubble extends StatelessWidget {
 
     final hasAvatar = !isOutgoing && avatarWidget != null;
 
-    return Padding(
-      padding: EdgeInsets.only(
-        left: 8,
-        right: 8,
-        top: isFirstInGroup ? 8 : 4,
-        bottom: 1,
-      ),
-      child: Align(
-        alignment: isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
-        child: hasAvatar
-            ? Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (isLastInGroup)
-                    SizedBox(
-                      width: avatarSize,
-                      height: avatarSize,
-                      child: avatarWidget!,
-                    )
-                  else
-                    const SizedBox(width: avatarSize),
-                  const SizedBox(width: avatarGap),
-                  Flexible(child: content),
-                ],
-              )
-            : Padding(
-                padding: EdgeInsets.only(
-                  left:
-                      !isOutgoing && avatarWidget == null && senderName != null
-                      ? avatarSpace
-                      : 0,
+    return _wrapWithRowLongPress(
+      Padding(
+        padding: EdgeInsets.only(
+          left: 8,
+          right: 8,
+          top: isFirstInGroup ? 8 : 4,
+          bottom: 1,
+        ),
+        child: Align(
+          alignment: isOutgoing ? Alignment.centerRight : Alignment.centerLeft,
+          child: hasAvatar
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isLastInGroup)
+                      SizedBox(
+                        width: avatarSize,
+                        height: avatarSize,
+                        child: avatarWidget!,
+                      )
+                    else
+                      const SizedBox(width: avatarSize),
+                    const SizedBox(width: avatarGap),
+                    Flexible(child: content),
+                  ],
+                )
+              : Padding(
+                  padding: EdgeInsets.only(
+                    left:
+                        !isOutgoing &&
+                            avatarWidget == null &&
+                            senderName != null
+                        ? avatarSpace
+                        : 0,
+                  ),
+                  child: content,
                 ),
-                child: content,
-              ),
+        ),
       ),
     );
   }
