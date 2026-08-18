@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.23.0 - 2026-08-18
+
+Minor bump: the automation vocabulary of `0.22.0` gains one attribute and one
+name. Nothing is removed, no signature changes, no rendering moves and no
+screen-reader announcement changes, so a host that upgrades and rebuilds
+compiles untouched. The one thing that can break is a **test** that hardcoded
+the old message-bubble name — see *Changed*.
+
+### Added
+
+- **A message bubble says who wrote it, as an attribute of its name.** The
+  bubble now answers to `chat_message_<messageId>_outgoing` when the current
+  user sent it and to `chat_message_<messageId>_incoming` otherwise, on both
+  halves — the row's `ValueKey` and the bubble's `Semantics(identifier:)`. Until
+  now the only thing that told the two apart on screen was the bubble colour and
+  which side of the room it sat on, neither of which a driver can read, and the
+  screen-reader label that does say it is localised. `messageBubbleSemanticsId`
+  is exported so a test asks the SDK for the name instead of re-deriving it.
+- **The delivery tick of a message row carries its own name.**
+  `chat_message_<messageId>_status`, published on both halves of
+  `MessageStatusIcon`, so a driver points at the tick of one specific message
+  instead of at "some check somewhere". `messageStatusSemanticsId` is exported.
+
+  **Read the reach before you build a harness on it.** A bubble consolidates
+  the announcements of everything it contains into a single screen-reader
+  label and excludes its own subtree, so inside a bubble the two halves land on
+  two nodes: the `ValueKey` on the tick, and the identifier on a bare sibling
+  node — name only, no label, value, hint or action — stacked over the bubble's
+  corner. That keeps the message reading as one unit with its delivery state
+  announced once. What it costs is iOS: `SemanticsObject.isAccessibilityElement`
+  is decided by `isFocusable`, which asks for a label, a value, a hint or a
+  non-scrolling action and **does not look at the identifier**, so a node
+  carrying only a name is not published as a `UIAccessibilityElement` and an
+  XCUITest or `idb` dump will not list it. Inside a bubble, therefore:
+  `ValueKey` (widget tests, `integration_test`, the VM Service) everywhere,
+  `resource-id` on Android, and **nothing on iOS**. On iOS assert delivery from
+  the bubble's own node, whose label ends in the localised delivery state. A
+  `MessageStatusIcon` given a `messageId` and rendered outside a bubble is the
+  simple case: both halves sit on the icon itself and it is published normally,
+  because its own label makes it focusable.
+- `MessageStatusIcon.messageId` — optional, `null` by default. Names the tick;
+  `null` in the room-list preview, where the icon summarises the last message of
+  a room rather than a row of a timeline and has no single id to answer to. A
+  `statusIconBuilder` override replaces the SDK's icon and, with it, the name.
+
+### Changed
+
+- **The message bubble name gains the authorship suffix.**
+  `chat_message_<messageId>` becomes `chat_message_<messageId>_outgoing` or
+  `chat_message_<messageId>_incoming`. The suffix wraps the identity the name
+  already carried, never replaces it with a positional one, and the list's
+  `findChildIndexCallback` — which parses the key back to reconcile rows — moves
+  in the same change, so scroll-position stability is unaffected. A test or
+  driver that hardcoded the old string updates it, or better, calls
+  `messageBubbleSemanticsId(messageId, isOutgoing: …)`.
+
 ## 0.22.0 - 2026-08-16
 
 Minor bump, not a patch on `0.21.0`: the release adds public API (one

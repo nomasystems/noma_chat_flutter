@@ -28,7 +28,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^0.22.0
+  noma_chat: ^0.23.0
   # The default persistent cache is Hive-backed; you initialise it (see below).
   hive_ce_flutter: ^2.3.4
 ```
@@ -349,11 +349,20 @@ drives a widget test, a UiAutomator dump and an XCUITest run.
 Names read `<area>_<element>_<kind>` in lower snake case under a `chat_` prefix
 (`chat_message_input`, `chat_send_button`, `chat_gallery_media_tab`,
 `chat_camera_review_send`); collection rows carry their own id
-(`chat_message_<messageId>`, `chat_starred_item_<messageId>`). For the templated
-ones, ask the SDK instead of re-deriving the format — `attachmentSemanticsId`,
+(`chat_message_<messageId>_outgoing`, `chat_starred_item_<messageId>`). For the
+templated ones, ask the SDK instead of re-deriving the format —
+`messageBubbleSemanticsId`, `messageStatusSemanticsId`, `attachmentSemanticsId`,
 `mediaCellSemanticsId`, `docRowSemanticsId`, `linkRowSemanticsId`,
 `searchResultSemanticsId`, `starredRowSemanticsId` and
 `starredUnstarSemanticsId` are exported.
+
+A message row states **who wrote it** in its own name: the bubble answers to
+`chat_message_<messageId>_outgoing` when the current user sent it and to
+`chat_message_<messageId>_incoming` otherwise, so a driver reads authorship off
+the tree instead of inferring it from the bubble colour or from which side of
+the room it sits on. Its delivery tick is named separately,
+`chat_message_<messageId>_status`, and carries the `sent` / `delivered` / `read`
+rendering of that one message.
 
 `AttachmentSheetOption.identifier` names a row of the attachment sheet, so a
 driver points at an option regardless of the locale its `label` renders in. A
@@ -361,12 +370,25 @@ row in `extraOptions` that passes nothing falls back to
 `chat_attachment_option_extra_<position>`, stable only while the list keeps its
 order.
 
-Two caveats. Turning the semantics tree on is **your** call
+Three caveats. Turning the semantics tree on is **your** call
 (`WidgetsBinding.instance.ensureSemantics()` under a test flavour, or the
 platform's own accessibility service) — without it the `Semantics` half is
-invisible to a native driver, while the `ValueKey` half works regardless. And
-surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
+invisible to a native driver, while the `ValueKey` half works regardless.
+Surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
 `StarredMessagesView`, and any attachment sheet injected in place of the SDK's.
+And `chat_message_<messageId>_status` does not reach an iOS dump from inside a
+bubble. A bubble consolidates the announcements of everything it contains into
+a single screen-reader label and excludes its own subtree, so there the
+`ValueKey` stays on the tick while the identifier rides a bare sibling node —
+name only, no label, value, hint or action. On iOS that node is not published:
+`SemanticsObject.isAccessibilityElement` defers to `isFocusable`, which asks
+for a label, a value, a hint or a non-scrolling action and never looks at the
+identifier, so XCUITest and `idb` do not list it. Inside a bubble the tick's
+name is therefore reachable by `ValueKey` (widget tests, `integration_test`,
+the VM Service) and as `resource-id` on Android, and **not** from an iOS dump —
+where the delivery state is instead readable from the bubble's own label, which
+ends in it, localised. Rendered standalone the tick keeps both halves on itself
+and is published normally: its own label makes it focusable.
 
 The full convention lives in [`CONVENTIONS.md` §10.11](./CONVENTIONS.md).
 

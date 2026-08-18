@@ -429,11 +429,17 @@ different strings and every harness needs a translation table.
 Naming: `<area>_<element>_<kind>`, lower snake case, English, under the
 `chat_` scope prefix — `chat_message_input`, `chat_gallery_media_tab`,
 `chat_camera_review_send`. Elements of a collection interpolate their own
-id rather than an index (`chat_message_$messageId`,
+id rather than an index (`chat_message_${messageId}_outgoing`,
 `chat_starred_item_$messageId`, `chat_gallery_doc_$attachmentId`), and when
 the two halves are built in different files the name comes from one shared
 helper (`docRowSemanticsId`, `searchResultSemanticsId`) so a mismatch is not
 expressible.
+
+A property a harness would otherwise read off a pixel — who wrote a message,
+which of two bubbles is mine — is published as a suffix of the name
+(`_outgoing` / `_incoming`), never left to the colour, the alignment or a
+localised label. The suffix wraps the identity the name already carried, so
+the element is still addressed by id and never by position.
 
 Accessibility outranks instrumentation, always:
 

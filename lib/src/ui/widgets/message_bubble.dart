@@ -25,6 +25,23 @@ import 'read_receipt_avatars.dart';
 import 'reply_preview.dart';
 import 'swipe_to_reply.dart';
 
+/// Instrumentation name of the bubble rendering [messageId], published as the
+/// row's `ValueKey` in [MessageList] and as the bubble's
+/// `Semantics(identifier:)` here — one helper so the two halves cannot drift.
+///
+/// The `_outgoing` / `_incoming` suffix states authorship as an *attribute*:
+/// a driver reads who wrote the message off the accessibility tree instead of
+/// inferring it from the bubble colour or from which side of the room it sits
+/// on. The suffix wraps the message id rather than replacing it, so the row is
+/// still addressed by identity and never by position.
+String messageBubbleSemanticsId(String messageId, {required bool isOutgoing}) =>
+    'chat_message_${messageId}_${isOutgoing ? 'outgoing' : 'incoming'}';
+
+/// Side of the square that carries the tick's name in the accessibility tree,
+/// matching the tick's own 14px box so the frame a driver reads is the tick's
+/// and not the whole bubble's.
+const double _statusMarkerSize = 14;
+
 /// Renders a single message as a styled bubble with support for text, images, audio,
 /// video, files, link previews, forwarded labels, reactions, receipts, and threads.
 class MessageBubble extends StatelessWidget {
@@ -403,6 +420,7 @@ class MessageBubble extends StatelessWidget {
               status: _effectiveStatus ?? ReceiptStatus.sent,
               theme: theme,
               size: 14,
+              messageId: message.id,
             ),
     };
   }
@@ -879,13 +897,31 @@ class MessageBubble extends StatelessWidget {
   /// an attachment — have no announcement of their own to fall back on, so
   /// they're re-declared explicitly on this same node (mirrors the
   /// `MapButton` pattern: exclude descendants, keep the callbacks).
+  ///
+  /// That exclusion is also why the delivery tick's name rides a bare sibling
+  /// node stacked over the bubble's corner instead of the tick itself: an
+  /// excluded subtree publishes nothing, so the `Semantics(identifier:)` the
+  /// tick carries would not even reach the framework's own tree. The sibling
+  /// carries the name and nothing else — no label, value, hint or action — so
+  /// the message still reads as one unit and the delivery state is still
+  /// announced once, by [_buildSemanticLabel], instead of twice.
+  ///
+  /// Being bare is also its limit, and it is a platform one. iOS publishes a
+  /// `UIAccessibilityElement` only for a node its engine considers focusable —
+  /// one with a label, a value, a hint or a non-scrolling action — and the
+  /// identifier is not part of that test, so XCUITest and `idb` never see this
+  /// node. Android's bridge writes the identifier as the node's
+  /// `resource-id` regardless. Giving the sibling any of the four fields that
+  /// would buy it a place on iOS would also buy it a screen-reader stop
+  /// repeating a state the bubble already reads out, which is the trade this
+  /// deliberately refuses. See the delivery-tick note in `README.md`.
   Widget _wrapWithSemantics(
     BuildContext context,
     Widget content,
     VoidCallback? onCancelUpload,
   ) {
-    return Semantics(
-      identifier: 'chat_message_${message.id}',
+    final bubble = Semantics(
+      identifier: messageBubbleSemanticsId(message.id, isOutgoing: isOutgoing),
       label: _buildSemanticLabel(context),
       excludeSemantics: true,
       onLongPress: onLongPress,
@@ -893,6 +929,45 @@ class MessageBubble extends StatelessWidget {
       customSemanticsActions: _customSemanticsActions(context, onCancelUpload),
       child: content,
     );
+
+    final statusId = _statusSemanticsId;
+    if (statusId == null) return bubble;
+
+    return Stack(
+      children: [
+        bubble,
+        Positioned(
+          right: 0,
+          bottom: 0,
+          width: _statusMarkerSize,
+          height: _statusMarkerSize,
+          child: Semantics(
+            identifier: statusId,
+            container: true,
+            child: const SizedBox(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Name of the delivery tick this bubble paints, `null` when it paints
+  /// none — an incoming row, a deleted one, or one still sending or failed,
+  /// whose glyphs are a clock and an error icon rather than the tick.
+  ///
+  /// Mirrors the arms of [_buildStatusIcon] that render a [MessageStatusIcon].
+  /// The failed state is unreachable here for a second reason: it is the only
+  /// one that paints a media retry affordance, and that suppresses the tick.
+  String? get _statusSemanticsId {
+    if (message.isDeleted) return null;
+    return switch (_deliveryState) {
+      MessageDeliveryState.sent ||
+      MessageDeliveryState.delivered ||
+      MessageDeliveryState.read => messageStatusSemanticsId(message.id),
+      MessageDeliveryState.sending ||
+      MessageDeliveryState.failed ||
+      null => null,
+    };
   }
 
   /// Merges every screen-reader custom action this bubble exposes.

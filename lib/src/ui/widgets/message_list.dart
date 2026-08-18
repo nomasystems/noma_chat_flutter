@@ -22,7 +22,9 @@ import '../../_internal/ui_debug_log.dart';
 
 /// Prefix of every message bubble's `ValueKey`, kept identical to the
 /// `Semantics(identifier:)` the bubble publishes so the same name addresses
-/// the row from a widget test and from a native driver.
+/// the row from a widget test and from a native driver. The full name comes
+/// from [messageBubbleSemanticsId]; this prefix only cheapens the reject path
+/// of [_MessageListState._findChildIndex].
 const String _messageBubbleKeyPrefix = 'chat_message_';
 
 /// Scrollable list of message bubbles with date separators, typing indicator,
@@ -664,14 +666,21 @@ class _MessageListState extends State<MessageList> {
     if (key is ValueKey<String>) {
       final value = key.value;
       if (!value.startsWith(_messageBubbleKeyPrefix)) return null;
-      final messageId = value.substring(_messageBubbleKeyPrefix.length);
-      final index = messages.indexWhere((m) => m.id == messageId);
+      final index = messages.indexWhere((m) => _bubbleKeyFor(m) == value);
       if (index == -1) return null;
       final reverseIndex = messages.length - 1 - index;
       return showTyping ? reverseIndex + 1 : reverseIndex;
     }
     return null;
   }
+
+  /// Name the row of [msg] answers to, built from the same helper the bubble
+  /// publishes as its identifier so the key and the identifier stay the same
+  /// literal even though they are built in two different files.
+  String _bubbleKeyFor(ChatMessage msg) => messageBubbleSemanticsId(
+    msg.id,
+    isOutgoing: msg.from == widget.controller.currentUser.id,
+  );
 
   Widget _buildItem(
     BuildContext context,
@@ -869,7 +878,7 @@ class _MessageListState extends State<MessageList> {
         : _senderName(msg.from);
 
     return MessageBubble(
-      key: ValueKey('$_messageBubbleKeyPrefix${msg.id}'),
+      key: ValueKey(_bubbleKeyFor(msg)),
       message: msg,
       isOutgoing: isOutgoing,
       maxBubbleWidth: maxBubbleWidth,
