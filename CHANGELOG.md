@@ -6,6 +6,102 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.24.0 - 2026-08-18
+
+Minor bump: three behaviour fixes in the chat surface, no API added, none
+removed, no signature changed. A host that upgrades and rebuilds compiles
+untouched. Two things change on screen and one of them can break a **test** —
+the message context menu now opens from anywhere on the row, not only from the
+bubble.
+
+### Changed
+
+- **The long-press that selects a message spans the whole row.** WhatsApp
+  behaviour: the avatar, the empty half of the line beside the bubble, the
+  reaction bar and the thread link all open the message menu, where before the
+  gesture was clipped to the bubble's own box — at most 75 % of the width, and
+  frequently much less for a short message. `onMessageLongPress` and every
+  callback above it keep their signature; what changed is the area that fires
+  them.
+
+  The recognizer **moved**, it was not duplicated: there is one
+  `LongPressGestureRecognizer` per row, now at row level with
+  `HitTestBehavior.opaque` so the empty side of the line is live. Long-pressing
+  the message *text* still starts text selection, as before — the selectable
+  text wins that arena on its own, and this release does not change it.
+
+  **Nothing changes for a screen reader.** The row detector is built with
+  `excludeFromSemantics: true`, so it publishes no node: a `GestureDetector`
+  otherwise contributes a node carrying a `longPress` action, and on iOS an
+  action alone is enough to make a node focusable — VoiceOver would have gained
+  a second, label-less, full-width stop stacked on the bubble's own. The
+  long-press action stays declared exactly once, on the bubble's `Semantics`,
+  which is the node that carries the label. `test/ui/widgets/message_bubble_row_long_press_test.dart`
+  fails if that flag is ever dropped.
+
+  Risk for a host's tests: an existing test that long-presses at coordinates
+  inside the bubble still passes — the area only grew. A test that asserted a
+  long-press *outside* the bubble does nothing will now see the menu open.
+
+### Fixed
+
+- **Delivery ticks are right on the first frame after opening a room.** A room
+  whose own sent messages had already been delivered painted a single ✓ and
+  swapped to ✓✓ a moment later. The state was never wrong, only late: the
+  cached message rows carry the receipt they held when they were written, and a
+  ✓✓ that arrived as a realtime event while the room was closed never reached
+  them, so recovering it waited on two network round trips (the message page,
+  then the receipt cursors).
+
+  Two halves, both on the local side, neither of them a new stored field —
+  the per-message `receipt` and the per-room cursor box were both already on
+  disk:
+
+  - Opening a room now reads the stored receipt cursors and applies them in the
+    same synchronous turn as the cached rows, before the first frame is
+    scheduled. `getRoomReceipts` stays pinned to `networkFirst`, and the
+    network pass still runs and still wins — a receipt is applied monotonically,
+    so a stale local cursor can only mark fewer rows, never walk a tick
+    backwards.
+  - A receipt frame that arrives for a room nobody has open now writes the
+    cursor to the receipt box. With no controller there was nothing to advance
+    and nothing to drain, so that ✓✓ used to exist only as the in-memory
+    room-list tick while the cached rows kept saying ✓. A `sent` frame and the
+    user's own read receipts are ignored, as before.
+
+  An adapter built without a `cache:` is unaffected in either direction.
+
+- **The chat list shows a preview line for a location, a forward and a deleted
+  message.** A map arrived as an untyped row with an empty body and the row's
+  subtitle came out blank; the same for a forward with no text of its own, and
+  a deleted message still showed its old text. Two things fixed it:
+
+  - The room-listing mapper now honours `messageType` for `location`,
+    `forward`, `reply` and `audio`, and `isDeleted`, on the `lastUnreadMessage`
+    projection — the backend emits them from the same vocabulary the package
+    already uses to type a message. Where the field is absent, a location is
+    still recognised from numeric `lat`/`lng` in the metadata, the way the
+    full-message mapper already did.
+  - A document or a named audio file keeps its name in the preview
+    (`📄 contrato.pdf` instead of `📄 File`). The name travels in the message
+    metadata and the listing mapper was only reading a top-level field that the
+    projection does not send.
+
+  A reaction *on* the last message is deliberately not read as "this row is a
+  reaction": the `reaction` field of a listing row lists the reactions the
+  message received, and treating it as the row's own type would replace a
+  perfectly good text preview with a reaction sentence. Reaction previews keep
+  coming from the realtime path, as before.
+
+- **The chat-list preview strings are translated in all 12 shipped languages.**
+  `previewLocation`, `previewPhoto`, `previewVideo`, `previewVoiceTemplate`,
+  `previewDocumentTemplate`, `attachmentPreview`, `audioPreview`,
+  `previewSticker`, the deleted-message pair and the three reaction-preview
+  templates existed only in `en, es, fr, de, it, pt, ca` and fell back to
+  English in `sv, no, da, pl, cs`. They are now set in all of them. No key was
+  added or renamed. The rest of the documented English-fallback gap in those
+  five locales is unchanged.
+
 ## 0.23.0 - 2026-08-18
 
 Minor bump: the automation vocabulary of `0.22.0` gains one attribute and one
