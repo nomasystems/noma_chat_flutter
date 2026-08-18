@@ -26,9 +26,13 @@ bubble.
 
   The recognizer **moved**, it was not duplicated: there is one
   `LongPressGestureRecognizer` per row, now at row level with
-  `HitTestBehavior.opaque` so the empty side of the line is live. Long-pressing
-  the message *text* still starts text selection, as before — the selectable
-  text wins that arena on its own, and this release does not change it.
+  `HitTestBehavior.opaque` so the empty side of the line is live. Whatever the
+  message *text* did on long-press it still does, unchanged by this release:
+  selectable text wins that arena on its own, but it is only selectable when
+  the host leaves `onSwipeToReply` unwired — `MessageBubble` sets
+  `enableSelection: onSwipeToReply == null`, and `NomaChatView` always wires
+  swipe-to-reply, so under the default surface the text long-press opened the
+  menu before this release and still does.
 
   **Nothing changes for a screen reader.** The row detector is built with
   `excludeFromSemantics: true`, so it publishes no node: a `GestureDetector`

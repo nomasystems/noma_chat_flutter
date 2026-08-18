@@ -521,14 +521,6 @@ class ChatEventRouter {
     }
   }
 
-  /// Writes back the message rows whose receipt the frame just advanced,
-  /// and drops the TTL entry behind `messages.getRoomReceipts`.
-  ///
-  /// Both halves answer the same problem: a receipt arrives as an event
-  /// and nothing persists it on its own, so a process death would take
-  /// every ✓✓ with it, and the receipts list the cache holds is outdated
-  /// the moment a frame lands. Only the cached API chain carries a TTL
-  /// ledger — a custom or mock client has nothing to invalidate.
   /// Stores the cursor a receipt frame carried for a room nobody has open.
   ///
   /// [_persistReceipts] cannot: with no controller there is nothing to
@@ -581,6 +573,14 @@ class ChatEventRouter {
     await cache.saveReceipts(roomId, merged);
   }
 
+  /// Writes back the message rows whose receipt the frame just advanced,
+  /// and drops the TTL entry behind `messages.getRoomReceipts`.
+  ///
+  /// Both halves answer the same problem: a receipt arrives as an event
+  /// and nothing persists it on its own, so a process death would take
+  /// every ✓✓ with it, and the receipts list the cache holds is outdated
+  /// the moment a frame lands. Only the cached API chain carries a TTL
+  /// ledger — a custom or mock client has nothing to invalidate.
   void _persistReceipts(String roomId, ChatController? controller) {
     final updated = controller?.drainReceiptUpdates() ?? const <ChatMessage>[];
     if (updated.isNotEmpty) _cache?.saveMessages(roomId, updated);
