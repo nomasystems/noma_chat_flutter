@@ -376,14 +376,19 @@ platform's own accessibility service) — without it the `Semantics` half is
 invisible to a native driver, while the `ValueKey` half works regardless.
 Surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
 `StarredMessagesView`, and any attachment sheet injected in place of the SDK's.
-And inside a bubble the two halves of `chat_message_<messageId>_status` sit on
-two different nodes. A bubble consolidates the announcements of everything it
-contains into a single screen-reader label and excludes its own subtree, so
-there the `ValueKey` stays on the tick while the identifier is published by a
-bare sibling node — name only, no label, no flag, no action — stacked over the
-bubble's corner. Both sides of the tree reach the same string, the delivery
-state is still announced once as part of the message, and the tick rendered
-standalone keeps both halves on itself.
+And `chat_message_<messageId>_status` does not reach an iOS dump from inside a
+bubble. A bubble consolidates the announcements of everything it contains into
+a single screen-reader label and excludes its own subtree, so there the
+`ValueKey` stays on the tick while the identifier rides a bare sibling node —
+name only, no label, value, hint or action. On iOS that node is not published:
+`SemanticsObject.isAccessibilityElement` defers to `isFocusable`, which asks
+for a label, a value, a hint or a non-scrolling action and never looks at the
+identifier, so XCUITest and `idb` do not list it. Inside a bubble the tick's
+name is therefore reachable by `ValueKey` (widget tests, `integration_test`,
+the VM Service) and as `resource-id` on Android, and **not** from an iOS dump —
+where the delivery state is instead readable from the bubble's own label, which
+ends in it, localised. Rendered standalone the tick keeps both halves on itself
+and is published normally: its own label makes it focusable.
 
 The full convention lives in [`CONVENTIONS.md` §10.11](./CONVENTIONS.md).
 

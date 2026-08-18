@@ -37,11 +37,10 @@ typedef MessageStatusIconBuilder =
 /// check somewhere".
 ///
 /// Published as both halves — `ValueKey` and `Semantics(identifier:)` — on the
-/// icon itself. Inside a `MessageBubble` the two halves land on two nodes: the
-/// bubble consolidates the announcements of everything it contains into a
-/// single label and excludes the subtree, so there the identifier is published
-/// by a bare sibling node the bubble stacks over its corner and the `ValueKey`
-/// stays on the icon. Both sides of the tree reach the same string either way.
+/// icon itself, which is what a standalone tick such as the room-list preview
+/// exposes. Inside a `MessageBubble` the two halves land on two nodes, and the
+/// identifier's half does not reach an iOS dump: see the delivery-tick note in
+/// `README.md` before building a native harness on this name.
 String messageStatusSemanticsId(String messageId) =>
     'chat_message_${messageId}_status';
 

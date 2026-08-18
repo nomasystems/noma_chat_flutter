@@ -901,11 +901,20 @@ class MessageBubble extends StatelessWidget {
   /// That exclusion is also why the delivery tick's name rides a bare sibling
   /// node stacked over the bubble's corner instead of the tick itself: an
   /// excluded subtree publishes nothing, so the `Semantics(identifier:)` the
-  /// tick carries would be invisible to anything reading the tree from
-  /// outside the process, which is the whole point of naming it. The sibling
-  /// carries the name and nothing else — no label, no flag, no action — so
+  /// tick carries would not even reach the framework's own tree. The sibling
+  /// carries the name and nothing else — no label, value, hint or action — so
   /// the message still reads as one unit and the delivery state is still
   /// announced once, by [_buildSemanticLabel], instead of twice.
+  ///
+  /// Being bare is also its limit, and it is a platform one. iOS publishes a
+  /// `UIAccessibilityElement` only for a node its engine considers focusable —
+  /// one with a label, a value, a hint or a non-scrolling action — and the
+  /// identifier is not part of that test, so XCUITest and `idb` never see this
+  /// node. Android's bridge writes the identifier as the node's
+  /// `resource-id` regardless. Giving the sibling any of the four fields that
+  /// would buy it a place on iOS would also buy it a screen-reader stop
+  /// repeating a state the bubble already reads out, which is the trade this
+  /// deliberately refuses. See the delivery-tick note in `README.md`.
   Widget _wrapWithSemantics(
     BuildContext context,
     Widget content,

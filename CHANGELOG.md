@@ -26,18 +26,26 @@ the old message-bubble name — see *Changed*.
   is exported so a test asks the SDK for the name instead of re-deriving it.
 - **The delivery tick of a message row carries its own name.**
   `chat_message_<messageId>_status`, published on both halves of
-  `MessageStatusIcon`, so a driver points at the ticks of one specific message
-  instead of at "some check somewhere" — from a widget test, from an
-  `integration_test` and from a native dump (`resource-id` /
-  `accessibilityIdentifier`). `messageStatusSemanticsId` is exported.
-  One structural detail worth knowing: a bubble consolidates the announcements
-  of everything it contains into a single screen-reader label and excludes its
-  own subtree, so inside a bubble the two halves land on two nodes — the
-  `ValueKey` on the tick, the identifier on a bare sibling node stacked over
-  the bubble's corner, carrying the name and nothing else. That keeps the
-  message reading as one unit with its delivery state announced once, instead
-  of a second node repeating it. The tick rendered standalone, as in the
-  room-list preview, keeps both halves on itself.
+  `MessageStatusIcon`, so a driver points at the tick of one specific message
+  instead of at "some check somewhere". `messageStatusSemanticsId` is exported.
+
+  **Read the reach before you build a harness on it.** A bubble consolidates
+  the announcements of everything it contains into a single screen-reader
+  label and excludes its own subtree, so inside a bubble the two halves land on
+  two nodes: the `ValueKey` on the tick, and the identifier on a bare sibling
+  node — name only, no label, value, hint or action — stacked over the bubble's
+  corner. That keeps the message reading as one unit with its delivery state
+  announced once. What it costs is iOS: `SemanticsObject.isAccessibilityElement`
+  is decided by `isFocusable`, which asks for a label, a value, a hint or a
+  non-scrolling action and **does not look at the identifier**, so a node
+  carrying only a name is not published as a `UIAccessibilityElement` and an
+  XCUITest or `idb` dump will not list it. Inside a bubble, therefore:
+  `ValueKey` (widget tests, `integration_test`, the VM Service) everywhere,
+  `resource-id` on Android, and **nothing on iOS**. On iOS assert delivery from
+  the bubble's own node, whose label ends in the localised delivery state. The
+  tick rendered standalone, as in the room-list preview, keeps both halves on
+  itself and is published normally, because there its own label makes it
+  focusable.
 - `MessageStatusIcon.messageId` — optional, `null` by default. Names the tick;
   `null` in the room-list preview, where the icon summarises the last message of
   a room rather than a row of a timeline and has no single id to answer to. A

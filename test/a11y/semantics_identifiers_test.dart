@@ -299,8 +299,8 @@ void main() {
       );
     });
 
-    testWidgets('a bubble names the tick it paints on both halves, so a '
-        'native dump can assert delivery', (tester) async {
+    testWidgets('a bubble names the tick it paints on both halves of the '
+        "framework's tree", (tester) async {
       await tester.pumpWidget(
         wrap(
           MessageBubble(
@@ -315,9 +315,10 @@ void main() {
         identifier('chat_message_m42_status'),
         findsOne,
         reason:
-            'the name has to reach the semantics tree, which is what '
-            '`idb ui describe-all` and a UiAutomator dump read; the bubble '
-            'excludes its own subtree, so the name rides a sibling node',
+            'the bubble excludes its own subtree, so the name rides a sibling '
+            'node. This asserts the framework tree only: whether a platform '
+            'republishes that node is the engine bridge\'s call, and iOS does '
+            'not — see the delivery-tick note in README.md',
       );
       expect(
         find.byKey(const ValueKey('chat_message_m42_status')),
