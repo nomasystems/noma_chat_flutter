@@ -530,7 +530,8 @@ void main() {
     expect(
       stored.firstWhere((m) => m.id == 'm2').receipt,
       isNull,
-      reason: 'm2 was marked read by the whole-room cursor alone and by '
+      reason:
+          'm2 was marked read by the whole-room cursor alone and by '
           'nothing else, so nothing about it may reach disk',
     );
   });

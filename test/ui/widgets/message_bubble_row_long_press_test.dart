@@ -143,7 +143,7 @@ void main() {
       expect(find.semantics.byAction(SemanticsAction.longPress), findsOne);
       expect(
         find.semantics.byAction(SemanticsAction.longPress),
-        containsSemantics(label: 'Bob: hola'),
+        isSemantics(label: 'Bob: hola'),
       );
     });
 
