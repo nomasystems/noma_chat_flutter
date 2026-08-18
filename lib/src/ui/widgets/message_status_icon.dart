@@ -32,6 +32,12 @@ class MessageStatusIconData {
 typedef MessageStatusIconBuilder =
     Widget? Function(BuildContext context, MessageStatusIconData data);
 
+/// Instrumentation name of the delivery tick belonging to [messageId],
+/// published as both halves on the icon itself so a driver can point at the
+/// tick of one specific message instead of at "some check somewhere".
+String messageStatusSemanticsId(String messageId) =>
+    'chat_message_${messageId}_status';
+
 /// Small check-icon stack indicating the [ReceiptStatus] of an outgoing
 /// message (sent / delivered / read).
 class MessageStatusIcon extends StatelessWidget {
@@ -40,11 +46,18 @@ class MessageStatusIcon extends StatelessWidget {
     required this.status,
     this.theme = ChatTheme.defaults,
     this.size = 16,
+    this.messageId,
   });
 
   final ReceiptStatus status;
   final ChatTheme theme;
   final double size;
+
+  /// Message this tick reports on, used to name it
+  /// ([messageStatusSemanticsId]). `null` in the room-list preview, where
+  /// the tick summarises the last message of a room rather than a row of
+  /// the timeline and has no single id to answer to.
+  final String? messageId;
 
   @override
   Widget build(BuildContext context) {
@@ -61,9 +74,13 @@ class MessageStatusIcon extends StatelessWidget {
     final isDouble =
         status == ReceiptStatus.delivered || status == ReceiptStatus.read;
 
+    final id = messageId == null ? null : messageStatusSemanticsId(messageId!);
+
     return Semantics(
+      identifier: id,
       label: label,
       child: SizedBox(
+        key: id == null ? null : ValueKey(id),
         width: isDouble ? size * 1.3 : size,
         height: size,
         child: CustomPaint(

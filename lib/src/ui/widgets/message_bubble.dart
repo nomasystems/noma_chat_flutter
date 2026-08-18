@@ -25,6 +25,18 @@ import 'read_receipt_avatars.dart';
 import 'reply_preview.dart';
 import 'swipe_to_reply.dart';
 
+/// Instrumentation name of the bubble rendering [messageId], published as the
+/// row's `ValueKey` in [MessageList] and as the bubble's
+/// `Semantics(identifier:)` here — one helper so the two halves cannot drift.
+///
+/// The `_outgoing` / `_incoming` suffix states authorship as an *attribute*:
+/// a driver reads who wrote the message off the accessibility tree instead of
+/// inferring it from the bubble colour or from which side of the room it sits
+/// on. The suffix wraps the message id rather than replacing it, so the row is
+/// still addressed by identity and never by position.
+String messageBubbleSemanticsId(String messageId, {required bool isOutgoing}) =>
+    'chat_message_${messageId}_${isOutgoing ? 'outgoing' : 'incoming'}';
+
 /// Renders a single message as a styled bubble with support for text, images, audio,
 /// video, files, link previews, forwarded labels, reactions, receipts, and threads.
 class MessageBubble extends StatelessWidget {
@@ -403,6 +415,7 @@ class MessageBubble extends StatelessWidget {
               status: _effectiveStatus ?? ReceiptStatus.sent,
               theme: theme,
               size: 14,
+              messageId: message.id,
             ),
     };
   }
@@ -885,7 +898,7 @@ class MessageBubble extends StatelessWidget {
     VoidCallback? onCancelUpload,
   ) {
     return Semantics(
-      identifier: 'chat_message_${message.id}',
+      identifier: messageBubbleSemanticsId(message.id, isOutgoing: isOutgoing),
       label: _buildSemanticLabel(context),
       excludeSemantics: true,
       onLongPress: onLongPress,

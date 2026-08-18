@@ -28,7 +28,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^0.22.0
+  noma_chat: ^0.23.0
   # The default persistent cache is Hive-backed; you initialise it (see below).
   hive_ce_flutter: ^2.3.4
 ```
@@ -349,11 +349,20 @@ drives a widget test, a UiAutomator dump and an XCUITest run.
 Names read `<area>_<element>_<kind>` in lower snake case under a `chat_` prefix
 (`chat_message_input`, `chat_send_button`, `chat_gallery_media_tab`,
 `chat_camera_review_send`); collection rows carry their own id
-(`chat_message_<messageId>`, `chat_starred_item_<messageId>`). For the templated
-ones, ask the SDK instead of re-deriving the format — `attachmentSemanticsId`,
+(`chat_message_<messageId>_outgoing`, `chat_starred_item_<messageId>`). For the
+templated ones, ask the SDK instead of re-deriving the format —
+`messageBubbleSemanticsId`, `messageStatusSemanticsId`, `attachmentSemanticsId`,
 `mediaCellSemanticsId`, `docRowSemanticsId`, `linkRowSemanticsId`,
 `searchResultSemanticsId`, `starredRowSemanticsId` and
 `starredUnstarSemanticsId` are exported.
+
+A message row states **who wrote it** in its own name: the bubble answers to
+`chat_message_<messageId>_outgoing` when the current user sent it and to
+`chat_message_<messageId>_incoming` otherwise, so a driver reads authorship off
+the tree instead of inferring it from the bubble colour or from which side of
+the room it sits on. Its delivery tick is named separately,
+`chat_message_<messageId>_status`, and carries the `sent` / `delivered` / `read`
+rendering of that one message.
 
 `AttachmentSheetOption.identifier` names a row of the attachment sheet, so a
 driver points at an option regardless of the locale its `label` renders in. A
@@ -361,12 +370,18 @@ row in `extraOptions` that passes nothing falls back to
 `chat_attachment_option_extra_<position>`, stable only while the list keeps its
 order.
 
-Two caveats. Turning the semantics tree on is **your** call
+Three caveats. Turning the semantics tree on is **your** call
 (`WidgetsBinding.instance.ensureSemantics()` under a test flavour, or the
 platform's own accessibility service) — without it the `Semantics` half is
-invisible to a native driver, while the `ValueKey` half works regardless. And
-surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
+invisible to a native driver, while the `ValueKey` half works regardless.
+Surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
 `StarredMessagesView`, and any attachment sheet injected in place of the SDK's.
+And a bubble consolidates the announcements of everything inside it into one
+screen-reader label, so its descendants — the delivery tick included — publish
+no semantics node of their own while they sit in the timeline: inside a bubble
+`chat_message_<messageId>_status` is reachable by `ValueKey`, not from a native
+dump. Accessibility outranks instrumentation, and a second announcement of a
+state the bubble already reads out would be a regression.
 
 The full convention lives in [`CONVENTIONS.md` §10.11](./CONVENTIONS.md).
 
