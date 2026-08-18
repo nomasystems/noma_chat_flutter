@@ -54,12 +54,33 @@ interface class ChatMessagesController {
     if (hasCached) {
       final cachedData = cachedResult.dataOrThrow;
       final visible = _filterHidden(cachedData.items, hideTest);
+      // Receipt cursors from the last session, resolved BEFORE the rows
+      // reach the controller. A cached row carries the receipt it had when
+      // it was written, which is a single ✓ for anything whose ✓✓ arrived
+      // as an event with the room closed; the cursors are where that second
+      // tick actually lives. Reading them here and applying them in the
+      // same turn as [addMessages] is what makes the first painted frame
+      // the right one instead of the one that gets corrected two round
+      // trips later.
+      final cachedReceipts = await _cachedRoomReceipts(roomId);
+      final cursorTimestamps = cachedReceipts.isEmpty
+          ? const <String, DateTime>{}
+          : await _cursorTimestamps(roomId, cachedReceipts, visible);
+      if (_a._disposed) return const ChatSuccess(<ChatMessage>[]);
       controller.addMessages(visible);
       _a._loadReactionsFromMessages(controller, visible);
       controller.setPaginationState(
         hasMore: cachedData.hasMore,
         cursor: cachedData.prevCursor,
       );
+      if (cachedReceipts.isNotEmpty) {
+        _applyRoomReceipts(
+          roomId,
+          controller,
+          cachedReceipts,
+          cursorTimestamps,
+        );
+      }
     }
 
     // Phase 2: Sync from network — always fetch the most recent page so the
@@ -1572,10 +1593,69 @@ interface class ChatMessagesController {
     if (result.isFailure || _a._disposed) return;
     final receipts = result.dataOrThrow.items;
     if (receipts.isEmpty) return;
+    final cachedTimestamps = await _cursorTimestamps(
+      roomId,
+      receipts,
+      controller.messages,
+    );
+    if (_a._disposed) return;
+    _applyRoomReceipts(roomId, controller, receipts, cachedTimestamps);
+  }
+
+  /// Reads the room's receipt cursors straight off the local datasource,
+  /// bypassing `messages.getRoomReceipts` — that call is pinned to
+  /// `networkFirst` on purpose (a peer can read while this app is not
+  /// running, and nothing local invalidates the stored copy), and the pin
+  /// stays. This is the *other* half: what the last session already knew,
+  /// available in one Hive read instead of two round trips, so the first
+  /// painted frame can carry the ticks the previous one ended with. The
+  /// network pass still runs afterwards and can only advance them —
+  /// [ChatController] refuses a receipt that ranks below the one a row
+  /// already holds, so an outdated cursor cannot walk a tick backwards.
+  ///
+  /// Empty when the adapter was built without a `cache:`, which leaves the
+  /// behaviour exactly as it was before this path existed.
+  Future<List<ReadReceipt>> _cachedRoomReceipts(String roomId) async {
+    final cache = _a._cache;
+    if (cache == null) return const <ReadReceipt>[];
+    final stored = await cache.getReceipts(roomId);
+    return stored.dataOrNull ?? const <ReadReceipt>[];
+  }
+
+  /// Cached id → timestamp map, read only when some read cursor in
+  /// [receipts] points outside [window] and therefore has to be placed in
+  /// conversation order by the cursor message's own time. Empty otherwise,
+  /// which is the common case and costs nothing.
+  ///
+  /// Resolved up front rather than lazily inside the apply loop so that
+  /// loop can be synchronous: an `await` in the middle of it would split
+  /// the turn, and a frame painted in that gap is the flicker this exists
+  /// to remove.
+  Future<Map<String, DateTime>> _cursorTimestamps(
+    String roomId,
+    List<ReadReceipt> receipts,
+    List<ChatMessage> window,
+  ) async {
     final currentUserId = _a.currentUser.id;
-    // Cached id → timestamp map, read at most once per rehydration and
-    // only when some row needs a cursor the window does not hold.
-    Map<String, DateTime>? cachedTimestamps;
+    final needed = receipts.any((r) {
+      if (r.userId == currentUserId) return false;
+      final id = r.lastReadMessageId;
+      return id != null && !window.any((m) => m.id == id);
+    });
+    if (!needed) return const <String, DateTime>{};
+    return _cachedMessageTimestamps(roomId);
+  }
+
+  /// Applies [receipts] onto [controller]. Synchronous by contract: every
+  /// caller resolves what it needs first, so the ticks a batch implies land
+  /// in the same turn as the messages they belong to.
+  void _applyRoomReceipts(
+    String roomId,
+    ChatController controller,
+    List<ReadReceipt> receipts,
+    Map<String, DateTime> cachedTimestamps,
+  ) {
+    final currentUserId = _a.currentUser.id;
     for (final r in receipts) {
       if (r.userId == currentUserId) continue;
       final lastDeliveredId = r.lastDeliveredMessageId;
@@ -1600,8 +1680,6 @@ interface class ChatMessagesController {
           cutoffTime = null;
           cutoffId = null;
         } else {
-          cachedTimestamps ??= await _cachedMessageTimestamps(roomId);
-          if (_a._disposed) return;
           final resolved = cachedTimestamps[lastReadId];
           if (resolved == null) continue;
           cutoffIndex = null;
@@ -1658,9 +1736,9 @@ interface class ChatMessagesController {
     // the next rehydration would derive again from the same evidence —
     // earn that. The rest live for this session and are re-derived, or
     // corrected, on the next open. The exclusion is the controller's, not
-    // this drain's: the loop above suspends on the cache read, and a
-    // receipt frame landing in that window drains the same queue from the
-    // event router.
+    // this drain's: the queue is shared with the event router, which drains
+    // it on every receipt frame, so a rule applied by one caller of it
+    // would hold for neither.
     final recovered = controller.drainReceiptUpdates();
     if (recovered.isNotEmpty) {
       unawaited(_persistReceiptRows(roomId, recovered));

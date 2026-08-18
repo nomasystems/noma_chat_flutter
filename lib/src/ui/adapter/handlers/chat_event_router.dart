@@ -8,6 +8,7 @@ import '../../../client/chat_client.dart';
 import '../../../core/result.dart';
 import '../../../events/chat_event.dart';
 import '../../../models/message.dart';
+import '../../../models/read_receipt.dart';
 import '../../../models/user.dart';
 import '../../controller/chat_controller.dart';
 import '../../controller/room_list_controller.dart';
@@ -371,6 +372,11 @@ class ChatEventRouter {
           fromUserId: fromUserId,
         );
         _persistReceipts(roomId, receiptController);
+        if (receiptController == null) {
+          unawaited(
+            _persistClosedRoomCursor(roomId, fromUserId, messageId, status),
+          );
+        }
         _updateRoomListReceipt(roomId, messageId, status);
         // `markAsRead` on ANY of the user's own devices flags the whole
         // room read up to the latest message, and the backend echoes it
@@ -487,6 +493,14 @@ class ChatEventRouter {
         event.messageId,
         ReceiptStatus.delivered,
       );
+      unawaited(
+        _persistClosedRoomCursor(
+          resolvedRoomId,
+          event.userId,
+          event.messageId,
+          ReceiptStatus.delivered,
+        ),
+      );
       return;
     }
     controller.applyDeliveryCursor(
@@ -515,6 +529,58 @@ class ChatEventRouter {
   /// every ✓✓ with it, and the receipts list the cache holds is outdated
   /// the moment a frame lands. Only the cached API chain carries a TTL
   /// ledger — a custom or mock client has nothing to invalidate.
+  /// Stores the cursor a receipt frame carried for a room nobody has open.
+  ///
+  /// [_persistReceipts] cannot: with no controller there is nothing to
+  /// advance and nothing to drain, so the ✓✓ existed only as the room-list
+  /// tick, in memory, while the cached message rows kept saying ✓ — and
+  /// those rows are what the next open paints first. The cursor box is
+  /// where it belongs instead, because that is what the room-open path
+  /// re-reads before it hands the cached rows to the controller.
+  ///
+  /// Whether the incoming id is newer than the stored one cannot be decided
+  /// here — an offline cursor has no ordering to compare against — and it
+  /// does not need to be: cursors are applied monotonically on the other
+  /// side, so the worst a stale one can do is mark fewer rows, never more,
+  /// and the read on open replaces the list with the server's anyway. A
+  /// `sent` frame carries no cursor at all and is ignored, as is one about
+  /// the user's own reading, which is not a peer's evidence of anything.
+  Future<void> _persistClosedRoomCursor(
+    String roomId,
+    String? userId,
+    String messageId,
+    ReceiptStatus status,
+  ) async {
+    final cache = _cache;
+    if (cache == null || userId == null || userId.isEmpty) return;
+    if (userId == _currentUser().id) return;
+    if (status != ReceiptStatus.delivered && status != ReceiptStatus.read) {
+      return;
+    }
+    final stored =
+        (await cache.getReceipts(roomId)).dataOrNull ?? const <ReadReceipt>[];
+    final previous = stored.where((r) => r.userId == userId).firstOrNull;
+    // `read` implies `delivered`, so a read cursor moves both — the same
+    // rule the aggregation applies when it ranks the two states.
+    final updated = ReadReceipt(
+      userId: userId,
+      lastReadMessageId: status == ReceiptStatus.read
+          ? messageId
+          : previous?.lastReadMessageId,
+      lastReadAt: status == ReceiptStatus.read
+          ? DateTime.now()
+          : previous?.lastReadAt,
+      lastDeliveredMessageId: messageId,
+      lastDeliveredAt: DateTime.now(),
+    );
+    final merged = [
+      for (final r in stored)
+        if (r.userId != userId) r,
+      updated,
+    ];
+    await cache.saveReceipts(roomId, merged);
+  }
+
   void _persistReceipts(String roomId, ChatController? controller) {
     final updated = controller?.drainReceiptUpdates() ?? const <ChatMessage>[];
     if (updated.isNotEmpty) _cache?.saveMessages(roomId, updated);
