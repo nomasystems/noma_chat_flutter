@@ -42,10 +42,10 @@ the old message-bubble name — see *Changed*.
   XCUITest or `idb` dump will not list it. Inside a bubble, therefore:
   `ValueKey` (widget tests, `integration_test`, the VM Service) everywhere,
   `resource-id` on Android, and **nothing on iOS**. On iOS assert delivery from
-  the bubble's own node, whose label ends in the localised delivery state. The
-  tick rendered standalone, as in the room-list preview, keeps both halves on
-  itself and is published normally, because there its own label makes it
-  focusable.
+  the bubble's own node, whose label ends in the localised delivery state. A
+  `MessageStatusIcon` given a `messageId` and rendered outside a bubble is the
+  simple case: both halves sit on the icon itself and it is published normally,
+  because its own label makes it focusable.
 - `MessageStatusIcon.messageId` — optional, `null` by default. Names the tick;
   `null` in the room-list preview, where the icon summarises the last message of
   a room rather than a row of a timeline and has no single id to answer to. A
