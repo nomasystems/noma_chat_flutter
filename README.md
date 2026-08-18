@@ -376,12 +376,14 @@ platform's own accessibility service) — without it the `Semantics` half is
 invisible to a native driver, while the `ValueKey` half works regardless.
 Surfaces you own are yours to name: the `AppBar` around `MessageSearchView` and
 `StarredMessagesView`, and any attachment sheet injected in place of the SDK's.
-And a bubble consolidates the announcements of everything inside it into one
-screen-reader label, so its descendants — the delivery tick included — publish
-no semantics node of their own while they sit in the timeline: inside a bubble
-`chat_message_<messageId>_status` is reachable by `ValueKey`, not from a native
-dump. Accessibility outranks instrumentation, and a second announcement of a
-state the bubble already reads out would be a regression.
+And inside a bubble the two halves of `chat_message_<messageId>_status` sit on
+two different nodes. A bubble consolidates the announcements of everything it
+contains into a single screen-reader label and excludes its own subtree, so
+there the `ValueKey` stays on the tick while the identifier is published by a
+bare sibling node — name only, no label, no flag, no action — stacked over the
+bubble's corner. Both sides of the tree reach the same string, the delivery
+state is still announced once as part of the message, and the tick rendered
+standalone keeps both halves on itself.
 
 The full convention lives in [`CONVENTIONS.md` §10.11](./CONVENTIONS.md).
 

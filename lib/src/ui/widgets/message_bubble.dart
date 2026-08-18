@@ -37,6 +37,11 @@ import 'swipe_to_reply.dart';
 String messageBubbleSemanticsId(String messageId, {required bool isOutgoing}) =>
     'chat_message_${messageId}_${isOutgoing ? 'outgoing' : 'incoming'}';
 
+/// Side of the square that carries the tick's name in the accessibility tree,
+/// matching the tick's own 14px box so the frame a driver reads is the tick's
+/// and not the whole bubble's.
+const double _statusMarkerSize = 14;
+
 /// Renders a single message as a styled bubble with support for text, images, audio,
 /// video, files, link previews, forwarded labels, reactions, receipts, and threads.
 class MessageBubble extends StatelessWidget {
@@ -892,12 +897,21 @@ class MessageBubble extends StatelessWidget {
   /// an attachment — have no announcement of their own to fall back on, so
   /// they're re-declared explicitly on this same node (mirrors the
   /// `MapButton` pattern: exclude descendants, keep the callbacks).
+  ///
+  /// That exclusion is also why the delivery tick's name rides a bare sibling
+  /// node stacked over the bubble's corner instead of the tick itself: an
+  /// excluded subtree publishes nothing, so the `Semantics(identifier:)` the
+  /// tick carries would be invisible to anything reading the tree from
+  /// outside the process, which is the whole point of naming it. The sibling
+  /// carries the name and nothing else — no label, no flag, no action — so
+  /// the message still reads as one unit and the delivery state is still
+  /// announced once, by [_buildSemanticLabel], instead of twice.
   Widget _wrapWithSemantics(
     BuildContext context,
     Widget content,
     VoidCallback? onCancelUpload,
   ) {
-    return Semantics(
+    final bubble = Semantics(
       identifier: messageBubbleSemanticsId(message.id, isOutgoing: isOutgoing),
       label: _buildSemanticLabel(context),
       excludeSemantics: true,
@@ -906,6 +920,45 @@ class MessageBubble extends StatelessWidget {
       customSemanticsActions: _customSemanticsActions(context, onCancelUpload),
       child: content,
     );
+
+    final statusId = _statusSemanticsId;
+    if (statusId == null) return bubble;
+
+    return Stack(
+      children: [
+        bubble,
+        Positioned(
+          right: 0,
+          bottom: 0,
+          width: _statusMarkerSize,
+          height: _statusMarkerSize,
+          child: Semantics(
+            identifier: statusId,
+            container: true,
+            child: const SizedBox(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Name of the delivery tick this bubble paints, `null` when it paints
+  /// none — an incoming row, a deleted one, or one still sending or failed,
+  /// whose glyphs are a clock and an error icon rather than the tick.
+  ///
+  /// Mirrors the arms of [_buildStatusIcon] that render a [MessageStatusIcon].
+  /// The failed state is unreachable here for a second reason: it is the only
+  /// one that paints a media retry affordance, and that suppresses the tick.
+  String? get _statusSemanticsId {
+    if (message.isDeleted) return null;
+    return switch (_deliveryState) {
+      MessageDeliveryState.sent ||
+      MessageDeliveryState.delivered ||
+      MessageDeliveryState.read => messageStatusSemanticsId(message.id),
+      MessageDeliveryState.sending ||
+      MessageDeliveryState.failed ||
+      null => null,
+    };
   }
 
   /// Merges every screen-reader custom action this bubble exposes.

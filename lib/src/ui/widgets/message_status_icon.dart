@@ -32,9 +32,16 @@ class MessageStatusIconData {
 typedef MessageStatusIconBuilder =
     Widget? Function(BuildContext context, MessageStatusIconData data);
 
-/// Instrumentation name of the delivery tick belonging to [messageId],
-/// published as both halves on the icon itself so a driver can point at the
-/// tick of one specific message instead of at "some check somewhere".
+/// Instrumentation name of the delivery tick belonging to [messageId], so a
+/// driver can point at the tick of one specific message instead of at "some
+/// check somewhere".
+///
+/// Published as both halves — `ValueKey` and `Semantics(identifier:)` — on the
+/// icon itself. Inside a `MessageBubble` the two halves land on two nodes: the
+/// bubble consolidates the announcements of everything it contains into a
+/// single label and excludes the subtree, so there the identifier is published
+/// by a bare sibling node the bubble stacks over its corner and the `ValueKey`
+/// stays on the icon. Both sides of the tree reach the same string either way.
 String messageStatusSemanticsId(String messageId) =>
     'chat_message_${messageId}_status';
 

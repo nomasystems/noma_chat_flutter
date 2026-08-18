@@ -27,15 +27,17 @@ the old message-bubble name — see *Changed*.
 - **The delivery tick of a message row carries its own name.**
   `chat_message_<messageId>_status`, published on both halves of
   `MessageStatusIcon`, so a driver points at the ticks of one specific message
-  instead of at "some check somewhere". `messageStatusSemanticsId` is exported.
-  A caveat worth knowing before you reach for it from a native dump: a bubble
-  consolidates the announcements of everything inside it into a single
-  screen-reader label, so while the tick sits in the timeline it publishes no
-  semantics node of its own and is reachable by `ValueKey` — an
-  `integration_test`, `find.byKey`, the VM Service. Rendered standalone both
-  halves are live. Publishing the tick a second time in the tree would announce
-  a state the bubble already reads out, and accessibility outranks
-  instrumentation.
+  instead of at "some check somewhere" — from a widget test, from an
+  `integration_test` and from a native dump (`resource-id` /
+  `accessibilityIdentifier`). `messageStatusSemanticsId` is exported.
+  One structural detail worth knowing: a bubble consolidates the announcements
+  of everything it contains into a single screen-reader label and excludes its
+  own subtree, so inside a bubble the two halves land on two nodes — the
+  `ValueKey` on the tick, the identifier on a bare sibling node stacked over
+  the bubble's corner, carrying the name and nothing else. That keeps the
+  message reading as one unit with its delivery state announced once, instead
+  of a second node repeating it. The tick rendered standalone, as in the
+  room-list preview, keeps both halves on itself.
 - `MessageStatusIcon.messageId` — optional, `null` by default. Names the tick;
   `null` in the room-list preview, where the icon summarises the last message of
   a room rather than a row of a timeline and has no single id to answer to. A

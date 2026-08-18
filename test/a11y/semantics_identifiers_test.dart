@@ -299,8 +299,8 @@ void main() {
       );
     });
 
-    testWidgets('a bubble names the tick it paints, and keeps its '
-        'announcement merged into the bubble label', (tester) async {
+    testWidgets('a bubble names the tick it paints on both halves, so a '
+        'native dump can assert delivery', (tester) async {
       await tester.pumpWidget(
         wrap(
           MessageBubble(
@@ -312,20 +312,77 @@ void main() {
       );
 
       expect(
+        identifier('chat_message_m42_status'),
+        findsOne,
+        reason:
+            'the name has to reach the semantics tree, which is what '
+            '`idb ui describe-all` and a UiAutomator dump read; the bubble '
+            'excludes its own subtree, so the name rides a sibling node',
+      );
+      expect(
         find.byKey(const ValueKey('chat_message_m42_status')),
         findsOneWidget,
+        reason: 'the ValueKey half, which is what an in-process driver reads',
       );
+    });
+
+    testWidgets('naming the tick does not break the merged announcement of '
+        'the bubble', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: fixtureMessage(id: 'm42', text: 'hola'),
+            isOutgoing: true,
+            status: ReceiptStatus.delivered,
+          ),
+        ),
+      );
+
       expect(
-        identifier('chat_message_m42_status'),
-        findsNothing,
+        identifier('chat_message_m42_status').evaluate().single.label,
+        isEmpty,
         reason:
-            'the bubble excludes its descendants and reads the status out in '
-            'one consolidated label, so inside the timeline the tick answers '
-            'to its ValueKey and not to a semantics node of its own',
+            'the node exists to carry a name, not to announce anything; a '
+            'label here would read the delivery state out a second time',
+      );
+
+      final bubbleLabel = identifier(
+        'chat_message_m42_outgoing',
+      ).evaluate().single.label;
+      expect(
+        bubbleLabel,
+        contains('hola'),
+        reason: 'the bubble still reads as one unit, body included',
       );
       expect(
-        identifier('chat_message_m42_outgoing').evaluate().single.label,
-        isNotEmpty,
+        bubbleLabel,
+        contains('Delivered'),
+        reason:
+            'and the delivery state is still part of that one unit, not a '
+            'fragment the reader has to go find on its own',
+      );
+    });
+
+    testWidgets('a bubble with no tick to name publishes no status name', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: fixtureMessage(
+              id: 'm9',
+              text: 'hola',
+              from: fixtureUserOther.id,
+            ),
+            isOutgoing: false,
+          ),
+        ),
+      );
+
+      expect(identifier('chat_message_m9_status'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('chat_message_m9_status')),
+        findsNothing,
       );
     });
 
