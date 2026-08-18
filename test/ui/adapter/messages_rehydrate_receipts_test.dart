@@ -429,10 +429,18 @@ void main() {
       'mark the rehydration held back', () async {
     // Same invariant as the test above, under the interleaving that used to
     // defeat it. u2's whole-room read marks m1 and m2 in memory; u3's read
-    // cursor sits outside the window, so resolving it suspends the marking
-    // loop on a cache read. A `read_receipt` frame arriving in that window
-    // reaches the same write-back queue from the event router, which knows
-    // nothing about what the rehydration decided to hold back.
+    // cursor sits outside the window, so resolving it needs a cache read.
+    // A `read_receipt` frame arriving in that window reaches the same
+    // write-back queue from the event router, which knows nothing about what
+    // the rehydration decided to hold back.
+    //
+    // The suspension moved: the cursor timestamps are resolved up front so
+    // the marking loop itself can be synchronous, which is what lets a room
+    // open with its ticks already right. So a frame can no longer land
+    // *between* two marks — it lands before them. The invariant is unchanged
+    // and is the controller's, not the drain's: a mark with no cursor behind
+    // it is held back whoever drains the queue. A `delivered` frame that
+    // genuinely arrived is a different thing and persists on its own merits.
     final mockClient = MockChatClient(currentUserId: 'u1');
     addTearDown(mockClient.dispose);
     mockClient.seedRoom(
@@ -514,10 +522,17 @@ void main() {
     final stored = (await cache.getMessages('r1')).dataOrThrow;
     expect(
       stored.map((m) => m.receipt),
-      everyElement(isNull),
+      isNot(contains(ReceiptStatus.read)),
       reason:
           'a mark with no cursor behind it must not become permanent, '
           'whichever consumer drains the queue',
+    );
+    expect(
+      stored.firstWhere((m) => m.id == 'm2').receipt,
+      isNull,
+      reason:
+          'm2 was marked read by the whole-room cursor alone and by '
+          'nothing else, so nothing about it may reach disk',
     );
   });
 

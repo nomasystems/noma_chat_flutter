@@ -100,6 +100,7 @@ class RoomMapper {
     bool lastMessageIsDeleted = false;
     String? lastMessageReactionEmoji;
     ReceiptStatus? lastMessageReceipt;
+    bool hasLocationMeta = false;
 
     if (lastMsg is Map<String, dynamic>) {
       lastMessage = _asString(lastMsg['body']) ?? _asString(lastMsg['text']);
@@ -120,7 +121,16 @@ class RoomMapper {
       if (meta is Map<String, dynamic>) {
         final dur = meta['duration'];
         if (dur is num) lastMessageDurationMs = dur.toInt();
-        lastMessageMimeType ??= _asString(meta['mimeType']);
+        lastMessageMimeType ??=
+            _asString(meta['mimeType']) ?? _asString(meta['mime_type']);
+        // Where the name actually travels. [MessageMapper] reads it from
+        // the metadata because that is where the send path writes it; the
+        // room-listing projection has no top-level `fileName` either, so
+        // without this a document previewed as "📄 File" and a named audio
+        // lost its title.
+        lastMessageFileName ??=
+            _asString(meta['fileName']) ?? _asString(meta['file_name']);
+        hasLocationMeta = meta['lat'] is num && meta['lng'] is num;
       }
       lastMessageIsDeleted = jsonBoolOr(lastMsg['isDeleted'], false);
       lastMessageReactionEmoji = _parseReactionEmoji(lastMsg['reaction']);
@@ -131,6 +141,17 @@ class RoomMapper {
         ((lastMessageMimeType != null && lastMessageMimeType.isNotEmpty) ||
             (lastMessageFileName != null && lastMessageFileName.isNotEmpty))) {
       lastMessageType = MessageType.attachment;
+    }
+
+    // Same coercion [MessageMapper] applies to a full row, for the same
+    // reason: numeric coordinates in the metadata are what a location IS,
+    // and the room-listing projection historically shipped no `messageType`
+    // at all — a map arrived as an untyped row with an empty body and the
+    // preview came out blank. Guarded like the attachment coercion above, so
+    // an emitted `messageType` always wins over the inference.
+    if ((lastMessageType == null || lastMessageType == MessageType.regular) &&
+        hasLocationMeta) {
+      lastMessageType = MessageType.location;
     }
 
     return UnreadRoom(
