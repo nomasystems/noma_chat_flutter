@@ -132,6 +132,7 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Standard TLS transport — the SDK relies on the operating system's CA trust store to validate server certificates; it does **not** pin certificates
 - Optional at-rest cache encryption — hand `NomaChat.create` a Hive AES cipher and the offline message / room store is encrypted on device
 - Structured logging pipeline (`ChatLogTag`/`ChatLogLevel`, pluggable `ChatLogSink`s, one-tap file export via `ChatLogExporter`) alongside the classic `logger` callback + `metricCallback` hook — every metric name and when it fires is documented in [TELEMETRY.md](./TELEMETRY.md), and nothing leaves the device unless you wire a sink yourself
+- Product-analytics channel (`ChatConfig.analyticsSink` / `ChatUiAdapter`'s constructor) — a separate, opt-in stream of `ChatAnalyticsEvent`s (room opened, message received, voice played, send outcome) that, unlike `metricCallback`, is allowed to carry room/message identifiers; see [ANALYTICS.md](./ANALYTICS.md)
 
 **UI components — messages**
 - Text, image, audio, video, file and link-preview bubbles — media bubbles
@@ -320,6 +321,8 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 | [INTEGRATION.md](./INTEGRATION.md) | Backend contract (endpoints, auth, WS frames, S2S) |
 | [Backend API reference](https://redocly.github.io/redoc/?url=https://raw.githubusercontent.com/nomasystems/noma_chat_flutter/main/doc/chat-api-openapi.yml) | Rendered OpenAPI 3.0.1 (Redoc) · [source spec](https://github.com/nomasystems/noma_chat_flutter/blob/main/doc/chat-api-openapi.yml) |
 | [SECURITY.md](./SECURITY.md) | Threat model · what the SDK does and does not guarantee · consumer hardening checklist |
+| [TELEMETRY.md](./TELEMETRY.md) | SDK observability metrics (`metricCallback`) — every metric name, fields, and when it fires |
+| [ANALYTICS.md](./ANALYTICS.md) | Product-analytics events (`analyticsSink`) — separate from telemetry, carries room/message identifiers |
 | [MIGRATING.md](./MIGRATING.md) | Step-by-step upgrade guide for every breaking release |
 | [CHANGELOG.md](./CHANGELOG.md) | Version history |
 

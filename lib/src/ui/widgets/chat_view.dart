@@ -214,6 +214,7 @@ class _ChatViewState extends State<ChatView> {
       statusIconBuilder: builders.statusIconBuilder,
       attachmentUrlResolver: builders.attachmentUrlResolver,
       attachmentMediaLoader: builders.attachmentMediaLoader,
+      onVoicePlayed: callbacks.onVoicePlayed,
     );
   }
 

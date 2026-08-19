@@ -235,6 +235,7 @@ class ChatViewCallbacks {
     this.onCancelAttachmentUpload,
     this.onFetchReactions,
     this.onUnblock,
+    this.onVoicePlayed,
   });
 
   /// Modern send callback. Receives a [SendMessageRequest] with text,
@@ -317,6 +318,15 @@ class ChatViewCallbacks {
   /// [ChatViewBuilders.blockedBannerBuilder] is null (otherwise the
   /// default banner has no way to unblock).
   final VoidCallback? onUnblock;
+
+  /// Fires the first time a voice message plays. `NomaChatView` always
+  /// wires its own default here (publishing `ChatAnalyticsEvent
+  /// .voicePlayed` on `ChatUiAdapter.analyticsSink`) and additionally
+  /// invokes whatever is set here — unlike this class's other callbacks,
+  /// setting [onVoicePlayed] does not replace the SDK's own handling, it
+  /// only adds to it. See `ANALYTICS.md`.
+  final void Function(ChatMessage message, int durationMs, bool firstListen)?
+  onVoicePlayed;
 }
 
 const Duration _unsetWindow = Duration(microseconds: -1);

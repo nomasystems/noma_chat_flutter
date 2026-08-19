@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../_internal/ui_debug_log.dart';
+import '../../models/chat_analytics_event.dart';
 import '../../models/message.dart';
 import '../../models/reaction.dart';
 import '../../models/room_user.dart';
@@ -614,6 +615,17 @@ class _NomaChatViewState extends State<NomaChatView> {
           (isBlocked && blockOtherUserId != null
               ? () => adapter.contacts.unblock(blockOtherUserId)
               : null),
+      onVoicePlayed: (message, durationMs, firstListen) {
+        adapter.emitAnalyticsEvent(
+          ChatAnalyticsEvent.voicePlayed(
+            roomId: sendKey,
+            messageId: message.id,
+            durationMs: durationMs,
+            firstListen: firstListen,
+          ),
+        );
+        user.onVoicePlayed?.call(message, durationMs, firstListen);
+      },
       onSendMessageRequest:
           user.onSendMessageRequest ??
           (req) => adapter.messages.send(

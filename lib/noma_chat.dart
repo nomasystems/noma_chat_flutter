@@ -58,6 +58,7 @@ export 'src/core/pagination.dart';
 
 // === SDK: Models ===
 export 'src/models/attachment.dart';
+export 'src/models/chat_analytics_event.dart';
 export 'src/models/user.dart';
 export 'src/models/room.dart';
 export 'src/models/message.dart';

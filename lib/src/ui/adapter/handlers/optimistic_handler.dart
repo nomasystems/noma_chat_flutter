@@ -3,6 +3,7 @@ import 'dart:async';
 import '../../../cache/local_datasource.dart';
 import '../../../client/chat_client.dart';
 import '../../../core/result.dart';
+import '../../../models/chat_analytics_event.dart';
 import '../../../models/message.dart';
 import '../../../models/pin.dart';
 import '../../../models/user.dart';
@@ -63,6 +64,7 @@ class OptimisticHandler {
     })
     emitOperationSuccess,
     required ChatResult<void> Function(Object _) swallowCacheThrow,
+    required void Function(ChatAnalyticsEvent event) analyticsEmit,
     ChatLogger? logs,
   }) : _currentUser = currentUser,
        _ensureDmRoomMaterialized = ensureDmRoomMaterialized,
@@ -75,6 +77,7 @@ class OptimisticHandler {
        _emitFailure = emitFailure,
        _emitOperationSuccess = emitOperationSuccess,
        _swallowCacheThrow = swallowCacheThrow,
+       _analyticsEmit = analyticsEmit,
        _logs = logs;
 
   final ChatClient client;
@@ -126,6 +129,10 @@ class OptimisticHandler {
   })
   _emitOperationSuccess;
   final ChatResult<void> Function(Object _) _swallowCacheThrow;
+
+  /// See `ChatUiAdapter.emitAnalyticsEvent` — already guards against a
+  /// throwing sink, so [sendMessage] calls this directly.
+  final void Function(ChatAnalyticsEvent event) _analyticsEmit;
 
   Future<ChatResult<ChatMessage>> sendMessage(
     String roomIdOrDraftKey, {
@@ -230,6 +237,13 @@ class OptimisticHandler {
             Future.value(),
       );
       _updateRoomLastMessage(effectiveRoomId, sent);
+      _analyticsEmit(
+        ChatAnalyticsEvent.sendOutcome(
+          roomId: effectiveRoomId,
+          kind: messageType,
+          success: true,
+        ),
+      );
       return ChatSuccess<ChatMessage>(sent);
     }
 
@@ -297,6 +311,17 @@ class OptimisticHandler {
       }
     }
 
+    _analyticsEmit(
+      ChatAnalyticsEvent.sendOutcome(
+        roomId: effectiveRoomId,
+        kind: messageType,
+        success: result.isSuccess,
+        failureKind: result.isSuccess
+            ? null
+            : _failureKind(result.failureOrNull),
+      ),
+    );
+
     return _emitFailure<ChatMessage>(
       result,
       operationKind ?? OperationKind.sendMessage,
@@ -304,6 +329,13 @@ class OptimisticHandler {
       messageId: tempId,
     );
   }
+
+  /// A [ChatFailure]'s server-provided `errorToken` when it has one, else
+  /// its class name (`'NetworkFailure'`, `'ValidationFailure'`, …). Never
+  /// `failure.message`, which can echo server- or user-provided text —
+  /// [ChatAnalyticsSendOutcome.failureKind] must stay free of that.
+  String? _failureKind(ChatFailure? failure) =>
+      failure == null ? null : (failure.errorToken ?? '${failure.runtimeType}');
 
   /// Delegates to the adapter's `ensureDmRoomMaterialized`. Kept as a
   /// thin wrapper so [sendMessage] can read

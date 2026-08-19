@@ -1345,4 +1345,81 @@ void main() {
       expect(find.byType(SnackBar), findsNothing);
     });
   });
+
+  group('onVoicePlayed', () {
+    testWidgets('emits ChatAnalyticsEvent.voicePlayed on the adapter\'s '
+        'analyticsSink AND still calls the host callback', (tester) async {
+      final events = <ChatAnalyticsEvent>[];
+      final hostCalls = <(String, int, bool)>[];
+      final analyticsAdapter = ChatUiAdapter(
+        client: mockClient,
+        currentUser: currentUser,
+        analyticsSink: events.add,
+      );
+      analyticsAdapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Alice'),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: analyticsAdapter,
+            hydrateGroupMembers: false,
+            callbacks: ChatViewCallbacks(
+              onVoicePlayed: (message, durationMs, firstListen) =>
+                  hostCalls.add((message.id, durationMs, firstListen)),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      chatViewOf(tester).callbacks.onVoicePlayed!(msg('m1'), 1500, true);
+
+      // `setActiveRoom` (mount) also emits a `roomOpened` — filter down
+      // to the event this test is about.
+      final voicePlayed = events.whereType<ChatAnalyticsVoicePlayed>();
+      expect(voicePlayed, hasLength(1));
+      final event = voicePlayed.single;
+      expect(event.roomId, 'room1');
+      expect(event.messageId, 'm1');
+      expect(event.durationMs, 1500);
+      expect(event.firstListen, true);
+
+      expect(hostCalls, [('m1', 1500, true)]);
+
+      await analyticsAdapter.dispose();
+    });
+
+    testWidgets('with no analyticsSink wired, only the host callback fires', (
+      tester,
+    ) async {
+      final hostCalls = <String>[];
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Alice'),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            callbacks: ChatViewCallbacks(
+              onVoicePlayed: (message, durationMs, firstListen) =>
+                  hostCalls.add(message.id),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        () => chatViewOf(tester).callbacks.onVoicePlayed!(msg('m1'), 900, true),
+        returnsNormally,
+      );
+      expect(hostCalls, ['m1']);
+    });
+  });
 }
