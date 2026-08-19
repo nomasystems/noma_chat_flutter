@@ -763,4 +763,55 @@ void main() {
       handle.dispose();
     });
   });
+
+  group('onVoicePlayed', () {
+    testWidgets('is threaded through to AudioBubble for a MessageType.audio '
+        'message', (tester) async {
+      final played = <(int, bool)>[];
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              id: 'm1',
+              from: 'u2',
+              timestamp: DateTime(2026, 1, 1),
+              messageType: MessageType.audio,
+              attachmentUrl: 'https://example.com/audio.m4a',
+            ),
+            isOutgoing: false,
+            onVoicePlayed: (durationMs, firstListen) =>
+                played.add((durationMs, firstListen)),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final bubble = tester.widget<AudioBubble>(find.byType(AudioBubble));
+      expect(bubble.onVoicePlayed, isNotNull);
+    });
+
+    testWidgets('is threaded through to AudioBubble for an audio/* '
+        'MessageType.attachment message', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(
+            message: ChatMessage(
+              id: 'm1',
+              from: 'u2',
+              timestamp: DateTime(2026, 1, 1),
+              messageType: MessageType.attachment,
+              mimeType: 'audio/mp4',
+              attachmentUrl: 'https://example.com/audio.m4a',
+            ),
+            isOutgoing: false,
+            onVoicePlayed: (durationMs, firstListen) {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final bubble = tester.widget<AudioBubble>(find.byType(AudioBubble));
+      expect(bubble.onVoicePlayed, isNotNull);
+    });
+  });
 }

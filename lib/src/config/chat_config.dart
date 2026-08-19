@@ -11,6 +11,7 @@ import '../_internal/http/basic_auth_interceptor.dart';
 import '../_internal/cache/cache_config.dart';
 import '../_internal/http/retry_config.dart';
 import '../cache/local_datasource.dart';
+import '../models/chat_analytics_event.dart';
 import '../observability/chat_logger.dart';
 import 'polling_config.dart';
 import 'realtime_mode.dart';
@@ -161,6 +162,15 @@ class ChatConfig {
   @experimental
   final MetricCallback? metricCallback;
 
+  /// Sink for [ChatAnalyticsEvent]s (room opens, incoming messages,
+  /// voice-note plays, send outcomes). Separate from [metricCallback] by
+  /// design — see `ANALYTICS.md` and `TELEMETRY.md` for why room/message
+  /// identifiers are allowed on this channel but not on that one. Also
+  /// settable directly on `ChatUiAdapter`'s constructor for hosts that
+  /// build the adapter themselves instead of through `NomaChat.create` /
+  /// `fromConfig`. Defaults to `null` (no events emitted).
+  final ChatAnalyticsSink? analyticsSink;
+
   String get effectiveSseUrl => sseUrl ?? realtimeUrl;
 
   /// Default logger that routes `(level, message)` calls to
@@ -239,6 +249,7 @@ class ChatConfig {
     this.logger,
     this.enableHttpLog = false,
     this.metricCallback,
+    this.analyticsSink,
     this.logSink,
     this.logLevel = ChatLogLevel.warn,
     this.logTags,
@@ -319,6 +330,11 @@ class ChatConfig {
   /// error counts, queue depth, etc.). Forward to Prometheus, Datadog,
   /// Firebase Performance, or any other telemetry backend. `null` by default.
   ///
+  /// [analyticsSink] — sink for [ChatAnalyticsEvent]s (room opens, incoming
+  /// messages, voice-note plays, send outcomes). Unlike [metricCallback],
+  /// events on this channel carry room/message identifiers — see
+  /// `ANALYTICS.md`. `null` by default.
+  ///
   /// **Other parameters:**
   ///
   /// [userId] — the ID of the current user. When set, the SDK uses it for
@@ -377,6 +393,7 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
+    ChatAnalyticsSink? analyticsSink,
     ChatLogSink? logSink,
     ChatLogLevel logLevel = ChatLogLevel.warn,
     Set<ChatLogTag>? logTags,
@@ -431,6 +448,7 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
+      analyticsSink: analyticsSink,
       logSink: logSink,
       logLevel: logLevel,
       logTags: logTags,
@@ -470,6 +488,7 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
+    ChatAnalyticsSink? analyticsSink,
     ChatLogSink? logSink,
     ChatLogLevel logLevel = ChatLogLevel.warn,
     Set<ChatLogTag>? logTags,
@@ -506,6 +525,7 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
+      analyticsSink: analyticsSink,
       logSink: logSink,
       logLevel: logLevel,
       logTags: logTags,
@@ -546,6 +566,7 @@ class ChatConfig {
     void Function(String level, String message)? logger,
     bool enableHttpLog = false,
     MetricCallback? metricCallback,
+    ChatAnalyticsSink? analyticsSink,
     ChatLogSink? logSink,
     ChatLogLevel logLevel = ChatLogLevel.warn,
     Set<ChatLogTag>? logTags,
@@ -585,6 +606,7 @@ class ChatConfig {
       logger: logger,
       enableHttpLog: enableHttpLog,
       metricCallback: metricCallback,
+      analyticsSink: analyticsSink,
       logSink: logSink,
       logLevel: logLevel,
       logTags: logTags,

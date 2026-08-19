@@ -76,6 +76,14 @@ interface class ChatDmController {
   /// Synthetic routing key for a DM draft (`draft:<otherUserId>`).
   String draftRoutingKey(String otherUserId) => 'draft:$otherUserId';
 
+  /// `true` when [roomIdOrDraftKey] is a [draftRoutingKey] rather than a
+  /// server-side room id. Single source of truth for the key's shape, so
+  /// callers that must treat a draft differently (skipping a `markAsRead`
+  /// that would 403, keeping a peer's user id off the analytics channel)
+  /// never re-encode the `draft:` prefix themselves.
+  bool isDraftRoutingKey(String roomIdOrDraftKey) =>
+      roomIdOrDraftKey.startsWith('draft:');
+
   /// Materialises the DM room with [otherUserId] on the backend.
   /// Returns the new `roomId`.
   Future<ChatResult<String>> ensureMaterialized(

@@ -131,5 +131,62 @@ void main() {
       expect(find.byIcon(Icons.error_outline), findsOneWidget);
       expect(retried, isNull);
     });
+
+    testWidgets('threads onVoicePlayed down to the audio bubble, bound to '
+        'its own message', (tester) async {
+      controller = ChatController(
+        initialMessages: [
+          ChatMessage(
+            id: 'a1',
+            from: 'u2',
+            timestamp: DateTime(2026, 1, 1, 10),
+            messageType: MessageType.audio,
+            attachmentUrl: 'https://example.com/audio.m4a',
+          ),
+        ],
+        currentUser: user,
+      );
+      final played = <(String, int, bool)>[];
+
+      await tester.pumpWidget(
+        wrap(
+          MessageList(
+            controller: controller,
+            onVoicePlayed: (msg, durationMs, firstListen) =>
+                played.add((msg.id, durationMs, firstListen)),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final bubble = tester.widget<AudioBubble>(find.byType(AudioBubble));
+      expect(bubble.onVoicePlayed, isNotNull);
+
+      bubble.onVoicePlayed!(1234, true);
+      expect(played, [('a1', 1234, true)]);
+    });
+
+    testWidgets('passes no onVoicePlayed down when none is set', (
+      tester,
+    ) async {
+      controller = ChatController(
+        initialMessages: [
+          ChatMessage(
+            id: 'a1',
+            from: 'u2',
+            timestamp: DateTime(2026, 1, 1, 10),
+            messageType: MessageType.audio,
+            attachmentUrl: 'https://example.com/audio.m4a',
+          ),
+        ],
+        currentUser: user,
+      );
+
+      await tester.pumpWidget(wrap(MessageList(controller: controller)));
+      await tester.pump();
+
+      final bubble = tester.widget<AudioBubble>(find.byType(AudioBubble));
+      expect(bubble.onVoicePlayed, isNull);
+    });
   });
 }

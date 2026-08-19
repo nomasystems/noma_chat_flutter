@@ -6,6 +6,56 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.25.0 - 2026-08-19
+
+Minor bump: a new opt-in analytics channel, additive across the board — no
+existing signature changed, no type removed. A host that upgrades and
+rebuilds compiles untouched and, wiring nothing new, emits exactly as
+before.
+
+### Added
+
+- **`ChatAnalyticsSink` / `ChatAnalyticsEvent`** — a product-analytics
+  channel, deliberately separate from `metricCallback`/`MetricCallback`
+  (see `TELEMETRY.md`): this one is where room and message identifiers are
+  allowed to travel, because a product funnel is meaningless without them.
+  Four events: `roomOpened`, `messageReceived`, `voicePlayed`,
+  `sendOutcome`. `ChatAnalyticsEvent` is a `freezed` sealed union —
+  consumer `switch` statements need a wildcard case to stay forward
+  compatible with a future variant, same as `MessageType` or `ChatFailure`.
+  See `ANALYTICS.md` for the full contract, emission sites, and a wiring
+  example.
+
+  Settable on `ChatConfig.analyticsSink` (for `NomaChat.create` /
+  `fromConfig`) **and** directly on `ChatUiAdapter`'s constructor — the
+  latter matters for a host that builds `ChatUiAdapter` by hand instead of
+  going through `NomaChat.create`, since a callback that only lived on
+  `ChatConfig` would never reach it. `null` by default: wiring this is
+  entirely opt-in, and a throwing sink is caught and dropped exactly like
+  every other user-supplied callback in this SDK — analytics can never
+  break the chat.
+
+  Identifiers travel unhashed and the SDK does not sample, batch, or drop
+  events — see `ANALYTICS.md` for why (a consumer that needs hashed ids,
+  like `WB`, applies its own sanitizer unconditionally on the way out; a
+  second transformation point inside the SDK would just be a second place
+  for that mapping to drift).
+
+  `ChatViewCallbacks.onVoicePlayed` is new too — `NomaChatView` always
+  wires its own default there (publishing the analytics event) and
+  additionally calls whatever the host sets, so a host callback never
+  silently disables the SDK's own emission.
+
+  Each event documents what it does and does not count — which send paths
+  emit `sendOutcome`, why an unmaterialized DM draft emits no `roomOpened`,
+  what `voicePlayed.firstListen` really means — in `ANALYTICS.md` under
+  "Known limits of the four events". Read that section before building a
+  funnel on top of these.
+
+- **`ChatUiAdapter.dm.isDraftRoutingKey(key)`** — tells a synthetic
+  `draft:<otherUserId>` routing key apart from a server-side room id,
+  which callers previously had to do by re-encoding the prefix themselves.
+
 ## 0.24.0 - 2026-08-18
 
 Minor bump: three behaviour fixes in the chat surface, no API added, none

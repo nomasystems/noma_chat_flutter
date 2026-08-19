@@ -174,6 +174,60 @@ void main() {
     expect(find.byIcon(Icons.play_arrow), findsOneWidget);
   });
 
+  group('onVoicePlayed', () {
+    // Same test-harness caveat as audio_bubble_media_loader_test.dart: there
+    // is no real `audioplayers` platform channel here, and
+    // `AudioPlayer.setSource()` throws (`MissingPluginException` on
+    // `xyz.luan/audioplayers.global`) with no platform registered, so
+    // `_ensureInitialized` never reaches `_initialized = true` and the
+    // `_listened` flip — `onListenedChanged` and `onVoicePlayed` alike — is
+    // unreachable from a tap in this suite. The incoming-only guard, the
+    // `durationMs` payload and the once-per-bubble semantics are therefore
+    // NOT covered here. What is: the callback is optional, and a tap that
+    // never reaches playback does not fire it.
+    testWidgets('is optional: a bubble without it survives a tap', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const AudioBubble(
+            audioUrl: 'https://example.com/audio.m4a',
+            isOutgoing: false,
+            waveform: [10, 20, 30],
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a tap that never reaches playback (no platform channel in '
+        'this suite) does not fire it', (tester) async {
+      final played = <(int, bool)>[];
+      await tester.pumpWidget(
+        wrap(
+          AudioBubble(
+            audioUrl: 'https://example.com/audio.m4a',
+            isOutgoing: false,
+            waveform: const [10, 20, 30],
+            onVoicePlayed: (durationMs, firstListen) =>
+                played.add((durationMs, firstListen)),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pumpAndSettle();
+
+      expect(played, isEmpty);
+    });
+  });
+
   group('playback speed persistence', () {
     testWidgets('starts the speed pill at initialPlaybackSpeed', (
       tester,

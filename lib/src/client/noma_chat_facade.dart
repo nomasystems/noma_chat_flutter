@@ -5,6 +5,7 @@ import 'package:hive_ce/hive_ce.dart' show HiveCipher;
 import '../_internal/cache/cache_config.dart';
 import '../_internal/cache/cache_manager.dart' show MetricCallback;
 import '../cache/local_datasource.dart';
+import '../models/chat_analytics_event.dart';
 import '../_internal/http/retry_config.dart';
 import '../cache/hive_chat_datasource.dart';
 import '../config/chat_config.dart';
@@ -171,6 +172,7 @@ class NomaChat {
     // Observability
     void Function(String level, String message)? logger,
     MetricCallback? metricCallback,
+    ChatAnalyticsSink? analyticsSink,
   }) async {
     HiveChatDatasource? hiveCache;
     ChatLocalDatasource? effectiveDatasource = localDatasource;
@@ -217,6 +219,7 @@ class NomaChat {
               : null,
           logger: logger,
           metricCallback: metricCallback,
+          analyticsSink: analyticsSink,
         );
 
     final client = NomaChatClient(config: effectiveConfig);
@@ -239,6 +242,7 @@ class NomaChat {
       logLevel: effectiveConfig.logLevel,
       logMessageContent: effectiveConfig.logMessageContent,
       metricCallback: effectiveConfig.metricCallback,
+      analyticsSink: effectiveConfig.analyticsSink,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
     );
@@ -324,6 +328,7 @@ class NomaChat {
       logLevel: config.logLevel,
       logMessageContent: config.logMessageContent,
       metricCallback: config.metricCallback,
+      analyticsSink: config.analyticsSink,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
     );
@@ -386,6 +391,7 @@ class NomaChat {
     ChatLogLevel logLevel = ChatLogLevel.warn,
     bool logMessageContent = false,
     MetricCallback? metricCallback,
+    ChatAnalyticsSink? analyticsSink,
     AvatarStorage? avatarStorage,
     VideoThumbnailer? videoThumbnailer,
   }) {
@@ -403,6 +409,7 @@ class NomaChat {
       logLevel: logLevel,
       logMessageContent: logMessageContent,
       metricCallback: metricCallback,
+      analyticsSink: analyticsSink,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
     );

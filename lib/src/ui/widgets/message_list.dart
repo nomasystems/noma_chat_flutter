@@ -75,6 +75,7 @@ class MessageList extends StatefulWidget {
     this.statusIconBuilder,
     this.attachmentUrlResolver,
     this.attachmentMediaLoader,
+    this.onVoicePlayed,
   });
 
   final ChatController controller;
@@ -217,6 +218,12 @@ class MessageList extends StatefulWidget {
   /// forwarded to every media bubble alongside `controller.roomId` — see
   /// `ChatViewBuilders.attachmentMediaLoader`.
   final AttachmentMediaLoader? attachmentMediaLoader;
+
+  /// Fires the first time a voice message in this list is played, with the
+  /// [ChatMessage] it belongs to. See `MessageBubble.onVoicePlayed` /
+  /// `ChatViewCallbacks.onVoicePlayed`.
+  final void Function(ChatMessage message, int durationMs, bool firstListen)?
+  onVoicePlayed;
 
   @override
   State<MessageList> createState() => _MessageListState();
@@ -876,6 +883,7 @@ class _MessageListState extends State<MessageList> {
     final audioSenderName = isSelf
         ? widget.controller.currentUser.displayName
         : _senderName(msg.from);
+    final onVoicePlayed = widget.onVoicePlayed;
 
     return MessageBubble(
       key: ValueKey(_bubbleKeyFor(msg)),
@@ -890,6 +898,10 @@ class _MessageListState extends State<MessageList> {
       roomId: widget.controller.roomId,
       attachmentUrlResolver: widget.attachmentUrlResolver,
       attachmentMediaLoader: widget.attachmentMediaLoader,
+      onVoicePlayed: onVoicePlayed == null
+          ? null
+          : (durationMs, firstListen) =>
+                onVoicePlayed(msg, durationMs, firstListen),
       isFirstInGroup: isFirstInGroup,
       isLastInGroup: isLastInGroup,
       referencedMessage: referenced,

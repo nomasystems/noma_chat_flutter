@@ -16,6 +16,7 @@ import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../events/chat_event.dart';
 import '../../models/attachment.dart';
+import '../../models/chat_analytics_event.dart';
 import '../../models/message.dart';
 import '../../models/pin.dart';
 import '../../models/presence.dart';
@@ -124,6 +125,7 @@ class ChatUiAdapter {
     this.logLevel = ChatLogLevel.warn,
     this.logMessageContent = false,
     this.metricCallback,
+    this.analyticsSink,
     this.roomRevalidateDebounce = const Duration(seconds: 5),
     Duration resyncDebounce = const Duration(seconds: 5),
     ChatLocalDatasource? cache,
@@ -497,6 +499,28 @@ class ChatUiAdapter {
   /// came. `null` (the default) collects nothing.
   final MetricCallback? metricCallback;
 
+  /// Sink for [ChatAnalyticsEvent]s. Mirrors [ChatConfig.analyticsSink],
+  /// which `NomaChat.create` / `NomaChat.fromConfig` wire here for you —
+  /// but this constructor param is the one that matters for a host that
+  /// builds [ChatUiAdapter] directly (bypassing `NomaChat.create`), since
+  /// a callback that only lived on [ChatConfig] would never reach it. `null`
+  /// (the default) emits nothing. See `ANALYTICS.md`.
+  final ChatAnalyticsSink? analyticsSink;
+
+  /// Publishes [event] on [analyticsSink]. Exposed (rather than private) so
+  /// collaborators outside this file — `NomaChatView`'s voice-playback
+  /// wiring, in particular — can emit through the same guarded path as the
+  /// adapter's own internal emission sites (`setActiveRoom`, the send path,
+  /// the incoming-message router). A throwing sink is caught and dropped:
+  /// analytics must never be able to break the chat.
+  void emitAnalyticsEvent(ChatAnalyticsEvent event) {
+    final sink = analyticsSink;
+    if (sink == null) return;
+    try {
+      sink(event);
+    } catch (_) {}
+  }
+
   final RoomListController roomListController;
 
   /// Lifecycle service: owns `connectionStateNotifier`,
@@ -696,6 +720,7 @@ class ChatUiAdapter {
           userId: userId,
         ),
     swallowCacheThrow: _swallowCacheThrow,
+    analyticsEmit: emitAnalyticsEvent,
     logs: logs,
   );
 
@@ -1155,7 +1180,17 @@ class ChatUiAdapter {
     // message), so mark-as-read would 403 with `not_member`. Skip it for
     // drafts; the room is marked read normally once it materializes.
     final isDraftRoom =
-        roomId != null && (_chatControllers[roomId]?.isDraft ?? false);
+        roomId != null &&
+        ((_chatControllers[roomId]?.isDraft ?? false) ||
+            dm.isDraftRoutingKey(roomId));
+    if (roomId != null && !isDraftRoom) {
+      emitAnalyticsEvent(
+        ChatAnalyticsEvent.roomOpened(
+          roomId: roomId,
+          isGroup: roomListController.getRoomById(roomId)?.isGroup ?? false,
+        ),
+      );
+    }
     if (roomId != null && autoMarkAsRead && !isDraftRoom) {
       final targetRoomId = roomId;
       scheduleMicrotask(() {
@@ -2429,6 +2464,7 @@ class ChatUiAdapter {
       updateRoomUnread: (roomId, count) =>
           _roomListMutator.updateRoomUnread(roomId, count),
       removeChatController: removeChatController,
+      analyticsEmit: emitAnalyticsEvent,
       onAdminMessage: () => onAdminMessage,
       onBroadcast: () => onBroadcast,
       onError: () => onError,

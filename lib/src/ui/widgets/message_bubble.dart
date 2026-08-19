@@ -95,6 +95,7 @@ class MessageBubble extends StatelessWidget {
     this.roomId,
     this.attachmentUrlResolver,
     this.attachmentMediaLoader,
+    this.onVoicePlayed,
   });
 
   final ChatMessage message;
@@ -257,6 +258,11 @@ class MessageBubble extends StatelessWidget {
   /// signed URL the resolver mints still requires a Bearer token no
   /// URL-loading widget sends.
   final AttachmentMediaLoader? attachmentMediaLoader;
+
+  /// Fires the first time this bubble's voice message is played. `null`
+  /// for every bubble that isn't an audio one — [AudioBubble] is the only
+  /// renderer this is threaded to. See `AudioBubble.onVoicePlayed`.
+  final void Function(int durationMs, bool firstListen)? onVoicePlayed;
 
   bool get _isEdited => message.isEdited;
 
@@ -495,6 +501,7 @@ class MessageBubble extends StatelessWidget {
         attachmentRef: _attachmentRef,
         urlResolver: attachmentUrlResolver,
         mediaLoader: attachmentMediaLoader,
+        onVoicePlayed: onVoicePlayed,
       );
     }
 
@@ -521,6 +528,7 @@ class MessageBubble extends StatelessWidget {
           attachmentRef: _attachmentRef,
           urlResolver: attachmentUrlResolver,
           mediaLoader: attachmentMediaLoader,
+          onVoicePlayed: onVoicePlayed,
         );
       }
       if (mimeType.startsWith('image/')) {

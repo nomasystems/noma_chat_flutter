@@ -48,6 +48,23 @@ void main() {
       expect(chat.adapter.enableReconnectResync, isTrue);
     });
 
+    test('threads the supplied analyticsSink through to the adapter', () async {
+      final events = <ChatAnalyticsEvent>[];
+      chat = await NomaChat.create(
+        baseUrl: 'http://h/v1',
+        realtimeUrl: 'http://h',
+        tokenProvider: () async => 't',
+        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+        enableCache: false,
+        localDatasource: MemoryChatLocalDatasource(),
+        analyticsSink: events.add,
+      );
+
+      chat.adapter.setActiveRoom('r1');
+
+      expect(events, hasLength(1));
+    });
+
     test('manageAppLifecycle/lifecyclePolicy/enableReconnectResync are '
         'threaded through when overridden', () async {
       chat = await NomaChat.create(
@@ -129,6 +146,26 @@ void main() {
 
       expect(chat.adapter.l10n, ChatUiLocalizations.es);
     });
+
+    test('threads config.analyticsSink through to the adapter', () async {
+      final events = <ChatAnalyticsEvent>[];
+      final config = ChatConfig(
+        baseUrl: 'http://h/v1',
+        realtimeUrl: 'http://h',
+        tokenProvider: () async => 't',
+        localDatasource: MemoryChatLocalDatasource(),
+        analyticsSink: events.add,
+      );
+
+      chat = await NomaChat.fromConfig(
+        config: config,
+        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+      );
+
+      chat.adapter.setActiveRoom('r1');
+
+      expect(events, hasLength(1));
+    });
   });
 
   group('NomaChat.fromClient', () {
@@ -154,6 +191,20 @@ void main() {
       );
 
       expect(chat.adapter.l10n, ChatUiLocalizations.es);
+    });
+
+    test('accepts a directly-wired analyticsSink', () {
+      final events = <ChatAnalyticsEvent>[];
+      final client = MockChatClient(currentUserId: 'u1');
+      final chat = NomaChat.fromClient(
+        client: client,
+        currentUser: const ChatUser(id: 'u1', displayName: 'Test'),
+        analyticsSink: events.add,
+      );
+
+      chat.adapter.setActiveRoom('r1');
+
+      expect(events, hasLength(1));
     });
 
     test('manageAppLifecycle/lifecyclePolicy/enableReconnectResync default '
