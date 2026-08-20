@@ -358,8 +358,7 @@ class ChatEventRouter {
         // placeholder with no metadata. Confirm via detail first.
         _addRoomFromDetailFn(roomId);
       case RoomUpdatedEvent(:final roomId):
-        _cache?.deleteRoomDetail(roomId);
-        _enrichRoomFromDetailFn(roomId);
+        _refreshRoomMembership(roomId);
       case PresenceChangedEvent(
         :final userId,
         :final online,
@@ -420,9 +419,11 @@ class ChatEventRouter {
         // and an admin re-added me, clear the `isParticipating=false`
         // flag so the banner disappears and the composer reactivates.
         _handleUserRejoinedFn(roomId, userId);
+        _refreshRoomMembership(roomId);
         _addSystemMessageFn(roomId, 'user_joined', userId);
       case UserLeftEvent(:final roomId, :final userId, :final actorUserId):
         _handleUserLeftFn(roomId, userId, actorUserId: actorUserId);
+        _refreshRoomMembership(roomId);
         _addSystemMessageFn(
           roomId,
           'user_left',
@@ -450,6 +451,30 @@ class ChatEventRouter {
       case UserUpdatedEvent():
         _onUserUpdated(event);
     }
+  }
+
+  /// Re-reads the room detail after the roster changed, so the row's
+  /// `memberCount` follows a join or a leave instead of keeping the number
+  /// the detail carried the last time it was fetched.
+  ///
+  /// The cached detail is dropped first, and the refresh waits for that
+  /// drop to land: `refreshRoom` goes to the network and writes what it
+  /// reads back into the cache, so a delete still in flight when the
+  /// response arrives would evict the fresh detail instead of the stale
+  /// one it was meant to remove. `RoomUpdatedEvent` shares this path — a
+  /// join is a room update the backend happens to announce through a
+  /// roster frame instead.
+  void _refreshRoomMembership(String roomId) {
+    unawaited(
+      (_cache?.deleteRoomDetail(roomId) ??
+              Future.value(const ChatSuccess<void>(null)))
+          .catchError(
+            (_) => const ChatFailureResult<void>(
+              UnexpectedFailure('deleteRoomDetail failed'),
+            ),
+          )
+          .whenComplete(() => _enrichRoomFromDetailFn(roomId)),
+    );
   }
 
   /// Applies a `user_updated` WS event (profile change) to local state:
