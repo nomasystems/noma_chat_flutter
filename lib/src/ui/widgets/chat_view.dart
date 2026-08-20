@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/message.dart';
+import '../../models/reaction.dart';
 import '../controller/audio_playback_coordinator.dart';
 import '../controller/chat_controller.dart';
 import '../theme/chat_theme.dart';
@@ -18,7 +19,11 @@ import 'not_participating_banner.dart';
 import 'reaction_detail_sheet.dart';
 
 export 'chat_view_config.dart'
-    show ChatViewBehaviors, ChatViewBuilders, ChatViewCallbacks;
+    show
+        BlockedContentPolicy,
+        ChatViewBehaviors,
+        ChatViewBuilders,
+        ChatViewCallbacks;
 
 /// All-in-one chat screen body: message list + composer + optional banners.
 ///
@@ -91,6 +96,7 @@ class _ChatViewState extends State<ChatView> {
       message: message,
       isOutgoing: isOutgoing,
       isPinned: widget.controller.isPinned(message.id),
+      isFailed: widget.controller.isFailed(message.id),
       enabledActions: behaviors.contextMenuActions,
       builder: widget.builders.contextMenuBuilder,
       theme: widget.theme,
@@ -107,6 +113,8 @@ class _ChatViewState extends State<ChatView> {
         widget.controller.setEditingMessage(message);
       case MessageAction.delete:
         callbacks.onDeleteMessage?.call(message);
+      case MessageAction.discardFailed:
+        callbacks.onDiscardFailedMessage?.call(message);
       case MessageAction.react:
         if (behaviors.availableReactions.isNotEmpty) {
           final emoji = await FloatingReactionPicker.show(
@@ -157,8 +165,6 @@ class _ChatViewState extends State<ChatView> {
 
   Widget _buildMessagesArea(BuildContext context) {
     final behaviors = widget.behaviors;
-    final builders = widget.builders;
-    final callbacks = widget.callbacks;
     if (widget.controller.messages.isEmpty) {
       if (widget.controller.isLoadingInitial ||
           widget.controller.isLoadingMore) {
@@ -171,9 +177,80 @@ class _ChatViewState extends State<ChatView> {
         theme: widget.theme,
       );
     }
+    final list = _buildMessageList(context);
+    if (!_showsBlockedNotice) return list;
+    return Column(
+      children: [
+        _BlockedInRoomNotice(theme: widget.theme),
+        Expanded(child: list),
+      ],
+    );
+  }
+
+  /// `true` when this room prunes what blocked senders put in it.
+  ///
+  /// Groups only, matching [MessageList] — including its `isGroup`
+  /// fallback, so both agree about a host that never wired the flag. A 1:1
+  /// with a blocked contact carries the composer banner over an intact
+  /// history instead.
+  bool get _prunesBlocked {
+    final behaviors = widget.behaviors;
+    if (behaviors.blockedContentPolicy == BlockedContentPolicy.show) {
+      return false;
+    }
+    if (behaviors.blockedSenderIds.isEmpty) return false;
+    return behaviors.isGroup ?? (widget.controller.otherUsers.length > 1);
+  }
+
+  /// `true` when the room is pruning someone's content and should say so.
+  ///
+  /// Asks the history rather than the member list so the notice appears
+  /// exactly when there is pruned content to explain — and disappears with
+  /// it, instead of labelling a room where the blocked person never spoke.
+  bool get _showsBlockedNotice =>
+      _prunesBlocked &&
+      widget.controller.messages.any(
+        (m) =>
+            !m.isSystem && widget.behaviors.blockedSenderIds.contains(m.from),
+      );
+
+  /// Takes the blocked reactors out of the reaction detail sheet: the
+  /// chips under the bubble no longer count them, and a sheet that still
+  /// listed them by name would both contradict the chip and hand back the
+  /// identity the block removed.
+  List<AggregatedReaction> _withoutBlockedReactors(
+    List<AggregatedReaction> reactions,
+  ) {
+    if (!_prunesBlocked) return reactions;
+    final blocked = widget.behaviors.blockedSenderIds;
+    final kept = <AggregatedReaction>[];
+    for (final reaction in reactions) {
+      final users = [
+        for (final u in reaction.users)
+          if (!blocked.contains(u)) u,
+      ];
+      final removed = reaction.users.length - users.length;
+      if (removed == 0) {
+        kept.add(reaction);
+        continue;
+      }
+      final count = reaction.count - removed;
+      if (count <= 0) continue;
+      kept.add(reaction.copyWith(count: count, users: users));
+    }
+    return kept;
+  }
+
+  Widget _buildMessageList(BuildContext context) {
+    final behaviors = widget.behaviors;
+    final builders = widget.builders;
+    final callbacks = widget.callbacks;
     return MessageList(
       controller: widget.controller,
       theme: widget.theme,
+      blockedSenderIds: behaviors.blockedSenderIds,
+      blockedContentPolicy: behaviors.blockedContentPolicy,
+      blockedMessageBuilder: builders.blockedMessageBuilder,
       audioCoordinator: _audioCoordinator,
       audioUploadProgressFor: builders.audioUploadProgressFor,
       attachmentUploadProgressFor: builders.attachmentUploadProgressFor,
@@ -227,7 +304,9 @@ class _ChatViewState extends State<ChatView> {
     return (message) {
       ReactionDetailSheet.show(
         context,
-        fetchReactions: () => callbacks.onFetchReactions!(message.id),
+        fetchReactions: () async => _withoutBlockedReactors(
+          await callbacks.onFetchReactions!(message.id),
+        ),
         currentUserId: widget.controller.currentUser.id,
         userFetcher: builders.userFetcher!,
         onRemoveReaction: (emoji) =>
@@ -366,6 +445,57 @@ class _ChatViewState extends State<ChatView> {
           ? null
           : widget.theme.backgroundColor,
       child: body,
+    );
+  }
+}
+
+/// One-line strip at the top of a group room whose content is being
+/// pruned for a blocked sender.
+///
+/// Pruning without it is a room that quietly loses pieces of the
+/// conversation: the reader sees placeholders (or, under
+/// [BlockedContentPolicy.hide], nothing at all) with no way to connect
+/// them to the block they performed.
+class _BlockedInRoomNotice extends StatelessWidget {
+  const _BlockedInRoomNotice({required this.theme});
+
+  final ChatTheme theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = theme.l10nOf(context).blockedInRoomNotice;
+    return Semantics(
+      identifier: 'chat_blocked_in_room_notice',
+      label: label,
+      excludeSemantics: true,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+        decoration: BoxDecoration(
+          color: theme.input.backgroundColor ?? DefaultPalette.mutedSurface,
+          border: Border(
+            bottom: BorderSide(
+              color:
+                  theme.input.editingBorderColor ?? DefaultPalette.mutedBorder,
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.block, size: 14, color: Colors.grey[600]),
+            const SizedBox(width: 6),
+            Flexible(
+              child: Text(
+                label,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

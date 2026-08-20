@@ -11,6 +11,7 @@ import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
 import '../utils/last_message_preview.dart';
 import '../utils/read_receipts_helper.dart';
+import 'chat_view_config.dart' show BlockedContentPolicy;
 import 'date_separator.dart';
 import 'message_bubble.dart';
 import 'message_status_icon.dart';
@@ -76,9 +77,28 @@ class MessageList extends StatefulWidget {
     this.attachmentUrlResolver,
     this.attachmentMediaLoader,
     this.onVoicePlayed,
+    this.blockedSenderIds = const <String>{},
+    this.blockedContentPolicy = BlockedContentPolicy.placeholder,
+    this.blockedMessageBuilder,
   });
 
   final ChatController controller;
+
+  /// Users the local user has blocked, as the same ids [ChatMessage.from]
+  /// carries. Their rows are pruned according to [blockedContentPolicy] —
+  /// in groups only, see [isGroup]. System rows are never pruned: they are
+  /// the room narrating itself, not the blocked person speaking.
+  final Set<String> blockedSenderIds;
+
+  /// What to do with a [blockedSenderIds] row. Defaults to
+  /// [BlockedContentPolicy.placeholder].
+  final BlockedContentPolicy blockedContentPolicy;
+
+  /// Replaces the built-in placeholder pill under
+  /// [BlockedContentPolicy.placeholder].
+  final Widget Function(BuildContext context, ChatMessage message)?
+  blockedMessageBuilder;
+
   final ChatTheme theme;
   final VoidCallback? onLoadMore;
   final ValueChanged<ChatMessage>? onTapImage;
@@ -569,9 +589,44 @@ class _MessageListState extends State<MessageList> {
   ChatMessage? _nextGroupMessage(List<ChatMessage> msgs, int index) =>
       _nextGroupableMessage(msgs, index);
 
+  /// Prefer the host-provided flag when present (driven by the room
+  /// metadata, always accurate). Fallback to the legacy heuristic so
+  /// we don't regress callers that don't wire `isGroup` yet.
+  bool get _isGroup =>
+      widget.isGroup ?? (widget.controller.otherUsers.length > 1);
+
+  /// `true` when this room prunes what blocked senders put in it.
+  ///
+  /// Only groups do. A 1:1 with a blocked contact already collapses into
+  /// the "blocked contact" banner over an intact history — the WhatsApp
+  /// behaviour, and the one this SDK has always had; turning that history
+  /// into a column of placeholders on top of the banner would be the room
+  /// saying the same thing twice and losing the conversation to say it.
+  bool get _prunesBlocked =>
+      widget.blockedContentPolicy != BlockedContentPolicy.show &&
+      widget.blockedSenderIds.isNotEmpty &&
+      _isGroup;
+
+  /// `true` when [msg] was written by someone the local user blocked and
+  /// the room is set to prune them.
+  bool _isBlockedRow(ChatMessage msg) =>
+      _prunesBlocked &&
+      !msg.isSystem &&
+      widget.blockedSenderIds.contains(msg.from);
+
   @override
   Widget build(BuildContext context) {
-    final messages = widget.controller.messages;
+    final allMessages = widget.controller.messages;
+    // Blocking is supposed to mean the content goes, not just the name on
+    // it. Under `hide` the rows leave the list entirely; under
+    // `placeholder` they stay as positions so the conversation keeps its
+    // shape, and `_buildMessageRow` paints the pill instead of the bubble.
+    final messages = widget.blockedContentPolicy == BlockedContentPolicy.hide
+        ? [
+            for (final m in allMessages)
+              if (!_isBlockedRow(m)) m,
+          ]
+        : allMessages;
     _maybeAnnounceNewMessage(messages);
     final currentIds = {for (final m in messages) m.id};
     _messageKeys.removeWhere((id, _) => !currentIds.contains(id));
@@ -579,10 +634,7 @@ class _MessageListState extends State<MessageList> {
     final itemCount = messages.length + (showTyping ? 1 : 0);
     final maxBubbleWidth = MediaQuery.sizeOf(context).width * 0.75;
 
-    // Prefer the host-provided flag when present (driven by the room
-    // metadata, always accurate). Fallback to the legacy heuristic so
-    // we don't regress callers that don't wire `isGroup` yet.
-    final isGroup = widget.isGroup ?? (widget.controller.otherUsers.length > 1);
+    final isGroup = _isGroup;
     final showAvatars =
         widget.showReadReceiptsInGroups &&
         isGroup &&
@@ -787,6 +839,9 @@ class _MessageListState extends State<MessageList> {
     bool showAvatars,
     double maxBubbleWidth,
   ) {
+    if (_isBlockedRow(msg)) {
+      return _buildBlockedPlaceholder(context, msg);
+    }
     final isOutgoing = msg.from == widget.controller.currentUser.id;
     final prevGroupMsg = _prevGroupMessage(messages, index);
     final isFirstInGroup =
@@ -852,18 +907,24 @@ class _MessageListState extends State<MessageList> {
     required bool showAvatars,
     required double maxBubbleWidth,
   }) {
-    final reactions =
-        widget.messageReactions[msg.id] ??
-        widget.controller.reactions[msg.id] ??
-        const <String, int>{};
+    final reactions = _prunedReactions(
+      msg,
+      widget.messageReactions[msg.id] ??
+          widget.controller.reactions[msg.id] ??
+          const <String, int>{},
+    );
     final status =
         widget.messageStatuses[msg.id] ??
         widget.controller.receiptStatuses[msg.id];
-    final referenced = msg.referencedMessageId != null
+    final quoted = msg.referencedMessageId != null
         ? (widget.referencedMessages[msg.referencedMessageId] ??
               widget.controller.getMessageById(msg.referencedMessageId!))
         : null;
-    final refSenderName = referenced != null
+    final quotedIsBlocked = quoted != null && _isBlockedRow(quoted);
+    final referenced = quotedIsBlocked
+        ? _redactQuotedMessage(context, quoted)
+        : quoted;
+    final refSenderName = (referenced != null && !quotedIsBlocked)
         ? _senderName(referenced.from)
         : null;
     final isHighlighted = widget.controller.highlightedMessageId == msg.id;
@@ -967,6 +1028,90 @@ class _MessageListState extends State<MessageList> {
       forwardedSourceLabel: _resolveForwardedSourceLabel(msg),
       systemMessageTextResolver: widget.systemMessageTextResolver,
       systemMessageBuilder: widget.systemMessageBuilder,
+    );
+  }
+
+  /// The quoted-message strip a reply carries is a second copy of what the
+  /// quoted person wrote, painted inside somebody else's bubble — text,
+  /// thumbnail and all. Pruning the row but not the quote leaves the
+  /// blocked sender's words on screen quoted by whoever answered them, so
+  /// the strip is rebuilt as a bare placeholder that keeps only the id the
+  /// tap-to-scroll needs.
+  ChatMessage _redactQuotedMessage(BuildContext context, ChatMessage quoted) =>
+      ChatMessage(
+        id: quoted.id,
+        from: quoted.from,
+        timestamp: quoted.timestamp,
+        text: widget.theme.l10nOf(context).blockedMessageHidden,
+      );
+
+  /// Drops the reactions a blocked sender left on [msg] from the counts
+  /// its bubble paints. The identity behind each emoji rides on the
+  /// message itself (`_reactionUsers`, stamped by the message mapper);
+  /// without it the counts are anonymous totals and are left untouched
+  /// rather than guessed at.
+  Map<String, int> _prunedReactions(
+    ChatMessage msg,
+    Map<String, int> reactions,
+  ) {
+    if (!_prunesBlocked || reactions.isEmpty) return reactions;
+    final reactors = msg.metadata?['_reactionUsers'];
+    if (reactors is! Map) return reactions;
+    final pruned = <String, int>{};
+    for (final entry in reactions.entries) {
+      final users = reactors[entry.key];
+      final blocked = users is List
+          ? users.where(widget.blockedSenderIds.contains).length
+          : 0;
+      final remaining = entry.value - blocked;
+      if (remaining > 0) pruned[entry.key] = remaining;
+    }
+    return pruned;
+  }
+
+  /// The one-line stand-in for a blocked sender's message: no text, no
+  /// media, no map, no name — and no silence either, so a reply that
+  /// answers nothing still has something to answer.
+  Widget _buildBlockedPlaceholder(BuildContext context, ChatMessage msg) {
+    final custom = widget.blockedMessageBuilder?.call(context, msg);
+    final theme = widget.theme;
+    final label = theme.l10nOf(context).blockedMessageHidden;
+    return Semantics(
+      key: ValueKey(_bubbleKeyFor(msg)),
+      identifier: messageBubbleSemanticsId(
+        msg.id,
+        isOutgoing: msg.from == widget.controller.currentUser.id,
+      ),
+      label: label,
+      excludeSemantics: true,
+      child:
+          custom ??
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Center(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color:
+                      theme.systemMessageBackgroundColor ??
+                      theme.dateSeparatorBackgroundColor ??
+                      Colors.black12,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  label,
+                  style:
+                      theme.systemMessageTextStyle ??
+                      theme.dateSeparatorTextStyle ??
+                      const TextStyle(fontSize: 12, color: Colors.black54),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ),
     );
   }
 
