@@ -49,6 +49,7 @@ class ChatController extends ChangeNotifier {
   String? _draft;
   ChatMessage? _replyingTo;
   ChatMessage? _editingMessage;
+  String? _editingDraftText;
   final ScrollController scrollController = ScrollController();
 
   // Reactions: messageId -> {emoji -> count}
@@ -169,6 +170,12 @@ class ChatController extends ChangeNotifier {
   String? get draft => _draft;
   ChatMessage? get replyingTo => _replyingTo;
   ChatMessage? get editingMessage => _editingMessage;
+
+  /// Text the composer should show while [editingMessage] is set, when it
+  /// differs from the message's own text. Set by [setEditingMessage] and
+  /// used to hand a refused edit back to the user with what they had
+  /// typed, instead of the wording the server still holds.
+  String? get editingDraftText => _editingDraftText;
   List<String> get typingUserIds => _typingUserIds.toList();
   Map<String, Map<String, int>> get reactions => Map.unmodifiable(_reactions);
   Map<String, Set<String>> get userReactions =>
@@ -324,6 +331,7 @@ class ChatController extends ChangeNotifier {
     _draft = null;
     _replyingTo = null;
     _editingMessage = null;
+    _editingDraftText = null;
     _typingUserIds.clear();
     _hasMoreMessages = true;
     _oldestMessageCursor = null;
@@ -344,12 +352,22 @@ class ChatController extends ChangeNotifier {
 
   void setReplyTo(ChatMessage? message) {
     _replyingTo = message;
-    if (message != null) _editingMessage = null;
+    if (message != null) {
+      _editingMessage = null;
+      _editingDraftText = null;
+    }
     notifyListeners();
   }
 
-  void setEditingMessage(ChatMessage? message) {
+  /// Opens (or closes, with `null`) the composer's edit mode on [message].
+  ///
+  /// [draftText] seeds the composer with something other than the
+  /// message's own text — what the user had typed when an edit was
+  /// refused, so a rejected edit hands the wording back instead of
+  /// swallowing it. Omit it for the ordinary "start editing" case.
+  void setEditingMessage(ChatMessage? message, {String? draftText}) {
     _editingMessage = message;
+    _editingDraftText = message == null ? null : draftText;
     if (message != null) _replyingTo = null;
     notifyListeners();
   }

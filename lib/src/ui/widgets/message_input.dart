@@ -188,7 +188,12 @@ class _MessageInputState extends State<MessageInput> {
     final editing = widget.controller.editingMessage;
     if (editing != null && !_isEditing) {
       _isEditing = true;
-      _textController.text = editing.text ?? '';
+      // `editingDraftText` is what the user had typed when an edit was
+      // refused; the message's own text is the wording the server still
+      // holds. Prefer the former so re-entering edit mode after a refusal
+      // hands back the attempt rather than undoing it.
+      _textController.text =
+          widget.controller.editingDraftText ?? editing.text ?? '';
       _textController.selection = TextSelection.fromPosition(
         TextPosition(offset: _textController.text.length),
       );
