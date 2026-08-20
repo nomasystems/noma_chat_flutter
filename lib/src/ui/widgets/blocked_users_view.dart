@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../client/chat_client.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 import 'chat_room_options_menu.dart';
 import 'user_avatar.dart';
 
@@ -96,10 +97,9 @@ class _BlockedUsersViewState extends State<BlockedUsersView> {
       // Surface a basic error message; the consumer can wrap the widget
       // with their own SnackBar pipeline (via operationErrors) for richer
       // handling.
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(result.failureOrNull?.toString() ?? l10n.unblockFailed),
-        ),
+      showChatNotice(
+        context,
+        result.failureOrNull?.toString() ?? l10n.unblockFailed,
       );
     }
   }

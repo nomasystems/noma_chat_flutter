@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 import 'user_avatar.dart';
 
 /// Signature for a per-row builder. Lets the consumer fully replace
@@ -167,9 +168,7 @@ class MessageForwardSheet extends StatefulWidget {
       if (onEmpty != null) {
         onEmpty(context);
       } else {
-        ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-          SnackBar(content: Text(theme.l10nOf(context).noChatsToForward)),
-        );
+        showChatNotice(context, theme.l10nOf(context).noChatsToForward);
       }
       return null;
     }

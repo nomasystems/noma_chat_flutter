@@ -8,6 +8,7 @@ import '../../storage/avatar_storage.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
 import 'user_avatar.dart';
@@ -256,13 +257,10 @@ class _GroupSetupPageState extends State<GroupSetupPage> {
     if (!mounted) return;
     setState(() => _creating = false);
     if (result.isFailure) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            result.failureOrNull?.message ??
-                widget.theme.l10nOf(context).photoUploadFailed,
-          ),
-        ),
+      showChatNotice(
+        context,
+        result.failureOrNull?.message ??
+            widget.theme.l10nOf(context).photoUploadFailed,
       );
       return;
     }

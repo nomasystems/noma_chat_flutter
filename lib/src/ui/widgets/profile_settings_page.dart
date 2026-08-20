@@ -4,6 +4,7 @@ import '../../storage/avatar_storage.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 import '../utils/initials.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
@@ -227,15 +228,15 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
       }
     });
     if (result.isFailure) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.theme.l10nOf(context).photoUploadFailed)),
-      );
+      showChatNotice(context, widget.theme.l10nOf(context).photoUploadFailed);
       return false;
     }
     if (showSuccessToast) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(widget.theme.l10nOf(context).changesSaved),
+      showChatNotice(
+        context,
+        widget.theme.l10nOf(context).changesSaved,
+        snackBarBuilder: (context, message) => SnackBar(
+          content: Text(message),
           duration: const Duration(seconds: 2),
           behavior: SnackBarBehavior.floating,
         ),
