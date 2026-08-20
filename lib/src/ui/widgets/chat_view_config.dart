@@ -18,6 +18,39 @@ import 'message_context_menu.dart';
 import 'message_status_icon.dart';
 import 'reaction_detail_sheet.dart';
 
+/// What a room does with the messages of a sender the local user has
+/// blocked ([ChatViewBehaviors.blockedSenderIds]).
+///
+/// **Groups only.** A 1:1 chat with a blocked contact keeps its history
+/// intact under the "blocked contact" banner — the WhatsApp behaviour —
+/// so this decides the group case, where the blocked person keeps posting
+/// into a room both still belong to and no banner is coming.
+///
+/// It reaches every surface that would otherwise quote them: the bubble,
+/// the reply that quotes them, the reactions they left, and the room
+/// list's preview of the group's last message.
+enum BlockedContentPolicy {
+  /// Default. The row is replaced by a one-line placeholder
+  /// (`ChatUiLocalizations.blockedMessageHidden`): whatever they wrote,
+  /// shared or photographed is gone, and the room still says out loud
+  /// that someone blocked is in it. Blocking with nothing to show for it
+  /// reads as a broken block; hiding with no trace reads as a gap in the
+  /// conversation.
+  placeholder,
+
+  /// The row is dropped entirely — no placeholder, no gap marker. Quieter
+  /// than [placeholder] in a room where the blocked person posts a lot, at
+  /// the cost of the reader having no way to tell why a reply answers
+  /// nothing.
+  hide,
+
+  /// No pruning at all: blocked senders render like anyone else. For a
+  /// host whose backend already filters blocked content server-side, or
+  /// one whose product decided a block is about reachability and not
+  /// about reading.
+  show,
+}
+
 /// Visual builder / resolver overrides for [ChatView].
 ///
 /// Group all `Widget Function(...)`, `String Function(...)` and similar
@@ -47,7 +80,15 @@ class ChatViewBuilders {
     this.attachmentUrlResolver,
     this.attachmentMediaLoader,
     this.videoPreviewBuilder,
+    this.blockedMessageBuilder,
   });
+
+  /// Replaces the built-in placeholder painted in place of a blocked
+  /// sender's message under [BlockedContentPolicy.placeholder]. Receives
+  /// the message that was pruned so a host can shape its own row; return
+  /// `null` to fall back to the SDK pill.
+  final Widget Function(BuildContext context, ChatMessage message)?
+  blockedMessageBuilder;
 
   /// Overrides the bubble long-press / right-click context menu. When
   /// `null`, the SDK shows [MessageContextMenu] populated from
@@ -232,9 +273,11 @@ class ChatViewCallbacks {
     this.onPermissionDenied,
     this.onContextMenuAction,
     this.onRetryMessage,
+    this.onDiscardFailedMessage,
     this.onCancelAttachmentUpload,
     this.onFetchReactions,
     this.onUnblock,
+    this.onVoicePlayed,
   });
 
   /// Modern send callback. Receives a [SendMessageRequest] with text,
@@ -297,6 +340,12 @@ class ChatViewCallbacks {
 
   final ValueChanged<ChatMessage>? onRetryMessage;
 
+  /// Invoked for [MessageAction.discardFailed] — the user gave up on a
+  /// send that failed and wants the bubble gone. [NomaChatView] wires
+  /// `ChatUiAdapter.messages.discardFailed` by default; nothing is sent to
+  /// the server, because the message never got there.
+  final ValueChanged<ChatMessage>? onDiscardFailedMessage;
+
   /// Cancels an in-flight photo/video/file attachment upload for [message]
   /// — fired by the X shown centered in the upload-progress ring while
   /// [ChatViewBuilders.attachmentUploadProgressFor] reports one in flight.
@@ -317,6 +366,15 @@ class ChatViewCallbacks {
   /// [ChatViewBuilders.blockedBannerBuilder] is null (otherwise the
   /// default banner has no way to unblock).
   final VoidCallback? onUnblock;
+
+  /// Fires the first time a voice message plays. `NomaChatView` always
+  /// wires its own default here (publishing `ChatAnalyticsEvent
+  /// .voicePlayed` on `ChatUiAdapter.analyticsSink`) and additionally
+  /// invokes whatever is set here — unlike this class's other callbacks,
+  /// setting [onVoicePlayed] does not replace the SDK's own handling, it
+  /// only adds to it. See `ANALYTICS.md`.
+  final void Function(ChatMessage message, int durationMs, bool firstListen)?
+  onVoicePlayed;
 }
 
 const Duration _unsetWindow = Duration(microseconds: -1);
@@ -335,6 +393,7 @@ const Set<MessageAction> _defaultContextMenuActions = {
   MessageAction.copy,
   MessageAction.edit,
   MessageAction.delete,
+  MessageAction.discardFailed,
   MessageAction.react,
 };
 
@@ -382,6 +441,10 @@ class ChatViewBehaviors {
     List<ChatUser>? roomMembers,
     bool? showReadReceiptsInGroups,
     this.isGroup,
+    bool? restoreComposerOnEditFailure,
+    bool? confirmDeleteForEveryone,
+    BlockedContentPolicy? blockedContentPolicy,
+    Set<String>? blockedSenderIds,
   }) : _maxRecordingDuration = maxRecordingDuration,
        _inputMaxLines = inputMaxLines,
        _showAttachButton = showAttachButton,
@@ -406,7 +469,11 @@ class ChatViewBehaviors {
        _isParticipating = isParticipating,
        _roomReceipts = roomReceipts,
        _roomMembers = roomMembers,
-       _showReadReceiptsInGroups = showReadReceiptsInGroups;
+       _showReadReceiptsInGroups = showReadReceiptsInGroups,
+       _restoreComposerOnEditFailure = restoreComposerOnEditFailure,
+       _confirmDeleteForEveryone = confirmDeleteForEveryone,
+       _blockedContentPolicy = blockedContentPolicy,
+       _blockedSenderIds = blockedSenderIds;
 
   final Duration? _maxRecordingDuration;
   final int? _inputMaxLines;
@@ -433,6 +500,55 @@ class ChatViewBehaviors {
   final List<ReadReceipt>? _roomReceipts;
   final List<ChatUser>? _roomMembers;
   final bool? _showReadReceiptsInGroups;
+  final bool? _restoreComposerOnEditFailure;
+  final bool? _confirmDeleteForEveryone;
+  final BlockedContentPolicy? _blockedContentPolicy;
+  final Set<String>? _blockedSenderIds;
+
+  /// When `true` (default), an edit the server refuses *because its edit
+  /// window closed* (`EditWindowExpiredFailure`) puts the composer back
+  /// into editing mode carrying the text the user had typed, instead of
+  /// dropping it. The bubble itself is already rolled back to the
+  /// original wording by the adapter, so without this the wording that was
+  /// just written is the only copy that exists — and it is gone.
+  ///
+  /// Deliberately limited to that one failure: it is the only refusal the
+  /// user is told about, so it is the only one where the composer
+  /// reopening reads as an explanation rather than as a glitch.
+  ///
+  /// Only [NomaChatView]'s built-in edit callback honours this; a host that
+  /// passes its own `onEditMessage` owns the composer from that point on.
+  bool get restoreComposerOnEditFailure =>
+      _restoreComposerOnEditFailure ?? true;
+
+  /// When `true` (default), [MessageAction.delete] — the delete that
+  /// reaches everyone in the room and cannot be undone — is confirmed
+  /// through a dialog before anything is sent. [MessageAction.deleteForMe]
+  /// is never gated: it touches this device only and the message can be
+  /// fetched again.
+  ///
+  /// Honoured by [NomaChatView]'s built-in delete callback. Set it to
+  /// `false` when the host runs a confirmation of its own and does not
+  /// want two dialogs.
+  bool get confirmDeleteForEveryone => _confirmDeleteForEveryone ?? true;
+
+  /// What the room does with messages sent by [blockedSenderIds].
+  /// Defaults to [BlockedContentPolicy.placeholder].
+  BlockedContentPolicy get blockedContentPolicy =>
+      _blockedContentPolicy ?? BlockedContentPolicy.placeholder;
+
+  /// Ids of the users the local user has blocked. [NomaChatView] stamps
+  /// this from `ChatUiAdapter.blockedUserIds` and keeps it live as the set
+  /// mutates, so a host wires nothing; pass it explicitly only to filter
+  /// on a different set than the adapter's.
+  ///
+  /// These are **chat** user ids — the same identifier space as
+  /// [ChatMessage.from], `RoomListItem.otherUserId` and
+  /// `ChatUiAdapter.contacts.block`. A host whose own user ids differ
+  /// from the chat ones has to map them before handing them over: nothing
+  /// here can tell an id that matches nobody from a set with nobody in
+  /// it, and both simply prune nothing.
+  Set<String> get blockedSenderIds => _blockedSenderIds ?? const <String>{};
 
   Duration get maxRecordingDuration =>
       _maxRecordingDuration ?? const Duration(minutes: 15);
@@ -617,6 +733,12 @@ class ChatViewBehaviors {
     showReadReceiptsInGroups:
         _showReadReceiptsInGroups ?? base._showReadReceiptsInGroups,
     isGroup: isGroup ?? base.isGroup,
+    restoreComposerOnEditFailure:
+        _restoreComposerOnEditFailure ?? base._restoreComposerOnEditFailure,
+    confirmDeleteForEveryone:
+        _confirmDeleteForEveryone ?? base._confirmDeleteForEveryone,
+    blockedContentPolicy: _blockedContentPolicy ?? base._blockedContentPolicy,
+    blockedSenderIds: _blockedSenderIds ?? base._blockedSenderIds,
   );
 
   /// Stamps the room state [NomaChatView] owns, overriding whatever the
@@ -630,6 +752,7 @@ class ChatViewBehaviors {
     required bool readOnly,
     required String? readOnlyLabel,
     required bool? isGroup,
+    Set<String>? blockedSenderIds,
   }) => ChatViewBehaviors(
     maxRecordingDuration: _maxRecordingDuration,
     inputMaxLines: _inputMaxLines,
@@ -664,5 +787,9 @@ class ChatViewBehaviors {
     readOnly: readOnly,
     readOnlyLabel: readOnlyLabel,
     isGroup: isGroup,
+    restoreComposerOnEditFailure: _restoreComposerOnEditFailure,
+    confirmDeleteForEveryone: _confirmDeleteForEveryone,
+    blockedContentPolicy: _blockedContentPolicy,
+    blockedSenderIds: blockedSenderIds ?? _blockedSenderIds,
   );
 }

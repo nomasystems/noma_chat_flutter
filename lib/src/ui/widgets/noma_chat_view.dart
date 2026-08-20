@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../_internal/ui_debug_log.dart';
+import '../../core/result.dart' show EditWindowExpiredFailure;
+import '../../models/chat_analytics_event.dart';
 import '../../models/message.dart';
 import '../../models/reaction.dart';
 import '../../models/room_user.dart';
@@ -22,9 +24,11 @@ import '../services/attachment_url_resolver.dart';
 import '../services/image_metadata_scrubber.dart';
 import '../theme/chat_theme.dart';
 import '../utils/attachment_opener.dart';
+import '../utils/chat_notice.dart';
 import '../utils/platform_support.dart';
 import '_ambient_l10n_adopter.dart';
 import 'chat_room_app_bar.dart';
+import 'chat_room_options_menu.dart';
 import 'chat_view.dart';
 import 'image_viewer.dart';
 import 'message_context_menu.dart';
@@ -462,6 +466,7 @@ class _NomaChatViewState extends State<NomaChatView> {
       MessageAction.edit,
       MessageAction.delete,
       MessageAction.deleteForMe,
+      MessageAction.discardFailed,
       MessageAction.react,
       if (canPin) MessageAction.pin,
       if (canPin) MessageAction.unpin,
@@ -470,6 +475,79 @@ class _NomaChatViewState extends State<NomaChatView> {
       MessageAction.report,
     };
   }
+
+  /// The built-in "edit this message" callback.
+  ///
+  /// Awaits the edit instead of firing it off, because *one* refusal has
+  /// something to hand back: the edit window closing between opening the
+  /// composer and confirming. There the composer closed, the adapter
+  /// rolled the bubble back to the original wording, and the text the
+  /// user had just written exists nowhere else — so put it back in the
+  /// composer, still in editing mode, alongside the snackbar the
+  /// operation-error stream raises for the same failure. The refusal then
+  /// reads as "not yet" rather than as "done".
+  ///
+  /// Every other failure is left alone. A network hiccup is retried by
+  /// the row itself, and reopening the composer for it would be a
+  /// silent, unexplained jump back into editing — nothing tells the user
+  /// why, because the default error label only speaks for the expired
+  /// window. Opt the whole thing out with
+  /// `ChatViewBehaviors(restoreComposerOnEditFailure: false)`.
+  void Function(ChatMessage, String) _defaultEdit(String sendKey) =>
+      (message, text) async {
+        final adapter = widget.adapter;
+        final result = await adapter.messages.edit(
+          sendKey,
+          message.id,
+          text: text,
+        );
+        if (!mounted || result.isSuccess) return;
+        if (result.failureOrNull is! EditWindowExpiredFailure) return;
+        final behaviors = widget.behaviors ?? const ChatViewBehaviors();
+        if (!behaviors.restoreComposerOnEditFailure) return;
+        _controller?.setEditingMessage(message, draftText: text);
+      };
+
+  /// The built-in "delete this message" callback.
+  ///
+  /// Deleting reaches every member of the room and cannot be undone — the
+  /// only action in the chat that is true of — and the gesture that starts
+  /// it is a long press on a whole row. Confirm it first, the way the rest
+  /// of the SDK confirms clearing a chat or blocking a contact. Turn the
+  /// dialog off with `ChatViewBehaviors(confirmDeleteForEveryone: false)`
+  /// when the host runs one of its own.
+  ///
+  /// [MessageAction.deleteForMe] and [MessageAction.discardFailed] are
+  /// deliberately not gated: neither leaves this device.
+  ///
+  /// A failed row arriving here is discarded rather than deleted, without a
+  /// dialog. It reaches this callback when the host's own `enabledActions`
+  /// predate [MessageAction.discardFailed], and asking the server to delete
+  /// a message it never received would fail and leave the bubble exactly
+  /// where it was — which is the dead end this whole path exists to undo.
+  void Function(ChatMessage) _defaultDelete(String sendKey) => (message) async {
+    final adapter = widget.adapter;
+    if (_controller?.isFailed(message.id) ?? false) {
+      await adapter.messages.discardFailed(sendKey, message.id);
+      return;
+    }
+    final behaviors = widget.behaviors ?? const ChatViewBehaviors();
+    if (behaviors.confirmDeleteForEveryone) {
+      final l10n = _theme.l10nOf(context);
+      final confirmed = await ChatRoomOptionsMenu.showConfirmation(
+        context: context,
+        theme: _theme,
+        confirmation: ChatRoomOptionConfirmation(
+          title: l10n.deleteMessageConfirmTitle,
+          body: l10n.deleteMessageConfirmBody,
+          acceptLabel: l10n.delete,
+          cancelLabel: l10n.cancel,
+        ),
+      );
+      if (!confirmed || !mounted) return;
+    }
+    await adapter.messages.delete(sendKey, message.id);
+  };
 
   Future<ReactionUser> _defaultUserFetcher(String userId) async {
     final adapter = widget.adapter;
@@ -503,12 +581,9 @@ class _NomaChatViewState extends State<NomaChatView> {
       reasonHint: widget.reportReasonHint,
     );
     if (reason == null || reason.isEmpty || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     await adapter.client.messages.report(roomId, message.id, reason: reason);
     if (!mounted) return;
-    messenger.showSnackBar(
-      SnackBar(content: Text(_theme.l10nOf(context).reported)),
-    );
+    showChatNotice(context, _theme.l10nOf(context).reported);
   }
 
   Future<void> _showMessageInfo(String roomId, ChatMessage message) async {
@@ -614,6 +689,17 @@ class _NomaChatViewState extends State<NomaChatView> {
           (isBlocked && blockOtherUserId != null
               ? () => adapter.contacts.unblock(blockOtherUserId)
               : null),
+      onVoicePlayed: (message, durationMs, firstListen) {
+        adapter.emitAnalyticsEvent(
+          ChatAnalyticsEvent.voicePlayed(
+            roomId: sendKey,
+            messageId: message.id,
+            durationMs: durationMs,
+            firstListen: firstListen,
+          ),
+        );
+        user.onVoicePlayed?.call(message, durationMs, firstListen);
+      },
       onSendMessageRequest:
           user.onSendMessageRequest ??
           (req) => adapter.messages.send(
@@ -625,13 +711,11 @@ class _NomaChatViewState extends State<NomaChatView> {
                 ? MessageType.reply
                 : MessageType.regular,
           ),
-      onEditMessage:
-          user.onEditMessage ??
-          (message, text) =>
-              adapter.messages.edit(sendKey, message.id, text: text),
-      onDeleteMessage:
-          user.onDeleteMessage ??
-          (message) => adapter.messages.delete(sendKey, message.id),
+      onEditMessage: user.onEditMessage ?? _defaultEdit(sendKey),
+      onDeleteMessage: user.onDeleteMessage ?? _defaultDelete(sendKey),
+      onDiscardFailedMessage:
+          user.onDiscardFailedMessage ??
+          (message) => adapter.messages.discardFailed(sendKey, message.id),
       onReactionSelected:
           user.onReactionSelected ??
           (message, emoji) => adapter.messages.sendReaction(
@@ -747,16 +831,11 @@ class _NomaChatViewState extends State<NomaChatView> {
   void _reportAttachmentRejected(AttachmentRejection rejection) {
     if (!mounted) return;
     final l10n = _theme.l10nOf(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(switch (rejection.reason) {
-          AttachmentRejectReason.tooLarge => l10n.attachmentTooLarge,
-          AttachmentRejectReason.mimeNotAllowed =>
-            l10n.attachmentTypeNotAllowed,
-          AttachmentRejectReason.unreadable => l10n.attachmentUnreadable,
-        }),
-      ),
-    );
+    showChatNotice(context, switch (rejection.reason) {
+      AttachmentRejectReason.tooLarge => l10n.attachmentTooLarge,
+      AttachmentRejectReason.mimeNotAllowed => l10n.attachmentTypeNotAllowed,
+      AttachmentRejectReason.unreadable => l10n.attachmentUnreadable,
+    });
   }
 
   /// Default `onPickCamera` wherever the SDK ships its own capture screen.
@@ -894,6 +973,10 @@ class _NomaChatViewState extends State<NomaChatView> {
               ? _theme.l10nOf(context).mutedByAdmin
               : null,
           isGroup: room?.isGroup ?? false,
+          // Live: `onBlockedUsersChanged` already rebuilds this view, so a
+          // block performed from inside the room prunes its history on the
+          // next frame instead of on the next open.
+          blockedSenderIds: widget.adapter.blockedUserIds,
         );
   }
 

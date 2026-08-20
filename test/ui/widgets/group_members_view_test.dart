@@ -83,6 +83,9 @@ class _PaginatingChatClient implements ChatClient {
     tempId: tempId,
     clientMessageId: clientMessageId,
   );
+
+  @override
+  int cancelOfflineSend(String tempId) => _base.cancelOfflineSend(tempId);
 }
 
 class _PaginatingMembersApi implements ChatMembersApi {

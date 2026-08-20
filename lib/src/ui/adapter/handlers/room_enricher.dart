@@ -282,6 +282,11 @@ class RoomEnricher {
   /// calls could interleave and leave the list in an inconsistent state.
   final Set<String> _revalidating = {};
 
+  /// Rooms with a [refreshRoom] read in flight, and the rooms that asked
+  /// for another one while it was.
+  final Set<String> _refreshingRooms = {};
+  final Set<String> _refreshQueuedRooms = {};
+
   /// Wall-clock time [_backgroundRevalidate] last actually ran for a given
   /// [type], keyed the same way as [_revalidating]. [_revalidating] alone
   /// only stops *concurrent* passes — a screen that opens, closes and
@@ -343,6 +348,7 @@ class RoomEnricher {
     _sessionEpoch++;
     _hydratedThisSession = false;
     _hydrationInFlight = null;
+    _refreshQueuedRooms.clear();
   }
 
   /// Paints the room list from the local cache. Never touches the network.
@@ -1391,8 +1397,22 @@ class RoomEnricher {
   }
 
   /// Refreshes the room detail in-place after a `RoomUpdatedEvent` /
-  /// `UserRoleChangedEvent`. Also resolves the DM "other user" if applicable.
+  /// `UserRoleChangedEvent`, or when the room is opened. Also resolves the
+  /// DM "other user" if applicable.
+  ///
+  /// Single-flight per room: a roster fan-out (an admin adding six people,
+  /// a plan filling up) delivers one frame per change, and one `GET
+  /// /rooms/{id}` per frame is a burst the room only needs the last answer
+  /// of. Requests landing while a read is in flight are collapsed into a
+  /// single trailing re-read — dropping them outright would keep whatever
+  /// count the in-flight response was computed with, which is the stale
+  /// number this refresh exists to replace.
   void refreshRoom(String roomId) {
+    if (_refreshingRooms.contains(roomId)) {
+      _refreshQueuedRooms.add(roomId);
+      return;
+    }
+    _refreshingRooms.add(roomId);
     client.rooms
         .get(roomId)
         .then((result) {
@@ -1483,6 +1503,12 @@ class RoomEnricher {
         })
         .catchError((Object e) {
           _logger?.call('warn', 'Failed to enrich room detail for $roomId: $e');
+        })
+        .whenComplete(() {
+          _refreshingRooms.remove(roomId);
+          if (_refreshQueuedRooms.remove(roomId) && !_isDisposed()) {
+            refreshRoom(roomId);
+          }
         });
   }
 

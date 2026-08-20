@@ -306,4 +306,7 @@ class _RecordingClient implements ChatClient {
       ),
     );
   }
+
+  @override
+  int cancelOfflineSend(String tempId) => 0;
 }

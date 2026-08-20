@@ -58,6 +58,7 @@ export 'src/core/pagination.dart';
 
 // === SDK: Models ===
 export 'src/models/attachment.dart';
+export 'src/models/chat_analytics_event.dart';
 export 'src/models/user.dart';
 export 'src/models/room.dart';
 export 'src/models/message.dart';
@@ -154,6 +155,7 @@ export 'src/ui/l10n/chat_ui_localizations.dart';
 export 'src/ui/l10n/system_message_text.dart';
 
 // === UI: Utils ===
+export 'src/ui/utils/chat_notice.dart';
 export 'src/ui/utils/date_formatter.dart';
 export 'src/ui/utils/initials.dart';
 export 'src/ui/utils/last_message_preview.dart';
@@ -202,6 +204,7 @@ export 'src/ui/widgets/bubbles/video_bubble.dart';
 export 'src/ui/widgets/bubbles/file_bubble.dart';
 export 'src/ui/widgets/bubbles/location_bubble.dart';
 export 'src/ui/models/link_preview_metadata.dart';
+export 'src/ui/adapter/services/failed_upload_registry.dart';
 export 'src/ui/services/link_preview_fetcher.dart';
 export 'src/ui/services/attachment_pickers.dart';
 export 'src/ui/services/attachment_bytes_loader.dart';

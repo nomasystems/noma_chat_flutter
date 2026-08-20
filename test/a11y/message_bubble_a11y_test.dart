@@ -152,7 +152,7 @@ void main() {
 
       const retryAction = CustomSemanticsAction(label: 'Retry');
       tester.semantics.performAction(
-        find.semantics.byLabel('You: oops'),
+        find.semantics.byLabel('You: oops, Failed'),
         SemanticsAction.customAction,
         args: CustomSemanticsAction.getIdentifier(retryAction),
       );
@@ -184,7 +184,7 @@ void main() {
         );
 
         tester.semantics.performAction(
-          find.semantics.byLabel('Bob: '),
+          find.semantics.byLabel('Bob: Photo'),
           SemanticsAction.tap,
         );
 

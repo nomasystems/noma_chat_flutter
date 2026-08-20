@@ -332,6 +332,10 @@ class NomaChatClient implements ChatClient {
     queue.enqueue(op);
   }
 
+  @override
+  int cancelOfflineSend(String tempId) =>
+      _offlineQueue?.removeForOptimisticId(tempId) ?? 0;
+
   /// An upload is as non-idempotent as a send: `POST /attachments` carries
   /// no idempotency key and the server mints a fresh `attachmentId` on
   /// every call, so replaying one that may already have landed leaves a

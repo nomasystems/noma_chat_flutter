@@ -4,6 +4,7 @@ import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
 import '../utils/last_message_preview.dart';
+import 'chat_view_config.dart' show BlockedContentPolicy;
 import 'message_status_icon.dart';
 import 'unread_badge.dart';
 import 'user_avatar.dart';
@@ -28,6 +29,8 @@ class RoomTile extends StatelessWidget {
     this.onAcceptInvitation,
     this.onRejectInvitation,
     this.statusIconBuilder,
+    this.blockedSenderIds = const <String>{},
+    this.blockedContentPolicy = BlockedContentPolicy.placeholder,
   });
 
   final RoomListItem room;
@@ -72,6 +75,32 @@ class RoomTile extends StatelessWidget {
   /// `data.message` is always `null` here (the tile only knows the last
   /// receipt, not the full message).
   final MessageStatusIconBuilder? statusIconBuilder;
+
+  /// Users the local user has blocked, as the same ids
+  /// [RoomListItem.lastMessageUserId] carries. When the last message of a
+  /// **group** row is theirs, the preview is pruned according to
+  /// [blockedContentPolicy] instead of quoting on the room list what the
+  /// room itself refuses to show. DM rows are left alone: a 1:1 with a
+  /// blocked contact keeps its history and its banner.
+  ///
+  /// Wins over [lastMessagePreviewBuilder] — a host preview is still the
+  /// blocked person's content, phrased by someone else.
+  final Set<String> blockedSenderIds;
+
+  /// What the preview does with a [blockedSenderIds] last message:
+  /// [BlockedContentPolicy.placeholder] (default) swaps it for the
+  /// "message from a blocked user" line, [BlockedContentPolicy.hide]
+  /// leaves the row with no preview at all, and
+  /// [BlockedContentPolicy.show] prints it verbatim.
+  final BlockedContentPolicy blockedContentPolicy;
+
+  /// `true` when this row's last message is one the room would prune.
+  bool get _lastMessageIsBlocked {
+    if (blockedContentPolicy == BlockedContentPolicy.show) return false;
+    if (!room.isGroup) return false;
+    final sender = room.lastMessageUserId;
+    return sender != null && blockedSenderIds.contains(sender);
+  }
 
   String _formatTimestamp(BuildContext context, DateTime time) {
     return DateFormatter.formatRelative(time, l10n: theme.l10nOf(context));
@@ -256,13 +285,21 @@ class RoomTile extends StatelessWidget {
     }
 
     final overrideText = lastMessagePreviewBuilder?.call(context, room);
-    final body =
-        overrideText ??
-        buildLastMessagePreview(
-          room,
-          theme.l10nOf(context),
-          currentUserId: currentUserId,
-        );
+    final blocked = _lastMessageIsBlocked;
+    // The preview is the one place a blocked sender's words reach the
+    // reader without opening anything, so `hide` leaves the row mute
+    // rather than dropping it: the row is the group's, not theirs.
+    if (blocked && blockedContentPolicy == BlockedContentPolicy.hide) {
+      return null;
+    }
+    final body = blocked
+        ? theme.l10nOf(context).blockedMessageHidden
+        : (overrideText ??
+              buildLastMessagePreview(
+                room,
+                theme.l10nOf(context),
+                currentUserId: currentUserId,
+              ));
 
     if (body == null) return null;
 
@@ -276,7 +313,7 @@ class RoomTile extends StatelessWidget {
         : defaultStyle;
 
     final showReceipt = _isOwnLastMessage && room.lastMessageReceipt != null;
-    final prefix = _resolvePrefix(context);
+    final prefix = blocked ? '' : _resolvePrefix(context);
     final fullText = '$prefix$body';
 
     if (showReceipt) {

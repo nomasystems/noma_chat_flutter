@@ -1,5 +1,225 @@
 # Migration guide
 
+## 0.25.x → 0.26.0
+
+### Breaking: `MessageAction` gained `discardFailed`
+
+**What fails.** Only an *exhaustive* `switch` over `MessageAction` with no
+default arm — the same shape that breaks on a new `MessageType` or
+`ChatFailure` variant:
+
+```
+The type 'MessageAction' is not exhaustively matched by the switch cases
+since it doesn't match 'MessageAction.discardFailed'.
+```
+
+**The fix.** Handle it, or add the wildcard arm that keeps the switch
+forward compatible:
+
+```dart
+    switch (action) {
+      // …
+      case MessageAction.discardFailed:
+        adapter.messages.discardFailed(roomId, message.id);
+      default:
+        break;
+    }
+```
+
+`discardFailed` is offered only on an outgoing row whose send failed, and
+only when the menu is told the row is failed
+(`MessageContextMenu(isFailed: …)` — `ChatView` passes it for you). It drops
+the bubble, its cached pending copy and any bytes retained for it; nothing
+goes to the server, because the message never got there.
+
+**If you pass your own `enabledActions`**, adding `discardFailed` to the set
+is optional. A set that has `delete` and not `discardFailed` keeps its own
+`delete` on failed rows — ungated by the delete window, which has nothing
+to say about a message the server never saw — so the user always has a way
+out of the red bubble, and `NomaChatView`'s built-in delete callback
+discards such a row rather than asking the server to delete something it
+never received. Adopt `discardFailed` for the explicit version of it; keep
+your own set if you route `delete` yourself, but route it to
+`ChatUiAdapter.messages.discardFailed` when the row is failed.
+
+### Breaking: `ChatClient` gained `cancelOfflineSend`
+
+**What fails.** Only a class that `implements ChatClient` — a hand-rolled
+client or a test double that is not `MockChatClient`:
+
+```
+Missing concrete implementation of 'ChatClient.cancelOfflineSend'.
+```
+
+**The fix.** Drop whatever your offline queue holds for that optimistic
+row, and return how many operations went. A client with no queue returns
+`0`:
+
+```dart
+  @override
+  int cancelOfflineSend(String tempId) => 0;
+```
+
+**Why it exists.** A send that failed on connectivity leaves a copy of
+itself in the offline queue, which drains on every reconnect. Discarding
+the failed bubble therefore sent the message anyway, and retrying it sent
+it twice; `discardFailed` and `retrySend` now call this first. If your
+client owns a queue, a `0` here reintroduces both.
+
+### Three defaults changed behaviour
+
+None of these break a build. All three are opt-out.
+
+**Deleting a message now asks first.** `MessageAction.delete` — the delete
+that reaches everyone and cannot be undone — goes through a confirmation
+dialog before anything is sent. `MessageAction.deleteForMe` and
+`MessageAction.discardFailed` are not gated: neither leaves the device.
+Turn it off with `ChatViewBehaviors(confirmDeleteForEveryone: false)` if you
+run a confirmation of your own.
+
+This lives in `NomaChatView`'s built-in `onDeleteMessage`. A host that
+supplies its own `ChatViewCallbacks.onDeleteMessage`, or that replaces the
+long-press menu wholesale through `ChatViewCallbacks.onMessageLongPress`,
+owns the confirmation itself — the SDK never sees the tap.
+
+**Blocked senders are pruned inside groups.** A blocked person's messages
+used to stay fully readable in a group room. They are now replaced by a
+one-line placeholder (`BlockedContentPolicy.placeholder`, the new default).
+`ChatViewBehaviors.blockedContentPolicy` takes `hide` (drop the rows
+outright) or `show` (the old behaviour — for a host whose backend already
+filters blocked content server-side). `NomaChatView` fills the id set from
+`ChatUiAdapter.blockedUserIds`; pass `ChatViewBehaviors.blockedSenderIds`
+to filter on a different set.
+
+1:1 chats are untouched, whatever the policy says: the history stays whole
+and readable, quotes included, and the only thing a block changes there is
+the blocked-contact banner over the composer — which `NomaChatView` already
+raised on its own, resolving the peer from the room's `otherUserId` against
+`ChatUiAdapter.blockedUserIds`, with no host wiring. No room notice either:
+nothing is being pruned to explain.
+
+The prune covers the whole room, not just the bubble: the quoted strip a
+reply paints of a blocked message, the reactions a blocked user left on
+anyone's message, and — through `RoomListView` / `RoomTile` — the room
+list preview of a group whose last message is theirs. A group that is
+pruning also carries a one-line notice at the top of the history
+(`ChatUiLocalizations.blockedInRoomNotice`), so the reader can tell why
+part of the conversation is missing.
+
+`blockedSenderIds` holds **chat** user ids — the same space as
+`ChatMessage.from`, `RoomListItem.otherUserId` and
+`ChatUiAdapter.contacts.block`. A host that keys blocking on its own user
+ids must map them before handing the set over; an id that matches nobody
+prunes nothing and looks exactly like the feature being off.
+
+**A failed media send stops claiming it was sent.** The chat-list row is
+stamped with the message the moment you hit send; when the upload or the
+send then failed, nothing used to undo it, so the list read "You: 📷 Photo"
+with a sent tick for a photo that never left the device. The preview now
+falls back to the room's newest real message, or clears when the failed
+send was the only one. Text sends are unchanged.
+
+### New, additive
+
+- **`ChatUiAdapter.messages.discardFailed(roomId, messageId)`** — the way
+  out of a failed send the user has decided not to make. It empties the
+  offline queue of that row too, so nothing delivers it later.
+- **`ChatUiAdapter.failedUploads`** — a `FailedUploadRegistry` holding the
+  bytes of failed uploads so `messages.retrySend` can re-upload them
+  instead of refusing with `attachment_never_uploaded`. Memory-only, ends
+  with the session, and bounded by two tunable caps (`maxEntries`, default
+  8; `maxBytesPerEntry`, default 12 MB). Past the cap nothing is retained
+  and the retry refuses exactly as it did before.
+- **`ChatController.setEditingMessage(message, {draftText})`** and
+  **`ChatController.editingDraftText`** — seed the composer with something
+  other than the message's own text. `NomaChatView` uses it to hand back
+  what the user had typed when an edit is refused with the 403
+  `edit_window_expired` that used to be silent
+  (`ChatViewBehaviors.restoreComposerOnEditFailure`, `true` by default);
+  the reason arrives alongside it as a snackbar on the operation-error
+  stream. Any other refusal leaves the composer shut, because nothing
+  would be telling the user why it reopened.
+- **`showChatNotice(context, message, {snackBarBuilder})`** and
+  **`ChatNoticeScope`** — see below.
+- **`ChatViewBuilders.blockedMessageBuilder`** — replace the built-in
+  blocked-sender placeholder.
+- **`MessageList.blockedSenderIds` / `.blockedContentPolicy` /
+  `.blockedMessageBuilder`** — the same knobs, for a host driving
+  `MessageList` directly. It prunes in groups only, decided by its own
+  `isGroup` (host flag first, `otherUsers.length > 1` as the fallback).
+- **`RoomListView.blockedSenderIds` / `.blockedContentPolicy`** and
+  **`RoomTile.blockedSenderIds` / `.blockedContentPolicy`** — the preview
+  side of the same prune. `RoomListView` defaults the set to the
+  `adapter`'s when one is wired, so a list and the rooms it opens agree
+  without the host repeating himself; pass `const {}` to opt out.
+- **`ChatViewCallbacks.onDiscardFailedMessage`** — wired by `NomaChatView`.
+
+### A `user_joined` / `user_left` frame — and opening a room — refresh the room detail
+
+`RoomListItem.memberCount` only ever came from a room-detail fetch, and a
+join refreshed the roster without going back for it — so a header counting
+participants kept the number it was opened with, contradicting the "…
+joined" card printed right underneath, and kept it across a
+leave-and-reopen because the cached detail was stale too. Both frames now
+invalidate the cached detail and re-read it, the way `user_role_changed`
+already did.
+
+`ChatUiAdapter.setActiveRoom(roomId)` re-reads it as well, for a room the
+list already knows: frames alone are only as reliable as the socket, and
+one lost to a reconnect used to leave the count wrong for the lifetime of
+the row. Nothing to change on your side. Expect one `GET /rooms/{id}` per
+room entry and per membership change — reads are single-flighted per room,
+and a burst of frames collapses into one read plus one trailing re-read
+rather than one read per frame.
+
+### Non-text bubbles read differently under a screen reader
+
+Only `Semantics` labels changed; nothing visual moved. A caption now
+follows its type label instead of replacing it ("You: Photo, en la playa,
+Sent"), and a forward announces itself ("You: Forwarded, …"). If you
+assert on bubble semantics in widget tests, those two strings are the ones
+that changed. `mediaSemanticLabel(message, l10n)` is the exported helper
+that builds the body, should you want the same wording elsewhere; it
+returns `null` for a message that is nothing but its own text.
+
+### SDK notices go through one door now
+
+Every short message the SDK raises by itself used to call
+`ScaffoldMessenger.of(context).showSnackBar`. That throws whenever any
+`Scaffold` under the messenger is halfway through its own teardown — a
+`Scaffold` unregisters in `dispose`, never in `deactivate` — and the notice
+died with the throw. They all go through `showChatNotice` now, which
+publishes after the frame while the tree is still settling.
+
+Nothing to change on your side: with no `ChatNoticeScope` mounted, the
+notices behave exactly as before, only reliably. To present them your own
+way — a top banner, your design system's toast — mount the scope above your
+`MaterialApp`, so the routes the SDK pushes inherit it:
+
+```dart
+ChatNoticeScope(
+  presenter: (context, message) {
+    myBanners.show(message);
+    return true; // false leaves this one to the SDK
+  },
+  child: MaterialApp(/* … */),
+);
+```
+
+`OperationFeedbackListener` routes through it too, so a host that already
+customized `snackBarBuilder` there keeps that shape; the scope wins over it
+when both are wired.
+
+### The Nordic + Eastern-EU locales cover the new confirmations
+
+`sv`, `no`, `da`, `pl` and `cs` carry a core set and fall back to English
+outside it. All six strings added in this release —
+`deleteMessageConfirmTitle`, `deleteMessageConfirmBody`, `discardMessage`,
+`editWindowExpired`, `blockedMessageHidden`, `blockedInRoomNotice` — are
+inside that set, translated in all twelve bundled locales. If you were
+overriding them per-locale to work around an English fallback, drop the
+override.
+
 ## 0.19.x → 0.20.0
 
 ### Breaking: `ChatMembersApi.list` gained `cachePolicy`

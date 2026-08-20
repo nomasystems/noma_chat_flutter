@@ -6,6 +6,14 @@ to the `MetricCallback` the host app wires through `ChatConfig.metricCallback`
 which are fed from the same `ChatConfig.metricCallback`). If the callback is
 `null` (the default), nothing is collected, stored, or sent anywhere.
 
+**This is not the only observability channel.** `MetricCallback` never
+carries a room id, message id, or any other identifier — see "Do not emit
+metrics that include PII" (`CONVENTIONS.md` §10.3) below. For
+product-analytics events that DO need identifiers (did the user open this
+room, receive this message, play this voice note), see
+[ANALYTICS.md](./ANALYTICS.md) and `ChatAnalyticsSink` instead — a separate
+channel, wired separately, on purpose.
+
 This file is the human-readable counterpart to `CONVENTIONS.md` §10.3: the
 callback signature is the machine-readable contract, this table is what each
 metric means and when it fires. Update this file in the same change that adds

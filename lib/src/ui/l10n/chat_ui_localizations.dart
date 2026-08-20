@@ -238,6 +238,14 @@ class ChatUiLocalizations {
         'Your message couldn\'t be sent — it was flagged by moderation.',
     this.attachmentNeverUploaded =
         'That file was never uploaded — pick it again to send it.',
+    this.editWindowExpired =
+        'The time limit for editing this message has passed — it wasn\'t changed.',
+    this.deleteMessageConfirmTitle = 'Delete message?',
+    this.deleteMessageConfirmBody =
+        'It will be removed for everyone in this chat. This can\'t be undone.',
+    this.blockedMessageHidden = 'Message from a blocked user',
+    this.blockedInRoomNotice = 'You blocked someone in this chat',
+    this.discardMessage = 'Discard',
     this.scrollToBottom = 'Scroll to bottom',
     // Accessibility tooltips / semantic labels for icon-only buttons.
     this.close = 'Close',
@@ -695,6 +703,39 @@ class ChatUiLocalizations {
   /// `OperationFeedbackListener` error path, since re-picking the file is
   /// the only way forward and a silent no-op reads as a dead button.
   final String attachmentNeverUploaded;
+
+  /// Soft notice shown when an edit is refused because the server-side
+  /// edit window closed between opening the composer and confirming
+  /// (`EditWindowExpiredFailure`). Surfaced via the
+  /// `OperationFeedbackListener` error path; the composer keeps what was
+  /// typed so the wording is never lost.
+  final String editWindowExpired;
+
+  /// Title of the confirmation dialog shown before a message is deleted
+  /// for everyone (see `ChatViewBehaviors.confirmDeleteForEveryone`).
+  final String deleteMessageConfirmTitle;
+
+  /// Body of the delete-for-everyone confirmation dialog. Says out loud
+  /// that the deletion reaches the other participants and cannot be
+  /// undone — the only irreversible action in the chat.
+  final String deleteMessageConfirmBody;
+
+  /// Placeholder that replaces a message whose sender the current user
+  /// has blocked, under `BlockedContentPolicy.placeholder`. Keeps the
+  /// room honest about there being someone blocked in it without
+  /// showing anything they wrote.
+  final String blockedMessageHidden;
+
+  /// One-line notice a group room shows while it is pruning content from
+  /// someone the current user blocked. Without it a reader has no way to
+  /// tell why a stretch of the conversation went quiet, and no reminder
+  /// that the person they blocked is still in the room.
+  final String blockedInRoomNotice;
+
+  /// Label of the action that drops a failed outgoing message for good
+  /// (`ChatUiAdapter.messages.discardFailed`): the bubble and its cached
+  /// pending row go, and nothing is ever sent.
+  final String discardMessage;
   final String scrollToBottom;
   final String close;
   final String back;
@@ -1172,6 +1213,12 @@ class ChatUiLocalizations {
     String? mutedByAdmin,
     String? messageBlockedByModeration,
     String? attachmentNeverUploaded,
+    String? editWindowExpired,
+    String? deleteMessageConfirmTitle,
+    String? deleteMessageConfirmBody,
+    String? blockedMessageHidden,
+    String? blockedInRoomNotice,
+    String? discardMessage,
     String? scrollToBottom,
     String? close,
     String? back,
@@ -1456,6 +1503,14 @@ class ChatUiLocalizations {
           messageBlockedByModeration ?? this.messageBlockedByModeration,
       attachmentNeverUploaded:
           attachmentNeverUploaded ?? this.attachmentNeverUploaded,
+      editWindowExpired: editWindowExpired ?? this.editWindowExpired,
+      deleteMessageConfirmTitle:
+          deleteMessageConfirmTitle ?? this.deleteMessageConfirmTitle,
+      deleteMessageConfirmBody:
+          deleteMessageConfirmBody ?? this.deleteMessageConfirmBody,
+      blockedMessageHidden: blockedMessageHidden ?? this.blockedMessageHidden,
+      blockedInRoomNotice: blockedInRoomNotice ?? this.blockedInRoomNotice,
+      discardMessage: discardMessage ?? this.discardMessage,
       scrollToBottom: scrollToBottom ?? this.scrollToBottom,
       close: close ?? this.close,
       back: back ?? this.back,
@@ -1851,6 +1906,14 @@ class ChatUiLocalizations {
         'No se ha podido enviar tu mensaje — lo ha bloqueado la moderación.',
     attachmentNeverUploaded:
         'Ese archivo no llegó a subirse — vuelve a elegirlo para enviarlo.',
+    editWindowExpired:
+        'Ha pasado el tiempo para editar este mensaje: no se ha modificado.',
+    deleteMessageConfirmTitle: '¿Eliminar mensaje?',
+    deleteMessageConfirmBody:
+        'Se eliminará para todos los participantes de este chat. No se puede deshacer.',
+    blockedMessageHidden: 'Mensaje de un usuario bloqueado',
+    blockedInRoomNotice: 'Has bloqueado a alguien en este chat',
+    discardMessage: 'Descartar',
     scrollToBottom: 'Bajar al final',
     close: 'Cerrar',
     back: 'Atrás',
@@ -2187,6 +2250,14 @@ class ChatUiLocalizations {
         'Votre message n\'a pas pu être envoyé — il a été signalé par la modération.',
     attachmentNeverUploaded:
         'Ce fichier n\'a jamais été envoyé — sélectionnez-le à nouveau.',
+    editWindowExpired:
+        'Le délai pour modifier ce message est écoulé : il n\'a pas été modifié.',
+    deleteMessageConfirmTitle: 'Supprimer le message ?',
+    deleteMessageConfirmBody:
+        'Il sera supprimé pour tous les participants de cette conversation. Cette action est irréversible.',
+    blockedMessageHidden: 'Message d\'un utilisateur bloqué',
+    blockedInRoomNotice: 'Vous avez bloqué quelqu\'un dans cette discussion',
+    discardMessage: 'Abandonner',
     scrollToBottom: 'Aller en bas',
     close: 'Fermer',
     back: 'Retour',
@@ -2487,6 +2558,14 @@ class ChatUiLocalizations {
         'Deine Nachricht konnte nicht gesendet werden — sie wurde von der Moderation blockiert.',
     attachmentNeverUploaded:
         'Diese Datei wurde nie hochgeladen — wähle sie erneut aus.',
+    editWindowExpired:
+        'Die Frist zum Bearbeiten dieser Nachricht ist abgelaufen — sie wurde nicht geändert.',
+    deleteMessageConfirmTitle: 'Nachricht löschen?',
+    deleteMessageConfirmBody:
+        'Sie wird für alle in diesem Chat gelöscht. Das lässt sich nicht rückgängig machen.',
+    blockedMessageHidden: 'Nachricht eines blockierten Nutzers',
+    blockedInRoomNotice: 'Du hast jemanden in diesem Chat blockiert',
+    discardMessage: 'Verwerfen',
     scrollToBottom: 'Zum Ende scrollen',
     close: 'Schließen',
     back: 'Zurück',
@@ -2782,6 +2861,14 @@ class ChatUiLocalizations {
         'Impossibile inviare il messaggio — è stato bloccato dalla moderazione.',
     attachmentNeverUploaded:
         'Quel file non è mai stato caricato — selezionalo di nuovo.',
+    editWindowExpired:
+        'Il tempo per modificare questo messaggio è scaduto: non è stato modificato.',
+    deleteMessageConfirmTitle: 'Eliminare il messaggio?',
+    deleteMessageConfirmBody:
+        'Verrà eliminato per tutti i partecipanti a questa chat. L\'azione non è reversibile.',
+    blockedMessageHidden: 'Messaggio di un utente bloccato',
+    blockedInRoomNotice: 'Hai bloccato qualcuno in questa chat',
+    discardMessage: 'Scarta',
     scrollToBottom: 'Vai in fondo',
     close: 'Chiudi',
     back: 'Indietro',
@@ -3077,6 +3164,14 @@ class ChatUiLocalizations {
         'Não foi possível enviar a sua mensagem — foi bloqueada pela moderação.',
     attachmentNeverUploaded:
         'Esse ficheiro nunca chegou a ser enviado — escolha-o de novo.',
+    editWindowExpired:
+        'O prazo para editar esta mensagem terminou — ela não foi alterada.',
+    deleteMessageConfirmTitle: 'Apagar mensagem?',
+    deleteMessageConfirmBody:
+        'Ela será apagada para todos nesta conversa. Não é possível desfazer.',
+    blockedMessageHidden: 'Mensagem de um usuário bloqueado',
+    blockedInRoomNotice: 'Você bloqueou alguém neste chat',
+    discardMessage: 'Descartar',
     scrollToBottom: 'Ir para o final',
     close: 'Fechar',
     back: 'Voltar',
@@ -3367,6 +3462,14 @@ class ChatUiLocalizations {
         'No s\'ha pogut enviar el teu missatge — l\'ha bloquejat la moderació.',
     attachmentNeverUploaded:
         'Aquest fitxer no s\'ha arribat a pujar — torna a triar-lo.',
+    editWindowExpired:
+        'Ha passat el temps per editar aquest missatge: no s\'ha modificat.',
+    deleteMessageConfirmTitle: 'Voleu eliminar el missatge?',
+    deleteMessageConfirmBody:
+        'S\'eliminarà per a tothom d\'aquest xat. No es pot desfer.',
+    blockedMessageHidden: 'Missatge d\'un usuari bloquejat',
+    blockedInRoomNotice: 'Has blocat algú en aquest xat',
+    discardMessage: 'Descarta',
     scrollToBottom: 'Anar al final',
     close: 'Tancar',
     back: 'Enrere',
@@ -3439,7 +3542,7 @@ class ChatUiLocalizations {
   // ----------------------------------------------------------------
   // Nordic + Eastern-EU locales (sv, no, da, pl, cs).
   //
-  // Cover the ~160 highest-traffic strings (composer, chat list,
+  // Cover the ~185 highest-traffic strings (composer, chat list,
   // connection banner, message actions/confirmations, group management,
   // settings, presence) with native-quality translations. Fields not set
   // here fall back to the English default via the constructor — there is
@@ -3501,6 +3604,14 @@ class ChatUiLocalizations {
     blockedContactBannerText: 'Du har blockerat den här kontakten',
     tapToUnblock: 'Tryck för att avblockera',
     delete: 'Ta bort',
+    editWindowExpired:
+        'Tiden för att redigera det här meddelandet har gått ut – det ändrades inte.',
+    deleteMessageConfirmTitle: 'Ta bort meddelandet?',
+    deleteMessageConfirmBody:
+        'Det tas bort för alla i den här chatten. Det går inte att ångra.',
+    blockedMessageHidden: 'Meddelande från en blockerad användare',
+    blockedInRoomNotice: 'Du har blockerat någon i den här chatten',
+    discardMessage: 'Kassera',
     mute: 'Tysta',
     unmute: 'Sluta tysta',
     markAsRead: 'Markera som läst',
@@ -3686,6 +3797,14 @@ class ChatUiLocalizations {
     blockedContactBannerText: 'Du har blokkert denne kontakten',
     tapToUnblock: 'Trykk for å oppheve blokkering',
     delete: 'Slett',
+    editWindowExpired:
+        'Tidsfristen for å redigere denne meldingen er utløpt – den ble ikke endret.',
+    deleteMessageConfirmTitle: 'Slette meldingen?',
+    deleteMessageConfirmBody:
+        'Den slettes for alle i denne chatten. Dette kan ikke angres.',
+    blockedMessageHidden: 'Melding fra en blokkert bruker',
+    blockedInRoomNotice: 'Du har blokkert noen i denne chatten',
+    discardMessage: 'Forkast',
     mute: 'Demp',
     unmute: 'Fjern demping',
     markAsRead: 'Merk som lest',
@@ -3871,6 +3990,14 @@ class ChatUiLocalizations {
     blockedContactBannerText: 'Du har blokeret denne kontakt',
     tapToUnblock: 'Tryk for at fjerne blokering',
     delete: 'Slet',
+    editWindowExpired:
+        'Tidsfristen for at redigere denne besked er udløbet – den blev ikke ændret.',
+    deleteMessageConfirmTitle: 'Slet beskeden?',
+    deleteMessageConfirmBody:
+        'Den slettes for alle i denne chat. Det kan ikke fortrydes.',
+    blockedMessageHidden: 'Besked fra en blokeret bruger',
+    blockedInRoomNotice: 'Du har blokeret nogen i denne chat',
+    discardMessage: 'Kassér',
     mute: 'Slå lyd fra',
     unmute: 'Slå lyd til',
     markAsRead: 'Marker som læst',
@@ -4056,6 +4183,14 @@ class ChatUiLocalizations {
     blockedContactBannerText: 'Zablokowałeś ten kontakt',
     tapToUnblock: 'Dotknij, aby odblokować',
     delete: 'Usuń',
+    editWindowExpired:
+        'Czas na edycję tej wiadomości minął — nie została zmieniona.',
+    deleteMessageConfirmTitle: 'Usunąć wiadomość?',
+    deleteMessageConfirmBody:
+        'Zostanie usunięta u wszystkich w tym czacie. Tej operacji nie można cofnąć.',
+    blockedMessageHidden: 'Wiadomość od zablokowanego użytkownika',
+    blockedInRoomNotice: 'Zablokowałeś kogoś w tym czacie',
+    discardMessage: 'Odrzuć',
     mute: 'Wycisz',
     unmute: 'Wyłącz wyciszenie',
     markAsRead: 'Oznacz jako przeczytane',
@@ -4241,6 +4376,14 @@ class ChatUiLocalizations {
     blockedContactBannerText: 'Tento kontakt jste zablokovali',
     tapToUnblock: 'Klepnutím odblokujete',
     delete: 'Smazat',
+    editWindowExpired:
+        'Čas na úpravu této zprávy vypršel — zpráva se nezměnila.',
+    deleteMessageConfirmTitle: 'Smazat zprávu?',
+    deleteMessageConfirmBody:
+        'Bude smazána všem v tomto chatu. Tuto akci nelze vrátit zpět.',
+    blockedMessageHidden: 'Zpráva od zablokovaného uživatele',
+    blockedInRoomNotice: 'V tomto chatu jste někoho zablokovali',
+    discardMessage: 'Zahodit',
     mute: 'Ztlumit',
     unmute: 'Zrušit ztlumení',
     markAsRead: 'Označit jako přečtené',
@@ -4705,6 +4848,12 @@ class ChatUiLocalizations {
     String? mutedByAdmin,
     String? messageBlockedByModeration,
     String? attachmentNeverUploaded,
+    String? editWindowExpired,
+    String? deleteMessageConfirmTitle,
+    String? deleteMessageConfirmBody,
+    String? blockedMessageHidden,
+    String? blockedInRoomNotice,
+    String? discardMessage,
     String? scrollToBottom,
     String? close,
     String? back,
@@ -4994,6 +5143,12 @@ class ChatUiLocalizations {
         mutedByAdmin: mutedByAdmin,
         messageBlockedByModeration: messageBlockedByModeration,
         attachmentNeverUploaded: attachmentNeverUploaded,
+        editWindowExpired: editWindowExpired,
+        deleteMessageConfirmTitle: deleteMessageConfirmTitle,
+        deleteMessageConfirmBody: deleteMessageConfirmBody,
+        blockedMessageHidden: blockedMessageHidden,
+        blockedInRoomNotice: blockedInRoomNotice,
+        discardMessage: discardMessage,
         scrollToBottom: scrollToBottom,
         close: close,
         back: back,

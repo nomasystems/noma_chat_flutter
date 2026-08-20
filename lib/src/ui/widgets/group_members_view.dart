@@ -8,6 +8,7 @@ import '../../models/room_user.dart';
 import '../../models/user.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 import 'chat_room_options_menu.dart';
 import 'user_avatar.dart';
 
@@ -232,9 +233,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         _loadingMore = false;
         // Keep whatever page is already loaded; only surface the error via
         // a snackbar since `_error` would otherwise blank the existing list.
-        ScaffoldMessenger.maybeOf(
-          context,
-        )?.showSnackBar(SnackBar(content: Text(failure.toString())));
+        showChatNotice(context, failure.toString());
       }),
       (paginated) {
         _seedCacheFromExpanded(paginated.items);
@@ -379,13 +378,10 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     );
     if (!mounted) return;
     if (result.isFailure) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(
-            result.failureOrNull?.toString() ??
-                widget.theme.l10nOf(context).updateRoleFailed,
-          ),
-        ),
+      showChatNotice(
+        context,
+        result.failureOrNull?.toString() ??
+            widget.theme.l10nOf(context).updateRoleFailed,
       );
       return;
     }
@@ -402,13 +398,10 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     );
     if (!mounted) return;
     if (result.isFailure) {
-      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-        SnackBar(
-          content: Text(
-            result.failureOrNull?.toString() ??
-                widget.theme.l10nOf(context).removeMemberFailed,
-          ),
-        ),
+      showChatNotice(
+        context,
+        result.failureOrNull?.toString() ??
+            widget.theme.l10nOf(context).removeMemberFailed,
       );
       return;
     }

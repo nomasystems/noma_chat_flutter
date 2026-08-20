@@ -4,6 +4,7 @@ import '../controller/room_list_controller.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
 import '_ambient_l10n_adopter.dart';
+import 'chat_view_config.dart' show BlockedContentPolicy;
 import 'empty_state.dart';
 import 'message_status_icon.dart';
 import 'room_context_menu.dart';
@@ -46,6 +47,8 @@ class RoomListView extends StatelessWidget {
     this.selectedRoomId,
     this.onSelectionChanged,
     this.statusIconBuilder,
+    this.blockedSenderIds,
+    this.blockedContentPolicy = BlockedContentPolicy.placeholder,
   });
 
   final RoomListController controller;
@@ -55,8 +58,10 @@ class RoomListView extends StatelessWidget {
   /// so the few strings composed off-screen — the self-chat title, the
   /// membership banners — follow the app locale without the host assigning
   /// `ChatUiAdapter.l10n` itself. A host that does assign it keeps control:
-  /// see `ChatUiAdapter.adoptAmbientL10n`. The view stays adapter-free for
-  /// everything else it renders.
+  /// see `ChatUiAdapter.adoptAmbientL10n`. It also supplies the default
+  /// [blockedSenderIds], so the previews match what the rooms themselves
+  /// do without the host wiring the same set twice. The view reads
+  /// nothing else from it.
   final ChatUiAdapter? adapter;
   final ChatTheme theme;
 
@@ -138,6 +143,24 @@ class RoomListView extends StatelessWidget {
   /// override.
   final MessageStatusIconBuilder? statusIconBuilder;
 
+  /// Users the local user has blocked, whose last message a **group** row
+  /// must not quote in its preview. `null` (default) reads the set from
+  /// [adapter] when one is wired, so the list matches what the room
+  /// itself does without the host repeating the wiring; pass a set
+  /// explicitly to filter on something other than the adapter's, or
+  /// `const {}` to opt out entirely.
+  final Set<String>? blockedSenderIds;
+
+  /// Forwarded to [RoomTile.blockedContentPolicy]. Keep it aligned with
+  /// the `ChatViewBehaviors.blockedContentPolicy` the rooms open with, or
+  /// the list and the room disagree about the same message.
+  final BlockedContentPolicy blockedContentPolicy;
+
+  /// The blocked set the tiles actually filter on: the host's when given,
+  /// the adapter's otherwise, and empty when there is neither.
+  Set<String> get _blockedSenderIds =>
+      blockedSenderIds ?? adapter?.blockedUserIds ?? const <String>{};
+
   /// `true` when a room long press has somewhere to land: the host's own
   /// [onLongPressRoom], the [onContextMenuAction] sink that answers the
   /// default menu, or a [contextMenuBuilder] that owns the sheet outright.
@@ -182,6 +205,8 @@ class RoomListView extends StatelessWidget {
       currentUserId: currentUserId,
       lastMessageSenderName: lastMessageSenderNames[room.id],
       statusIconBuilder: statusIconBuilder,
+      blockedSenderIds: _blockedSenderIds,
+      blockedContentPolicy: blockedContentPolicy,
       onTap: () {
         if (controller.isSelecting) {
           controller.toggleSelect(room.id);

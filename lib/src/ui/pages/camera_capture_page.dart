@@ -12,6 +12,7 @@ import '../models/camera_capture_result.dart';
 import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
 import '../theme/default_palette.dart';
+import '../utils/chat_notice.dart';
 import '../utils/platform_support.dart';
 import 'camera_capture_review.dart';
 import 'camera_recording_gate.dart';
@@ -560,9 +561,11 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       final permanentlyBlocked =
           status.isPermanentlyDenied || status.isRestricted;
       final l10n = _l10n;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(l10n.microphonePermissionDenied),
+      showChatNotice(
+        context,
+        l10n.microphonePermissionDenied,
+        snackBarBuilder: (context, message) => SnackBar(
+          content: Text(message),
           // Cleared of the shutter, which owns the bottom strip of the screen.
           behavior: SnackBarBehavior.floating,
           margin: EdgeInsets.only(

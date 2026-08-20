@@ -16,6 +16,7 @@ import '../../core/pagination.dart';
 import '../../core/result.dart';
 import '../../events/chat_event.dart';
 import '../../models/attachment.dart';
+import '../../models/chat_analytics_event.dart';
 import '../../models/message.dart';
 import '../../models/pin.dart';
 import '../../models/presence.dart';
@@ -52,6 +53,7 @@ import 'services/presence_registry.dart';
 import 'handlers/room_enricher.dart';
 import 'handlers/room_list_mutator.dart';
 import 'services/attachment_upload_cancel_registry.dart';
+import 'services/failed_upload_registry.dart';
 import 'services/blocked_users_registry.dart';
 import 'services/chat_controller_registry.dart';
 import 'services/chat_lifecycle_observer.dart';
@@ -124,6 +126,7 @@ class ChatUiAdapter {
     this.logLevel = ChatLogLevel.warn,
     this.logMessageContent = false,
     this.metricCallback,
+    this.analyticsSink,
     this.roomRevalidateDebounce = const Duration(seconds: 5),
     Duration resyncDebounce = const Duration(seconds: 5),
     ChatLocalDatasource? cache,
@@ -497,6 +500,28 @@ class ChatUiAdapter {
   /// came. `null` (the default) collects nothing.
   final MetricCallback? metricCallback;
 
+  /// Sink for [ChatAnalyticsEvent]s. Mirrors [ChatConfig.analyticsSink],
+  /// which `NomaChat.create` / `NomaChat.fromConfig` wire here for you —
+  /// but this constructor param is the one that matters for a host that
+  /// builds [ChatUiAdapter] directly (bypassing `NomaChat.create`), since
+  /// a callback that only lived on [ChatConfig] would never reach it. `null`
+  /// (the default) emits nothing. See `ANALYTICS.md`.
+  final ChatAnalyticsSink? analyticsSink;
+
+  /// Publishes [event] on [analyticsSink]. Exposed (rather than private) so
+  /// collaborators outside this file — `NomaChatView`'s voice-playback
+  /// wiring, in particular — can emit through the same guarded path as the
+  /// adapter's own internal emission sites (`setActiveRoom`, the send path,
+  /// the incoming-message router). A throwing sink is caught and dropped:
+  /// analytics must never be able to break the chat.
+  void emitAnalyticsEvent(ChatAnalyticsEvent event) {
+    final sink = analyticsSink;
+    if (sink == null) return;
+    try {
+      sink(event);
+    } catch (_) {}
+  }
+
   final RoomListController roomListController;
 
   /// Lifecycle service: owns `connectionStateNotifier`,
@@ -696,6 +721,7 @@ class ChatUiAdapter {
           userId: userId,
         ),
     swallowCacheThrow: _swallowCacheThrow,
+    analyticsEmit: emitAnalyticsEvent,
     logs: logs,
   );
 
@@ -1155,7 +1181,28 @@ class ChatUiAdapter {
     // message), so mark-as-read would 403 with `not_member`. Skip it for
     // drafts; the room is marked read normally once it materializes.
     final isDraftRoom =
-        roomId != null && (_chatControllers[roomId]?.isDraft ?? false);
+        roomId != null &&
+        ((_chatControllers[roomId]?.isDraft ?? false) ||
+            dm.isDraftRoutingKey(roomId));
+    if (roomId != null && !isDraftRoom) {
+      emitAnalyticsEvent(
+        ChatAnalyticsEvent.roomOpened(
+          roomId: roomId,
+          isGroup: roomListController.getRoomById(roomId)?.isGroup ?? false,
+        ),
+      );
+      // The roster frames that keep `memberCount` (and the title, the
+      // avatar, the read-only flag) current are the only thing that
+      // refreshes them, so a single frame lost to a dropped socket left
+      // the header contradicting the room for as long as the row lived —
+      // leaving and re-entering it changed nothing, because nothing
+      // re-read the detail on the way in. Opening the room is the cheap,
+      // self-healing moment to re-read it: once per entry, single-flighted
+      // by the enricher.
+      if (roomListController.getRoomById(roomId) != null) {
+        _enrichRoomFromDetail(roomId);
+      }
+    }
     if (roomId != null && autoMarkAsRead && !isDraftRoom) {
       final targetRoomId = roomId;
       scheduleMicrotask(() {
@@ -1461,6 +1508,9 @@ class ChatUiAdapter {
     _deliveredCoord.reset();
     _pendingReactionsRegistry.clear();
     _voiceUploads.releaseAll();
+    // Raw media belonging to the account being torn down must not survive
+    // into the next one — same reasoning as flushing the offline queue.
+    _failedUploads.clear();
     _enricher.resetSession();
   }
 
@@ -2013,6 +2063,18 @@ class ChatUiAdapter {
   final AttachmentUploadCancelRegistry _attachmentUploadCancels =
       AttachmentUploadCancelRegistry();
 
+  final FailedUploadRegistry _failedUploads = FailedUploadRegistry();
+
+  /// Bytes held for media rows whose upload failed, so `messages.retrySend`
+  /// on one of those bubbles re-uploads the same file instead of refusing.
+  ///
+  /// Exposed to tune the two caps ([FailedUploadRegistry.maxEntries],
+  /// [FailedUploadRegistry.maxBytesPerEntry]) — a host on constrained
+  /// devices can shrink them, one that ships large media can widen them.
+  /// Retention is memory-only and ends with the session; the defaults hold
+  /// up to 8 files of up to 12 MB each.
+  FailedUploadRegistry get failedUploads => _failedUploads;
+
   /// The single source of optimistic-row ids for this adapter — text sends
   /// ([OptimisticHandler]), forwards and both upload paths draw from it, so
   /// no two sends can mint the same string whichever entry point they came
@@ -2429,6 +2491,7 @@ class ChatUiAdapter {
       updateRoomUnread: (roomId, count) =>
           _roomListMutator.updateRoomUnread(roomId, count),
       removeChatController: removeChatController,
+      analyticsEmit: emitAnalyticsEvent,
       onAdminMessage: () => onAdminMessage,
       onBroadcast: () => onBroadcast,
       onError: () => onError,

@@ -206,6 +206,18 @@ abstract class ChatClient {
     String? tempId,
     String? clientMessageId,
   });
+
+  /// Drops whatever the offline queue is holding for the optimistic row
+  /// [tempId], returning how many operations went. `0` on clients without
+  /// an offline queue configured, and on a row that was never queued.
+  ///
+  /// The counterpart to [enqueueOfflineAttachment] (and to the automatic
+  /// enqueue every failed send does): call it whenever a failed bubble
+  /// stops being the row the queue should deliver — the user discarded it,
+  /// or a retry is re-driving the same file under a fresh id. Skipping it
+  /// sends a message the user cancelled, or sends it twice, and neither
+  /// can be taken back out of the room.
+  int cancelOfflineSend(String tempId);
 }
 
 /// Server health and authentication checks.

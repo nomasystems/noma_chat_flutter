@@ -6,6 +6,285 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.26.0 - 2026-08-20
+
+Minor bump carrying two **breaking** additions and three changed defaults.
+A host that upgrades and rebuilds compiles untouched unless it switches
+exhaustively over `MessageAction` or implements `ChatClient` itself; the
+behaviour changes are all opt-out. See `MIGRATING.md` for the upgrade path.
+
+### Fixed
+
+- **A failed attachment is no longer a dead end.** A photo whose
+  `POST /attachments` never landed left a bubble that could not be sent,
+  could not be removed, and that the chat list went on advertising as sent
+  — the user walked away believing they had sent a picture nobody
+  received. Three things changed:
+
+  The bytes now survive the failure. `ChatUiAdapter.failedUploads` (a
+  `FailedUploadRegistry`) holds them, so `messages.retrySend` on that
+  bubble re-uploads the same file instead of refusing with
+  `attachment_never_uploaded`. Only the two failures that prove the bytes
+  never left were ever recoverable before, through the offline queue;
+  every other upload failure — a 5xx, a gateway timing the request out, a
+  rejected content type — had nothing to retry with. Retention is
+  memory-only, ends with the session, and is bounded by two tunable caps
+  (`maxEntries`, default 8; `maxBytesPerEntry`, default 12 MB); past them
+  the retry refuses exactly as it did before.
+
+  `ChatUiAdapter.messages.discardFailed(roomId, messageId)` is the way out
+  for a user who gives up: the bubble, its cached pending copy and its
+  retained bytes go, and nothing is sent. It is surfaced as
+  `MessageAction.discardFailed` on failed outgoing rows, in place of
+  "Delete" — which would promise a deletion for everyone that has nobody
+  to reach, and which the delete window hid outright once the row aged,
+  leaving the bubble unremovable.
+
+  The chat list stops lying. A media send that fails now takes its
+  optimistic preview back off the row, falling back to the room's newest
+  real message or clearing it when the failed send was the only one. Text
+  sends are unchanged.
+
+  Both routes also empty the offline queue of that row. A send that failed
+  on connectivity leaves a copy of itself in the queue, and the queue
+  drains on every reconnect: without this, discarding sent the photo the
+  user had just taken back, and retrying sent it twice — under two
+  idempotency keys the server has no way to relate. Neither can be undone
+  once it lands in a room somebody else is reading. `discardFailed` and
+  `retrySend` now drop the queued copy through the new
+  `ChatClient.cancelOfflineSend`.
+
+  A retried voice note keeps its recording. The retry re-read the clip's
+  length off the failed row but not its waveform, so a seven-second note
+  went back out drawn as a flat bar.
+
+- **A refused edit says so, and gives back what was typed.** An edit
+  confirmed after the server-side window closed came back 403
+  `edit_window_expired`, and the SDK swallowed it whole: the composer shut,
+  the bubble rolled back to the original wording, and nothing appeared on
+  screen — so the user believed they had corrected what they wrote. The
+  refusal now surfaces through the operation-error stream as a localized
+  snackbar (`ChatUiLocalizations.editWindowExpired`), and the composer
+  re-opens in editing mode carrying the attempt rather than the wording the
+  server still holds. Only that refusal reopens it: the expired window is
+  the one failure the user is told about, so it is the one where the
+  composer coming back reads as an explanation instead of an unexplained
+  jump back into editing — a network hiccup leaves the composer shut, as
+  before. Opt out with
+  `ChatViewBehaviors(restoreComposerOnEditFailure: false)`; the mechanism
+  underneath is `ChatController.setEditingMessage(message, draftText:)` and
+  `ChatController.editingDraftText`.
+
+- **A notice raised while a route is coming down is no longer lost.** Every
+  short message the SDK shows on its own — an unblock that failed, a group
+  that could not be created, a role change the server refused, the ten or
+  so of them — went straight to
+  `ScaffoldMessenger.of(context).showSnackBar`. That call walks *every*
+  `Scaffold` registered with the messenger, and a `Scaffold` unregisters in
+  `dispose`, never in `deactivate`: between the frame that removes a route
+  and the end of that same frame, one dying `Scaffold` anywhere under the
+  messenger threw the call of whoever was publishing, taking the notice and
+  the rest of that callback's work with it. They now all go through
+  `showChatNotice`, which publishes after the frame when the tree is still
+  settling and swallows nothing.
+
+- **A host that kept its own `enabledActions` is not stranded on a failed
+  row.** The menu swaps `delete` for `discardFailed` on a send that failed,
+  so an action set written before this release — one that has `delete` and
+  no `discardFailed` — came back with no destructive action at all, leaving
+  a red bubble with no way out. Such a set now keeps its own `delete` on
+  those rows, ungated by the delete window, which has nothing to say about
+  a message the server never saw. `NomaChatView`'s built-in delete callback
+  discards a failed row instead of deleting it, without a dialog: asking
+  the server to delete a message it never received fails, and leaves the
+  bubble exactly where it was.
+
+- **A room header's participant count follows joins and leaves.**
+  `RoomListItem.memberCount` only ever came from a room-detail fetch, and a
+  `user_joined` frame refreshed the roster without going back for it. The
+  count therefore kept whatever number the room was opened with —
+  contradicting the "… joined" system card printed right underneath it —
+  and survived a leave-and-reopen, because the cached detail was stale as
+  well. Both `user_joined` and `user_left` now invalidate the cached detail
+  and re-read it, the way `user_role_changed` already did — the eviction
+  completing *before* the read starts, so a slow store can no longer wipe
+  the fresh detail it was meant to replace.
+
+  Opening a room re-reads its detail too. A refresh driven only by frames
+  is only as good as the socket: one `user_joined` lost to a reconnect and
+  the count stayed wrong for as long as the row lived, which is precisely
+  what "it was still wrong after leaving and coming back" meant. Entry is
+  the cheap, self-healing moment to ask again, and it also picks up a
+  renamed room, a new avatar and a read-only flag set while the app was
+  away. Reads are single-flighted per room and a burst of roster frames
+  collapses into one detail read plus one trailing re-read, so a plan
+  filling up does not turn into one `GET /rooms/{id}` per frame.
+
+- **Non-text bubbles reach a screen reader with a body.** A photo, a video,
+  a shared location, a document and a failed upload all announced
+  themselves as "You: , Sent" — sender, empty text, status. They now read
+  "You: Photo, Sent", "You: Location, Sent", "You: contract.pdf, Sent",
+  reusing the descriptions the chat list had been able to produce all
+  along (emoji-free: a screen reader reads "📷" out loud). A failed send
+  announces `Failed`, where it used to announce nothing at all.
+
+  A caption no longer swallows what it captions: a photo sent with a line
+  of text read as that line alone, leaving no clue there was an image
+  above it, and now reads "You: Photo, en la playa, Sent". A forward is
+  announced as one — the "Forwarded" marker the bubble draws was never
+  spoken, and a forward carrying no text of its own was the last row still
+  reaching a screen reader as "You: , Sent".
+
+### Changed
+
+- **Breaking** — **`MessageAction` gained `discardFailed`.** Only an
+  exhaustive `switch` over `MessageAction` with no default arm needs a
+  change; same shape as a new `MessageType` or `ChatFailure` variant. It is
+  in the default action set of both `MessageContextMenu` and
+  `NomaChatView`, and `ChatView` routes it to
+  `ChatViewCallbacks.onDiscardFailedMessage`.
+
+- **Breaking** — **`ChatClient` gained `cancelOfflineSend(String tempId)`.**
+  It drops whatever the offline queue holds for an optimistic row and
+  returns how many operations went. Only a host implementing `ChatClient`
+  itself needs a change; `0` is the right answer for a client with no
+  offline queue, which is what `MockChatClient` returns.
+
+- **Deleting a message now asks first.** `MessageAction.delete` deletes for
+  everyone and cannot be undone, and the gesture that starts it is a long
+  press on a whole row — while blocking a contact and clearing a chat, both
+  recoverable, each already confirmed. `NomaChatView`'s built-in delete
+  callback now shows a confirmation dialog
+  (`deleteMessageConfirmTitle` / `deleteMessageConfirmBody`).
+  `MessageAction.deleteForMe` and `MessageAction.discardFailed` are not
+  gated: neither leaves the device. Opt out with
+  `ChatViewBehaviors(confirmDeleteForEveryone: false)`. A host that supplies
+  its own `onDeleteMessage`, or replaces the long-press menu through
+  `onMessageLongPress`, owns the confirmation itself.
+
+- **Blocking someone now prunes their content in group rooms.** A block
+  used to be cosmetic there: the name and avatar came off the bubble while
+  the text, the shared location and the photo stayed exactly where they
+  were, and nothing said a blocked person was in the room. Their rows are
+  now replaced by a one-line placeholder — the new
+  `BlockedContentPolicy.placeholder` default, which prunes the content
+  while keeping the room honest about who is in it.
+  `ChatViewBehaviors.blockedContentPolicy` also takes `hide` (drop the rows
+  outright) and `show` (the previous behaviour, for a host whose backend
+  already filters server-side). System rows are never pruned — they are the
+  room narrating itself, not the blocked person speaking. 1:1 chats are
+  untouched: they already collapse into the blocked-contact banner over an
+  intact history, and pruning one would be the room saying the same thing
+  twice and losing the conversation to say it.
+
+  The prune reaches every surface that carried the content past the bubble:
+  the **quoted strip** a reply paints of a blocked message, the
+  **reactions** a blocked user left on anyone's message (subtracted from
+  the counts; anonymous counts, with no reactor ids on the message, are
+  left alone rather than guessed at), and the **room list preview** of a
+  group whose last message is theirs (`RoomTile.blockedSenderIds` /
+  `.blockedContentPolicy`, wired for free by `RoomListView` from the
+  `adapter` it is already given). A group that is pruning also carries a
+  one-line notice (`blockedInRoomNotice`) so a reader can tell why a
+  stretch of the conversation went quiet — the ficha's "some indicator in
+  the room". The notice appears only while the blocked person actually has
+  content in the room.
+
+  `blockedSenderIds` are **chat** user ids — the same space as
+  `ChatMessage.from`, `RoomListItem.otherUserId` and
+  `ChatUiAdapter.contacts.block`. A host whose own user ids differ has to
+  map them first: an id that matches nobody prunes nothing, exactly like an
+  empty set.
+
+### Added
+
+- **`ChatUiAdapter.failedUploads`** — the `FailedUploadRegistry` described
+  above, exported so its two caps can be tuned.
+- **`ChatUiAdapter.messages.discardFailed(roomId, messageId)`** — drops a
+  failed outgoing row for good. Returns a `NotFoundFailure` for anything
+  that is not a failed row of that room.
+- **`ChatViewBehaviors.confirmDeleteForEveryone`**,
+  **`.restoreComposerOnEditFailure`**, **`.blockedContentPolicy`**,
+  **`.blockedSenderIds`** — all four default to the behaviour described
+  above and all four are opt-out.
+- **`ChatViewBuilders.blockedMessageBuilder`** — replaces the built-in
+  blocked-sender placeholder.
+- **`ChatViewCallbacks.onDiscardFailedMessage`** — wired by `NomaChatView`
+  to `messages.discardFailed`.
+- **`MessageList.blockedSenderIds` / `.blockedContentPolicy` /
+  `.blockedMessageBuilder`**, **`RoomTile.blockedSenderIds` /
+  `.blockedContentPolicy`**, **`RoomListView.blockedSenderIds` /
+  `.blockedContentPolicy`** and **`MessageContextMenu.isFailed`** — the
+  same knobs for a host driving those widgets directly. `MessageList`
+  prunes in groups only, resolved from its own `isGroup`.
+- **`ChatController.setEditingMessage(message, {draftText})`** and
+  **`ChatController.editingDraftText`**.
+- **`showChatNotice(context, message, {snackBarBuilder})`** and
+  **`ChatNoticeScope`** — the single door every SDK notice goes through,
+  and the host's override for it. Nothing has to be mounted for the
+  notices to work; mount a `ChatNoticeScope` above your `MaterialApp` (so
+  the routes the SDK pushes inherit it) to present them your own way, and
+  return `false` from the presenter for the ones you would rather leave to
+  the SDK.
+- Six localized strings in all twelve bundled locales:
+  `editWindowExpired`, `deleteMessageConfirmTitle`,
+  `deleteMessageConfirmBody`, `blockedMessageHidden`,
+  `blockedInRoomNotice`, `discardMessage`. They are confirmations and
+  action labels, which the Nordic + Eastern-EU tier (`sv`, `no`, `da`,
+  `pl`, `cs`) covers by policy rather than leaving to the English
+  fallback — a dialog asking to delete a message for everyone is the last
+  place to answer in a language the reader did not pick.
+
+## 0.25.0 - 2026-08-19
+
+Minor bump: a new opt-in analytics channel, additive across the board — no
+existing signature changed, no type removed. A host that upgrades and
+rebuilds compiles untouched and, wiring nothing new, emits exactly as
+before.
+
+### Added
+
+- **`ChatAnalyticsSink` / `ChatAnalyticsEvent`** — a product-analytics
+  channel, deliberately separate from `metricCallback`/`MetricCallback`
+  (see `TELEMETRY.md`): this one is where room and message identifiers are
+  allowed to travel, because a product funnel is meaningless without them.
+  Four events: `roomOpened`, `messageReceived`, `voicePlayed`,
+  `sendOutcome`. `ChatAnalyticsEvent` is a `freezed` sealed union —
+  consumer `switch` statements need a wildcard case to stay forward
+  compatible with a future variant, same as `MessageType` or `ChatFailure`.
+  See `ANALYTICS.md` for the full contract, emission sites, and a wiring
+  example.
+
+  Settable on `ChatConfig.analyticsSink` (for `NomaChat.create` /
+  `fromConfig`) **and** directly on `ChatUiAdapter`'s constructor — the
+  latter matters for a host that builds `ChatUiAdapter` by hand instead of
+  going through `NomaChat.create`, since a callback that only lived on
+  `ChatConfig` would never reach it. `null` by default: wiring this is
+  entirely opt-in, and a throwing sink is caught and dropped exactly like
+  every other user-supplied callback in this SDK — analytics can never
+  break the chat.
+
+  Identifiers travel unhashed and the SDK does not sample, batch, or drop
+  events — see `ANALYTICS.md` for why (a consumer that needs hashed ids,
+  like `WB`, applies its own sanitizer unconditionally on the way out; a
+  second transformation point inside the SDK would just be a second place
+  for that mapping to drift).
+
+  `ChatViewCallbacks.onVoicePlayed` is new too — `NomaChatView` always
+  wires its own default there (publishing the analytics event) and
+  additionally calls whatever the host sets, so a host callback never
+  silently disables the SDK's own emission.
+
+  Each event documents what it does and does not count — which send paths
+  emit `sendOutcome`, why an unmaterialized DM draft emits no `roomOpened`,
+  what `voicePlayed.firstListen` really means — in `ANALYTICS.md` under
+  "Known limits of the four events". Read that section before building a
+  funnel on top of these.
+
+- **`ChatUiAdapter.dm.isDraftRoutingKey(key)`** — tells a synthetic
+  `draft:<otherUserId>` routing key apart from a server-side room id,
+  which callers previously had to do by re-encoding the prefix themselves.
+
 ## 0.24.0 - 2026-08-18
 
 Minor bump: three behaviour fixes in the chat surface, no API added, none

@@ -7,6 +7,7 @@ import '../../storage/avatar_storage.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 import '../utils/initials.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
@@ -126,9 +127,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_failureMessage(result))));
+      showChatNotice(context, _failureMessage(result));
     }
   }
 
@@ -182,11 +181,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
       if (uploadRes.isFailure) {
         if (!mounted) return;
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(widget.theme.l10nOf(context).photoUploadFailed),
-          ),
-        );
+        showChatNotice(context, widget.theme.l10nOf(context).photoUploadFailed);
         return;
       }
       avatarUrl = uploadRes.dataOrNull;
@@ -204,9 +199,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(widget.theme.l10nOf(context).photoUploadFailed)),
-      );
+      showChatNotice(context, widget.theme.l10nOf(context).photoUploadFailed);
     }
   }
 
@@ -230,9 +223,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_failureMessage(result))));
+      showChatNotice(context, _failureMessage(result));
     }
   }
 

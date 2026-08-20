@@ -257,6 +257,9 @@ class _ScriptedClient implements ChatClient {
     tempId: tempId,
     clientMessageId: clientMessageId,
   );
+
+  @override
+  int cancelOfflineSend(String tempId) => _delegate.cancelOfflineSend(tempId);
 }
 
 /// An in-memory store that starts with one room already flagged as

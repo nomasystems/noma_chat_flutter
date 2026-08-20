@@ -246,6 +246,10 @@ class MockChatClient implements ChatClient {
     String? tempId,
     String? clientMessageId,
   }) {}
+
+  // Nothing queued, so nothing to cancel.
+  @override
+  int cancelOfflineSend(String tempId) => 0;
 }
 
 class MockAuthApi implements ChatAuthApi {
@@ -842,6 +846,13 @@ class MockMessagesApi implements ChatMessagesApi {
     metadata: metadata,
   );
 
+  /// When set, the next [update] call fails with this failure and leaves
+  /// the store untouched, then clears itself. Lets a test drive the paths
+  /// that only one specific server refusal reaches — an edit turned down
+  /// with `EditWindowExpiredFailure` behaves nothing like an edit that hit
+  /// a flaky network.
+  ChatFailure? failNextUpdateWith;
+
   @override
   Future<ChatResult<void>> update(
     String roomId,
@@ -849,6 +860,11 @@ class MockMessagesApi implements ChatMessagesApi {
     required String text,
     Map<String, dynamic>? metadata,
   }) async {
+    final forced = failNextUpdateWith;
+    if (forced != null) {
+      failNextUpdateWith = null;
+      return ChatFailureResult(forced);
+    }
     final messages = _client._messages[roomId];
     if (messages == null) return const ChatFailureResult(NotFoundFailure());
     final idx = messages.indexWhere((m) => m.id == messageId);

@@ -131,6 +131,37 @@ void main() {
       expect(queue.isEmpty, isTrue);
     });
 
+    test('removeForOptimisticId drops every op queued for that row and '
+        'leaves the rest in order', () async {
+      final queue = OfflineQueue(maxRetries: 3);
+
+      queue.enqueue(
+        PendingSendMessage(id: 'op-1', roomId: 'r', text: 'a', tempId: 't-1'),
+      );
+      queue.enqueue(
+        PendingSendMessage(id: 'op-2', roomId: 'r', text: 'b', tempId: 't-2'),
+      );
+      queue.enqueue(
+        PendingEditMessage(id: 'op-3', roomId: 'r', messageId: 'm', text: 'c'),
+      );
+      queue.enqueue(
+        PendingSendMessage(id: 'op-4', roomId: 'r', text: 'd', tempId: 't-1'),
+      );
+
+      expect(queue.removeForOptimisticId('t-1'), 2);
+      expect(queue.removeForOptimisticId('t-1'), 0);
+      // An edit carries no optimistic row, so it must not be swept along
+      // with the sends addressed to one.
+      expect(queue.pending.map((op) => op.id), ['op-2', 'op-3']);
+
+      final processed = <String>[];
+      await queue.processQueue((op) async {
+        processed.add(op.id);
+        return true;
+      });
+      expect(processed, ['op-2', 'op-3']);
+    });
+
     test('default maxAge is 24 hours', () {
       final queue = OfflineQueue();
       final now = DateTime.now();

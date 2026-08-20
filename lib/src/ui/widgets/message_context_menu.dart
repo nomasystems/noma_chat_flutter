@@ -18,6 +18,14 @@ enum MessageAction {
   /// `message.isDeleted` is true and `MessageContextMenu` is told
   /// the action is enabled.
   deleteForMe,
+
+  /// "Discard" on an outgoing row whose send failed — drops the bubble and
+  /// its cached pending copy without contacting the server, because the
+  /// message never reached it. Surfaced only when the row is failed
+  /// (`MessageContextMenu.isFailed`), where [delete] has nothing to
+  /// delete and the alternative is a red bubble the user cannot get rid
+  /// of. Wired to `ChatUiAdapter.messages.discardFailed`.
+  discardFailed,
   react,
   pin,
 
@@ -54,11 +62,13 @@ class MessageContextMenu extends StatelessWidget {
     required this.message,
     required this.isOutgoing,
     this.isPinned = false,
+    this.isFailed = false,
     this.enabledActions = const {
       MessageAction.reply,
       MessageAction.copy,
       MessageAction.edit,
       MessageAction.delete,
+      MessageAction.discardFailed,
       MessageAction.react,
     },
     this.onAction,
@@ -74,6 +84,13 @@ class MessageContextMenu extends StatelessWidget {
   /// field, so this is supplied by the host from controller.isPinned(id),
   /// the same source the bubble uses. Defaults to false.
   final bool isPinned;
+
+  /// Whether this row is an outgoing send that failed
+  /// (`ChatController.isFailed`). Like [isPinned], the model carries no
+  /// such field, so the host supplies it from the same source the bubble
+  /// reads. A failed row swaps [MessageAction.delete] — meaningless for a
+  /// message the server never saw — for [MessageAction.discardFailed].
+  final bool isFailed;
   final Set<MessageAction> enabledActions;
   final ValueChanged<MessageAction>? onAction;
   final ChatTheme theme;
@@ -92,11 +109,13 @@ class MessageContextMenu extends StatelessWidget {
     required ChatMessage message,
     required bool isOutgoing,
     bool isPinned = false,
+    bool isFailed = false,
     Set<MessageAction> enabledActions = const {
       MessageAction.reply,
       MessageAction.copy,
       MessageAction.edit,
       MessageAction.delete,
+      MessageAction.discardFailed,
       MessageAction.react,
     },
     Widget Function(BuildContext, ChatMessage, bool)? builder,
@@ -132,6 +151,7 @@ class MessageContextMenu extends StatelessWidget {
         message: message,
         isOutgoing: isOutgoing,
         isPinned: isPinned,
+        isFailed: isFailed,
         enabledActions: enabledActions,
         theme: theme,
         editWindow: editWindow,
@@ -270,7 +290,34 @@ class MessageContextMenu extends StatelessWidget {
         ),
       );
     }
-    if (enabledActions.contains(MessageAction.delete) &&
+    if (isFailed && isOutgoing) {
+      // A failed row exists only on this device. "Delete for everyone"
+      // would be a lie (there is no everyone yet) and the delete window
+      // would gate it away besides, leaving the bubble unremovable.
+      if (enabledActions.contains(MessageAction.discardFailed)) {
+        entries.add(
+          _MenuEntry(
+            icon: Icons.delete_outline,
+            label: l10n.discardMessage,
+            action: MessageAction.discardFailed,
+            isDestructive: true,
+          ),
+        );
+      } else if (enabledActions.contains(MessageAction.delete)) {
+        // A host whose `enabledActions` predate [MessageAction.discardFailed]
+        // still gets a way out of the red bubble: its own delete, ungated by
+        // the delete window, which has nothing to do with a message the
+        // server never saw.
+        entries.add(
+          _MenuEntry(
+            icon: Icons.delete_outline,
+            label: l10n.delete,
+            action: MessageAction.delete,
+            isDestructive: true,
+          ),
+        );
+      }
+    } else if (enabledActions.contains(MessageAction.delete) &&
         isOutgoing &&
         !_windowClosed(deleteWindow)) {
       entries.add(

@@ -158,6 +158,64 @@ class RoomListMutator {
     );
   }
 
+  /// Takes an optimistic preview back off the row for [roomId] when the
+  /// send behind it failed.
+  ///
+  /// The row is stamped with the message the moment the user hits send, so
+  /// the chat list moves with the conversation instead of lagging a round
+  /// trip behind. When that send then fails, nobody was undoing it: the
+  /// list kept announcing "📷 Photo" with a sent tick for a photo that
+  /// never left the device, which is the one place the user looks to
+  /// check whether it did.
+  ///
+  /// Restores the newest message the room actually holds ([fallback]) or,
+  /// when the failed send was the only one, clears the preview outright.
+  /// A no-op once something newer has already replaced the row's preview —
+  /// there is nothing stale left to take back.
+  void revertOptimisticLastMessage(
+    String roomId,
+    String messageId, {
+    ChatMessage? fallback,
+  }) {
+    final existing = roomListController.getRoomById(roomId);
+    if (existing == null) return;
+    if (existing.lastMessageId != messageId) return;
+
+    if (fallback == null) {
+      roomListController.updateRoom(
+        existing.copyWith(
+          lastMessage: null,
+          lastMessageTime: null,
+          lastMessageUserId: null,
+          lastMessageSenderName: null,
+          lastMessageId: null,
+          lastMessageReceipt: null,
+          lastMessageType: null,
+          lastMessageMimeType: null,
+          lastMessageFileName: null,
+          lastMessageDurationMs: null,
+          lastMessageIsDeleted: false,
+          lastMessageReactionEmoji: null,
+          lastMessageReactionTargetText: null,
+          lastMessageReactionTargetType: null,
+        ),
+      );
+      // The persisted preview is deliberately left alone: its writer
+      // merges non-null fields onto what is already there, so there is no
+      // "clear" to ask it for, and a cold start re-reads the room's real
+      // last message from the backend anyway.
+      return;
+    }
+
+    // Clearing first is what lets the fallback through: it is older than
+    // the row it replaces, and `updateRoomLastMessage`'s ordering guard
+    // exists precisely to reject older messages.
+    roomListController.updateRoom(
+      existing.copyWith(lastMessageId: null, lastMessageTime: null),
+    );
+    updateRoomLastMessage(roomId, fallback);
+  }
+
   /// Stamps the row for [roomId] with the emoji reaction [userId] just put
   /// on [messageId]: the emoji, the reactor, and the text (or type) of the
   /// message being reacted to. The sentence around them — "You reacted 👍

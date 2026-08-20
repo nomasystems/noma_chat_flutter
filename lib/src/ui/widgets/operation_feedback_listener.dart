@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../core/result.dart' show ContentFilterFailure, ValidationFailure;
+import '../../core/result.dart'
+    show ContentFilterFailure, EditWindowExpiredFailure, ValidationFailure;
 import '../adapter/operation_error.dart';
 import '../theme/chat_theme.dart';
+import '../utils/chat_notice.dart';
 
 /// Localized message for a successful operation. Returning `null` (or
 /// an empty string) suppresses the snackbar for that event — consumers
@@ -47,8 +49,9 @@ typedef OperationErrorLabelBuilder =
 /// - Pass [duration] to change visible time (default 2s).
 ///
 /// Wrap any subtree that contains a `Scaffold` with this widget. The
-/// snackbar attaches to `ScaffoldMessenger.maybeOf(context)` so missing
-/// scaffolds are silently ignored.
+/// snackbar goes out through [showChatNotice], so missing scaffolds are
+/// silently ignored, a route coming down does not swallow the notice, and
+/// a host that mounted a [ChatNoticeScope] presents it its own way.
 ///
 /// `NomaChatView` mounts one of these around its own subtree, so the
 /// feedback works with no host wiring at all. It first asks
@@ -164,16 +167,7 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
       widget.theme,
     );
     if (label == null || label.isEmpty) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    final snackBar =
-        widget.snackBarBuilder?.call(context, label) ??
-        SnackBar(
-          content: Text(label),
-          duration: widget.duration,
-          behavior: SnackBarBehavior.floating,
-        );
-    messenger.showSnackBar(snackBar);
+    _show(label);
   }
 
   String? _defaultErrorLabel(
@@ -182,14 +176,23 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
     ChatTheme theme,
   ) {
     // Only the failures the bubble itself cannot express get a soft toast:
-    // the content-filter rejection, and a retry refused because the file
-    // never made it up (tapping retry again does nothing). A 403 "muted"
-    // is handled by the read-only banner (the composer locks), and every
-    // other failure stays a retryable failed bubble — toasting those
-    // would just be noise.
+    // the content-filter rejection, a retry refused because the file never
+    // made it up (tapping retry again does nothing), and an edit the
+    // server refused because its window closed. A 403 "muted" is handled
+    // by the read-only banner (the composer locks), and every other
+    // failure stays a retryable failed bubble — toasting those would just
+    // be noise.
+    //
+    // The edit case is the one with no bubble at all to fall back on: the
+    // adapter rolls the row back to the original wording, so nothing on
+    // screen changes and, without this line, a refused edit is
+    // indistinguishable from an applied one.
     final failure = event.failure;
     if (failure is ContentFilterFailure) {
       return theme.l10nOf(context).messageBlockedByModeration;
+    }
+    if (failure is EditWindowExpiredFailure) {
+      return theme.l10nOf(context).editWindowExpired;
     }
     if (failure is ValidationFailure &&
         failure.errors?['reason'] == 'attachment_never_uploaded') {
@@ -206,17 +209,20 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
       widget.theme,
     );
     if (label == null || label.isEmpty) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger == null) return;
-    final snackBar =
-        widget.snackBarBuilder?.call(context, label) ??
+    _show(label);
+  }
+
+  void _show(String label) => showChatNotice(
+    context,
+    label,
+    snackBarBuilder: (context, message) =>
+        widget.snackBarBuilder?.call(context, message) ??
         SnackBar(
-          content: Text(label),
+          content: Text(message),
           duration: widget.duration,
           behavior: SnackBarBehavior.floating,
-        );
-    messenger.showSnackBar(snackBar);
-  }
+        ),
+  );
 
   String? _defaultLabel(
     BuildContext context,

@@ -25,6 +25,7 @@ class AudioBubble extends StatefulWidget {
     this.isListened = false,
     this.coordinator,
     this.onListenedChanged,
+    this.onVoicePlayed,
     this.messageId,
     this.uploadProgress,
     this.statusWidget,
@@ -46,6 +47,19 @@ class AudioBubble extends StatefulWidget {
   final bool isListened;
   final AudioPlaybackCoordinator? coordinator;
   final ValueChanged<bool>? onListenedChanged;
+
+  /// Fires the first time this voice message is played, alongside
+  /// [onListenedChanged]. `durationMs` is the best duration known at that
+  /// moment (the player's own once it reported one, else the
+  /// waveform-sample estimate); `firstListen` is always `true` from this
+  /// call site. Used by `MessageBubble`/`MessageList` to surface a
+  /// `ChatAnalyticsEvent.voicePlayed` up to `ChatUiAdapter`.
+  ///
+  /// Called after the bubble has finished flipping its own "listened"
+  /// state, and a throwing callback is caught and dropped: a host's
+  /// analytics must never abort playback or paint the bubble's error
+  /// state.
+  final void Function(int durationMs, bool firstListen)? onVoicePlayed;
   final String? messageId;
 
   /// While not null, the bubble shows a determinate upload progress overlay
@@ -393,6 +407,10 @@ class _AudioBubbleState extends State<AudioBubble> {
           if (widget.coordinator != null && widget.messageId != null) {
             widget.coordinator!.markListened(widget.messageId!);
           }
+          final duration = _resolvedDuration ?? _waveformEstimatedDuration;
+          try {
+            widget.onVoicePlayed?.call(duration.inMilliseconds, true);
+          } catch (_) {}
         }
         // Re-arm the auto-play latch so a future natural completion fires
         // exactly once even if the user replays the same audio.

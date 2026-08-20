@@ -7,6 +7,7 @@ import '../../../cache/local_datasource.dart';
 import '../../../client/chat_client.dart';
 import '../../../core/result.dart';
 import '../../../events/chat_event.dart';
+import '../../../models/chat_analytics_event.dart';
 import '../../../models/message.dart';
 import '../../../models/read_receipt.dart';
 import '../../../models/user.dart';
@@ -57,6 +58,7 @@ class ChatEventRouterDeps {
     required this.updateRoomReactionPreview,
     required this.updateRoomUnread,
     required this.removeChatController,
+    required this.analyticsEmit,
     required this.onAdminMessage,
     required this.onBroadcast,
     required this.onError,
@@ -122,6 +124,11 @@ class ChatEventRouterDeps {
   updateRoomReactionPreview;
   final void Function(String roomId, int count) updateRoomUnread;
   final void Function(String roomId) removeChatController;
+
+  /// Publishes a [ChatAnalyticsEvent] through `ChatUiAdapter
+  /// .emitAnalyticsEvent`, which already guards against a throwing sink —
+  /// the router never needs its own try/catch around this call.
+  final void Function(ChatAnalyticsEvent event) analyticsEmit;
 
   /// Callbacks are read via getter so the adapter can set them
   /// post-construction (`adapter.onBroadcast = ...`) and the router
@@ -243,6 +250,7 @@ class ChatEventRouter {
       _deps.updateRoomUnread(roomId, count);
   void _removeChatController(String roomId) =>
       _deps.removeChatController(roomId);
+  void _emitAnalytics(ChatAnalyticsEvent event) => _deps.analyticsEmit(event);
   void Function(ChatMessage message, String roomId)? get _onAdminMessage =>
       _deps.onAdminMessage();
   void Function(String message)? get _onBroadcast => _deps.onBroadcast();
@@ -350,8 +358,7 @@ class ChatEventRouter {
         // placeholder with no metadata. Confirm via detail first.
         _addRoomFromDetailFn(roomId);
       case RoomUpdatedEvent(:final roomId):
-        _cache?.deleteRoomDetail(roomId);
-        _enrichRoomFromDetailFn(roomId);
+        _refreshRoomMembership(roomId);
       case PresenceChangedEvent(
         :final userId,
         :final online,
@@ -412,9 +419,11 @@ class ChatEventRouter {
         // and an admin re-added me, clear the `isParticipating=false`
         // flag so the banner disappears and the composer reactivates.
         _handleUserRejoinedFn(roomId, userId);
+        _refreshRoomMembership(roomId);
         _addSystemMessageFn(roomId, 'user_joined', userId);
       case UserLeftEvent(:final roomId, :final userId, :final actorUserId):
         _handleUserLeftFn(roomId, userId, actorUserId: actorUserId);
+        _refreshRoomMembership(roomId);
         _addSystemMessageFn(
           roomId,
           'user_left',
@@ -442,6 +451,30 @@ class ChatEventRouter {
       case UserUpdatedEvent():
         _onUserUpdated(event);
     }
+  }
+
+  /// Re-reads the room detail after the roster changed, so the row's
+  /// `memberCount` follows a join or a leave instead of keeping the number
+  /// the detail carried the last time it was fetched.
+  ///
+  /// The cached detail is dropped first, and the refresh waits for that
+  /// drop to land: `refreshRoom` goes to the network and writes what it
+  /// reads back into the cache, so a delete still in flight when the
+  /// response arrives would evict the fresh detail instead of the stale
+  /// one it was meant to remove. `RoomUpdatedEvent` shares this path — a
+  /// join is a room update the backend happens to announce through a
+  /// roster frame instead.
+  void _refreshRoomMembership(String roomId) {
+    unawaited(
+      (_cache?.deleteRoomDetail(roomId) ??
+              Future.value(const ChatSuccess<void>(null)))
+          .catchError(
+            (_) => const ChatFailureResult<void>(
+              UnexpectedFailure('deleteRoomDetail failed'),
+            ),
+          )
+          .whenComplete(() => _enrichRoomFromDetailFn(roomId)),
+    );
   }
 
   /// Applies a `user_updated` WS event (profile change) to local state:
@@ -682,6 +715,14 @@ class ChatEventRouter {
     if (message.from == _currentUser().id) return;
     final isActiveRoom = _autoMarkAsRead && _activeRoomId() == roomId;
     final existing = _roomList.getRoomById(roomId);
+    _emitAnalytics(
+      ChatAnalyticsEvent.messageReceived(
+        roomId: roomId,
+        messageId: message.id,
+        kind: message.messageType,
+        isGroup: existing?.isGroup ?? false,
+      ),
+    );
     if (existing != null) {
       // Archived (hidden) rooms STAY archived when a new message arrives —
       // WhatsApp parity. (Previously this un-hid the room, which conflated

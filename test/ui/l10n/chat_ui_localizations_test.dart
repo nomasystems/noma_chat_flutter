@@ -409,6 +409,33 @@ void main() {
       }
     });
 
+    test('the core set covers the destructive-action strings in every one '
+        'of them — a confirmation nobody can read is worse than none', () {
+      for (final l10n in [
+        ChatUiLocalizations.sv,
+        ChatUiLocalizations.no,
+        ChatUiLocalizations.da,
+        ChatUiLocalizations.pl,
+        ChatUiLocalizations.cs,
+      ]) {
+        expect(l10n.deleteMessageConfirmTitle, isNot('Delete message?'));
+        expect(
+          l10n.deleteMessageConfirmBody,
+          isNot(ChatUiLocalizations.en.deleteMessageConfirmBody),
+        );
+        expect(l10n.discardMessage, isNot('Discard'));
+        expect(
+          l10n.editWindowExpired,
+          isNot(ChatUiLocalizations.en.editWindowExpired),
+        );
+        expect(l10n.blockedMessageHidden, isNot('Message from a blocked user'));
+        expect(
+          l10n.blockedInRoomNotice,
+          isNot('You blocked someone in this chat'),
+        );
+      }
+    });
+
     test('fields outside the core set fall back to the English default', () {
       expect(ChatUiLocalizations.sv.unblockFailed, 'Unblock failed');
       expect(ChatUiLocalizations.no.unblockFailed, 'Unblock failed');

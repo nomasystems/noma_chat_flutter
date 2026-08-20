@@ -44,6 +44,14 @@ sealed class PendingOperation {
     this.nextRetryAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
+  /// Id of the optimistic row this operation was queued for, when it has
+  /// one — the bubble the UI is showing as failed while the queue holds
+  /// its retry. Only the send-shaped operations carry it; everything else
+  /// (edits, reactions, membership) acts on already-confirmed server state
+  /// and reports `null`. [OfflineQueue.removeForOptimisticId] matches on
+  /// this so a row the user discarded does not go out on the next drain.
+  String? get optimisticId => null;
+
   /// Returns a copy with bumped retry metadata. The drain loop calls
   /// this after a failed attempt to re-enqueue the same operation
   /// with `attempts + 1` and an optional `nextRetryAt` backoff
@@ -96,6 +104,9 @@ final class PendingSendMessage extends PendingOperation {
   /// delivery that actually reached the server (before the failure
   /// surfaced) is not duplicated on drain. See [ChatMessagesApi.send].
   final String? clientMessageId;
+
+  @override
+  String? get optimisticId => tempId;
 
   PendingSendMessage({
     required super.id,
@@ -180,6 +191,9 @@ final class PendingSendAttachment extends PendingOperation {
   /// same rationale as [PendingSendMessage.clientMessageId].
   final String? clientMessageId;
 
+  @override
+  String? get optimisticId => tempId;
+
   PendingSendAttachment({
     required super.id,
     required this.roomId,
@@ -243,6 +257,11 @@ final class PendingSendDirectMessage extends PendingOperation {
   /// that actually landed (failure surfaced after delivery) is not
   /// duplicated on drain. See [ChatContactsApi.sendDirectMessage].
   final String? clientMessageId;
+
+  /// The DM path carries no separate temp id: the optimistic row's id is
+  /// what `ChatUiAdapter` hands over as [clientMessageId].
+  @override
+  String? get optimisticId => clientMessageId;
 
   PendingSendDirectMessage({
     required super.id,
@@ -852,6 +871,30 @@ class OfflineQueue {
     }
     _queue.add(operation);
     _persistSilent();
+  }
+
+  /// Drops every queued operation enqueued for the optimistic row
+  /// [optimisticId], returning how many went.
+  ///
+  /// The counterpart to [enqueue] for a send the user took back. Once a
+  /// failure surfaces, the queue is where that send lives on: without this
+  /// a bubble the user discarded still goes out on the next drain, and one
+  /// re-driven under a fresh id goes out twice. Both are irreversible —
+  /// the message lands in a room somebody else is reading.
+  ///
+  /// An operation an in-flight drain already handed to the executor is
+  /// past recall: it left the queue when the drain picked it up.
+  int removeForOptimisticId(String optimisticId) {
+    final kept = _queue
+        .where((op) => op.optimisticId != optimisticId)
+        .toList(growable: false);
+    final removed = _queue.length - kept.length;
+    if (removed == 0) return 0;
+    _queue
+      ..clear()
+      ..addAll(kept);
+    _persistSilent();
+    return removed;
   }
 
   /// Drains the queue using the executor bound via [bindExecutor] (or
