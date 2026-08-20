@@ -115,6 +115,68 @@ String? buildLastMessagePreview(
   }
 }
 
+/// What a screen reader should read as the *body* of a message that is not
+/// plain text — a photo, a video, a voice note, a shared location, a
+/// document, a forward.
+///
+/// Without this the bubble announced "You: , Sent": the sender, the empty
+/// text, and the status. The room list already knew how to describe these
+/// same rows ("📷 Photo", "📍 Location"), so the words existed; they just
+/// never reached the conversation.
+///
+/// A caption does not replace the label, it follows it ("Photo, at the
+/// beach"): a sighted reader sees the photo and reads the caption as what
+/// it is, and announcing the caption alone left a screen-reader user with
+/// no idea there was an image above it. Same for a forward, whose
+/// "Forwarded" header is drawn but never spoken otherwise.
+///
+/// Emoji-free on purpose where a plain label exists: the list uses them as
+/// a visual marker, a screen reader reads them out loud ("camera photo").
+/// Returns `null` for a message that is nothing but its own text, so the
+/// caller reads that text unadorned.
+String? mediaSemanticLabel(ChatMessage m, ChatUiLocalizations l10n) {
+  final parts = <String>[];
+  if (m.isForwarded || m.messageType == MessageType.forward) {
+    parts.add(l10n.forwarded);
+  }
+  final kind = _mediaKindLabel(m, l10n);
+  if (kind != null) parts.add(kind);
+  if (parts.isEmpty) return null;
+  final caption = m.text?.trim();
+  if (caption != null && caption.isNotEmpty) parts.add(caption);
+  return parts.join(', ');
+}
+
+/// The type label alone — no caption, no forward marker. `null` when the
+/// message carries nothing but text.
+String? _mediaKindLabel(ChatMessage m, ChatUiLocalizations l10n) {
+  switch (m.messageType) {
+    case MessageType.audio:
+      return l10n.audioPreview;
+
+    case MessageType.location:
+      return l10n.location;
+
+    case MessageType.attachment:
+      final mime = m.mimeType;
+      if (mime != null) {
+        final kind = classifyMime(mime);
+        if (kind == MimeKind.gif) return l10n.previewGif;
+        if (kind == MimeKind.image) return l10n.imagePreview;
+        if (kind == MimeKind.video) return l10n.videoPreview;
+        if (kind == MimeKind.audio) return l10n.audioPreview;
+      }
+      final name = m.fileName;
+      return name != null && name.trim().isNotEmpty ? name : l10n.file;
+
+    case MessageType.forward:
+    case MessageType.reaction:
+    case MessageType.reply:
+    case MessageType.regular:
+      return null;
+  }
+}
+
 /// The reaction sentence for [item], rebuilt from the row's own emoji,
 /// reactor and quoted-message fields.
 ///

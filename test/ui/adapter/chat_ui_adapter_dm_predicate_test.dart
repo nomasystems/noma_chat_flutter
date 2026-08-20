@@ -261,6 +261,9 @@ class _PredicateTestClient implements ChatClient {
     tempId: tempId,
     clientMessageId: clientMessageId,
   );
+
+  @override
+  int cancelOfflineSend(String tempId) => _delegate.cancelOfflineSend(tempId);
 }
 
 void main() {

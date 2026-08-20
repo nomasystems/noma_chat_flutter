@@ -102,6 +102,9 @@ class _CountingClient implements ChatClient {
     tempId: tempId,
     clientMessageId: clientMessageId,
   );
+
+  @override
+  int cancelOfflineSend(String tempId) => _delegate.cancelOfflineSend(tempId);
 }
 
 /// Counts wire reads and can park them, so the test can assert what the UI

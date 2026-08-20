@@ -9,6 +9,7 @@ import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '../utils/last_message_preview.dart' show mediaSemanticLabel;
 import '../utils/url_detector.dart';
 import 'bubbles/_attachment_upload_overlay.dart' show paintsAttachmentFailure;
 import 'bubbles/audio_bubble.dart';
@@ -1058,23 +1059,33 @@ class MessageBubble extends StatelessWidget {
   }
 
   String _buildSemanticLabel(BuildContext context) {
-    final semanticSender =
-        senderName ?? (isOutgoing ? theme.l10nOf(context).you : '');
+    final l10n = theme.l10nOf(context);
+    final semanticSender = senderName ?? (isOutgoing ? l10n.you : '');
+    // A photo, a map card or a voice note carries no text, and reading the
+    // empty string out is how the conversation became "You: , Sent" under
+    // VoiceOver. Anything that is not plain text describes itself through
+    // the same words the chat list uses, with its caption appended; a text
+    // message gets read verbatim, as it always was.
     final semanticBody = message.isDeleted
-        ? theme.l10nOf(context).messageDeleted
-        : (message.text ?? '');
+        ? l10n.messageDeleted
+        : (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
     final announceSending = isOutgoing && !message.isDeleted && isPending;
-    final statusForSemantics = isOutgoing && !message.isDeleted && !isPending
+    final statusForSemantics =
+        isOutgoing && !message.isDeleted && !isPending && !isFailed
         ? _effectiveStatus
         : null;
-    final statusSuffix = announceSending
-        ? ', ${theme.l10nOf(context).statusSending}'
+    // A failed send announced nothing at all: same silence as a message on
+    // its way out, for the opposite situation.
+    final statusSuffix = isFailed && isOutgoing && !message.isDeleted
+        ? ', ${l10n.statusFailed}'
+        : announceSending
+        ? ', ${l10n.statusSending}'
         : statusForSemantics == null
         ? ''
         : ', ${switch (statusForSemantics) {
-            ReceiptStatus.sent => theme.l10nOf(context).statusSent,
-            ReceiptStatus.delivered => theme.l10nOf(context).statusDelivered,
-            ReceiptStatus.read => theme.l10nOf(context).statusRead,
+            ReceiptStatus.sent => l10n.statusSent,
+            ReceiptStatus.delivered => l10n.statusDelivered,
+            ReceiptStatus.read => l10n.statusRead,
           }}';
     final semanticBodyWithStatus = '$semanticBody$statusSuffix';
     return semanticSender.isNotEmpty
