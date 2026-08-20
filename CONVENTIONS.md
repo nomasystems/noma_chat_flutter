@@ -102,6 +102,13 @@ subtype (`AuthFailure`, `NetworkFailure`, `StorageFailure`, …).
   (first-class). Other locales (fr/de/it/pt/ca) accept best-effort
   translations on the same PR; locales without an override fall back to
   `en` automatically.
+* The Nordic + Eastern-EU tier (sv/no/da/pl/cs) carries a documented core
+  set instead of the whole file, and the English fallback covers the rest.
+  A new key that belongs to that set — the composer, the chat list, the
+  connection banner, **message actions and their confirmations**, group
+  management, settings, presence — is translated there in the same change
+  as everywhere else. Leaving a destructive-action dialog to the fallback
+  is not "an explicit gap", it is a confirmation the reader cannot read.
 
 ## 5. Models — `==` and `copyWith`
 
@@ -464,3 +471,21 @@ the widget tree: `find.bySemanticsIdentifier(name)` (or
 `find.byKey(ValueKey(name))`, under a `tester.ensureSemantics()` handle that
 `tearDown` disposes. Turning the semantics tree on in production is the
 host's decision — `ensureSemantics` never appears under `lib/`.
+
+### 10.12 Notices go through `showChatNotice`
+
+No widget under `lib/` calls `ScaffoldMessenger` itself. Every short
+message the SDK raises on its own — an unblock that failed, a group that
+could not be created, a permission denied — goes through
+`showChatNotice(context, message)` (`lib/src/ui/utils/chat_notice.dart`).
+
+`ScaffoldMessengerState.showSnackBar` walks every `Scaffold` registered
+with the messenger, and a `Scaffold` unregisters in `dispose`, never in
+`deactivate`: publishing from inside the frame that tears a route down
+throws, and the notice dies with the caller's remaining work.
+`showChatNotice` publishes after the frame when the tree is still
+settling, and gives the host one override point — `ChatNoticeScope` — for
+presenting notices its own way.
+
+Pass `snackBarBuilder` when the bar needs a shape of its own (margins, an
+action, a longer duration); do not rebuild the publication path around it.
