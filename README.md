@@ -28,7 +28,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^0.24.0
+  noma_chat: ^0.26.0
   # The default persistent cache is Hive-backed; you initialise it (see below).
   hive_ce_flutter: ^2.3.4
 ```
@@ -140,6 +140,23 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Cancellable photo/video/file uploads — a determinate progress ring with an
   X that aborts the transfer mid-flight and removes the provisional bubble,
   wired by default; the retry arrow shows only after a genuine failure
+- Retriable failed uploads — the bytes of an upload that failed are held in
+  memory (`ChatUiAdapter.failedUploads`, 8 files of up to 12 MB by default),
+  so "Retry" re-uploads the same file instead of asking for it again, and
+  `messages.discardFailed` removes a send the user gave up on. Both empty
+  the offline queue of that row, so a discarded send never delivers late
+  and a retried one delivers once. A media send that failed also stops
+  being advertised as sent in the chat list
+- Confirmed deletion — "Delete" (for everyone, irreversible) asks first;
+  "Delete for me" and "Discard" do not. Turn the dialog off with
+  `ChatViewBehaviors(confirmDeleteForEveryone: false)`
+- Blocked senders are pruned inside groups, not just anonymized —
+  `ChatViewBehaviors.blockedContentPolicy` (`placeholder` by default, or
+  `hide` / `show`). Bubble, quoted reply, reactions and the room-list
+  preview all go, and the room says it is pruning; a 1:1 chat is left alone
+  with its existing blocked banner and its whole history
+- Screen readers hear what a non-text bubble is ("You: Photo, Sent",
+  "You: Location, Sent") and hear a failed send announced as failed
 - Built-in camera screen wired by default — tap the shutter for a photo,
   hold it to record a clip, pinch to zoom, flip the lens; every capture then
   lands on a WhatsApp-style review step (send / retake / discard) and only a
@@ -218,6 +235,20 @@ bubble: ChatBubbleTheme(
 ```
 
 See [Developer Guide — Theming](./doc/DEVELOPER_GUIDE.md#theming) for all 155+ fields.
+
+The short notices the SDK shows on its own (an unblock that failed, a
+permission denied, a role change the server refused) are snackbars out of
+the box — nothing to mount. Wrap the app to present them your way:
+
+```dart
+ChatNoticeScope(
+  presenter: (context, message) {
+    myBanners.show(message);
+    return true; // false leaves this one to the SDK
+  },
+  child: MaterialApp(/* … */),
+)
+```
 
 ---
 
