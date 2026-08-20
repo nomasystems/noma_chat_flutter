@@ -597,6 +597,23 @@ interface class ChatMessagesController {
                 .catchError(_swallowCacheThrow) ??
             Future.value(),
       );
+      // The offline queue below only takes the failures that prove the
+      // bytes never left, and only when a cache is configured. Everything
+      // else — a 5xx, a gateway timing the upload out, a rejected type —
+      // ends with a failed bubble whose file is nowhere. Retain it so
+      // [retrySend] re-uploads instead of telling the user to pick the
+      // file again for a send they already confirmed.
+      _a._failedUploads.remember(
+        tempId,
+        RetainedUpload(
+          roomId: roomId,
+          bytes: bytes,
+          mimeType: mimeType,
+          messageType: MessageType.attachment,
+          fileName: fileName,
+        ),
+      );
+      _revertRoomPreviewFor(roomId, tempId);
       // Enters the offline retry queue on a connectivity-flavored failure
       // (no-op otherwise, or when no queue is configured) — a reconnect
       // later replays the whole upload+send with the SAME tempId, and
@@ -1086,6 +1103,16 @@ interface class ChatMessagesController {
       // (no-op otherwise, or when no queue is configured) — a reconnect
       // later replays the whole upload+send with the SAME tempId, and
       // `onOfflineMessageSent` flips this bubble from failed to sent.
+      _a._failedUploads.remember(
+        tempId,
+        RetainedUpload(
+          roomId: roomId,
+          bytes: audioBytes,
+          mimeType: mimeType,
+          messageType: MessageType.audio,
+        ),
+      );
+      _revertRoomPreviewFor(roomId, tempId);
       _a.client.enqueueOfflineAttachment(
         roomId: roomId,
         bytes: audioBytes,
@@ -1439,13 +1466,173 @@ interface class ChatMessagesController {
 
   /// Re-tries an optimistic send that previously failed.
   ///
-  /// Refused with a [ValidationFailure] whose
-  /// `errors['reason'] == 'attachment_never_uploaded'` when the row is an
-  /// attachment or voice bubble whose upload never landed: it holds no
-  /// blob, so reposting it would publish an unrecoverable empty media
-  /// message. Ask the user for the file again on that failure.
-  Future<ChatResult<ChatMessage>> retrySend(String roomId, String messageId) =>
-      _a._optimistic.retrySend(roomId, messageId);
+  /// A media row whose upload never landed is re-uploaded from the bytes
+  /// [ChatUiAdapter.failedUploads] retained for it: the failed bubble is
+  /// dropped and the file goes out again as a fresh pending row. That is
+  /// the ordinary case for an attachment that failed on anything other
+  /// than connectivity, which is the one the offline queue already covers.
+  ///
+  /// Only when nothing was retained — the session ended in between, the
+  /// file was over [FailedUploadRegistry.maxBytesPerEntry], or the row
+  /// came back from the cache after a restart — is the retry refused with
+  /// a [ValidationFailure] whose
+  /// `errors['reason'] == 'attachment_never_uploaded'`: reposting a row
+  /// with no blob would publish an unrecoverable empty media message. Ask
+  /// the user for the file again on that failure.
+  Future<ChatResult<ChatMessage>> retrySend(String roomId, String messageId) {
+    final retained = _a._failedUploads.peek(messageId);
+    if (retained != null) {
+      return _retryRetainedUpload(roomId, messageId, retained);
+    }
+    return _a._optimistic.retrySend(roomId, messageId);
+  }
+
+  /// Re-runs the whole upload + send for a media row whose bytes are still
+  /// in hand, replacing the failed bubble with a fresh pending one.
+  ///
+  /// A new optimistic id is minted on purpose. The upload provably never
+  /// landed, so there is nothing to be idempotent against, and re-entering
+  /// [sendAttachment] / [sendVoice] means the retry inherits the progress
+  /// ring, the cancel affordance, the offline queue and the cache
+  /// bookkeeping rather than a second, thinner copy of all of it.
+  ///
+  /// Which is exactly why the old id is taken out of the offline queue
+  /// first: the failure that retained these bytes may well have queued
+  /// them too, and the retry is about to queue the same file again under
+  /// the new id. Leaving both would put the photo in the room twice, under
+  /// two idempotency keys the server has no way to relate. The invariant
+  /// this keeps is a small one — the queue only ever holds an entry for
+  /// the row that is still on screen waiting for it.
+  Future<ChatResult<ChatMessage>> _retryRetainedUpload(
+    String roomId,
+    String messageId,
+    RetainedUpload retained,
+  ) async {
+    // Read off the old row before it goes: how long a voice note runs and
+    // the waveform drawn under it live on its metadata and nowhere else.
+    final recording = _retainedVoiceRecording(roomId, messageId);
+    // Released before the retry starts: a retry that fails again retains
+    // its own bytes under the new id, and one that succeeds must not leave
+    // a copy of the file behind.
+    _a._failedUploads.drop(messageId);
+    _a.client.cancelOfflineSend(messageId);
+    _discardFailedRow(retained.roomId, messageId);
+    if (retained.messageType == MessageType.audio) {
+      return sendVoice(
+        retained.roomId,
+        audioBytes: retained.bytes,
+        mimeType: retained.mimeType,
+        duration: recording.duration,
+        waveform: recording.waveform,
+      );
+    }
+    return sendAttachment(
+      retained.roomId,
+      bytes: retained.bytes,
+      mimeType: retained.mimeType,
+      fileName: retained.fileName,
+    );
+  }
+
+  /// What the failed voice row [messageId] was recorded as: its length and
+  /// the waveform the bubble draws. A retry that does not carry them over
+  /// re-sends the same clip as a flat bar of zero seconds.
+  ({Duration duration, List<int> waveform}) _retainedVoiceRecording(
+    String roomId,
+    String messageId,
+  ) {
+    final controller = _a._chatControllers[roomId];
+    ChatMessage? row;
+    for (final m in controller?.messages ?? const <ChatMessage>[]) {
+      if (m.id == messageId) {
+        row = m;
+        break;
+      }
+    }
+    final rawDuration = row?.metadata?['duration'];
+    final ms = rawDuration is num ? rawDuration.toInt() : null;
+    final rawWaveform = row?.metadata?['waveform'];
+    return (
+      duration: Duration(milliseconds: ms ?? 0),
+      waveform: rawWaveform is List
+          ? rawWaveform.whereType<num>().map((v) => v.toInt()).toList()
+          : const <int>[],
+    );
+  }
+
+  /// Drops a failed outgoing row for good: the bubble goes, its cached
+  /// pending copy goes, any bytes retained for it go, and so does the
+  /// offline-queue entry a connectivity failure left behind. Nothing is
+  /// sent and nothing is deleted server-side — the message never existed
+  /// there, and after this call nothing will make it exist.
+  ///
+  /// The counterpart to [retrySend] on the same bubble, and the only way
+  /// out of a failed send that the user has decided not to make: without
+  /// it the row sits in the conversation until the cache is cleared.
+  ///
+  /// Returns a [NotFoundFailure] when [messageId] is not a failed row of
+  /// [roomId] — a confirmed message is deleted through [delete] or
+  /// [deleteLocally], not here.
+  Future<ChatResult<void>> discardFailed(String roomId, String messageId) {
+    final controller = _a._chatControllers[roomId];
+    if (controller == null || !controller.isFailed(messageId)) {
+      return Future.value(
+        const ChatFailureResult<void>(
+          NotFoundFailure('No failed message with that id'),
+        ),
+      );
+    }
+    _a._failedUploads.drop(messageId);
+    _a._attachmentUploadCancels.drop(messageId);
+    // The bubble is only half of the row: a send that failed on
+    // connectivity also left a copy in the offline queue, which drains on
+    // every reconnect. Without this the discarded photo goes out anyway,
+    // minutes later, into a room the user has already moved on from.
+    _a.client.cancelOfflineSend(messageId);
+    _discardFailedRow(roomId, messageId);
+    return Future.value(const ChatSuccess<void>(null));
+  }
+
+  /// Takes the chat-list preview back off [roomId] when the optimistic row
+  /// [messageId] failed and is still the row the list is advertising.
+  ///
+  /// The fallback is the newest message the room actually holds that is
+  /// neither pending nor failed — the last thing that truly went out or
+  /// came in. When there is none the preview is cleared rather than left
+  /// claiming a send that never happened.
+  void _revertRoomPreviewFor(String roomId, String messageId) {
+    final controller = _a._chatControllers[roomId];
+    ChatMessage? fallback;
+    if (controller != null) {
+      for (final m in controller.messages) {
+        if (m.id == messageId) continue;
+        if (controller.isPending(m.id) || controller.isFailed(m.id)) continue;
+        if (fallback == null || m.timestamp.isAfter(fallback.timestamp)) {
+          fallback = m;
+        }
+      }
+    }
+    _a._roomListMutator.revertOptimisticLastMessage(
+      roomId,
+      messageId,
+      fallback: fallback,
+    );
+  }
+
+  void _discardFailedRow(String roomId, String messageId) {
+    _revertRoomPreviewFor(roomId, messageId);
+    // `removePending`, not `removeMessage`: the latter takes the bubble out
+    // but leaves the id in the controller's pending ledger, so `isFailed`
+    // goes on answering true for a row nobody can see — and a second
+    // `discardFailed` on it would report success instead of not-found.
+    _a._chatControllers[roomId]?.removePending(messageId);
+    unawaited(
+      _a._cache
+              ?.deletePendingMessage(roomId, messageId)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
+  }
 
   /// Loads the full thread (parent + replies) for [messageId].
   Future<ChatResult<List<ChatMessage>>> loadThread(

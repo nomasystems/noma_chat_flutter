@@ -547,6 +547,9 @@ class _FailableChatClient implements ChatClient {
     tempId: tempId,
     clientMessageId: clientMessageId,
   );
+
+  @override
+  int cancelOfflineSend(String tempId) => _delegate.cancelOfflineSend(tempId);
 }
 
 void main() {
@@ -1001,8 +1004,16 @@ void main() {
     });
   });
 
-  group('F3.4 retrySend refuses a media row whose upload never landed', () {
+  group('F3.4 retrySend refuses a media row whose upload never landed and '
+      'whose bytes were not retained', () {
     final bytes = Uint8List.fromList(List<int>.filled(8, 3));
+
+    // Retention off throughout this group. With it on — the default — a
+    // failed upload is re-uploaded from the bytes still in hand, which is
+    // covered in `failed_attachment_retry_test.dart`. What is under test
+    // here is the floor underneath that: a row with no blob and no bytes
+    // must never be re-posted as a media message pointing at nothing.
+    setUp(() => adapter.failedUploads.maxEntries = 0);
 
     test('an attachment whose upload failed is never re-posted as a bubble '
         'pointing at nothing', () async {

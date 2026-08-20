@@ -53,6 +53,7 @@ import 'services/presence_registry.dart';
 import 'handlers/room_enricher.dart';
 import 'handlers/room_list_mutator.dart';
 import 'services/attachment_upload_cancel_registry.dart';
+import 'services/failed_upload_registry.dart';
 import 'services/blocked_users_registry.dart';
 import 'services/chat_controller_registry.dart';
 import 'services/chat_lifecycle_observer.dart';
@@ -1190,6 +1191,17 @@ class ChatUiAdapter {
           isGroup: roomListController.getRoomById(roomId)?.isGroup ?? false,
         ),
       );
+      // The roster frames that keep `memberCount` (and the title, the
+      // avatar, the read-only flag) current are the only thing that
+      // refreshes them, so a single frame lost to a dropped socket left
+      // the header contradicting the room for as long as the row lived —
+      // leaving and re-entering it changed nothing, because nothing
+      // re-read the detail on the way in. Opening the room is the cheap,
+      // self-healing moment to re-read it: once per entry, single-flighted
+      // by the enricher.
+      if (roomListController.getRoomById(roomId) != null) {
+        _enrichRoomFromDetail(roomId);
+      }
     }
     if (roomId != null && autoMarkAsRead && !isDraftRoom) {
       final targetRoomId = roomId;
@@ -1496,6 +1508,9 @@ class ChatUiAdapter {
     _deliveredCoord.reset();
     _pendingReactionsRegistry.clear();
     _voiceUploads.releaseAll();
+    // Raw media belonging to the account being torn down must not survive
+    // into the next one — same reasoning as flushing the offline queue.
+    _failedUploads.clear();
     _enricher.resetSession();
   }
 
@@ -2047,6 +2062,18 @@ class ChatUiAdapter {
   /// have unrelated lifecycles (see [AttachmentUploadCancelRegistry]'s doc).
   final AttachmentUploadCancelRegistry _attachmentUploadCancels =
       AttachmentUploadCancelRegistry();
+
+  final FailedUploadRegistry _failedUploads = FailedUploadRegistry();
+
+  /// Bytes held for media rows whose upload failed, so `messages.retrySend`
+  /// on one of those bubbles re-uploads the same file instead of refusing.
+  ///
+  /// Exposed to tune the two caps ([FailedUploadRegistry.maxEntries],
+  /// [FailedUploadRegistry.maxBytesPerEntry]) — a host on constrained
+  /// devices can shrink them, one that ships large media can widen them.
+  /// Retention is memory-only and ends with the session; the defaults hold
+  /// up to 8 files of up to 12 MB each.
+  FailedUploadRegistry get failedUploads => _failedUploads;
 
   /// The single source of optimistic-row ids for this adapter — text sends
   /// ([OptimisticHandler]), forwards and both upload paths draw from it, so
