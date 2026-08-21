@@ -147,6 +147,31 @@ void main() {
     expect(row.lastMessageType, isNot(MessageType.attachment));
   });
 
+  test('a second failed media send falls back to the same real message, not '
+      'to the first failure', () async {
+    mock.emitEvent(
+      ChatEvent.newMessage(
+        message: ChatMessage(
+          id: 'm-real',
+          from: 'u1',
+          timestamp: DateTime(2026, 8, 20, 10),
+          text: 'hola',
+        ),
+        roomId: 'r1',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+
+    final firstTempId = await sendFailingPhoto();
+    final secondTempId = await sendFailingPhoto();
+
+    final row = adapter.roomListController.getRoomById('r1');
+    expect(row!.lastMessageId, isNot(firstTempId));
+    expect(row.lastMessageId, isNot(secondTempId));
+    expect(row.lastMessageId, 'm-real');
+    expect(row.lastMessage, 'hola');
+  });
+
   test('the chat list preview is cleared when the failed send was the only '
       'thing in the room', () async {
     final tempId = await sendFailingPhoto();

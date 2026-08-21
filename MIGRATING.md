@@ -1,5 +1,60 @@
 # Migration guide
 
+## 0.26.x → 0.27.0
+
+Nothing breaks at compile time: no API was removed or narrowed. Four
+defaults changed what they do at runtime, and each has an opt-out.
+
+### An empty room now draws a card
+
+A room with no messages used to be an icon and a line of text. It now
+shows `DefaultEmptyRoomState` — the same explanation plus, in a 1:1 that
+can be written to, a one-tap 👋 that sends the first message.
+
+- Keep the labels you already set: `ChatViewBehaviors.emptyTitle` /
+  `emptySubtitle` / `emptyIcon` still win over the SDK's.
+- Take the whole card over: `ChatViewBuilders.emptyRoomBuilder`. Return
+  `null` for rooms you have nothing to say about and the SDK card is drawn
+  for those.
+- Suppress the greeting without suppressing the card: build
+  `EmptyRoomState(suggestions: const [])` from the builder.
+
+```dart
+builders: ChatViewBuilders(
+  emptyRoomBuilder: (context, room) => EmptyRoomState(
+    title: myTitleFor(room.roomId),
+    header: MyPlanCard(room.roomId),
+    actions: [MySharePlanButton(room.roomId)],
+  ),
+),
+```
+
+### The unread divider lands somewhere else
+
+It anchors on the reader's own read cursor instead of counting back from
+the end of the loaded page, so it no longer appears above the date
+separator or above the reader's own messages, and it is not drawn until
+the first page has settled. A host that fed `ChatViewBehaviors.unreadCount`
+keeps working — that count is now the fallback used when no cursor is
+available, not the primary source.
+
+### A group's grey ✓✓ has a narrower divisor
+
+Delivery is now judged against the members who have ever acknowledged
+something in the room, not the whole roster. Restore the old behaviour per
+controller:
+
+```dart
+ChatController(groupReceiptPolicy: GroupReceiptPolicy.allMembers)
+```
+
+Blue is unchanged: it still requires every member of the room.
+
+### The open context menu tints its row
+
+Opt out with `MessageList.highlightRowWhileContextMenuOpen: false`, or
+drive `activeRowMessageId` yourself to decide which row is tinted and when.
+
 ## 0.25.x → 0.26.0
 
 ### Breaking: `MessageAction` gained `discardFailed`

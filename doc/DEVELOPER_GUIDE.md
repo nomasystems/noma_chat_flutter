@@ -2157,6 +2157,67 @@ timestamp via the `readersFor` / `deliveredTo` helpers (read implies
 delivered, so the "Delivered to" section lists only the not-yet-read
 remainder). Pass `leadingBuilder` to render avatars next to each name.
 
+**The hours, and why most rows have none.** The backend keeps a read cursor
+and a delivered cursor per member, not a stamp per message: a row says "this
+member's read cursor sits on message X, and it moved at T". So `T` is that
+member's time *for the inspected message* only when their cursor points at
+that very message — for anything older it is an upper bound and nothing
+more. The sheet prints an hour exactly in that provable case; every other
+row reads `No exact time` ("Sin hora exacta") rather than borrowing the
+cursor's clock.
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `receiptTimeFormatter` | `HH:mm`, prefixed by the day when older than today | `String Function(BuildContext, DateTime)` |
+| `receiptSubtitleBuilder` | `null` | Replaces the line under a name; return `null` to keep the default for that row |
+| `showApproximateReceiptTimes` | `false` | Prints the honest upper bound ("By 10:05 at the latest") on the non-provable rows instead of the "no exact time" wording |
+
+`MessageReceiptDetail` is what those overrides receive: `userId`, `kind`
+(`MessageReceiptKind.read` / `.delivered`), `cursorAt` (the member's cursor
+time) and `isExact` — plus `exactAt`, which is `cursorAt` only when it is
+this message's own time and `null` otherwise. Print `exactAt`, never
+`cursorAt`, unless the copy states the bound.
+
+Strings: `receiptNoExactTime` and `receiptAtLatestTemplate` (`{time}`) on
+`ChatUiLocalizations`.
+
+#### DeliveryStatusLegendSheet
+
+The consultable "what the checks mean" legend for the delivery ticks. The
+natural entry point is the room menu, which lives in the host app, so the
+SDK ships the surface and the host wires the entry:
+
+```dart
+ListTile(
+  title: Text(ChatUiLocalizations.of(context).deliveryStatusLegendTitle),
+  onTap: () => DeliveryStatusLegendSheet.show(
+    context,
+    theme: myChatTheme,
+    isGroup: room.isGroup,
+  ),
+);
+```
+
+| Parameter | Default | What it does |
+|---|---|---|
+| `theme` | `ChatTheme.defaults` | Pass the chat's own theme so the glyphs in the legend are the glyphs on the bubbles (`bubble.statusIconBuilder` overrides are honoured) |
+| `isGroup` | `false` | Appends the footnote spelling out that in a group both double-check states are claims about every member |
+| `states` | sending → sent → delivered → read → failed | Which states to explain, in render order |
+| `entryBuilder` | `null` | Replaces one row; return `null` to keep the default for it |
+| `title` | `l10n.deliveryStatusLegendTitle` | Sheet title |
+
+Embed `DeliveryStatusLegendSheet` directly for a different container (a
+settings page, a dialog). Rows are named for drivers with
+`deliveryStatusLegendSemanticsId(state)` →
+`chat_delivery_legend_<state>`.
+
+Strings: `deliveryStatusLegendTitle`, `statusSendingDescription`,
+`statusSentDescription`, `statusDeliveredDescription`,
+`statusReadDescription`, `statusFailedDescription` and
+`deliveryStatusLegendGroupNote`. The row titles reuse the existing
+`statusSending` … `statusFailed`, which is also what `MessageBubble` speaks
+aloud in its semantic label.
+
 ### Core screens
 
 | Widget | Purpose |

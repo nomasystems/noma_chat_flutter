@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
@@ -80,9 +82,43 @@ class MessageList extends StatefulWidget {
     this.blockedSenderIds = const <String>{},
     this.blockedContentPolicy = BlockedContentPolicy.placeholder,
     this.blockedMessageBuilder,
+    this.activeRowMessageId,
+    this.activeRowColor,
+    this.activeRowDecorationBuilder,
+    this.highlightRowWhileContextMenuOpen = true,
   });
 
   final ChatController controller;
+
+  /// Id of the row that is currently "chosen" — the one whose context menu
+  /// the user has open. Its whole row is tinted with [activeRowColor] until
+  /// it is cleared, the WhatsApp treatment for a message being acted on.
+  ///
+  /// Leave `null` to let the list manage the tint itself (see
+  /// [highlightRowWhileContextMenuOpen]); set it to drive the tint from a
+  /// host that opens its own menu. A non-null value always wins.
+  final String? activeRowMessageId;
+
+  /// Tint painted behind the active row. Defaults to an 8%-alpha
+  /// `colorScheme.onSurface`, which reads as a neutral grey against both
+  /// light and dark surfaces.
+  final Color? activeRowColor;
+
+  /// Replaces the built-in tint wholesale — receives the row's message and
+  /// the bubble as built, returns whatever should be painted in its place.
+  /// [activeRowColor] is ignored when this is supplied.
+  final Widget Function(
+    BuildContext context,
+    ChatMessage message,
+    Widget child,
+  )?
+  activeRowDecorationBuilder;
+
+  /// When `true` (default) the list tints a row for as long as the
+  /// context menu opened from its long-press stays up, without the host
+  /// wiring anything. Set `false` to opt out entirely, or drive
+  /// [activeRowMessageId] to take the decision over.
+  final bool highlightRowWhileContextMenuOpen;
 
   /// Users the local user has blocked, as the same ids [ChatMessage.from]
   /// carries. Their rows are pruned according to [blockedContentPolicy] —
@@ -288,6 +324,23 @@ class _MessageListState extends State<MessageList> {
   int? _lastSeenMessageCount;
   String _liveMessageAnnouncement = '';
 
+  // Row the list tinted on its own long-press, kept until the menu that
+  // long-press opened goes away. The menu is a modal route pushed by
+  // whoever owns `onMessageLongPress`, and that callback returns `void`,
+  // so there is no completion to await: the enclosing route losing and
+  // then regaining `isCurrent` is the only signal available here. Polled
+  // rather than observed because subscribing would need a `RouteObserver`
+  // registered on the host's own `MaterialApp`, which a package widget
+  // cannot require.
+  String? _selfActiveRowId;
+  Timer? _activeRowWatch;
+  bool _activeRowSawOverlay = false;
+  int _activeRowTicks = 0;
+
+  // Ticks before a long-press that never opened anything drops its tint.
+  static const int _activeRowGraceTicks = 8;
+  static const Duration _activeRowPollInterval = Duration(milliseconds: 80);
+
   @override
   void initState() {
     super.initState();
@@ -361,6 +414,7 @@ class _MessageListState extends State<MessageList> {
         widget.controller.removeListener(_tryScrollToPending);
       }
     } catch (_) {}
+    _activeRowWatch?.cancel();
     widget.avatarRebuildSignal?.removeListener(_onAvatarSignal);
     super.dispose();
   }
@@ -582,6 +636,13 @@ class _MessageListState extends State<MessageList> {
 
   bool _shouldShowDateSeparator(List<ChatMessage> msgs, int index) =>
       _showDateSeparatorAt(msgs, index);
+
+  /// `true` when the "N new messages" line is drawn immediately above the
+  /// row of [messageId].
+  bool _showsUnreadDividerFor(String messageId) =>
+      widget.unreadBoundaryMessageId != null &&
+      widget.unreadCount > 0 &&
+      messageId == widget.unreadBoundaryMessageId;
 
   ChatMessage? _prevGroupMessage(List<ChatMessage> msgs, int index) =>
       _previousGroupableMessage(msgs, index);
@@ -843,14 +904,23 @@ class _MessageListState extends State<MessageList> {
       return _buildBlockedPlaceholder(context, msg);
     }
     final isOutgoing = msg.from == widget.controller.currentUser.id;
-    final prevGroupMsg = _prevGroupMessage(messages, index);
+    final showsUnreadDivider = _showsUnreadDividerFor(msg.id);
+    final nextGroupMsg = _nextGroupMessage(messages, index);
+    // A separator drawn between two bubbles ends the run just like a system
+    // notice does: the row under the "N new messages" line opens a fresh
+    // cluster, the row above it closes the previous one.
+    final nextOpensWithDivider =
+        nextGroupMsg != null && _showsUnreadDividerFor(nextGroupMsg.id);
+    final prevGroupMsg = showsUnreadDivider
+        ? null
+        : _prevGroupMessage(messages, index);
     final isFirstInGroup =
         prevGroupMsg == null ||
         prevGroupMsg.from != msg.from ||
         !DateFormatter.isSameDay(prevGroupMsg.timestamp, msg.timestamp);
-    final nextGroupMsg = _nextGroupMessage(messages, index);
     final isLastInGroup =
         nextGroupMsg == null ||
+        nextOpensWithDivider ||
         nextGroupMsg.from != msg.from ||
         !DateFormatter.isSameDay(nextGroupMsg.timestamp, msg.timestamp);
 
@@ -861,9 +931,7 @@ class _MessageListState extends State<MessageList> {
     // Drawn before the optional date separator so the
     // sequence reads top-to-bottom as
     // `[divider, date, bubble]` (matches WhatsApp's stack).
-    if (widget.unreadBoundaryMessageId != null &&
-        widget.unreadCount > 0 &&
-        msg.id == widget.unreadBoundaryMessageId) {
+    if (showsUnreadDivider) {
       widgetList.add(
         UnreadDivider(count: widget.unreadCount, theme: widget.theme),
       );
@@ -875,17 +943,20 @@ class _MessageListState extends State<MessageList> {
 
     _messageKeys.putIfAbsent(msg.id, GlobalKey.new);
 
+    final bubble = _buildBubbleForMessage(
+      context: context,
+      msg: msg,
+      isOutgoing: isOutgoing,
+      isFirstInGroup: isFirstInGroup,
+      isLastInGroup: isLastInGroup,
+      isGroup: isGroup,
+      showAvatars: showAvatars,
+      maxBubbleWidth: maxBubbleWidth,
+    );
     widgetList.add(
-      _buildBubbleForMessage(
-        context: context,
-        msg: msg,
-        isOutgoing: isOutgoing,
-        isFirstInGroup: isFirstInGroup,
-        isLastInGroup: isLastInGroup,
-        isGroup: isGroup,
-        showAvatars: showAvatars,
-        maxBubbleWidth: maxBubbleWidth,
-      ),
+      _activeRowId == msg.id
+          ? _decorateActiveRow(context, msg, bubble)
+          : bubble,
     );
 
     return RepaintBoundary(
@@ -1192,7 +1263,68 @@ class _MessageListState extends State<MessageList> {
         rect = box.localToGlobal(Offset.zero) & box.size;
       }
     }
+    _markRowActive(msg.id);
     widget.onMessageLongPress!(msg, rect);
+  }
+
+  /// Tints [messageId]'s row and starts watching for the menu it is about
+  /// to open to close again.
+  void _markRowActive(String messageId) {
+    if (!widget.highlightRowWhileContextMenuOpen) return;
+    if (widget.activeRowMessageId != null) return;
+    _activeRowWatch?.cancel();
+    _activeRowSawOverlay = false;
+    _activeRowTicks = 0;
+    setState(() => _selfActiveRowId = messageId);
+    _activeRowWatch = Timer.periodic(_activeRowPollInterval, (_) {
+      if (!mounted) return;
+      final isCurrent = ModalRoute.of(context)?.isCurrent ?? true;
+      if (!isCurrent) {
+        _activeRowSawOverlay = true;
+        return;
+      }
+      _activeRowTicks++;
+      // Nothing ever covered this route: the long press was handled without
+      // opening a menu, so the row has no "chosen" state to reflect.
+      if (_activeRowSawOverlay || _activeRowTicks >= _activeRowGraceTicks) {
+        _clearActiveRow();
+      }
+    });
+  }
+
+  void _clearActiveRow() {
+    _activeRowWatch?.cancel();
+    _activeRowWatch = null;
+    if (_selfActiveRowId == null) return;
+    if (!mounted) {
+      _selfActiveRowId = null;
+      return;
+    }
+    setState(() => _selfActiveRowId = null);
+  }
+
+  /// The row currently painted as chosen — the host's value when it drives
+  /// one, else whatever this list's own long-press left behind.
+  String? get _activeRowId => widget.activeRowMessageId ?? _selfActiveRowId;
+
+  /// Paints [child] as the chosen row. The whole row is tinted, not just
+  /// the bubble, so the treatment reads the same on an incoming message
+  /// (bubble on the left) and an outgoing one.
+  Widget _decorateActiveRow(
+    BuildContext context,
+    ChatMessage msg,
+    Widget child,
+  ) {
+    final builder = widget.activeRowDecorationBuilder;
+    if (builder != null) return builder(context, msg, child);
+    final color =
+        widget.activeRowColor ??
+        Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08);
+    return Container(
+      key: const ValueKey('chat_active_row_tint'),
+      color: color,
+      child: child,
+    );
   }
 }
 
@@ -1217,21 +1349,35 @@ bool _showDateSeparatorAt(List<ChatMessage> msgs, int index) {
   return !DateFormatter.isSameDay(current, previous);
 }
 
+/// `true` when [msg] renders as a row that is not a sender bubble and so
+/// ends the run of consecutive bubbles around it — a system notice today.
+/// Reaction rows are NOT breakers: they render nothing at all, so a bubble
+/// on either side of one is still visually adjacent.
+bool _breaksSenderRun(ChatMessage msg) => msg.isSystem;
+
 /// Walks back from [index] - 1 looking for the previous "groupable"
 /// message (anything that is not a `reaction`). Returns `null` when
-/// there is no previous groupable message.
+/// there is no previous groupable message, or when the nearest visible
+/// row is a breaker — the bubble after it opens a new run and gets its
+/// sender name and avatar back.
 ChatMessage? _previousGroupableMessage(List<ChatMessage> msgs, int index) {
   for (var i = index - 1; i >= 0; i--) {
-    if (msgs[i].messageType != MessageType.reaction) return msgs[i];
+    final msg = msgs[i];
+    if (msg.messageType == MessageType.reaction) continue;
+    return _breaksSenderRun(msg) ? null : msg;
   }
   return null;
 }
 
 /// Walks forward from [index] + 1 looking for the next "groupable"
-/// message. Returns `null` when there is no next groupable message.
+/// message. Returns `null` when there is no next groupable message, or
+/// when the nearest visible row is a breaker — the bubble before it
+/// closes its run and gets the cluster's tail treatment.
 ChatMessage? _nextGroupableMessage(List<ChatMessage> msgs, int index) {
   for (var i = index + 1; i < msgs.length; i++) {
-    if (msgs[i].messageType != MessageType.reaction) return msgs[i];
+    final msg = msgs[i];
+    if (msg.messageType == MessageType.reaction) continue;
+    return _breaksSenderRun(msg) ? null : msg;
   }
   return null;
 }

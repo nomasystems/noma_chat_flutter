@@ -14,6 +14,7 @@ import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
 import 'attachment_picker_sheet.dart';
+import 'empty_room_state.dart';
 import 'message_context_menu.dart';
 import 'message_status_icon.dart';
 import 'reaction_detail_sheet.dart';
@@ -81,7 +82,19 @@ class ChatViewBuilders {
     this.attachmentMediaLoader,
     this.videoPreviewBuilder,
     this.blockedMessageBuilder,
+    this.emptyRoomBuilder,
   });
+
+  /// Builds what a room with no messages shows. The SDK owns the slot —
+  /// where it sits, when it appears, what it falls back to — and the host
+  /// owns the content: the plan the room was opened about, who organizes
+  /// it, the actions that belong next to it. Return `null` for a room you
+  /// have nothing to say about and the SDK's own card
+  /// ([DefaultEmptyRoomState]) is drawn instead.
+  ///
+  /// Compose with [EmptyRoomState] to keep the SDK's layout and theming
+  /// while supplying your own `header` and `actions`.
+  final EmptyRoomBuilder? emptyRoomBuilder;
 
   /// Replaces the built-in placeholder painted in place of a blocked
   /// sender's message under [BlockedContentPolicy.placeholder]. Receives

@@ -338,6 +338,29 @@ class ChatUiLocalizations {
     this.readBy = 'Read by',
     this.deliveredTo = 'Delivered to',
     this.noReceiptsYet = 'No read or delivery info yet',
+    // Opening prompt and result count of `MessageSearchView`.
+    this.searchPromptEmpty = 'Search for text inside this conversation',
+    this.searchResultCountSingularTemplate = '{count} result',
+    this.searchResultCountPluralTemplate = '{count} results',
+    // Per-member subtitles of `MessageInfoSheet`. The server keeps read /
+    // delivered cursors, not a stamp per message, so a member's time is the
+    // time they read THIS message only when their cursor points at it.
+    this.receiptNoExactTime = 'No exact time',
+    this.receiptAtLatestTemplate = 'By {time} at the latest',
+    // `DeliveryStatusLegendSheet` — "what the checks mean".
+    this.deliveryStatusLegendTitle = 'What the checks mean',
+    this.statusSendingDescription =
+        'Waiting on this device. It has not reached the server yet.',
+    this.statusSentDescription =
+        'The server has the message. The other device has not confirmed it.',
+    this.statusDeliveredDescription =
+        'It reached the other device. Nobody has opened it yet.',
+    this.statusReadDescription = 'The chat was opened and the message read.',
+    this.statusFailedDescription =
+        'It could not be sent. Tap the icon to try again.',
+    this.deliveryStatusLegendGroupNote =
+        'In a group, two grey checks mean the message reached every member it '
+        'could reach; blue means every member has read it.',
     this.exportChat = 'Export chat',
     this.inviteViaLink = 'Invite via link',
     this.inviteLinkCopied = 'Invite link copied',
@@ -837,6 +860,61 @@ class ChatUiLocalizations {
   /// delivered cursor covering the message yet.
   final String noReceiptsYet;
 
+  /// Opening copy of `MessageSearchView`, rendered before anything has
+  /// been typed into the query field.
+  final String searchPromptEmpty;
+
+  /// Singular form of the result-count header above the search results.
+  /// `{count}` is always substituted (so `"1 result"`, not `"result"`).
+  final String searchResultCountSingularTemplate;
+
+  /// Plural form of the result-count header above the search results.
+  final String searchResultCountPluralTemplate;
+
+  /// Resolves the right singular / plural result-count header for [count]
+  /// and substitutes `{count}`. Used by `MessageSearchView`.
+  String searchResultCount(int count) {
+    final template = plural(
+      count,
+      one: searchResultCountSingularTemplate,
+      other: searchResultCountPluralTemplate,
+    );
+    return template.replaceAll('{count}', count.toString());
+  }
+
+  /// Subtitle of a [MessageInfoSheet] row whose member cursor does not
+  /// point at the message being inspected. The backend stores read /
+  /// delivered *cursors*, so for any message before a member's cursor the
+  /// only honest statement is that the state was reached at an unknown
+  /// time.
+  final String receiptNoExactTime;
+
+  /// Upper-bound variant of the same subtitle, opted into through
+  /// `MessageInfoSheet.showApproximateReceiptTimes`. `{time}` is the
+  /// member's cursor time: the message was read / delivered no later than
+  /// that.
+  final String receiptAtLatestTemplate;
+
+  String receiptAtLatest(String time) =>
+      receiptAtLatestTemplate.replaceAll('{time}', time);
+
+  /// Title of `DeliveryStatusLegendSheet`, and the label a host should put
+  /// on the room-menu entry that opens it.
+  final String deliveryStatusLegendTitle;
+
+  /// `DeliveryStatusLegendSheet` explanation of each delivery state. The
+  /// row titles reuse [statusSending] / [statusSent] / [statusDelivered] /
+  /// [statusRead] / [statusFailed].
+  final String statusSendingDescription;
+  final String statusSentDescription;
+  final String statusDeliveredDescription;
+  final String statusReadDescription;
+  final String statusFailedDescription;
+
+  /// Footnote appended to `DeliveryStatusLegendSheet` in group rooms,
+  /// where both double-check states are claims about every member.
+  final String deliveryStatusLegendGroupNote;
+
   /// Room-options label for exporting the chat history to a text file.
   final String exportChat;
 
@@ -1267,6 +1345,18 @@ class ChatUiLocalizations {
     String? readBy,
     String? deliveredTo,
     String? noReceiptsYet,
+    String? searchPromptEmpty,
+    String? searchResultCountSingularTemplate,
+    String? searchResultCountPluralTemplate,
+    String? receiptNoExactTime,
+    String? receiptAtLatestTemplate,
+    String? deliveryStatusLegendTitle,
+    String? statusSendingDescription,
+    String? statusSentDescription,
+    String? statusDeliveredDescription,
+    String? statusReadDescription,
+    String? statusFailedDescription,
+    String? deliveryStatusLegendGroupNote,
     String? exportChat,
     String? inviteViaLink,
     String? inviteLinkCopied,
@@ -1613,6 +1703,30 @@ class ChatUiLocalizations {
       readBy: readBy ?? this.readBy,
       deliveredTo: deliveredTo ?? this.deliveredTo,
       noReceiptsYet: noReceiptsYet ?? this.noReceiptsYet,
+      searchPromptEmpty: searchPromptEmpty ?? this.searchPromptEmpty,
+      searchResultCountSingularTemplate:
+          searchResultCountSingularTemplate ??
+          this.searchResultCountSingularTemplate,
+      searchResultCountPluralTemplate:
+          searchResultCountPluralTemplate ??
+          this.searchResultCountPluralTemplate,
+      receiptNoExactTime: receiptNoExactTime ?? this.receiptNoExactTime,
+      receiptAtLatestTemplate:
+          receiptAtLatestTemplate ?? this.receiptAtLatestTemplate,
+      deliveryStatusLegendTitle:
+          deliveryStatusLegendTitle ?? this.deliveryStatusLegendTitle,
+      statusSendingDescription:
+          statusSendingDescription ?? this.statusSendingDescription,
+      statusSentDescription:
+          statusSentDescription ?? this.statusSentDescription,
+      statusDeliveredDescription:
+          statusDeliveredDescription ?? this.statusDeliveredDescription,
+      statusReadDescription:
+          statusReadDescription ?? this.statusReadDescription,
+      statusFailedDescription:
+          statusFailedDescription ?? this.statusFailedDescription,
+      deliveryStatusLegendGroupNote:
+          deliveryStatusLegendGroupNote ?? this.deliveryStatusLegendGroupNote,
       exportChat: exportChat ?? this.exportChat,
       inviteViaLink: inviteViaLink ?? this.inviteViaLink,
       inviteLinkCopied: inviteLinkCopied ?? this.inviteLinkCopied,
@@ -1993,6 +2107,23 @@ class ChatUiLocalizations {
     readBy: 'Leído por',
     deliveredTo: 'Entregado a',
     noReceiptsYet: 'Aún no hay información de entrega ni de lectura',
+    searchPromptEmpty: 'Busca por texto dentro de esta conversación',
+    searchResultCountSingularTemplate: '{count} resultado',
+    searchResultCountPluralTemplate: '{count} resultados',
+    receiptNoExactTime: 'Sin hora exacta',
+    receiptAtLatestTemplate: 'Como muy tarde a las {time}',
+    deliveryStatusLegendTitle: 'Qué significan los checks',
+    statusSendingDescription:
+        'Pendiente en este dispositivo. Aún no ha llegado al servidor.',
+    statusSentDescription:
+        'El servidor ya tiene el mensaje. El otro dispositivo aún no lo ha confirmado.',
+    statusDeliveredDescription:
+        'Ha llegado al otro dispositivo. Todavía nadie lo ha abierto.',
+    statusReadDescription: 'Se abrió el chat y se leyó el mensaje.',
+    statusFailedDescription:
+        'No se ha podido enviar. Toca el icono para reintentar.',
+    deliveryStatusLegendGroupNote:
+        'En un grupo, los dos checks grises indican que el mensaje llegó a todos los miembros a los que pudo llegar; en azul, que todos lo han leído.',
     exportChat: 'Exportar chat',
     inviteViaLink: 'Invitar con enlace',
     inviteLinkCopied: 'Enlace de invitación copiado',
@@ -2298,6 +2429,23 @@ class ChatUiLocalizations {
     readBy: 'Lu par',
     deliveredTo: 'Remis à',
     noReceiptsYet: 'Aucune info de remise ou de lecture pour le moment',
+    searchPromptEmpty: 'Rechercher du texte dans cette conversation',
+    searchResultCountSingularTemplate: '{count} résultat',
+    searchResultCountPluralTemplate: '{count} résultats',
+    receiptNoExactTime: 'Heure exacte inconnue',
+    receiptAtLatestTemplate: 'Au plus tard à {time}',
+    deliveryStatusLegendTitle: 'Ce que signifient les coches',
+    statusSendingDescription:
+        'En attente sur cet appareil. Pas encore arrivé au serveur.',
+    statusSentDescription:
+        'Le serveur a le message. L’autre appareil ne l’a pas encore confirmé.',
+    statusDeliveredDescription:
+        'Arrivé sur l’autre appareil. Personne ne l’a encore ouvert.',
+    statusReadDescription: 'La conversation a été ouverte et le message lu.',
+    statusFailedDescription:
+        'Envoi impossible. Touchez l’icône pour réessayer.',
+    deliveryStatusLegendGroupNote:
+        'Dans un groupe, deux coches grises signifient que le message a atteint tous les membres joignables ; en bleu, que tous l’ont lu.',
     exportChat: 'Exporter la discussion',
     inviteViaLink: 'Inviter via un lien',
     inviteLinkCopied: 'Lien d\'invitation copié',
@@ -2605,6 +2753,23 @@ class ChatUiLocalizations {
     readBy: 'Gelesen von',
     deliveredTo: 'Zugestellt an',
     noReceiptsYet: 'Noch keine Zustell- oder Leseinfo',
+    searchPromptEmpty: 'Text in dieser Unterhaltung suchen',
+    searchResultCountSingularTemplate: '{count} Ergebnis',
+    searchResultCountPluralTemplate: '{count} Ergebnisse',
+    receiptNoExactTime: 'Keine genaue Uhrzeit',
+    receiptAtLatestTemplate: 'Spätestens um {time}',
+    deliveryStatusLegendTitle: 'Was die Haken bedeuten',
+    statusSendingDescription:
+        'Wartet auf diesem Gerät. Noch nicht beim Server angekommen.',
+    statusSentDescription:
+        'Der Server hat die Nachricht. Das andere Gerät hat sie noch nicht bestätigt.',
+    statusDeliveredDescription:
+        'Auf dem anderen Gerät angekommen. Noch niemand hat sie geöffnet.',
+    statusReadDescription: 'Der Chat wurde geöffnet und die Nachricht gelesen.',
+    statusFailedDescription:
+        'Konnte nicht gesendet werden. Tippe zum Wiederholen auf das Symbol.',
+    deliveryStatusLegendGroupNote:
+        'In einer Gruppe bedeuten zwei graue Haken, dass die Nachricht alle erreichbaren Mitglieder erreicht hat; blau bedeutet, dass alle sie gelesen haben.',
     exportChat: 'Chat exportieren',
     inviteViaLink: 'Per Link einladen',
     inviteLinkCopied: 'Einladungslink kopiert',
@@ -2908,6 +3073,22 @@ class ChatUiLocalizations {
     readBy: 'Letto da',
     deliveredTo: 'Consegnato a',
     noReceiptsYet: 'Ancora nessuna info di consegna o lettura',
+    searchPromptEmpty: 'Cerca testo in questa conversazione',
+    searchResultCountSingularTemplate: '{count} risultato',
+    searchResultCountPluralTemplate: '{count} risultati',
+    receiptNoExactTime: 'Ora esatta non disponibile',
+    receiptAtLatestTemplate: 'Al più tardi alle {time}',
+    deliveryStatusLegendTitle: 'Cosa significano le spunte',
+    statusSendingDescription:
+        'In attesa su questo dispositivo. Non è ancora arrivato al server.',
+    statusSentDescription:
+        'Il server ha il messaggio. L’altro dispositivo non l’ha ancora confermato.',
+    statusDeliveredDescription:
+        'È arrivato all’altro dispositivo. Nessuno l’ha ancora aperto.',
+    statusReadDescription: 'La chat è stata aperta e il messaggio letto.',
+    statusFailedDescription: 'Invio non riuscito. Tocca l’icona per riprovare.',
+    deliveryStatusLegendGroupNote:
+        'In un gruppo, due spunte grigie indicano che il messaggio ha raggiunto tutti i membri raggiungibili; in blu, che tutti l’hanno letto.',
     exportChat: 'Esporta chat',
     inviteViaLink: 'Invita tramite link',
     inviteLinkCopied: 'Link di invito copiato',
@@ -3211,6 +3392,23 @@ class ChatUiLocalizations {
     readBy: 'Lida por',
     deliveredTo: 'Entregue a',
     noReceiptsYet: 'Ainda sem info de entrega ou leitura',
+    searchPromptEmpty: 'Procurar texto nesta conversa',
+    searchResultCountSingularTemplate: '{count} resultado',
+    searchResultCountPluralTemplate: '{count} resultados',
+    receiptNoExactTime: 'Sem hora exata',
+    receiptAtLatestTemplate: 'O mais tardar às {time}',
+    deliveryStatusLegendTitle: 'O que significam os tiques',
+    statusSendingDescription:
+        'Pendente neste dispositivo. Ainda não chegou ao servidor.',
+    statusSentDescription:
+        'O servidor já tem a mensagem. O outro dispositivo ainda não a confirmou.',
+    statusDeliveredDescription:
+        'Chegou ao outro dispositivo. Ainda ninguém a abriu.',
+    statusReadDescription: 'A conversa foi aberta e a mensagem lida.',
+    statusFailedDescription:
+        'Não foi possível enviar. Toca no ícone para tentar de novo.',
+    deliveryStatusLegendGroupNote:
+        'Num grupo, dois tiques cinzentos indicam que a mensagem chegou a todos os membros alcançáveis; a azul, que todos a leram.',
     exportChat: 'Exportar conversa',
     inviteViaLink: 'Convidar por link',
     inviteLinkCopied: 'Link de convite copiado',
@@ -3509,6 +3707,23 @@ class ChatUiLocalizations {
     readBy: 'Llegit per',
     deliveredTo: 'Lliurat a',
     noReceiptsYet: 'Encara no hi ha info de lliurament ni de lectura',
+    searchPromptEmpty: 'Cerca text dins d’aquesta conversa',
+    searchResultCountSingularTemplate: '{count} resultat',
+    searchResultCountPluralTemplate: '{count} resultats',
+    receiptNoExactTime: 'Sense hora exacta',
+    receiptAtLatestTemplate: 'Com a molt tard a les {time}',
+    deliveryStatusLegendTitle: 'Què signifiquen els tics',
+    statusSendingDescription:
+        'Pendent en aquest dispositiu. Encara no ha arribat al servidor.',
+    statusSentDescription:
+        'El servidor ja té el missatge. L’altre dispositiu encara no l’ha confirmat.',
+    statusDeliveredDescription:
+        'Ha arribat a l’altre dispositiu. Encara no l’ha obert ningú.',
+    statusReadDescription: 'S’ha obert el xat i s’ha llegit el missatge.',
+    statusFailedDescription:
+        'No s’ha pogut enviar. Toca la icona per tornar-ho a provar.',
+    deliveryStatusLegendGroupNote:
+        'En un grup, dos tics grisos indiquen que el missatge ha arribat a tots els membres localitzables; en blau, que tots l’han llegit.',
     exportChat: 'Exporta el xat',
     inviteViaLink: 'Convida amb un enllaç',
     inviteLinkCopied: 'Enllaç d\'invitació copiat',
@@ -4931,6 +5146,18 @@ class ChatUiLocalizations {
     String? readBy,
     String? deliveredTo,
     String? noReceiptsYet,
+    String? searchPromptEmpty,
+    String? searchResultCountSingularTemplate,
+    String? searchResultCountPluralTemplate,
+    String? receiptNoExactTime,
+    String? receiptAtLatestTemplate,
+    String? deliveryStatusLegendTitle,
+    String? statusSendingDescription,
+    String? statusSentDescription,
+    String? statusDeliveredDescription,
+    String? statusReadDescription,
+    String? statusFailedDescription,
+    String? deliveryStatusLegendGroupNote,
     String? exportChat,
     String? inviteViaLink,
     String? inviteLinkCopied,
@@ -5226,6 +5453,18 @@ class ChatUiLocalizations {
         readBy: readBy,
         deliveredTo: deliveredTo,
         noReceiptsYet: noReceiptsYet,
+        searchPromptEmpty: searchPromptEmpty,
+        searchResultCountSingularTemplate: searchResultCountSingularTemplate,
+        searchResultCountPluralTemplate: searchResultCountPluralTemplate,
+        receiptNoExactTime: receiptNoExactTime,
+        receiptAtLatestTemplate: receiptAtLatestTemplate,
+        deliveryStatusLegendTitle: deliveryStatusLegendTitle,
+        statusSendingDescription: statusSendingDescription,
+        statusSentDescription: statusSentDescription,
+        statusDeliveredDescription: statusDeliveredDescription,
+        statusReadDescription: statusReadDescription,
+        statusFailedDescription: statusFailedDescription,
+        deliveryStatusLegendGroupNote: deliveryStatusLegendGroupNote,
         exportChat: exportChat,
         inviteViaLink: inviteViaLink,
         inviteLinkCopied: inviteLinkCopied,

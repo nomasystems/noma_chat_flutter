@@ -4,13 +4,14 @@ import '../../models/message.dart';
 import '../../models/reaction.dart';
 import '../controller/audio_playback_coordinator.dart';
 import '../controller/chat_controller.dart';
+import '../models/send_message_request.dart';
 import '../theme/chat_theme.dart';
 import '../theme/default_palette.dart';
 import '../utils/safe_url.dart';
 import 'blocked_chat_banner.dart';
 import 'chat_view_config.dart';
 import 'connection_banner.dart';
-import 'empty_state.dart';
+import 'empty_room_state.dart';
 import 'floating_reaction_picker.dart';
 import 'message_context_menu.dart';
 import 'message_input.dart';
@@ -170,9 +171,13 @@ class _ChatViewState extends State<ChatView> {
           widget.controller.isLoadingMore) {
         return const Center(child: CircularProgressIndicator());
       }
-      return EmptyState(
-        icon: behaviors.emptyIcon ?? Icons.chat_bubble_outline,
-        title: behaviors.emptyTitle ?? widget.theme.l10nOf(context).noMessages,
+      final info = _emptyRoomInfo();
+      final hosted = widget.builders.emptyRoomBuilder?.call(context, info);
+      if (hosted != null) return hosted;
+      return DefaultEmptyRoomState(
+        info: info,
+        icon: behaviors.emptyIcon,
+        title: behaviors.emptyTitle,
         subtitle: behaviors.emptySubtitle,
         theme: widget.theme,
       );
@@ -184,6 +189,24 @@ class _ChatViewState extends State<ChatView> {
         _BlockedInRoomNotice(theme: widget.theme),
         Expanded(child: list),
       ],
+    );
+  }
+
+  /// The room as an [EmptyRoomBuilder] sees it. Writing is offered only
+  /// when the composer itself would be — a read-only or blocked room can
+  /// no more send a suggested greeting than a typed one.
+  EmptyRoomInfo _emptyRoomInfo() {
+    final behaviors = widget.behaviors;
+    final send = widget.callbacks.onSendMessageRequest;
+    final canSend = send != null && !behaviors.readOnly && !behaviors.isBlocked;
+    return EmptyRoomInfo(
+      roomId: widget.controller.roomId,
+      isGroup: behaviors.isGroup ?? (widget.controller.otherUsers.length > 1),
+      currentUser: widget.controller.currentUser,
+      otherUsers: widget.controller.otherUsers,
+      onSendFirstMessage: canSend
+          ? (text) => send(SendMessageRequest(text: text))
+          : null,
     );
   }
 

@@ -171,7 +171,49 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Threaded replies
 - WhatsApp-style delivery ticks (sending → sent → delivered → read → failed),
   cursor-based and confirmed automatically
-- Per-user read receipts (DM any-read → blue; group all-read → blue)
+- Per-user read receipts (DM any-read → blue; group all-read → blue). In a
+  group the grey ✓✓ no longer waits on members who have never acknowledged
+  anything in the room — a roster entry that never showed up cannot be told
+  apart from an invitee who never will, and holding the whole group's
+  delivery state on them told the sender nothing. Blue stays strict: it
+  still means every member read the message. Revert with
+  `ChatController(groupReceiptPolicy: GroupReceiptPolicy.allMembers)`
+- "N new messages" divider anchored on the reader's own read cursor
+  (`GET /receipts` for the room), not on a count taken from the end of the
+  list — own messages never count as unread and never anchor the line, and
+  the line is not drawn until the first page of history has settled. With no
+  cursor available it degrades to counting back over incoming messages only
+- A sender's name and avatar come back on the first bubble after anything
+  that interrupts a run — a system notice, a date separator or the unread
+  line
+- A room with no messages is a starting card, not a dead end: the SDK draws
+  one on its own (and, in a 1:1 that can be written to, offers the first
+  message with one tap), and the host fills it with its own content through
+  `ChatViewBuilders.emptyRoomBuilder` — see
+  [The empty room](#the-empty-room)
+- The row whose context menu is open is tinted for as long as the menu
+  stays up (`MessageList.activeRowColor` /
+  `activeRowDecorationBuilder` / `highlightRowWhileContextMenuOpen`, or
+  drive it yourself with `activeRowMessageId`)
+- In-room search opens focused, explains what it searches before anything is
+  typed, labels the user's own hits "You" (`MessageSearchView.currentUserId`)
+  and heads the list with a count plus previous/next arrows
+  (`emptyPromptText`, `resultCountLabelBuilder`, `showResultNavigation`,
+  `autofocus`). Both strings are bundle keys — `searchPromptEmpty` and the
+  `searchResultCount*Template` pair — so every locale gets its own copy and
+  a host can restyle the wording with `ChatUiLocalizations.copyWith`
+- "Message info" dates a member's row only when it can prove the hour: the
+  server keeps read / delivered **cursors**, so the time is that member's
+  time for *this* message only when their cursor points at it. Everywhere
+  else the row says "No exact time" instead of borrowing the cursor's clock
+  — turn `MessageInfoSheet.showApproximateReceiptTimes` on to state the
+  bound ("By 10:05 at the latest"), or take the line over with
+  `receiptSubtitleBuilder` / `receiptTimeFormatter`
+- "What the checks mean" ships as a surface, `DeliveryStatusLegendSheet`:
+  every delivery state with the glyph the bubbles paint, its name and an
+  explanation, plus a group footnote. The room menu belongs to the host, so
+  wire one entry to `DeliveryStatusLegendSheet.show(context, theme: …,
+  isGroup: …)` and title it with `l10n.deliveryStatusLegendTitle`
 - Typing indicators
 - Forward to multiple rooms
 - Pinned messages banner
@@ -249,6 +291,53 @@ ChatNoticeScope(
   child: MaterialApp(/* … */),
 )
 ```
+
+---
+
+## The empty room
+
+A room nobody has written in yet shows a card instead of a blank page. The
+SDK owns the slot — where it sits, when it appears, what it falls back to —
+and the host owns the content:
+
+```dart
+NomaChatView(
+  roomId: roomId,
+  adapter: adapter,
+  builders: ChatViewBuilders(
+    emptyRoomBuilder: (context, room) {
+      final plan = myPlans.forRoom(room.roomId);
+      if (plan == null) return null; // SDK card for rooms you know nothing about
+      return EmptyRoomState(
+        title: plan.name,
+        subtitle: '${plan.weekday} · ${plan.time}',
+        header: OrganiserCard(plan.organiser),
+        actions: [
+          FilledButton(onPressed: () => share(plan), child: Text('Share plan')),
+          TextButton(onPressed: () => open(plan), child: Text('View plan')),
+        ],
+      );
+    },
+  ),
+)
+```
+
+`EmptyRoomInfo` carries what the SDK knows about the room — `roomId`
+(`null` while a DM is still a local draft), `isGroup`, `currentUser`,
+`otherUsers` / `otherUser`, and `onSendFirstMessage`, which sends text as
+if it had been typed in the composer. `onSendFirstMessage` is `null` in a
+room that cannot be written to (read-only, blocked, or no send callback
+wired), so hide any "send this" affordance when it is.
+
+Wire nothing and the room still says something: `DefaultEmptyRoomState`
+draws the SDK explanation, plus a one-tap 👋 in a 1:1 that can be written
+to. It is an emoji rather than a phrase because the SDK cannot translate a
+greeting into a locale it does not ship. Replace the labels without
+replacing the card through `ChatViewBehaviors.emptyTitle` /
+`emptySubtitle` / `emptyIcon`.
+
+**Divergence from WhatsApp**, which leaves an empty room bare except for
+its encryption notice.
 
 ---
 
