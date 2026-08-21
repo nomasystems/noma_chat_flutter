@@ -79,11 +79,25 @@ class RoomListMutator {
   _computeEffectiveTitle;
   final bool Function() _isDisposed;
 
+  /// The last confirmed preview each row carried before the one it shows
+  /// now, so [revertOptimisticLastMessage] can put it back when a send
+  /// fails. The room's own message list is not a substitute: a room the
+  /// user never opened has no [ChatController] messages to fall back to,
+  /// yet its row has been showing a real preview all along.
+  final Map<String, RoomListItem> _previousPreviews = {};
+
   /// Re-stamps the room-list row for [roomId] with [message] as its new
   /// last message: the sender's own text plus the structured fields the
   /// preview is built from. Mirrors the change to the persistent cache via
   /// `client.rooms.updateCachedRoomPreview` (fire-and-forget).
-  void updateRoomLastMessage(String roomId, ChatMessage message) {
+  void updateRoomLastMessage(String roomId, ChatMessage message) =>
+      _applyLastMessage(roomId, message, rememberPrevious: true);
+
+  void _applyLastMessage(
+    String roomId,
+    ChatMessage message, {
+    required bool rememberPrevious,
+  }) {
     final existing = roomListController.getRoomById(roomId);
     if (existing == null) return;
     // Ordering guard: only let a message that is at least as new as the
@@ -99,6 +113,9 @@ class RoomListMutator {
         message.id != existing.lastMessageId &&
         message.timestamp.isBefore(existingTime)) {
       return;
+    }
+    if (rememberPrevious) {
+      _rememberPreviousPreview(roomId, existing, message.id);
     }
     final text = message.isDeleted ? null : message.text;
     final durationMs = message.metadata?['duration'];
@@ -168,8 +185,13 @@ class RoomListMutator {
   /// never left the device, which is the one place the user looks to
   /// check whether it did.
   ///
-  /// Restores the newest message the room actually holds ([fallback]) or,
-  /// when the failed send was the only one, clears the preview outright.
+  /// Restores the newest message the room actually holds ([fallback]);
+  /// failing that, the preview the row itself carried before the send —
+  /// the only thing left to restore for a room the user never opened,
+  /// whose [ChatController] therefore holds no messages to pick a
+  /// [fallback] from. When neither exists the failed send was the only
+  /// thing in the room and the preview is cleared outright.
+  ///
   /// A no-op once something newer has already replaced the row's preview —
   /// there is nothing stale left to take back.
   void revertOptimisticLastMessage(
@@ -182,6 +204,32 @@ class RoomListMutator {
     if (existing.lastMessageId != messageId) return;
 
     if (fallback == null) {
+      final remembered = _previousPreviews.remove(roomId);
+      if (remembered != null &&
+          remembered.lastMessageId != null &&
+          remembered.lastMessageId != messageId) {
+        roomListController.updateRoom(
+          existing.copyWith(
+            lastMessage: remembered.lastMessage,
+            lastMessageTime: remembered.lastMessageTime,
+            lastMessageUserId: remembered.lastMessageUserId,
+            lastMessageSenderName: remembered.lastMessageSenderName,
+            lastMessageId: remembered.lastMessageId,
+            lastMessageReceipt: remembered.lastMessageReceipt,
+            lastMessageType: remembered.lastMessageType,
+            lastMessageMimeType: remembered.lastMessageMimeType,
+            lastMessageFileName: remembered.lastMessageFileName,
+            lastMessageDurationMs: remembered.lastMessageDurationMs,
+            lastMessageIsDeleted: remembered.lastMessageIsDeleted,
+            lastMessageReactionEmoji: remembered.lastMessageReactionEmoji,
+            lastMessageReactionTargetText:
+                remembered.lastMessageReactionTargetText,
+            lastMessageReactionTargetType:
+                remembered.lastMessageReactionTargetType,
+          ),
+        );
+        return;
+      }
       roomListController.updateRoom(
         existing.copyWith(
           lastMessage: null,
@@ -213,7 +261,33 @@ class RoomListMutator {
     roomListController.updateRoom(
       existing.copyWith(lastMessageId: null, lastMessageTime: null),
     );
-    updateRoomLastMessage(roomId, fallback);
+    _previousPreviews.remove(roomId);
+    _applyLastMessage(roomId, fallback, rememberPrevious: false);
+  }
+
+  /// Files [existing] as the preview to fall back to should the stamp that
+  /// is about to replace it turn out to be a send that fails.
+  ///
+  /// A preview that is itself still unconfirmed is not filed: it may be the
+  /// very send about to fail, and restoring it would put the failure back on
+  /// the row the revert exists to take it off. The older confirmed preview
+  /// already on file stays there instead.
+  void _rememberPreviousPreview(
+    String roomId,
+    RoomListItem existing,
+    String incomingId,
+  ) {
+    final previousId = existing.lastMessageId;
+    if (previousId == incomingId) return;
+    if (previousId != null) {
+      final controller = _findChatController(roomId);
+      if (controller != null &&
+          (controller.isPending(previousId) ||
+              controller.isFailed(previousId))) {
+        return;
+      }
+    }
+    _previousPreviews[roomId] = existing;
   }
 
   /// Stamps the row for [roomId] with the emoji reaction [userId] just put
@@ -461,6 +535,7 @@ class RoomListMutator {
         .toList();
     for (final roomId in toRemove) {
       roomListController.removeRoom(roomId);
+      _previousPreviews.remove(roomId);
       _removeChatController(roomId);
     }
   }

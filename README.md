@@ -171,7 +171,30 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Threaded replies
 - WhatsApp-style delivery ticks (sending → sent → delivered → read → failed),
   cursor-based and confirmed automatically
-- Per-user read receipts (DM any-read → blue; group all-read → blue)
+- Per-user read receipts (DM any-read → blue; group all-read → blue). In a
+  group the grey ✓✓ no longer waits on members who have never acknowledged
+  anything in the room — a roster entry that never showed up cannot be told
+  apart from an invitee who never will, and holding the whole group's
+  delivery state on them told the sender nothing. Blue stays strict: it
+  still means every member read the message. Revert with
+  `ChatController(groupReceiptPolicy: GroupReceiptPolicy.allMembers)`
+- "N new messages" divider anchored on the reader's own read cursor
+  (`GET /receipts` for the room), not on a count taken from the end of the
+  list — own messages never count as unread and never anchor the line, and
+  the line is not drawn until the first page of history has settled. With no
+  cursor available it degrades to counting back over incoming messages only
+- A sender's name and avatar come back on the first bubble after anything
+  that interrupts a run — a system notice, a date separator or the unread
+  line
+- The row whose context menu is open is tinted for as long as the menu
+  stays up (`MessageList.activeRowColor` /
+  `activeRowDecorationBuilder` / `highlightRowWhileContextMenuOpen`, or
+  drive it yourself with `activeRowMessageId`)
+- In-room search opens focused, explains what it searches before anything is
+  typed, labels the user's own hits "You" (`MessageSearchView.currentUserId`)
+  and heads the list with a count plus previous/next arrows
+  (`emptyPromptText`, `resultCountLabelBuilder`, `showResultNavigation`,
+  `autofocus`)
 - Typing indicators
 - Forward to multiple rooms
 - Pinned messages banner

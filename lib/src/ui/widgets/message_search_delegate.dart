@@ -22,6 +22,11 @@ class MessageSearchView extends StatefulWidget {
     this.senderNameResolver,
     this.debounceDuration = const Duration(milliseconds: 300),
     this.minQueryLength = 2,
+    this.autofocus = true,
+    this.currentUserId,
+    this.emptyPromptText,
+    this.resultCountLabelBuilder,
+    this.showResultNavigation = true,
   }) : assert(minQueryLength >= 1, 'minQueryLength must be at least 1');
 
   final MessageSearchController controller;
@@ -30,6 +35,31 @@ class MessageSearchView extends StatefulWidget {
   final ChatTheme theme;
   final String Function(String userId)? senderNameResolver;
   final Duration debounceDuration;
+
+  /// Focuses the query field on mount so the keyboard is already up when the
+  /// screen opens — a search screen that needs a tap before it can be typed
+  /// into reads as broken. Set `false` to open the screen unfocused.
+  final bool autofocus;
+
+  /// The local user's id. Results they wrote are labelled with the
+  /// localized "You" instead of their own name, matching every other
+  /// self-attribution in the SDK. When `null`, own results are labelled
+  /// like anyone else's.
+  final String? currentUserId;
+
+  /// Copy for the initial state, before anything has been typed. Defaults
+  /// to a short instruction in the ambient locale (Spanish and English are
+  /// translated; every other locale gets the English wording).
+  final String? emptyPromptText;
+
+  /// Builds the header line above the results ("2 results"). Defaults to a
+  /// count in the ambient locale, again Spanish or English.
+  final String Function(int count)? resultCountLabelBuilder;
+
+  /// Shows the previous / next arrows next to the result count, which walk
+  /// the result list and re-fire [onMessageTap] for each step — the way
+  /// WhatsApp steps a user through matches without making them aim at rows.
+  final bool showResultNavigation;
 
   /// Minimum number of characters (after `trim()`) the input must contain
   /// before the search request is dispatched. Shorter queries clear any
@@ -44,11 +74,18 @@ class MessageSearchView extends StatefulWidget {
 
 class _MessageSearchViewState extends State<MessageSearchView> {
   final _textController = TextEditingController();
+  final _focusNode = FocusNode();
   Timer? _debounce;
+
+  // Which result the arrows are parked on. Reset whenever the result set
+  // changes underneath them, so "next" never steps off a stale index.
+  int _focusedIndex = 0;
+  String _focusedForQuery = '';
 
   @override
   void dispose() {
     _debounce?.cancel();
+    _focusNode.dispose();
     _textController.dispose();
     super.dispose();
   }
@@ -119,6 +156,90 @@ class _MessageSearchViewState extends State<MessageSearchView> {
     );
   }
 
+  /// Keeps the arrows' cursor inside the current result set: a new query
+  /// parks it back on the first match, a shrunken set clamps it.
+  void _syncFocusedIndex(int length) {
+    final query = widget.controller.query;
+    if (query != _focusedForQuery) {
+      _focusedForQuery = query;
+      _focusedIndex = 0;
+      return;
+    }
+    if (_focusedIndex >= length) _focusedIndex = length - 1;
+    if (_focusedIndex < 0) _focusedIndex = 0;
+  }
+
+  void _stepFocus(int delta, List<ChatMessage> results) {
+    final next = _focusedIndex + delta;
+    if (next < 0 || next >= results.length) return;
+    setState(() => _focusedIndex = next);
+    widget.onMessageTap?.call(widget.roomId, results[next].id);
+  }
+
+  /// The name a result row is titled with — the localized "You" for the
+  /// local user's own messages, the resolved display name otherwise.
+  String _senderLabelFor(BuildContext context, ChatMessage message) {
+    final me = widget.currentUserId;
+    if (me != null && message.from == me) {
+      return widget.theme.l10nOf(context).you;
+    }
+    final resolve = widget.senderNameResolver;
+    return resolve != null ? resolve(message.from) : message.from;
+  }
+
+  Widget _buildResultsHeader(BuildContext context, List<ChatMessage> results) {
+    final theme = widget.theme;
+    final label =
+        widget.resultCountLabelBuilder?.call(results.length) ??
+        _defaultResultCount(theme.l10nOf(context).localeCode, results.length);
+    final iconColor = theme.messageSearchFieldIconColor;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Semantics(
+              identifier: 'chat_search_result_count',
+              child: Text(
+                label,
+                key: const ValueKey('chat_search_result_count'),
+                style:
+                    theme.messageSearchResultTimestampStyle ??
+                    _defaultCountStyle,
+              ),
+            ),
+          ),
+          if (widget.showResultNavigation) ...[
+            Semantics(
+              identifier: 'chat_search_prev',
+              child: IconButton(
+                key: const ValueKey('chat_search_prev'),
+                icon: Icon(Icons.keyboard_arrow_up, size: 20, color: iconColor),
+                onPressed: _focusedIndex <= 0
+                    ? null
+                    : () => _stepFocus(-1, results),
+              ),
+            ),
+            Semantics(
+              identifier: 'chat_search_next',
+              child: IconButton(
+                key: const ValueKey('chat_search_next'),
+                icon: Icon(
+                  Icons.keyboard_arrow_down,
+                  size: 20,
+                  color: iconColor,
+                ),
+                onPressed: _focusedIndex >= results.length - 1
+                    ? null
+                    : () => _stepFocus(1, results),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = widget.theme;
@@ -150,6 +271,8 @@ class _MessageSearchViewState extends State<MessageSearchView> {
             child: TextField(
               key: const ValueKey('chat_search_input'),
               controller: _textController,
+              focusNode: _focusNode,
+              autofocus: widget.autofocus,
               onChanged: _onQueryChanged,
               style: theme.messageSearchFieldTextStyle,
               cursorColor: theme.messageSearchFieldCursorColor,
@@ -238,7 +361,26 @@ class _MessageSearchViewState extends State<MessageSearchView> {
               }
 
               if (widget.controller.results.isEmpty) {
-                return const SizedBox.shrink();
+                return Center(
+                  key: const ValueKey('chat_search_prompt'),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Semantics(
+                      identifier: 'chat_search_prompt',
+                      child: Text(
+                        widget.emptyPromptText ??
+                            _defaultEmptyPrompt(
+                              theme.l10nOf(context).localeCode,
+                            ),
+                        textAlign: TextAlign.center,
+                        style:
+                            theme.messageSearchEmptyTextStyle ??
+                            theme.emptyStateTitleStyle ??
+                            _defaultEmptyStyle,
+                      ),
+                    ),
+                  ),
+                );
               }
 
               final results = _dedupeById(widget.controller.results);
@@ -252,59 +394,71 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                           const TextStyle(fontWeight: FontWeight.w700),
                         ));
 
-              return ListView.builder(
-                itemCount: results.length,
-                itemBuilder: (context, index) {
-                  final message = results[index];
-                  final senderName = widget.senderNameResolver != null
-                      ? widget.senderNameResolver!(message.from)
-                      : message.from;
-                  final now = DateTime.now();
-                  final timeStr =
-                      DateFormatter.isToday(message.timestamp, now: now)
-                      ? DateFormatter.formatTime(message.timestamp)
-                      : DateFormatter.formatSeparator(
-                          message.timestamp,
-                          now: now,
-                          todayLabel: theme.l10nOf(context).today,
-                          yesterdayLabel: theme.l10nOf(context).yesterday,
-                        );
-                  final rowId = searchResultSemanticsId(message.id);
-                  return Semantics(
-                    identifier: rowId,
-                    child: ListTile(
-                      key: ValueKey(rowId),
-                      title: Text(
-                        senderName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            theme.messageSearchResultTitleStyle ??
-                            _defaultTitleStyle,
-                      ),
-                      subtitle: Text.rich(
-                        TextSpan(
-                          children: _highlightSpans(
-                            message.text ?? '',
-                            widget.controller.query,
-                            baseStyle: snippetStyle,
-                            matchStyle: highlightStyle,
+              _syncFocusedIndex(results.length);
+
+              return Column(
+                children: [
+                  _buildResultsHeader(context, results),
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: results.length,
+                      itemBuilder: (context, index) {
+                        final message = results[index];
+                        final senderName = _senderLabelFor(context, message);
+                        final now = DateTime.now();
+                        final timeStr =
+                            DateFormatter.isToday(message.timestamp, now: now)
+                            ? DateFormatter.formatTime(message.timestamp)
+                            : DateFormatter.formatSeparator(
+                                message.timestamp,
+                                now: now,
+                                todayLabel: theme.l10nOf(context).today,
+                                yesterdayLabel: theme.l10nOf(context).yesterday,
+                              );
+                        final rowId = searchResultSemanticsId(message.id);
+                        return Semantics(
+                          identifier: rowId,
+                          child: ListTile(
+                            key: ValueKey(rowId),
+                            title: Text(
+                              senderName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  theme.messageSearchResultTitleStyle ??
+                                  _defaultTitleStyle,
+                            ),
+                            subtitle: Text.rich(
+                              TextSpan(
+                                children: _highlightSpans(
+                                  message.text ?? '',
+                                  widget.controller.query,
+                                  baseStyle: snippetStyle,
+                                  matchStyle: highlightStyle,
+                                ),
+                              ),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: Text(
+                              timeStr,
+                              style:
+                                  theme.messageSearchResultTimestampStyle ??
+                                  _defaultTimestampStyle,
+                            ),
+                            onTap: () {
+                              setState(() => _focusedIndex = index);
+                              widget.onMessageTap?.call(
+                                widget.roomId,
+                                message.id,
+                              );
+                            },
                           ),
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      trailing: Text(
-                        timeStr,
-                        style:
-                            theme.messageSearchResultTimestampStyle ??
-                            _defaultTimestampStyle,
-                      ),
-                      onTap: () =>
-                          widget.onMessageTap?.call(widget.roomId, message.id),
+                        );
+                      },
                     ),
-                  );
-                },
+                  ),
+                ],
               );
             },
           ),
@@ -388,4 +542,23 @@ List<TextSpan> _highlightSpans(
     cursor = matchEnd;
   }
   return spans;
+}
+
+const TextStyle _defaultCountStyle = TextStyle(
+  fontSize: 12,
+  color: Color(0xFF757575),
+);
+
+/// Built-in copy for the strings this view added after
+/// [ChatUiLocalizations] was frozen. Spanish and English are translated;
+/// every other locale degrades to English rather than to a raw key.
+String _defaultEmptyPrompt(String localeCode) => localeCode == 'es'
+    ? 'Busca por texto dentro de esta conversación'
+    : 'Search for text inside this conversation';
+
+String _defaultResultCount(String localeCode, int count) {
+  if (localeCode == 'es') {
+    return count == 1 ? '1 resultado' : '$count resultados';
+  }
+  return count == 1 ? '1 result' : '$count results';
 }

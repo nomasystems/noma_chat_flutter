@@ -15,6 +15,7 @@ class ChatController extends ChangeNotifier {
     required ChatUser currentUser,
     List<ChatUser> otherUsers = const [],
     this.typingTimeout = const Duration(seconds: 7),
+    this.groupReceiptPolicy = GroupReceiptPolicy.acknowledgingMembers,
   }) : _messages = List<ChatMessage>.from(initialMessages),
        _currentUser = currentUser,
        _otherUsers = List<ChatUser>.from(otherUsers) {
@@ -25,6 +26,10 @@ class ChatController extends ChangeNotifier {
 
   static const int maxMessages = 500;
   final Duration typingTimeout;
+
+  /// Who has to acknowledge a message before a group bubble leaves the
+  /// single grey check. See [GroupReceiptPolicy].
+  final GroupReceiptPolicy groupReceiptPolicy;
 
   final List<ChatMessage> _messages;
   final Map<String, int> _indexById = {};
@@ -98,6 +103,13 @@ class ChatController extends ChangeNotifier {
   // water mark (a single backend event fans out to every prior msg).
   final Map<String, Set<String>> _readBy = {};
   final Map<String, Set<String>> _deliveredBy = {};
+
+  // Everyone who has ever acknowledged anything in this room — the divisor
+  // under [GroupReceiptPolicy.acknowledgingMembers]. A member of the room
+  // who never confirmed a single message has, as far as any evidence goes,
+  // never been here; holding every other member's ✓✓ hostage to them is how
+  // a group's delivery state went mute for good.
+  final Set<String> _everAcknowledged = {};
 
   // Server-assigned seqs of messages, learned from `message_acked`
   // events. Enables numeric coverage checks when a delivered cursor
@@ -729,6 +741,7 @@ class ChatController extends ChangeNotifier {
     // re-derived into a receipt by the next [_recomputeAllReceipts] — after
     // reconciliation dropped the pending mark that [_setReceipt] relies on.
     if (_isUnsent(messageId)) return;
+    _everAcknowledged.add(fromUserId);
     if (status == ReceiptStatus.delivered) {
       (_deliveredBy[messageId] ??= <String>{}).add(fromUserId);
     } else if (status == ReceiptStatus.read) {
@@ -768,6 +781,7 @@ class ChatController extends ChangeNotifier {
     final currentSeq = current?.seq;
     if (currentSeq != null && seq != null && seq <= currentSeq) return;
     _deliveredCursors[userId] = (messageId: messageId, seq: seq);
+    _everAcknowledged.add(userId);
     if (_applyDeliveredCursorFor(userId)) notifyListeners();
   }
 
@@ -945,6 +959,7 @@ class ChatController extends ChangeNotifier {
     _deliveredBy.clear();
     _seqByMessageId.clear();
     _deliveredCursors.clear();
+    _everAcknowledged.clear();
   }
 
   /// The aggregated status for [messageId] derived from the per-user
@@ -978,18 +993,32 @@ class ChatController extends ChangeNotifier {
     // app, when the controller is rebuilt ahead of its member list.
     if (totalOthers == 0) return null;
     final readers = _readBy[messageId] ?? const <String>{};
-    final readByAll =
-        readers.length >= totalOthers && otherUserIds.every(readers.contains);
-    if (readByAll) return ReceiptStatus.read;
+    // Blue stays strict: "read by everyone in the room" is a claim about
+    // people, and narrowing its divisor would make the bubble say a member
+    // read something they were never even shown.
+    if (otherUserIds.every(readers.contains)) return ReceiptStatus.read;
     final delivered = _deliveredBy[messageId] ?? const <String>{};
-    final deliveredToAll =
-        delivered.length >= totalOthers &&
-        otherUserIds.every(delivered.contains);
-    if (deliveredToAll) return ReceiptStatus.delivered;
+    if (_deliveryQuorum(otherUserIds).every(delivered.contains)) {
+      return ReceiptStatus.delivered;
+    }
     // Some, but not all, members have ack'd — keep the bubble at sent
     // until at least delivered-by-all so the user sees the visual jump
     // exactly as WhatsApp renders it.
     return ReceiptStatus.sent;
+  }
+
+  /// The members a group message has to reach before its bubble leaves the
+  /// single grey check. Under [GroupReceiptPolicy.allMembers] that is the
+  /// whole roster; under [GroupReceiptPolicy.acknowledgingMembers] it is the
+  /// roster narrowed to whoever has ever confirmed anything in this room —
+  /// falling back to the whole roster while nobody has, so an untouched
+  /// message is never reported as delivered to an empty audience.
+  Set<String> _deliveryQuorum(Set<String> otherUserIds) {
+    if (groupReceiptPolicy == GroupReceiptPolicy.allMembers) {
+      return otherUserIds;
+    }
+    final acknowledging = otherUserIds.intersection(_everAcknowledged);
+    return acknowledging.isEmpty ? otherUserIds : acknowledging;
   }
 
   // Legacy fan-out used only when the caller didn't supply a fromUserId.
@@ -1181,4 +1210,21 @@ class ChatError {
 
   @override
   String toString() => 'ChatError($type: $message)';
+}
+
+/// Who a group message has to reach before its bubble leaves the single
+/// grey check. Only the grey ✓✓ is governed by this — the blue one always
+/// means every member of the room read the message.
+enum GroupReceiptPolicy {
+  /// Every other member of the room, whether or not they have ever opened
+  /// it. Strict WhatsApp parity, and mute for as long as one member of the
+  /// room never connects.
+  allMembers,
+
+  /// Only the members who have ever acknowledged anything in this room —
+  /// the ones there is evidence ever connected. The default: a roster entry
+  /// that has never produced a single receipt cannot be distinguished from
+  /// an invitee who never showed up, and holding the whole group's delivery
+  /// state on them tells the sender nothing at all.
+  acknowledgingMembers,
 }

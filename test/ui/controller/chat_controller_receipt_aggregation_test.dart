@@ -78,12 +78,45 @@ void main() {
       ],
     );
 
-    test('only one read → aggregated stays at sent (no blue)', () {
+    test('only one read → grey double check, never blue', () {
       final c = buildGroup();
       addTearDown(c.dispose);
 
       c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
-      // Two members still haven't ack'd → not delivered-by-all either.
+      // u2 and u3 have never confirmed anything, so there is no evidence
+      // they were ever here: the delivery quorum is u1 alone and the grey
+      // ✓✓ lands. Blue still needs the whole roster.
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+    });
+
+    test('a peer who never acknowledged anything does not hold the grey '
+        'double check hostage, but does hold the blue one', () {
+      final c = buildGroup();
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.delivered, fromUserId: 'u1');
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u3');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('GroupReceiptPolicy.allMembers keeps the strict parity rule', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+          ChatUser(id: 'u3', displayName: 'Charlie'),
+        ],
+        groupReceiptPolicy: GroupReceiptPolicy.allMembers,
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
       expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
     });
 
@@ -146,10 +179,10 @@ void main() {
       );
       addTearDown(c.dispose);
 
-      // u1 reads the latest own message. u2 hasn't acked yet → still
-      // "sent" in a 2-other-user group.
+      // u1 reads the latest own message. u2 has never acknowledged
+      // anything, so the delivery quorum is u1 alone → grey ✓✓, not blue.
       c.updateReceipt('m3', ReceiptStatus.read, fromUserId: 'u1');
-      expect(c.receiptStatuses['m3'], ReceiptStatus.sent);
+      expect(c.receiptStatuses['m3'], ReceiptStatus.delivered);
 
       // Now u2 reads m3 → all otherUsers have read → m3 flips to read.
       c.updateReceipt('m3', ReceiptStatus.read, fromUserId: 'u2');
@@ -322,13 +355,14 @@ void main() {
       c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
       expect(c.receiptStatuses['m1'], isNull);
 
-      // Member list arrives with three members — still not read-by-all.
+      // Member list arrives with three members — still not read-by-all, but
+      // delivered to everyone who has ever been seen in the room.
       c.setOtherUsers(const [
         ChatUser(id: 'u1', displayName: 'Alice'),
         ChatUser(id: 'u2', displayName: 'Bob'),
         ChatUser(id: 'u3', displayName: 'Charlie'),
       ]);
-      expect(c.receiptStatuses['m1'], ReceiptStatus.sent);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
 
       // The third peer reads → now genuinely read-by-all.
       c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u3');

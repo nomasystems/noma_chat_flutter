@@ -8,6 +8,7 @@ import '../../core/result.dart' show EditWindowExpiredFailure;
 import '../../models/chat_analytics_event.dart';
 import '../../models/message.dart';
 import '../../models/reaction.dart';
+import '../../models/read_receipt.dart';
 import '../../models/room_user.dart';
 import '../../models/user.dart';
 import '../adapter/chat_ui_adapter.dart';
@@ -226,9 +227,17 @@ class _NomaChatViewState extends State<NomaChatView> {
   ChatController? _controller;
 
   int _initialUnreadCount = 0;
+  int _unreadDividerCount = 0;
   String? _unreadBoundaryMessageId;
   String? _seededInitialMessageId;
   bool _autoLeft = false;
+
+  // The local user's own row in the room's receipt list — the read cursor
+  // the divider is anchored on. `null` once resolved means the server had
+  // no cursor for us (or the call failed): the seed then degrades to
+  // counting back from the newest incoming message.
+  ReadReceipt? _ownReadCursor;
+  bool _ownReadCursorResolved = false;
 
   void Function(Set<String>)? _prevBlockedHandler;
   void Function(String, String?, String?)? _prevRoomRemovedHandler;
@@ -275,6 +284,13 @@ class _NomaChatViewState extends State<NomaChatView> {
     // "{n} new messages" divider value is lost.
     _initialUnreadCount =
         adapter.roomListController.getRoomById(widget.roomId)?.unreadCount ?? 0;
+    _unreadDividerCount = _initialUnreadCount;
+    // Asked for before `setActiveRoom` marks the room read: that write
+    // advances the very cursor this read is after. The request can still
+    // lose the race server-side, which is why a cursor that turns out to
+    // cover everything falls back to the count instead of hiding the
+    // divider.
+    if (_initialUnreadCount > 0) unawaited(_loadOwnReadCursor());
 
     final controller = adapter.getChatController(widget.roomId);
     _controller = controller;
@@ -322,26 +338,67 @@ class _NomaChatViewState extends State<NomaChatView> {
     }
   }
 
-  /// One-shot: once enough history is loaded to identify the first unread row,
-  /// freeze the boundary id and seed the open-time scroll target. The divider
-  /// is a snapshot of the open-time state (WhatsApp parity); later arrivals do
-  /// not move it.
+  // Ceiling on the receipts round trip. The divider waits on it, so a call
+  // that never answers must not be what keeps the line off screen.
+  static const Duration _ownReadCursorTimeout = Duration(seconds: 5);
+
+  /// Reads the local user's own receipt row for the room, so the divider can
+  /// be anchored on the last message actually read rather than on a count.
+  /// Failures are swallowed: an unresolved cursor is a degraded seed, not a
+  /// broken chat.
+  Future<void> _loadOwnReadCursor() async {
+    final adapter = widget.adapter;
+    final meId = adapter.currentUser.id;
+    try {
+      final result = await adapter.messages
+          .loadReceipts(widget.roomId)
+          .timeout(_ownReadCursorTimeout);
+      for (final receipt in result.dataOrNull ?? const <ReadReceipt>[]) {
+        if (receipt.userId != meId) continue;
+        _ownReadCursor = receipt;
+        break;
+      }
+    } catch (_) {}
+    _ownReadCursorResolved = true;
+    if (!mounted) return;
+    _seedUnreadBoundary();
+  }
+
+  /// One-shot: once the first page of history is in and the own read cursor
+  /// has resolved, freeze the boundary id and seed the open-time scroll
+  /// target. The divider is a snapshot of the open-time state (WhatsApp
+  /// parity); later arrivals do not move it.
   void _seedUnreadBoundary() {
     final controller = _controller;
     if (controller == null || _unreadBoundaryMessageId != null) return;
+    // Seeding on a half-loaded room is what put the line in the wrong place:
+    // both the cursor and the page it has to be located in must be settled
+    // before anything is drawn.
+    if (controller.isLoadingInitial || !_ownReadCursorResolved) return;
     final messages = controller.messages;
     if (messages.isEmpty) return;
-    final available = _initialUnreadCount.clamp(1, messages.length);
-    final boundaryId = messages[messages.length - available].id;
+    final boundary = _resolveUnreadBoundary(controller, messages);
+    if (boundary == null) return;
     if (!mounted) return;
     setState(() {
-      _unreadBoundaryMessageId = boundaryId;
-      _seededInitialMessageId ??= boundaryId;
+      _unreadBoundaryMessageId = boundary.messageId;
+      _unreadDividerCount = boundary.count;
+      _seededInitialMessageId ??= boundary.messageId;
     });
     try {
       controller.removeListener(_seedUnreadBoundary);
     } catch (_) {}
   }
+
+  ({String messageId, int count})? _resolveUnreadBoundary(
+    ChatController controller,
+    List<ChatMessage> messages,
+  ) => resolveUnreadBoundary(
+    messages: messages,
+    currentUserId: controller.currentUser.id,
+    ownReadCursor: _ownReadCursor,
+    fallbackUnreadCount: _initialUnreadCount,
+  );
 
   void _onRoomListChanged() {
     if (!mounted) return;
@@ -965,7 +1022,7 @@ class _NomaChatViewState extends State<NomaChatView> {
         .withRoomState(
           initialMessageId: widget.initialMessageId ?? _seededInitialMessageId,
           unreadBoundaryMessageId: _unreadBoundaryMessageId,
-          unreadCount: _initialUnreadCount,
+          unreadCount: _unreadDividerCount,
           isBlocked: isBlocked,
           isParticipating: room?.isParticipating ?? true,
           readOnly: room?.isReadOnly ?? false,
@@ -1116,4 +1173,61 @@ class _NomaChatViewState extends State<NomaChatView> {
       ),
     );
   }
+}
+
+/// The row the "N new messages" line belongs above, plus how many messages
+/// it stands for. `null` when there is nothing to draw a line for.
+///
+/// Preference order: the exact message named by [ownReadCursor], then the
+/// cursor's timestamp, then counting [fallbackUnreadCount] back from the
+/// newest message. The local user's own messages never count as unread and
+/// never anchor the line — they were read by definition — and the count-back
+/// path is used whenever the cursor path yields nothing, so a cursor already
+/// advanced by this room's own mark-as-read does not swallow the divider
+/// instead of placing it.
+///
+/// No `seq` reaches the client on a [ChatMessage], so a cursor whose own row
+/// is not in [messages] can only be placed by time.
+({String messageId, int count})? resolveUnreadBoundary({
+  required List<ChatMessage> messages,
+  required String currentUserId,
+  required int fallbackUnreadCount,
+  ReadReceipt? ownReadCursor,
+}) {
+  final incoming = [
+    for (final m in messages)
+      if (m.from != currentUserId) m,
+  ];
+  if (incoming.isEmpty) return null;
+
+  final cursorId = ownReadCursor?.lastReadMessageId;
+  if (cursorId != null) {
+    final at = messages.indexWhere((m) => m.id == cursorId);
+    if (at != -1) {
+      final after = [
+        for (var i = at + 1; i < messages.length; i++)
+          if (messages[i].from != currentUserId) messages[i],
+      ];
+      if (after.isNotEmpty) {
+        return (messageId: after.first.id, count: after.length);
+      }
+      // The cursor covers everything loaded — including, possibly, the rows
+      // this open just marked read. Fall through to the count.
+    }
+  }
+  final readAt = ownReadCursor?.lastReadAt;
+  if (readAt != null) {
+    final firstUnread = incoming.indexWhere((m) => m.timestamp.isAfter(readAt));
+    if (firstUnread != -1) {
+      return (
+        messageId: incoming[firstUnread].id,
+        count: incoming.length - firstUnread,
+      );
+    }
+  }
+  final available = fallbackUnreadCount.clamp(1, incoming.length);
+  return (
+    messageId: incoming[incoming.length - available].id,
+    count: available,
+  );
 }

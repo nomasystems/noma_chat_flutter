@@ -95,6 +95,15 @@ subtype (`AuthFailure`, `NetworkFailure`, `StorageFailure`, …).
   `RoomListView` push the ambient bundle in on `didChangeDependencies`
   (`adoptAmbientL10n`), so registering the delegate is enough and a host
   that assigns `l10n` itself is never overridden.
+* **Open exception, to be closed:** `MessageSearchView`'s opening prompt and
+  its result count ship as `en`/`es` literals inside
+  `message_search_delegate.dart` (`_defaultEmptyPrompt`,
+  `_defaultResultCount`) instead of as `ChatUiLocalizations` keys. Both are
+  overridable per call site (`emptyPromptText`, `resultCountLabelBuilder`),
+  so a host is never stuck with them, but they belong in the bundle with the
+  rest and every other locale currently falls back to English. Move them to
+  `searchPromptEmpty` / `searchResultCountTemplate` the next time
+  `chat_ui_localizations.dart` is opened, and delete the two helpers.
 * Templates use `{n}`, `{user}`, `{count}` placeholders consumed via
   `String.replaceAll`. Helpers in `chat_ui_localizations.dart` wrap the
   most common cases (`feedbackForwarded(count)`, etc.).
