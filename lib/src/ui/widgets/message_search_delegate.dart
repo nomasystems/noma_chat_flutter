@@ -48,12 +48,12 @@ class MessageSearchView extends StatefulWidget {
   final String? currentUserId;
 
   /// Copy for the initial state, before anything has been typed. Defaults
-  /// to a short instruction in the ambient locale (Spanish and English are
-  /// translated; every other locale gets the English wording).
+  /// to `ChatUiLocalizations.searchPromptEmpty` in the ambient locale.
   final String? emptyPromptText;
 
-  /// Builds the header line above the results ("2 results"). Defaults to a
-  /// count in the ambient locale, again Spanish or English.
+  /// Builds the header line above the results ("2 results"). Defaults to
+  /// `ChatUiLocalizations.searchResultCount`, which picks the singular or
+  /// plural template of the ambient locale.
   final String Function(int count)? resultCountLabelBuilder;
 
   /// Shows the previous / next arrows next to the result count, which walk
@@ -191,7 +191,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
     final theme = widget.theme;
     final label =
         widget.resultCountLabelBuilder?.call(results.length) ??
-        _defaultResultCount(theme.l10nOf(context).localeCode, results.length);
+        theme.l10nOf(context).searchResultCount(results.length);
     final iconColor = theme.messageSearchFieldIconColor;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 8, 4),
@@ -369,9 +369,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                       identifier: 'chat_search_prompt',
                       child: Text(
                         widget.emptyPromptText ??
-                            _defaultEmptyPrompt(
-                              theme.l10nOf(context).localeCode,
-                            ),
+                            theme.l10nOf(context).searchPromptEmpty,
                         textAlign: TextAlign.center,
                         style:
                             theme.messageSearchEmptyTextStyle ??
@@ -548,17 +546,3 @@ const TextStyle _defaultCountStyle = TextStyle(
   fontSize: 12,
   color: Color(0xFF757575),
 );
-
-/// Built-in copy for the strings this view added after
-/// [ChatUiLocalizations] was frozen. Spanish and English are translated;
-/// every other locale degrades to English rather than to a raw key.
-String _defaultEmptyPrompt(String localeCode) => localeCode == 'es'
-    ? 'Busca por texto dentro de esta conversación'
-    : 'Search for text inside this conversation';
-
-String _defaultResultCount(String localeCode, int count) {
-  if (localeCode == 'es') {
-    return count == 1 ? '1 resultado' : '$count resultados';
-  }
-  return count == 1 ? '1 result' : '$count results';
-}

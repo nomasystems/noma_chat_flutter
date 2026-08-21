@@ -2,8 +2,63 @@ import 'package:flutter/material.dart';
 
 import '../../models/message.dart';
 import '../../models/read_receipt.dart';
+import '../l10n/chat_ui_localizations.dart';
 import '../theme/chat_theme.dart';
+import '../utils/date_formatter.dart';
 import '../utils/read_receipts_helper.dart';
+
+/// Which cursor of a [ReadReceipt] puts a member on a [MessageInfoSheet]
+/// list: the read cursor ("Read by") or the delivered one ("Delivered to").
+enum MessageReceiptKind { read, delivered }
+
+/// One member row of [MessageInfoSheet], resolved against the message being
+/// inspected.
+///
+/// The backend reports **cursors**, not a stamp per message: a row says
+/// "this member's read cursor is at message X, moved at T". So [cursorAt]
+/// is the time that member reached [kind] *for their cursor's message* —
+/// which is the time they reached it for the inspected message only when
+/// [isExact] is true. For any earlier message the same value is nothing but
+/// an upper bound ("no later than T").
+@immutable
+class MessageReceiptDetail {
+  const MessageReceiptDetail({
+    required this.userId,
+    required this.kind,
+    required this.cursorAt,
+    required this.isExact,
+  });
+
+  /// The member this row is about.
+  final String userId;
+
+  /// Which of the two lists the row belongs to.
+  final MessageReceiptKind kind;
+
+  /// The member's cursor timestamp for [kind]. `null` when the receipt
+  /// carries no time for that cursor.
+  final DateTime? cursorAt;
+
+  /// `true` when the member's cursor points at the inspected message
+  /// (`lastReadMessageId` / `lastDeliveredMessageId` equals its id), the
+  /// only case in which [cursorAt] is that member's time *for this
+  /// message*.
+  final bool isExact;
+
+  /// [cursorAt] when it is this message's own time, `null` otherwise —
+  /// the value a caller may print as an exact hour without lying.
+  DateTime? get exactAt => isExact ? cursorAt : null;
+}
+
+/// Formats a receipt timestamp for a [MessageInfoSheet] row.
+typedef MessageReceiptTimeFormatter =
+    String Function(BuildContext context, DateTime at);
+
+/// Replaces the subtitle of a [MessageInfoSheet] member row. Return `null`
+/// to fall back to the SDK default for that row (same contract as
+/// `ChatViewBuilders.systemMessageBuilder`).
+typedef MessageReceiptSubtitleBuilder =
+    Widget? Function(BuildContext context, MessageReceiptDetail detail);
 
 /// WhatsApp-style "Message info" bottom sheet: lists which room members
 /// have read a message and which have only been delivered it.
@@ -25,6 +80,16 @@ import '../utils/read_receipts_helper.dart';
 ///   displayNameFor: chat.adapter.displayNameFor,
 /// );
 /// ```
+///
+/// ## Times
+///
+/// Each row carries a time **only when the sheet can prove it**: the
+/// member's cursor has to point at this very message (see
+/// [MessageReceiptDetail.isExact]). Everywhere else the row says
+/// [ChatUiLocalizations.receiptNoExactTime] instead of a made-up hour;
+/// set [showApproximateReceiptTimes] to print the honest upper bound
+/// ("By 10:05 at the latest") instead, or take the rendering over with
+/// [receiptSubtitleBuilder].
 class MessageInfoSheet extends StatelessWidget {
   const MessageInfoSheet({
     super.key,
@@ -34,6 +99,9 @@ class MessageInfoSheet extends StatelessWidget {
     this.displayNameFor,
     this.theme = ChatTheme.defaults,
     this.leadingBuilder,
+    this.receiptTimeFormatter,
+    this.receiptSubtitleBuilder,
+    this.showApproximateReceiptTimes = false,
   });
 
   /// The message whose read / delivered coverage is shown.
@@ -55,6 +123,23 @@ class MessageInfoSheet extends StatelessWidget {
   /// Optional leading widget (typically an avatar) for each member row.
   final Widget Function(BuildContext context, String userId)? leadingBuilder;
 
+  /// Formats the exact (or upper-bound) time of a member row. Defaults to
+  /// `HH:mm` in the device's zone, prefixed by the day for anything older
+  /// than today — "10:05", "Yesterday 23:40", "15/06 10:05".
+  final MessageReceiptTimeFormatter? receiptTimeFormatter;
+
+  /// Replaces the subtitle under a member's name. Return `null` for the
+  /// SDK default on that row.
+  final MessageReceiptSubtitleBuilder? receiptSubtitleBuilder;
+
+  /// Prints the cursor time as an upper bound
+  /// ([ChatUiLocalizations.receiptAtLatestTemplate]) on the rows whose
+  /// cursor does not point at this message, instead of the plain
+  /// "no exact time" wording. Off by default: a bare hour next to a name
+  /// reads as "they read it at 10:05", which for those rows would be a
+  /// claim the server never made.
+  final bool showApproximateReceiptTimes;
+
   /// Shows the sheet, loading the receipts lazily via [loadReceipts] so the
   /// caller can pass `adapter.messages.loadReceipts(roomId)` without
   /// awaiting first. A progress indicator renders until they resolve.
@@ -66,6 +151,9 @@ class MessageInfoSheet extends StatelessWidget {
     String Function(String userId)? displayNameFor,
     ChatTheme theme = ChatTheme.defaults,
     Widget Function(BuildContext context, String userId)? leadingBuilder,
+    MessageReceiptTimeFormatter? receiptTimeFormatter,
+    MessageReceiptSubtitleBuilder? receiptSubtitleBuilder,
+    bool showApproximateReceiptTimes = false,
   }) {
     return showModalBottomSheet<void>(
       context: context,
@@ -91,6 +179,9 @@ class MessageInfoSheet extends StatelessWidget {
             displayNameFor: displayNameFor,
             theme: theme,
             leadingBuilder: leadingBuilder,
+            receiptTimeFormatter: receiptTimeFormatter,
+            receiptSubtitleBuilder: receiptSubtitleBuilder,
+            showApproximateReceiptTimes: showApproximateReceiptTimes,
           );
         },
       ),
@@ -148,9 +239,19 @@ class MessageInfoSheet extends StatelessWidget {
               )
             else ...[
               if (readers.isNotEmpty)
-                _section(context, Icons.done_all, l10n.readBy, readers),
+                _section(
+                  context,
+                  Icons.done_all,
+                  l10n.readBy,
+                  _detailsFor(readers, MessageReceiptKind.read),
+                ),
               if (delivered.isNotEmpty)
-                _section(context, Icons.done, l10n.deliveredTo, delivered),
+                _section(
+                  context,
+                  Icons.done,
+                  l10n.deliveredTo,
+                  _detailsFor(delivered, MessageReceiptKind.delivered),
+                ),
             ],
             const SizedBox(height: 8),
           ],
@@ -159,11 +260,69 @@ class MessageInfoSheet extends StatelessWidget {
     );
   }
 
+  /// Pairs each member of a section with the cursor that put them there and
+  /// with whether that cursor lands on this very message.
+  List<MessageReceiptDetail> _detailsFor(
+    List<String> userIds,
+    MessageReceiptKind kind,
+  ) {
+    final byUser = {for (final r in receipts) r.userId: r};
+    return [
+      for (final id in userIds)
+        () {
+          final receipt = byUser[id];
+          final cursorAt = kind == MessageReceiptKind.read
+              ? receipt?.lastReadAt
+              : receipt?.lastDeliveredAt;
+          final cursorMessageId = kind == MessageReceiptKind.read
+              ? receipt?.lastReadMessageId
+              : receipt?.lastDeliveredMessageId;
+          return MessageReceiptDetail(
+            userId: id,
+            kind: kind,
+            cursorAt: cursorAt,
+            isExact: cursorMessageId != null && cursorMessageId == message.id,
+          );
+        }(),
+    ];
+  }
+
+  String _formatTime(BuildContext context, DateTime at) {
+    final formatter = receiptTimeFormatter;
+    if (formatter != null) return formatter(context, at);
+    final l10n = theme.l10nOf(context);
+    // Today's rows carry no day prefix: "Read at 10:05" is what the hour
+    // means on the day it happened, and it keeps the upper-bound sentence
+    // ("By 10:05 at the latest") readable.
+    final day = DateFormatter.formatSeparator(
+      at,
+      todayLabel: '',
+      yesterdayLabel: l10n.yesterday,
+    );
+    final time = DateFormatter.formatTime(at);
+    return day.isEmpty ? time : '$day $time';
+  }
+
+  /// The line under a member's name. An hour is printed only when the
+  /// member's cursor points at this message; otherwise the row states that
+  /// no exact time exists (or the upper bound, under
+  /// [showApproximateReceiptTimes]).
+  String _subtitleTextFor(BuildContext context, MessageReceiptDetail detail) {
+    final l10n = theme.l10nOf(context);
+    final exactAt = detail.exactAt;
+    if (exactAt != null) return _formatTime(context, exactAt);
+    final cursorAt = detail.cursorAt;
+    if (showApproximateReceiptTimes && cursorAt != null) {
+      return l10n.receiptAtLatest(_formatTime(context, cursorAt));
+    }
+    return l10n.receiptNoExactTime;
+  }
+
   Widget _section(
     BuildContext context,
     IconData icon,
     String title,
-    List<String> userIds,
+    List<MessageReceiptDetail> details,
   ) {
     final resolve = displayNameFor;
     return Column(
@@ -187,11 +346,22 @@ class MessageInfoSheet extends StatelessWidget {
             ],
           ),
         ),
-        for (final id in userIds)
+        for (final detail in details)
           ListTile(
             dense: true,
-            leading: leadingBuilder?.call(context, id),
-            title: Text(resolve != null ? resolve(id) : id),
+            leading: leadingBuilder?.call(context, detail.userId),
+            title: Text(
+              resolve != null ? resolve(detail.userId) : detail.userId,
+            ),
+            subtitle:
+                receiptSubtitleBuilder?.call(context, detail) ??
+                Text(
+                  _subtitleTextFor(context, detail),
+                  key: ValueKey(
+                    'chat_message_info_time_${detail.kind.name}_${detail.userId}',
+                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
           ),
       ],
     );

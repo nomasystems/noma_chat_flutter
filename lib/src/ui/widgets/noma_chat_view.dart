@@ -688,11 +688,14 @@ class _NomaChatViewState extends State<NomaChatView> {
       avatarRebuildSignal:
           user.avatarRebuildSignal ?? adapter.userCacheListenable,
       userFetcher: user.userFetcher ?? _defaultUserFetcher,
+      batchUserFetcher: user.batchUserFetcher,
       attachmentUrlResolver:
           user.attachmentUrlResolver ?? adapter.defaultAttachmentUrlResolver,
       attachmentMediaLoader:
           user.attachmentMediaLoader ?? adapter.defaultAttachmentMediaLoader,
       videoPreviewBuilder: user.videoPreviewBuilder,
+      blockedMessageBuilder: user.blockedMessageBuilder,
+      emptyRoomBuilder: user.emptyRoomBuilder,
     );
   }
 

@@ -6,6 +6,138 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.27.0 - 2026-08-21
+
+Minor bump: no API is removed or narrowed, but several defaults now behave
+differently — the unread divider anchors somewhere else, a group's grey ✓✓
+stops waiting on members who never showed up, an empty room draws a card,
+and the row whose context menu is open is tinted. Every one of them is
+opt-out. A host that upgrades and rebuilds compiles untouched.
+
+### Added
+
+- **A room with no messages is a starting card, not a dead end.**
+  `ChatViewBuilders.emptyRoomBuilder` builds what an empty room shows,
+  receiving an `EmptyRoomInfo` — `roomId` (`null` while a DM is still a
+  local draft), `isGroup`, `currentUser`, `otherUsers` / `otherUser`, and
+  `onSendFirstMessage`, which sends text exactly as the composer would.
+  `onSendFirstMessage` is `null` in a room that cannot be written to
+  (read-only, blocked, or no send callback wired), so a card knows when to
+  hide its offer. Return `null` from the builder for a room you have
+  nothing to say about and the SDK's own card is drawn instead, so a host
+  can decorate the rooms it recognizes and leave the rest alone.
+
+  `EmptyRoomState` is the layout itself, exported so a host can keep the
+  SDK's spacing and theming while supplying `header` (its own card above
+  the explanation) and `actions` (the buttons under it).
+  `DefaultEmptyRoomState` is the fallback: the SDK explanation plus, in a
+  1:1 that can be written to, a one-tap 👋 as the first message. The
+  suggestion is an emoji and not a phrase because the SDK cannot translate
+  a greeting into a locale it does not ship.
+  `ChatViewBehaviors.emptyTitle` / `emptySubtitle` / `emptyIcon` still
+  replace the labels without replacing the card. **Diverges from
+  WhatsApp**, which leaves an empty room bare except for its encryption
+  notice.
+
+- `MessageList.activeRowMessageId`, `activeRowColor` and
+  `activeRowDecorationBuilder` — the row whose context menu is open, and
+  how it is painted while it is.
+
+- `ChatController(groupReceiptPolicy:)` with `GroupReceiptPolicy`, for
+  hosts that want the old strict divisor back (`allMembers`).
+
+- `MessageSearchView.currentUserId`, `emptyPromptText`,
+  `resultCountLabelBuilder`, `showResultNavigation` and `autofocus`.
+
+- `resolveUnreadBoundary`, the pure function that decides where the
+  "N new messages" line lands, exported so a host can reason about (or
+  test) the same decision the room makes.
+
+- **A legend for the ticks, and times that do not lie.**
+  `DeliveryStatusLegendSheet` is a sheet a host can open from its own room
+  menu: the five delivery states, each drawn with the glyph the bubbles
+  actually use (so a custom `bubble.statusIconBuilder` is honoured) and
+  described with the same words the screen reader already speaks, plus a
+  note about the group rule. Configurable through `theme`, `isGroup`,
+  `states`, `entryBuilder` and `title`.
+
+  `MessageInfoSheet` now says *when* only when it knows: the server keeps a
+  read cursor per participant, not a timestamp per message, so an exact
+  time exists only for the message that cursor points at. Every other
+  message gets "no exact time" rather than a plausible-looking wrong one.
+  `showApproximateReceiptTimes: true` opts into the honest upper bound
+  ("by 10:42 at the latest") instead. Overridable through
+  `receiptTimeFormatter` and `receiptSubtitleBuilder`; the per-row data is
+  exposed as `MessageReceiptDetail`.
+
+- Twelve strings moved into `ChatUiLocalizations` that used to be hardcoded
+  in the search view and the sheets above, so a host can translate them:
+  `searchPromptEmpty`, the singular/plural pair behind
+  `searchResultCount(count)` (which goes through CLDR plural rules rather
+  than `count == 1`), and the legend's own labels.
+
+### Changed
+
+- **The "N new messages" divider anchors on the reader's own read
+  cursor**, not on a count taken from the end of whatever page happens to
+  be loaded. Counting back N places put the line above the date separator
+  and above the reader's own messages. The line now sits on the first
+  message after the cursor, never on one of the reader's own, and is not
+  drawn at all until the first page of history has settled. With no cursor
+  available it degrades to the old count-back, restricted to incoming
+  messages.
+
+- **A group's grey ✓✓ no longer waits on members who never acknowledged
+  anything.** A roster entry that has never produced a single receipt
+  cannot be told apart from an invitee who never showed up, and holding
+  every other member's delivery state on them left the sender with a
+  bubble that never moved. The divisor is now the members who have ever
+  confirmed something in the room, falling back to the whole roster while
+  nobody has. Blue stays strict: it still means every member read the
+  message. Revert with
+  `ChatController(groupReceiptPolicy: GroupReceiptPolicy.allMembers)`.
+
+- **Sender grouping breaks on a system message**, the way it already broke
+  on a date separator: the first bubble after one shows its name and
+  avatar again instead of reading as a continuation of a run interrupted
+  minutes ago.
+
+- **The row whose context menu is open is tinted** for as long as the menu
+  stays up — the WhatsApp treatment for a message being acted on. Opt out
+  with `MessageList.highlightRowWhileContextMenuOpen: false`, or take the
+  decision over by driving `activeRowMessageId` yourself.
+
+- **In-room search opens focused**, says what it searches before anything
+  is typed, labels the user's own hits, and heads the list with a result
+  count plus previous/next arrows.
+
+### Fixed
+
+- **A failed attachment no longer blanks the chat list row.** The revert
+  read the previous message out of the room's own message controller
+  alone, which is empty for a room the user never opened, so the row went
+  blank instead of falling back to the preview it had been showing all
+  along. `RoomListMutator` now remembers the confirmed preview each row
+  carried before the optimistic one and restores it when the send fails.
+
+- **`NomaChatView` stopped dropping two host builders.** It rebuilds
+  `ChatViewBuilders` to layer the adapter's defaults underneath, and
+  `blockedMessageBuilder` and `batchUserFetcher` were never copied across
+  — a host that wired either through `NomaChatView` saw it silently
+  ignored (wiring them on `ChatView` directly always worked).
+
+### Known limitations
+
+- `MessageSearchView`'s opening prompt and result count still ship as
+  `en`/`es` literals inside `message_search_delegate.dart` rather than as
+  `ChatUiLocalizations` keys; both are overridable per call site. See
+  `CONVENTIONS.md` §4.
+
+- The empty-room card's built-in first-message suggestion is a single
+  emoji. Word suggestions are the host's to supply, through
+  `EmptyRoomState.suggestions` from an `emptyRoomBuilder`, until the
+  strings live in the localization bundle.
+
 ## 0.26.0 - 2026-08-20
 
 Minor bump carrying two **breaking** additions and three changed defaults.

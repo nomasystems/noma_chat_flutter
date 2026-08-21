@@ -95,15 +95,15 @@ subtype (`AuthFailure`, `NetworkFailure`, `StorageFailure`, …).
   `RoomListView` push the ambient bundle in on `didChangeDependencies`
   (`adoptAmbientL10n`), so registering the delegate is enough and a host
   that assigns `l10n` itself is never overridden.
-* **Open exception, to be closed:** `MessageSearchView`'s opening prompt and
-  its result count ship as `en`/`es` literals inside
-  `message_search_delegate.dart` (`_defaultEmptyPrompt`,
-  `_defaultResultCount`) instead of as `ChatUiLocalizations` keys. Both are
-  overridable per call site (`emptyPromptText`, `resultCountLabelBuilder`),
-  so a host is never stuck with them, but they belong in the bundle with the
-  rest and every other locale currently falls back to English. Move them to
-  `searchPromptEmpty` / `searchResultCountTemplate` the next time
-  `chat_ui_localizations.dart` is opened, and delete the two helpers.
+* **Closed:** `MessageSearchView`'s opening prompt and its result count were
+  `en`/`es` literals inside `message_search_delegate.dart`; they are now the
+  bundle keys `searchPromptEmpty` and the `searchResultCountSingularTemplate`
+  / `searchResultCountPluralTemplate` pair, read through
+  `l10n.searchResultCount(count)` so the plural form follows the locale's
+  CLDR category instead of `count == 1`. The two per-call overrides
+  (`emptyPromptText`, `resultCountLabelBuilder`) still win over the bundle.
+  The singular/plural pair is why the key is not the single
+  `searchResultCountTemplate` this bullet used to propose.
 * Templates use `{n}`, `{user}`, `{count}` placeholders consumed via
   `String.replaceAll`. Helpers in `chat_ui_localizations.dart` wrap the
   most common cases (`feedbackForwarded(count)`, etc.).
@@ -118,6 +118,12 @@ subtype (`AuthFailure`, `NetworkFailure`, `StorageFailure`, …).
   management, settings, presence — is translated there in the same change
   as everywhere else. Leaving a destructive-action dialog to the fallback
   is not "an explicit gap", it is a confirmation the reader cannot read.
+  The 2026-08 batch (`searchPromptEmpty`, the `searchResultCount*` pair,
+  `receiptNoExactTime`, `receiptAtLatestTemplate`, the
+  `deliveryStatusLegend*` keys and the `status*Description` sentences) sits
+  outside that set — a search screen and two explanatory surfaces, none of
+  them a decision the reader has to make — so it ships in en/es/fr/de/it/pt/ca
+  and rides the English fallback in that tier.
 
 ## 5. Models — `==` and `copyWith`
 
@@ -498,3 +504,36 @@ presenting notices its own way.
 
 Pass `snackBarBuilder` when the bar needs a shape of its own (margins, an
 action, a longer duration); do not rebuild the publication path around it.
+
+### 10.13 Host content in an SDK slot — `XxxBuilder` returning `null`
+
+Where the SDK owns *where* something appears and the host owns *what* it
+says, the seam is a nullable `XxxBuilder` field on `ChatViewBuilders` whose
+return type is nullable too (`emptyRoomBuilder`, `blockedMessageBuilder`,
+`systemMessageBuilder`, `headerBuilder`).
+
+Nullable in both positions on purpose. The field being `null` means the
+host wired nothing at all; the *return* being `null` means the host was
+asked about this particular item and had nothing to add. A host that only
+decorates the rooms it recognizes must be able to say so per call, without
+reimplementing the SDK's fallback for the rest.
+
+Three obligations come with a slot like this:
+
+1. The fallback is a **public widget**, not a private helper
+   (`DefaultEmptyRoomState`), so a host can wrap or reuse it, and a test can
+   assert on it by type.
+2. The composable layout is **exported separately** from the fallback
+   (`EmptyRoomState` vs `DefaultEmptyRoomState`), so a host can keep the
+   SDK's spacing and theming while replacing the content.
+3. Whatever the host needs to act arrives in **one immutable argument
+   object** (`EmptyRoomInfo`), never as a growing parameter list. Callbacks
+   inside it are `null` when the action is unavailable — an empty room that
+   cannot be written to hands over `onSendFirstMessage: null` rather than a
+   callback that silently does nothing.
+
+`NomaChatView` layers adapter defaults under the host's builders by
+rebuilding `ChatViewBuilders` field by field. Every new field must be
+copied there too; a slot missing from `_resolveBuilders` is silently
+dropped for every host that goes through `NomaChatView`, which is all of
+them.
