@@ -182,7 +182,9 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
   (`GET /receipts` for the room), not on a count taken from the end of the
   list — own messages never count as unread and never anchor the line, and
   the line is not drawn until the first page of history has settled. With no
-  cursor available it degrades to counting back over incoming messages only
+  cursor available it degrades to counting back over incoming messages only.
+  The decision itself is exported as the pure function `resolveUnreadBoundary`,
+  for a host that wants to reason about or test it directly
 - A sender's name and avatar come back on the first bubble after anything
   that interrupts a run — a system notice, a date separator or the unread
   line
