@@ -1,3 +1,5 @@
+import 'package:meta/meta.dart' show internal;
+
 import '../../models/message.dart';
 import 'chat_ui_localizations.dart';
 
@@ -53,10 +55,20 @@ abstract final class SystemMessageMetadataKeys {
 /// proper nouns, so freezing them costs nothing in translation and saves a
 /// user lookup on every paint. A rename is not reflected on old banners,
 /// exactly as it is not on any other message already sent.
+///
+/// The one label that is not frozen is the one that never was a name: when
+/// a row was composed before the user cache knew who the id belonged to,
+/// its label *is* the raw id, and [resolveDisplayName] — when given — gets
+/// a second chance to turn it into a name on this paint.
 String? localizedSystemMessageText(
   ChatMessage message,
-  ChatUiLocalizations l10n,
-) => localizedSystemMessageTextFromMetadata(message.metadata, l10n);
+  ChatUiLocalizations l10n, {
+  String? Function(String userId)? resolveDisplayName,
+}) => localizedSystemMessageTextFromMetadata(
+  message.metadata,
+  l10n,
+  resolveDisplayName: resolveDisplayName,
+);
 
 /// [localizedSystemMessageText] over a raw metadata map — used by the
 /// adapter, which builds the map before it has a [ChatMessage] to put it
@@ -64,20 +76,26 @@ String? localizedSystemMessageText(
 /// one switch.
 String? localizedSystemMessageTextFromMetadata(
   Map<String, dynamic>? metadata,
-  ChatUiLocalizations l10n,
-) {
+  ChatUiLocalizations l10n, {
+  String? Function(String userId)? resolveDisplayName,
+}) {
   if (metadata == null) return null;
   final event = metadata[SystemMessageMetadataKeys.event];
   if (event is! String) return null;
-  final userLabel = metadata[SystemMessageMetadataKeys.userLabel];
-  if (userLabel is! String || userLabel.isEmpty) return null;
+  final rawUserLabel = metadata[SystemMessageMetadataKeys.userLabel];
+  if (rawUserLabel is! String || rawUserLabel.isEmpty) return null;
 
   final userId = metadata[SystemMessageMetadataKeys.userId];
   final actorUserId = metadata[SystemMessageMetadataKeys.actorUserId];
   final isKick = actorUserId is String && actorUserId != userId;
   final rawActorLabel = metadata[SystemMessageMetadataKeys.actorLabel];
+  final userLabel = _preferResolvedLabel(
+    rawUserLabel,
+    userId,
+    resolveDisplayName,
+  );
   final actorLabel = rawActorLabel is String && rawActorLabel.isNotEmpty
-      ? rawActorLabel
+      ? _preferResolvedLabel(rawActorLabel, actorUserId, resolveDisplayName)
       : null;
 
   if (event == 'user_left' && isKick) {
@@ -97,4 +115,57 @@ String? localizedSystemMessageTextFromMetadata(
     'user_role_changed' => l10n.userRoleChanged(userLabel),
     _ => null,
   };
+}
+
+/// [message] with every membership label that is still the raw id it was
+/// supposed to name replaced by what [resolveDisplayName] answers for it.
+///
+/// A host can paint the banner itself — `systemMessageTextResolver` and
+/// `systemMessageBuilder` both take precedence over the sentence
+/// [localizedSystemMessageText] builds — and it composes from this
+/// metadata, so the second chance at a name has to reach the ingredients
+/// and not only that sentence. Returns [message] untouched when there is
+/// nothing to improve, so the common row costs one map read.
+@internal
+ChatMessage messageWithResolvedSystemLabels(
+  ChatMessage message,
+  String? Function(String userId)? resolveDisplayName,
+) {
+  final metadata = message.metadata;
+  if (resolveDisplayName == null || metadata == null) return message;
+  Map<String, dynamic>? patched;
+  const pairs = [
+    (SystemMessageMetadataKeys.userId, SystemMessageMetadataKeys.userLabel),
+    (
+      SystemMessageMetadataKeys.actorUserId,
+      SystemMessageMetadataKeys.actorLabel,
+    ),
+  ];
+  for (final (idKey, labelKey) in pairs) {
+    final label = metadata[labelKey];
+    if (label is! String || label.isEmpty) continue;
+    final resolved = _preferResolvedLabel(
+      label,
+      metadata[idKey],
+      resolveDisplayName,
+    );
+    if (resolved == label) continue;
+    (patched ??= Map<String, dynamic>.of(metadata))[labelKey] = resolved;
+  }
+  return patched == null ? message : message.copyWith(metadata: patched);
+}
+
+/// [label] unless it is the raw [userId] it was supposed to name, in which
+/// case [resolve] is asked for a real name. Anything the resolver cannot
+/// improve on (no resolver, no match, the id again, blanks) leaves the
+/// stored label untouched.
+String _preferResolvedLabel(
+  String label,
+  Object? userId,
+  String? Function(String userId)? resolve,
+) {
+  if (resolve == null || userId is! String || label != userId) return label;
+  final resolved = resolve(userId)?.trim();
+  if (resolved == null || resolved.isEmpty || resolved == userId) return label;
+  return resolved;
 }

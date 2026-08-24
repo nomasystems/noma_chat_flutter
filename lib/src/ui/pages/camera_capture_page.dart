@@ -79,7 +79,10 @@ class CameraCapturePage extends StatefulWidget {
 }
 
 class _CameraCapturePageState extends State<CameraCapturePage>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, ChatNoticeAnchor<CameraCapturePage> {
+  @override
+  ChatTheme get noticeTheme => widget.theme;
+
   CameraController? _controller;
   List<CameraDescription> _cameras = const [];
   int _activeCameraIndex = 0;
@@ -118,7 +121,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // in the app cache that only [dispose] is left to collect.
   bool _captureConfirmed = false;
 
-  ChatUiLocalizations get _l10n => widget.theme.l10nOf(context);
+  ChatUiLocalizations get _l10n => noticeL10n;
 
   @override
   void initState() {
@@ -561,8 +564,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       final permanentlyBlocked =
           status.isPermanentlyDenied || status.isRestricted;
       final l10n = _l10n;
-      showChatNotice(
-        context,
+      showNotice(
         l10n.microphonePermissionDenied,
         snackBarBuilder: (context, message) => SnackBar(
           content: Text(message),

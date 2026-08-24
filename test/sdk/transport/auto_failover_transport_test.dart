@@ -269,6 +269,89 @@ void main() {
       },
     );
 
+    test('the SSE retry loop is silent once the primary carries the traffic: '
+        'stopping the fallback drops its events, errors included', () async {
+      final surfaced = <ChatEvent>[];
+      final states = <ChatConnectionState>[];
+      transport.events.listen(surfaced.add);
+      transport.stateChanges.listen(states.add);
+
+      await transport.connect();
+
+      // WS blocked from the first handshake: the fallback is promoted.
+      for (var i = 0; i < 3; i++) {
+        primaryStates.add(ChatConnectionState.error);
+        await Future<void>.delayed(Duration.zero);
+      }
+      verify(() => fallback.connect()).called(1);
+
+      // WS recovers and takes the traffic back: `_stopFallback` clears
+      // `_fallbackActive` synchronously.
+      primaryStates.add(ChatConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+      expect(transport.state, ChatConnectionState.connected);
+
+      // /v1/eventsource answering 404 on every leftover SSE retry, once a
+      // minute, while the WS link is healthy: neither the state nor the
+      // event side may reach the consumer.
+      fallbackStates.add(ChatConnectionState.error);
+      fallbackEvents.add(
+        const ChatEvent.error(
+          exception: ChatNetworkException(
+            'DioException [bad response]: This exception was thrown because '
+            'the response has a status code of 404 and RequestOptions.'
+            'validateStatus was configured to throw for this status code.',
+          ),
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(surfaced.whereType<ErrorEvent>(), isEmpty);
+      expect(transport.state, ChatConnectionState.connected);
+      expect(states, isNot(contains(ChatConnectionState.error)));
+    });
+
+    test('a fallback error still surfaces while the fallback is the live '
+        'route: it is the only signal the session has lost its link', () async {
+      final surfaced = <ChatEvent>[];
+      transport.events.listen(surfaced.add);
+
+      await transport.connect();
+      for (var i = 0; i < 3; i++) {
+        primaryStates.add(ChatConnectionState.error);
+        await Future<void>.delayed(Duration.zero);
+      }
+      fallbackStates.add(ChatConnectionState.connected);
+      await Future<void>.delayed(Duration.zero);
+      expect(transport.state, ChatConnectionState.connected);
+
+      fallbackEvents.add(
+        const ChatEvent.error(exception: ChatNetworkException()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(surfaced.whereType<ErrorEvent>(), hasLength(1));
+    });
+
+    test('a fallback error while nothing is carrying the session surfaces '
+        'too', () async {
+      final surfaced = <ChatEvent>[];
+      transport.events.listen(surfaced.add);
+
+      await transport.connect();
+      for (var i = 0; i < 3; i++) {
+        primaryStates.add(ChatConnectionState.error);
+        await Future<void>.delayed(Duration.zero);
+      }
+
+      fallbackEvents.add(
+        const ChatEvent.error(exception: ChatNetworkException()),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(surfaced.whereType<ErrorEvent>(), hasLength(1));
+    });
+
     test('the terminal-auth latch clears on a fresh primary connection so '
         'failover resumes after re-auth', () async {
       await transport.connect();

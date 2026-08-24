@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../cache/cache_policy.dart';
 import '../../core/result.dart';
 import '../../models/room.dart';
 import '../../models/room_user.dart';
@@ -59,7 +60,11 @@ class GroupInfoPage extends StatefulWidget {
   State<GroupInfoPage> createState() => _GroupInfoPageState();
 }
 
-class _GroupInfoPageState extends State<GroupInfoPage> {
+class _GroupInfoPageState extends State<GroupInfoPage>
+    with ChatNoticeAnchor<GroupInfoPage> {
+  @override
+  ChatTheme get noticeTheme => widget.theme;
+
   RoomDetail? _detail;
   bool _loading = true;
   bool _saving = false;
@@ -90,7 +95,10 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
       _loading = true;
       _error = null;
     });
-    final result = await widget.adapter.client.rooms.get(widget.roomId);
+    final result = await widget.adapter.client.rooms.get(
+      widget.roomId,
+      cachePolicy: CachePolicy.networkFirst,
+    );
     if (!mounted) return;
     if (result.isFailure) {
       setState(() {
@@ -127,7 +135,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showChatNotice(context, _failureMessage(result));
+      showNotice(_failureMessage(result));
     }
   }
 
@@ -181,7 +189,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
       if (uploadRes.isFailure) {
         if (!mounted) return;
         setState(() => _saving = false);
-        showChatNotice(context, widget.theme.l10nOf(context).photoUploadFailed);
+        showNotice(noticeL10n.photoUploadFailed);
         return;
       }
       avatarUrl = uploadRes.dataOrNull;
@@ -199,7 +207,7 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showChatNotice(context, widget.theme.l10nOf(context).photoUploadFailed);
+      showNotice(noticeL10n.photoUploadFailed);
     }
   }
 
@@ -223,13 +231,12 @@ class _GroupInfoPageState extends State<GroupInfoPage> {
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showChatNotice(context, _failureMessage(result));
+      showNotice(_failureMessage(result));
     }
   }
 
   String _failureMessage(ChatResult<void> r) =>
-      r.failureOrNull?.message ??
-      widget.theme.l10nOf(context).photoUploadFailed;
+      r.failureOrNull?.message ?? noticeL10n.photoUploadFailed;
 
   @override
   Widget build(BuildContext context) {

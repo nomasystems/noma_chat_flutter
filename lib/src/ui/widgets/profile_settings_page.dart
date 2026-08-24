@@ -73,7 +73,11 @@ class ProfileSettingsPage extends StatefulWidget {
   State<ProfileSettingsPage> createState() => _ProfileSettingsPageState();
 }
 
-class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
+class _ProfileSettingsPageState extends State<ProfileSettingsPage>
+    with ChatNoticeAnchor<ProfileSettingsPage> {
+  @override
+  ChatTheme get noticeTheme => widget.theme;
+
   late final TextEditingController _nameController;
   late final TextEditingController _bioController;
   late final TextEditingController _emailController;
@@ -228,13 +232,12 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage> {
       }
     });
     if (result.isFailure) {
-      showChatNotice(context, widget.theme.l10nOf(context).photoUploadFailed);
+      showNotice(noticeL10n.photoUploadFailed);
       return false;
     }
     if (showSuccessToast) {
-      showChatNotice(
-        context,
-        widget.theme.l10nOf(context).changesSaved,
+      showNotice(
+        noticeL10n.changesSaved,
         snackBarBuilder: (context, message) => SnackBar(
           content: Text(message),
           duration: const Duration(seconds: 2),

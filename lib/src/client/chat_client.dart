@@ -1234,8 +1234,9 @@ abstract class ChatContactsApi {
   /// If the recipient has blocked the sender the backend answers `204
   /// No Content`: the returned [ChatMessage] is synthesized locally
   /// with [ReceiptStatus.sent] and [ChatMessage.silentlyDropped] set to
-  /// `true`, so the caller can show a distinct state (e.g. a single
-  /// grey check with no further progress) instead of a normal "sent".
+  /// `true`. It must be rendered as an ordinary "sent" message — a
+  /// block is invisible to the blocked sender, so a distinct state
+  /// would give it away. See [ChatMessage.silentlyDropped].
   ///
   /// [clientMessageId] is the idempotency key for the send — same
   /// semantics as [ChatMessagesApi.send]: auto-generated when omitted,

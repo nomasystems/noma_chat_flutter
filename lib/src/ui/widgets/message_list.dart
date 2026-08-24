@@ -1099,6 +1099,7 @@ class _MessageListState extends State<MessageList> {
       forwardedSourceLabel: _resolveForwardedSourceLabel(msg),
       systemMessageTextResolver: widget.systemMessageTextResolver,
       systemMessageBuilder: widget.systemMessageBuilder,
+      displayNameResolver: widget.displayNameResolver,
     );
   }
 

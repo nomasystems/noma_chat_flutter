@@ -41,7 +41,11 @@ class BlockedUsersView extends StatefulWidget {
   State<BlockedUsersView> createState() => _BlockedUsersViewState();
 }
 
-class _BlockedUsersViewState extends State<BlockedUsersView> {
+class _BlockedUsersViewState extends State<BlockedUsersView>
+    with ChatNoticeAnchor<BlockedUsersView> {
+  @override
+  ChatTheme get noticeTheme => widget.theme;
+
   List<String>? _blocked;
   bool _loading = false;
   String? _error;
@@ -97,10 +101,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView> {
       // Surface a basic error message; the consumer can wrap the widget
       // with their own SnackBar pipeline (via operationErrors) for richer
       // handling.
-      showChatNotice(
-        context,
-        result.failureOrNull?.toString() ?? l10n.unblockFailed,
-      );
+      showNotice(result.failureOrNull?.toString() ?? l10n.unblockFailed);
     }
   }
 

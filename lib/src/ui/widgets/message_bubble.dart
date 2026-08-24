@@ -88,6 +88,7 @@ class MessageBubble extends StatelessWidget {
     this.avatarWidget,
     this.systemMessageTextResolver,
     this.systemMessageBuilder,
+    this.displayNameResolver,
     this.readReceiptUsers = const [],
     this.readReceipts = const [],
     this.senderAvatarUrl,
@@ -221,6 +222,13 @@ class MessageBubble extends StatelessWidget {
   final String Function(ChatMessage message)? systemMessageTextResolver;
   final Widget? Function(BuildContext context, ChatMessage message)?
   systemMessageBuilder;
+
+  /// Late lookup of a display name by user id, wired by `MessageList` to
+  /// the host's [MessageList.displayNameResolver]. A membership banner
+  /// composed while the user cache was still cold carries the raw id where
+  /// the name belongs; asking again on paint turns that id into a name as
+  /// soon as the cache answers, instead of freezing the UUID forever.
+  final String? Function(String userId)? displayNameResolver;
 
   /// Users that have read this message — typically derived by `MessageList`
   /// via `readersFor` from the room's read receipts. When non-empty (and the
@@ -713,7 +721,8 @@ class MessageBubble extends StatelessWidget {
   }
 
   Widget _buildSystemMessage(BuildContext context) {
-    final customSystemWidget = systemMessageBuilder?.call(context, message);
+    final row = messageWithResolvedSystemLabels(message, displayNameResolver);
+    final customSystemWidget = systemMessageBuilder?.call(context, row);
     if (customSystemWidget != null) {
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -721,9 +730,9 @@ class MessageBubble extends StatelessWidget {
       );
     }
     final resolvedText =
-        systemMessageTextResolver?.call(message) ??
-        localizedSystemMessageText(message, theme.l10nOf(context)) ??
-        message.text ??
+        systemMessageTextResolver?.call(row) ??
+        localizedSystemMessageText(row, theme.l10nOf(context)) ??
+        row.text ??
         '';
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),

@@ -174,22 +174,31 @@ class MemberEventHandler {
     );
   }
 
-  void addSystemMessage(
+  /// Longest the banner waits for a display name before composing with
+  /// whatever [_displayNameFor] can give — the raw id in the worst case.
+  /// The lookup behind [_ensureUserCached] is a single REST read, so the
+  /// budget only has to cover a slow round trip; past it the banner is
+  /// still posted (and the bubble re-resolves the name when it repaints).
+  static const Duration _labelResolutionTimeout = Duration(seconds: 3);
+
+  Future<void> addSystemMessage(
     String roomId,
     String eventType,
     String userId, {
     String? actorUserId,
-  }) {
+  }) async {
+    var me = _currentUser();
+    final pending = <String>[
+      if (_needsNameResolution(userId, me)) userId,
+      if (actorUserId != null && _needsNameResolution(actorUserId, me))
+        actorUserId,
+    ];
+    if (pending.isNotEmpty) {
+      await Future.wait(pending.map(_resolveNameBounded));
+      if (_isDisposed()) return;
+      me = _currentUser();
+    }
     final controller = chatControllers[roomId];
-    final me = _currentUser();
-    if (userId != me.id && !userCacheService.contains(userId)) {
-      unawaited(_ensureUserCached(userId));
-    }
-    if (actorUserId != null &&
-        actorUserId != me.id &&
-        !userCacheService.contains(actorUserId)) {
-      unawaited(_ensureUserCached(actorUserId));
-    }
     final label = _displayNameFor(userId);
     final meId = me.id;
     final metadata = <String, dynamic>{
@@ -222,6 +231,40 @@ class MemberEventHandler {
     }
     if (roomListController.getRoomById(roomId) == null) {
       _addRoomFromDetail(roomId);
+    }
+  }
+
+  /// `true` when composing the banner right now would put [userId] itself
+  /// in the sentence. Self never needs a lookup (the local user's name is
+  /// on `currentUser`), and neither does an id the cache already answers
+  /// for; anything else is a name the SDK has simply not read yet.
+  bool _needsNameResolution(String userId, ChatUser me) =>
+      userId != me.id &&
+      !userCacheService.contains(userId) &&
+      _displayNameFor(userId) == userId;
+
+  /// How often the piggybacking branch below re-reads the cache.
+  static const Duration _labelResolutionPollInterval = Duration(
+    milliseconds: 50,
+  );
+
+  Future<void> _resolveNameBounded(String userId) async {
+    final deadline = DateTime.now().add(_labelResolutionTimeout);
+    try {
+      await _ensureUserCached(userId).timeout(_labelResolutionTimeout);
+    } catch (e) {
+      logger?.call('warn', 'Failed to resolve display name for $userId: $e');
+      return;
+    }
+    // `ensureCached` dedupes: when another path already has this id in
+    // flight it answers `null` straight away instead of handing over the
+    // pending future, so the only way to wait for that fetch is to watch
+    // the cache until it lands or the budget runs out.
+    while (!_isDisposed() &&
+        !userCacheService.contains(userId) &&
+        userCacheService.isFetching(userId) &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(_labelResolutionPollInterval);
     }
   }
 

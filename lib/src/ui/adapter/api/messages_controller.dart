@@ -496,6 +496,20 @@ interface class ChatMessagesController {
       }
       final materialization = await _a.ensureDmRoomMaterialized(otherUserId);
       if (materialization.isFailure) {
+        // Creating the 1:1 room is refused with `403 blocked` when the
+        // other party blocks this user. Same swallow as every other send
+        // path: the row stays as sent and no failure is reported, so the
+        // first thing ever sent to a blocker cannot be the one that gives
+        // the block away. The blob never left the device, so the bubble
+        // keeps the empty attachment url it already had while uploading.
+        if (_a._isBlockedError(materialization.failureOrNull)) {
+          return _a._optimistic.swallowDraftBlockedAsSent(
+            controller: controller,
+            draftKey: roomIdOrDraftKey,
+            optimistic: optimistic,
+            operationKind: OperationKind.uploadAttachment,
+          );
+        }
         controller.markFailed(tempId);
         return _a._emitFailure(
           materialization.castFailure<ChatMessage>(),
@@ -706,6 +720,19 @@ interface class ChatMessagesController {
       return ChatFailureResult(
         sendResult.failureOrNull ??
             const NetworkFailure('chat session ended mid-send'),
+      );
+    }
+
+    // Same `403 blocked` swallow as every other send path: the recipient
+    // blocks the sender, and an attachment must not be the one bubble that
+    // gives that away.
+    if (sendResult.isFailure && _a._isBlockedError(sendResult.failureOrNull)) {
+      release.reachedFinalState = true;
+      return _a._optimistic.swallowBlockedAsSent(
+        controller: controller,
+        roomId: roomId,
+        tempId: tempId,
+        optimistic: uploaded,
       );
     }
 
@@ -998,6 +1025,17 @@ interface class ChatMessagesController {
       }
       final materialization = await _a.ensureDmRoomMaterialized(otherUserId);
       if (materialization.isFailure) {
+        // Same `403 blocked` swallow as `sendAttachment`: the room the
+        // clip needs cannot be created because the other party blocks the
+        // sender, and that must not reach them as a failed bubble.
+        if (_a._isBlockedError(materialization.failureOrNull)) {
+          return _a._optimistic.swallowDraftBlockedAsSent(
+            controller: controller,
+            draftKey: roomIdOrDraftKey,
+            optimistic: optimistic,
+            operationKind: OperationKind.sendVoiceMessage,
+          );
+        }
         controller.markFailed(tempId);
         return _a._emitFailure(
           materialization.castFailure<ChatMessage>(),
@@ -1171,6 +1209,16 @@ interface class ChatMessagesController {
       return ChatFailureResult(
         sendResult.failureOrNull ??
             const NetworkFailure('chat session ended mid-send'),
+      );
+    }
+
+    if (sendResult.isFailure && _a._isBlockedError(sendResult.failureOrNull)) {
+      release.reachedFinalState = true;
+      return _a._optimistic.swallowBlockedAsSent(
+        controller: controller,
+        roomId: roomId,
+        tempId: tempId,
+        optimistic: uploaded,
       );
     }
 
@@ -1400,6 +1448,21 @@ interface class ChatMessagesController {
         }
         final materialization = await _a.ensureDmRoomMaterialized(otherUserId);
         if (materialization.isFailure) {
+          // The target blocks the sender, so their 1:1 room cannot be
+          // created. Swallowed like the send that would have followed it:
+          // the forward reports success for this target and the row lands
+          // in the draft frozen at one tick.
+          if (_a._isBlockedError(materialization.failureOrNull)) {
+            results.add(
+              _a._optimistic.swallowDraftBlockedAsSent(
+                controller: draftController,
+                draftKey: targetKey,
+                optimistic: optimistic,
+                operationKind: OperationKind.sendMessage,
+              ),
+            );
+            continue;
+          }
           final failure = materialization.castFailure<ChatMessage>();
           results.add(failure);
           _a._emitFailure(
@@ -1436,6 +1499,19 @@ interface class ChatMessagesController {
           targetController?.confirmSent(tempId, confirmed);
         }
         _a._roomListMutator.updateRoomLastMessage(effectiveTargetId, confirmed);
+      } else if (_a._isBlockedError(res.failureOrNull)) {
+        // Same `403 blocked` swallow as every other send path: this target
+        // blocks the sender, and the forward reports as delivered-to-N like
+        // any other.
+        results.add(
+          _a._optimistic.swallowBlockedAsSent(
+            controller: targetController,
+            roomId: effectiveTargetId,
+            tempId: tempId,
+            optimistic: optimistic,
+          ),
+        );
+        continue;
       } else {
         targetController?.markFailed(tempId);
       }

@@ -223,7 +223,11 @@ class NomaChatView extends StatefulWidget {
   State<NomaChatView> createState() => _NomaChatViewState();
 }
 
-class _NomaChatViewState extends State<NomaChatView> {
+class _NomaChatViewState extends State<NomaChatView>
+    with ChatNoticeAnchor<NomaChatView> {
+  @override
+  ChatTheme get noticeTheme => _theme;
+
   ChatController? _controller;
 
   int _initialUnreadCount = 0;
@@ -640,7 +644,7 @@ class _NomaChatViewState extends State<NomaChatView> {
     if (reason == null || reason.isEmpty || !mounted) return;
     await adapter.client.messages.report(roomId, message.id, reason: reason);
     if (!mounted) return;
-    showChatNotice(context, _theme.l10nOf(context).reported);
+    showNotice(noticeL10n.reported);
   }
 
   Future<void> _showMessageInfo(String roomId, ChatMessage message) async {
@@ -742,6 +746,8 @@ class _NomaChatViewState extends State<NomaChatView> {
       onShareLocation: user.onShareLocation,
       onAttachTap: user.onAttachTap,
       onPermissionDenied: user.onPermissionDenied,
+      canStartRecording: user.canStartRecording,
+      onRecordingRejected: user.onRecordingRejected,
       onTapImage:
           user.onTapImage ?? (msg) => _openImageViewer(context, sendKey, msg),
       onUnblock:
@@ -890,8 +896,8 @@ class _NomaChatViewState extends State<NomaChatView> {
 
   void _reportAttachmentRejected(AttachmentRejection rejection) {
     if (!mounted) return;
-    final l10n = _theme.l10nOf(context);
-    showChatNotice(context, switch (rejection.reason) {
+    final l10n = noticeL10n;
+    showNotice(switch (rejection.reason) {
       AttachmentRejectReason.tooLarge => l10n.attachmentTooLarge,
       AttachmentRejectReason.mimeNotAllowed => l10n.attachmentTypeNotAllowed,
       AttachmentRejectReason.unreadable => l10n.attachmentUnreadable,

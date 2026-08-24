@@ -78,6 +78,11 @@ class UserCacheService {
     }
   }
 
+  /// `true` while a fetch for [userId] is in flight. A caller that got a
+  /// `null` out of [ensureCached] can tell "nobody is looking" apart from
+  /// "someone else already is, and the entry is about to land".
+  bool isFetching(String userId) => _pendingFetches.contains(userId);
+
   /// Drops every cached user and any in-flight fetch marker. Called
   /// from `signOut` / `dispose`.
   void clear() {

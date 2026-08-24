@@ -168,7 +168,10 @@ class MessageForwardSheet extends StatefulWidget {
       if (onEmpty != null) {
         onEmpty(context);
       } else {
-        showChatNotice(context, theme.l10nOf(context).noChatsToForward);
+        showChatNotice(
+          context,
+          chatNoticeL10n(context, theme).noChatsToForward,
+        );
       }
       return null;
     }

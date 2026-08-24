@@ -1117,20 +1117,31 @@ await chat.client.contacts.unblock(userId);
 final blocked = await chat.client.contacts.listBlocked();
 ```
 
-`contacts.sendDirectMessage()` returns success even when the recipient has
-blocked the sender — the backend answers `204 No Content` in that case and
-the SDK synthesizes a local `ChatMessage` with `ReceiptStatus.sent` so the
-composer clears normally. Check `message.silentlyDropped` to tell that case
-apart from a real send and show a distinct state (e.g. a single grey check
-that never progresses) instead of a plain "sent":
+#### Sending to someone who blocked you
 
-```dart
-final result = await chat.client.contacts.sendDirectMessage(userId, text: 'hi');
-final message = result.dataOrNull;
-if (message != null && message.silentlyDropped) {
-  // Accepted by the server but never delivered — recipient has blocked us.
-}
-```
+A block is invisible to the blocked sender, WhatsApp-style: they must not be
+able to tell a rejected send from an ordinary one. The library owns that, and
+the host must not undo it by painting a state of its own.
+
+Every send path through the UI layer — `messages.send`, the first message of
+a draft DM (both when creating the 1:1 room is refused and when the
+contact-addressed fallback is), `messages.retrySend`, `sendAttachment`,
+`sendVoice` and `forward` — swallows the server's `403 blocked` and returns
+**success**. The row keeps `ReceiptStatus.sent`, no `OperationError` is
+emitted, and the message is written to the local cache so it is still there
+after a cold start. It is also pinned: no delivery cursor, fan-out or
+per-user ack can ever advance it to ✓✓, because nobody received it.
+
+Such a row carries `ChatMessage.silentlyDropped == true`. That flag is for
+the library's own bookkeeping (and for hosts that need to reason about local
+history) — **do not render a distinct state from it**. Showing "not
+delivered", a warning icon or a retry affordance on those bubbles tells the
+sender exactly what the product decided they must not learn.
+
+The same applies one level down: `contacts.sendDirectMessage()` answers
+`204 No Content` when the recipient blocks the sender, and the SDK
+synthesizes a local `ChatMessage` with `ReceiptStatus.sent` and
+`silentlyDropped: true` so the composer clears normally.
 
 DM typing indicators (`contacts.sendTyping()`) always travel over REST
 (`POST /contacts/{id}/activity`), regardless of the realtime connection

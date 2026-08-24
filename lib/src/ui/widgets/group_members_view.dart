@@ -92,7 +92,11 @@ class GroupMembersView extends StatefulWidget {
   State<GroupMembersView> createState() => _GroupMembersViewState();
 }
 
-class _GroupMembersViewState extends State<GroupMembersView> {
+class _GroupMembersViewState extends State<GroupMembersView>
+    with ChatNoticeAnchor<GroupMembersView> {
+  @override
+  ChatTheme get noticeTheme => widget.theme;
+
   List<RoomUser>? _members;
   bool _loading = false;
   bool _loadingMore = false;
@@ -233,7 +237,7 @@ class _GroupMembersViewState extends State<GroupMembersView> {
         _loadingMore = false;
         // Keep whatever page is already loaded; only surface the error via
         // a snackbar since `_error` would otherwise blank the existing list.
-        showChatNotice(context, failure.toString());
+        showNotice(failure.toString());
       }),
       (paginated) {
         _seedCacheFromExpanded(paginated.items);
@@ -378,10 +382,8 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showChatNotice(
-        context,
-        result.failureOrNull?.toString() ??
-            widget.theme.l10nOf(context).updateRoleFailed,
+      showNotice(
+        result.failureOrNull?.toString() ?? noticeL10n.updateRoleFailed,
       );
       return;
     }
@@ -398,10 +400,8 @@ class _GroupMembersViewState extends State<GroupMembersView> {
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showChatNotice(
-        context,
-        result.failureOrNull?.toString() ??
-            widget.theme.l10nOf(context).removeMemberFailed,
+      showNotice(
+        result.failureOrNull?.toString() ?? noticeL10n.removeMemberFailed,
       );
       return;
     }

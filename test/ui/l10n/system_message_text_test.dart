@@ -147,6 +147,69 @@ void main() {
       );
     });
 
+    test('resolves a label that is still the raw user id', () {
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          const {
+            SystemMessageMetadataKeys.event: 'user_joined',
+            SystemMessageMetadataKeys.userId: 'u2',
+            SystemMessageMetadataKeys.userLabel: 'u2',
+          },
+          ChatUiLocalizations.es,
+          resolveDisplayName: (id) => id == 'u2' ? 'Alice' : null,
+        ),
+        'Alice se ha unido',
+      );
+    });
+
+    test('resolves the actor label of a kick that froze the raw id', () {
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          const {
+            SystemMessageMetadataKeys.event: 'user_left',
+            SystemMessageMetadataKeys.userId: 'u3',
+            SystemMessageMetadataKeys.actorUserId: 'u2',
+            SystemMessageMetadataKeys.userLabel: 'u3',
+            SystemMessageMetadataKeys.actorLabel: 'u2',
+          },
+          ChatUiLocalizations.es,
+          resolveDisplayName: (id) => switch (id) {
+            'u2' => 'Alice',
+            'u3' => 'Bob',
+            _ => null,
+          },
+        ),
+        'Alice ha eliminado a Bob',
+      );
+    });
+
+    test('keeps the stored label when the resolver has nothing better', () {
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          const {
+            SystemMessageMetadataKeys.event: 'user_joined',
+            SystemMessageMetadataKeys.userId: 'u2',
+            SystemMessageMetadataKeys.userLabel: 'Alice',
+          },
+          ChatUiLocalizations.es,
+          resolveDisplayName: (_) => 'Someone else',
+        ),
+        'Alice se ha unido',
+      );
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          const {
+            SystemMessageMetadataKeys.event: 'user_joined',
+            SystemMessageMetadataKeys.userId: 'u2',
+            SystemMessageMetadataKeys.userLabel: 'u2',
+          },
+          ChatUiLocalizations.es,
+          resolveDisplayName: (_) => '  ',
+        ),
+        'u2 se ha unido',
+      );
+    });
+
     test('returns null for metadata that is not a membership banner', () {
       expect(
         localizedSystemMessageTextFromMetadata(null, ChatUiLocalizations.es),
@@ -251,6 +314,133 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Alice joined'), findsOneWidget);
+    });
+
+    testWidgets('turns a frozen raw id into a name on repaint', (tester) async {
+      final message = _systemMessage(
+        text: 'u2 joined',
+        metadata: const {
+          SystemMessageMetadataKeys.event: 'user_joined',
+          SystemMessageMetadataKeys.userId: 'u2',
+          SystemMessageMetadataKeys.userLabel: 'u2',
+        },
+      );
+
+      await tester.pumpWidget(
+        _host(
+          locale: const Locale('es'),
+          delegates: const [ChatUiLocalizations.delegate],
+          child: MessageBubble(
+            message: message,
+            isOutgoing: false,
+            displayNameResolver: (id) => id == 'u2' ? 'Alice' : null,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice se ha unido'), findsOneWidget);
+      expect(find.textContaining('u2'), findsNothing);
+    });
+
+    testWidgets('repairs the id for a host that recomposes the row', (
+      tester,
+    ) async {
+      final message = _systemMessage(
+        text: 'u2 joined',
+        metadata: const {
+          SystemMessageMetadataKeys.event: 'user_joined',
+          SystemMessageMetadataKeys.userId: 'u2',
+          SystemMessageMetadataKeys.userLabel: 'u2',
+        },
+      );
+
+      await tester.pumpWidget(
+        _host(
+          locale: const Locale('es'),
+          delegates: const [ChatUiLocalizations.delegate],
+          child: MessageBubble(
+            message: message,
+            isOutgoing: false,
+            displayNameResolver: (id) => id == 'u2' ? 'Alice' : null,
+            systemMessageTextResolver: (row) =>
+                localizedSystemMessageText(row, ChatUiLocalizations.es) ??
+                row.text ??
+                '',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice se ha unido'), findsOneWidget);
+      expect(find.textContaining('u2'), findsNothing);
+    });
+
+    testWidgets('repairs the kick actor for a host that recomposes the row', (
+      tester,
+    ) async {
+      final message = _systemMessage(
+        text: 'u2 removed',
+        metadata: const {
+          SystemMessageMetadataKeys.event: 'user_left',
+          SystemMessageMetadataKeys.userId: 'u2',
+          SystemMessageMetadataKeys.userLabel: 'Alice',
+          SystemMessageMetadataKeys.actorUserId: 'u3',
+          SystemMessageMetadataKeys.actorLabel: 'u3',
+        },
+      );
+
+      await tester.pumpWidget(
+        _host(
+          locale: const Locale('es'),
+          delegates: const [ChatUiLocalizations.delegate],
+          child: MessageBubble(
+            message: message,
+            isOutgoing: false,
+            displayNameResolver: (id) => id == 'u3' ? 'Bob' : null,
+            systemMessageTextResolver: (row) =>
+                localizedSystemMessageText(row, ChatUiLocalizations.es) ??
+                row.text ??
+                '',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Bob'), findsOneWidget);
+      expect(find.textContaining('u3'), findsNothing);
+    });
+
+    testWidgets('hands the custom system builder the repaired row', (
+      tester,
+    ) async {
+      final message = _systemMessage(
+        text: 'u2 joined',
+        metadata: const {
+          SystemMessageMetadataKeys.event: 'user_joined',
+          SystemMessageMetadataKeys.userId: 'u2',
+          SystemMessageMetadataKeys.userLabel: 'u2',
+        },
+      );
+
+      await tester.pumpWidget(
+        _host(
+          locale: const Locale('es'),
+          delegates: const [ChatUiLocalizations.delegate],
+          child: MessageBubble(
+            message: message,
+            isOutgoing: false,
+            displayNameResolver: (id) => id == 'u2' ? 'Alice' : null,
+            systemMessageBuilder: (_, row) => Text(
+              row.metadata?[SystemMessageMetadataKeys.userLabel] as String? ??
+                  '',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsOneWidget);
     });
 
     testWidgets('a host resolver still wins over both', (tester) async {

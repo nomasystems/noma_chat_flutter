@@ -7,6 +7,99 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
+  /// The tick palette the WannaBeer app ships in `wbChatTheme`: the read tick
+  /// takes the affirmative token (`0xFF34C759`, green) and the rest the
+  /// secondary content token.
+  const hostBubbleTheme = ChatBubbleTheme(
+    statusColor: Color(0xFF767675),
+    statusReadColor: Color(0xFF34C759),
+  );
+
+  final colourWord = RegExp(
+    r'\b(grey|gray|blue|green|red|gris|grises|grisos|grigio|grigi|grigie|'
+    r'cinzento|cinzentos|azul|azuis|blu|bleu|bleue|bleues|blau|blaue|grau|'
+    r'graue|grauen|verde|verd|vermelho|rouge|rot|rote)\b',
+    caseSensitive: false,
+  );
+
+  Color paintedGlyphColour(WidgetTester tester, MessageDeliveryState state) {
+    final painter = tester
+        .widgetList<CustomPaint>(
+          find.descendant(
+            of: find.descendant(
+              of: find.byKey(ValueKey(deliveryStatusLegendSemanticsId(state))),
+              matching: find.byType(MessageStatusIcon),
+            ),
+            matching: find.byType(CustomPaint),
+          ),
+        )
+        .map((paint) => paint.painter ?? paint.foregroundPainter)
+        .firstWhere((painter) => painter != null);
+    return ((painter as dynamic).color as Color);
+  }
+
+  testWidgets('the group footnote claims no colour the host theme denies', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      wrap(
+        DeliveryStatusLegendSheet(
+          isGroup: true,
+          theme: ChatTheme.defaults.copyWith(
+            l10n: ChatUiLocalizations.it,
+            bubble: hostBubbleTheme,
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      paintedGlyphColour(tester, MessageDeliveryState.read),
+      const Color(0xFF34C759),
+    );
+    expect(
+      paintedGlyphColour(tester, MessageDeliveryState.delivered),
+      const Color(0xFF767675),
+    );
+
+    final note = tester
+        .widget<Text>(
+          find.byKey(const ValueKey('chat_delivery_legend_group_note')),
+        )
+        .data!;
+    expect(
+      colourWord.hasMatch(note),
+      isFalse,
+      reason: 'the footnote reads "$note" while the read tick is 0xFF34C759',
+    );
+  });
+
+  test('no shipped locale describes the group footnote by colour', () {
+    const locales = <String, ChatUiLocalizations>{
+      'en': ChatUiLocalizations.en,
+      'es': ChatUiLocalizations.es,
+      'fr': ChatUiLocalizations.fr,
+      'de': ChatUiLocalizations.de,
+      'it': ChatUiLocalizations.it,
+      'pt': ChatUiLocalizations.pt,
+      'ca': ChatUiLocalizations.ca,
+      'sv': ChatUiLocalizations.sv,
+      'no': ChatUiLocalizations.no,
+      'da': ChatUiLocalizations.da,
+      'pl': ChatUiLocalizations.pl,
+      'cs': ChatUiLocalizations.cs,
+    };
+
+    for (final entry in locales.entries) {
+      final note = entry.value.deliveryStatusLegendGroupNote;
+      expect(
+        colourWord.hasMatch(note),
+        isFalse,
+        reason: '${entry.key} names a colour the host theme decides: "$note"',
+      );
+    }
+  });
+
   testWidgets('explains the five states, each with its own glyph', (
     tester,
   ) async {

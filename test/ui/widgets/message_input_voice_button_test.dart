@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/ui/widgets/_recording_indicators.dart'
+    show HoldToRecordHintPill;
 import 'package:record/record.dart';
 
 class _MockAudioRecorder extends Mock implements AudioRecorder {}
@@ -101,7 +103,11 @@ void main() {
 
   tearDown(() => chat.dispose());
 
-  Widget wrap({ChatTheme? theme}) => MaterialApp(
+  Widget wrap({
+    ChatTheme? theme,
+    bool Function()? canStartRecording,
+    VoidCallback? onRecordingRejected,
+  }) => MaterialApp(
     home: Scaffold(
       body: Align(
         alignment: Alignment.bottomCenter,
@@ -109,6 +115,8 @@ void main() {
           controller: chat,
           onSendMessageRequest: (_) {},
           onVoiceMessageReady: (_) {},
+          canStartRecording: canStartRecording,
+          onRecordingRejected: onRecordingRejected,
           voiceRecordingControllerFactory: (_) => fake,
           theme: theme ?? ChatTheme.defaults,
         ),
@@ -212,6 +220,113 @@ void main() {
 
       expect(fake.startCalls, 0);
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('MessageInput voice gate', () {
+    testWidgets('a vetoed room never arms the recorder', (tester) async {
+      var rejections = 0;
+      await tester.pumpWidget(
+        wrap(
+          canStartRecording: () => false,
+          onRecordingRejected: () => rejections++,
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(VoiceRecorderButton)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 2));
+
+      // startRecording is where the platform permission round trip lives,
+      // so zero calls is what "the system never asked for the microphone"
+      // looks like from here.
+      expect(fake.startCalls, 0);
+      expect(rejections, 1);
+      // The composer never swaps to the recording row: no "slide to
+      // cancel", no lock hint, the text field still on screen.
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text(ChatUiLocalizations.en.slideToCancel), findsNothing);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
+
+      expect(fake.startCalls, 0);
+      expect(fake.stopCalls, 0);
+      expect(rejections, 1);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a veto with no handler floats the default prompt', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(canStartRecording: () => false));
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(VoiceRecorderButton)),
+      );
+      await tester.pump();
+
+      expect(fake.startCalls, 0);
+      expect(find.byType(HoldToRecordHintPill), findsOneWidget);
+      expect(
+        find.text(ChatUiLocalizations.en.recordingNotAllowed),
+        findsOneWidget,
+      );
+
+      await gesture.up();
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('the veto is re-asked on every touch, not cached', (
+      tester,
+    ) async {
+      var open = false;
+      await tester.pumpWidget(
+        wrap(canStartRecording: () => open, onRecordingRejected: () {}),
+      );
+
+      final blocked = await tester.startGesture(
+        tester.getCenter(find.byType(VoiceRecorderButton)),
+      );
+      await tester.pump();
+      await blocked.up();
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(fake.startCalls, 0);
+
+      open = true;
+      final allowed = await tester.startGesture(
+        tester.getCenter(find.byType(VoiceRecorderButton)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // The refused touch left no gesture state behind: the very next
+      // touch records normally.
+      expect(fake.startCalls, 1);
+      expect(find.byType(TextField), findsNothing);
+
+      await allowed.up();
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('no veto keeps the recorder arming as before', (tester) async {
+      await tester.pumpWidget(wrap());
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(VoiceRecorderButton)),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(fake.startCalls, 1);
+
+      await gesture.up();
+      await tester.pumpAndSettle();
     });
   });
 }

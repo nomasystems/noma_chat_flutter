@@ -191,4 +191,95 @@ void main() {
       expect(c.serverIdForTemp('temp-1'), 'srv-1');
     });
   });
+
+  group('rows frozen at sent because the recipient blocks the sender', () {
+    ChatMessage dropped(String id, {Duration offset = Duration.zero}) => own(
+      id,
+      offset: offset,
+      receipt: ReceiptStatus.sent,
+    ).copyWith(silentlyDropped: true);
+
+    test('confirmSent(pinnedAsSent) leaves the row at one tick', () {
+      final c = controllerWith([]);
+      c.addMessage(own('temp-1'));
+      c.markPending('temp-1');
+
+      c.confirmSent('temp-1', dropped('temp-1'), pinnedAsSent: true);
+
+      expect(c.getMessageById('temp-1')?.receipt, ReceiptStatus.sent);
+      expect(c.isPending('temp-1'), isFalse);
+    });
+
+    test('a delivered cursor covering it does not advance it', () {
+      final c = controllerWith([]);
+      c.addMessage(own('temp-1'));
+      c.markPending('temp-1');
+      c.confirmSent('temp-1', dropped('temp-1'), pinnedAsSent: true);
+
+      c.applyDeliveryCursor(userId: 'peer', messageId: 'temp-1');
+
+      expect(c.receiptStatuses['temp-1'], isNull);
+      expect(c.getMessageById('temp-1')?.receipt, ReceiptStatus.sent);
+    });
+
+    test('a per-user delivered receipt addressed to it is refused', () {
+      final c = controllerWith([]);
+      c.addMessage(own('temp-1'));
+      c.markPending('temp-1');
+      c.confirmSent('temp-1', dropped('temp-1'), pinnedAsSent: true);
+
+      c.updateReceipt('temp-1', ReceiptStatus.read, fromUserId: 'peer');
+
+      expect(c.receiptStatuses['temp-1'], isNull);
+      expect(c.getMessageById('temp-1')?.receipt, ReceiptStatus.sent);
+    });
+
+    test('the high-water-mark fan-out skips it', () {
+      final c = controllerWith([
+        dropped('temp-1'),
+        own('srv-1', offset: const Duration(hours: 1)),
+      ]);
+
+      c.updateReceipt('srv-1', ReceiptStatus.read, fromUserId: 'peer');
+
+      expect(c.receiptStatuses['srv-1'], ReceiptStatus.read);
+      expect(c.receiptStatuses['temp-1'], isNull);
+      expect(c.getMessageById('temp-1')?.receipt, ReceiptStatus.sent);
+    });
+
+    test('a row rehydrated from cache stays frozen without the pin', () {
+      // The in-memory pin dies with the process; `silentlyDropped` is what
+      // the cache keeps, and it has to be enough on the next cold start.
+      final c = controllerWith([
+        dropped('temp-1'),
+        own('srv-1', offset: const Duration(hours: 1)),
+      ]);
+
+      c.applyDeliveryCursor(userId: 'peer', messageId: 'srv-1');
+
+      expect(c.receiptStatuses['srv-1'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['temp-1'], isNull);
+      expect(c.getMessageById('temp-1')?.receipt, ReceiptStatus.sent);
+    });
+
+    test('an ordinary send in the same room keeps advancing', () {
+      final c = controllerWith([]);
+      c.addMessage(dropped('temp-1'));
+      c.addMessage(own('temp-2', offset: const Duration(minutes: 1)));
+      c.markPending('temp-2');
+      c.confirmSent(
+        'temp-2',
+        own(
+          'srv-2',
+          offset: const Duration(minutes: 1),
+          receipt: ReceiptStatus.sent,
+        ),
+      );
+
+      c.updateReceipt('srv-2', ReceiptStatus.read, fromUserId: 'peer');
+
+      expect(c.receiptStatuses['srv-2'], ReceiptStatus.read);
+      expect(c.getMessageById('temp-1')?.receipt, ReceiptStatus.sent);
+    });
+  });
 }

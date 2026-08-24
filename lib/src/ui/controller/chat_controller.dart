@@ -127,6 +127,13 @@ class ChatController extends ChangeNotifier {
 
   // Pending messages: tempId -> true (sending), false (failed)
   final Map<String, bool> _pendingMessages = {};
+
+  // Ids frozen at [ReceiptStatus.sent] for good: sends the server refused
+  // because the recipient blocks the sender. The row renders as sent, but
+  // nothing may ever advance it — nobody received it. Fed by
+  // [confirmSent]'s `pinnedAsSent`, and re-derived after a cold start from
+  // [ChatMessage.silentlyDropped], which the cache preserves.
+  final Set<String> _pinnedSentIds = {};
   // Map tempId -> serverId for optimistic replacement
   final Map<String, String> _tempToServerId = {};
 
@@ -339,6 +346,7 @@ class ChatController extends ChangeNotifier {
     _clearReceipts();
     _pinnedMessages.clear();
     _pendingMessages.clear();
+    _pinnedSentIds.clear();
     _tempToServerId.clear();
     _draft = null;
     _replyingTo = null;
@@ -576,6 +584,17 @@ class ChatController extends ChangeNotifier {
   /// therefore stop at its door — see [_setReceipt].
   bool _isUnsent(String messageId) => _pendingMessages.containsKey(messageId);
 
+  /// `true` while [messageId] names a row whose delivery state is frozen at
+  /// [ReceiptStatus.sent]: the server accepted nothing, or accepted and
+  /// dropped it, because the recipient blocks the sender. No cursor, no
+  /// fan-out and no per-user ack may advance such a row — the ✓✓ it would
+  /// paint describes a delivery that never happened.
+  bool _isPinnedSent(String messageId) {
+    if (_pinnedSentIds.contains(messageId)) return true;
+    final index = _indexById[messageId];
+    return index != null && _messages[index].silentlyDropped;
+  }
+
   /// Erases every trace of a receipt for [messageId]: the aggregate, the
   /// per-user breakdown, the stamp on the row itself and its slot in the
   /// write-back queue.
@@ -599,8 +618,23 @@ class ChatController extends ChangeNotifier {
     _messages[index] = msg.copyWith(receipt: null);
   }
 
-  void confirmSent(String tempId, ChatMessage serverMessage) {
+  /// Replaces the optimistic row [tempId] with [serverMessage].
+  ///
+  /// [pinnedAsSent] declares the send one that will never be delivered —
+  /// the recipient blocks the sender — so the row is frozen at
+  /// [ReceiptStatus.sent] for the rest of the session (see [_isPinnedSent])
+  /// instead of being swept up by the next delivered cursor.
+  void confirmSent(
+    String tempId,
+    ChatMessage serverMessage, {
+    bool pinnedAsSent = false,
+  }) {
     _pendingMessages.remove(tempId);
+    if (pinnedAsSent) {
+      _pinnedSentIds
+        ..add(tempId)
+        ..add(serverMessage.id);
+    }
 
     // Remove the temporary message
     final tempIndex = _indexById[tempId];
@@ -640,6 +674,7 @@ class ChatController extends ChangeNotifier {
       _messages.add(_mergeReceiptInto(serverMessage));
     }
 
+    if (pinnedAsSent) _pinnedSentIds.add(confirmedId);
     _tempToServerId[tempId] = confirmedId;
     if (_tempToServerId.length > 100) {
       final excess = _tempToServerId.length - 50;
@@ -656,6 +691,7 @@ class ChatController extends ChangeNotifier {
 
   void removePending(String tempId) {
     _pendingMessages.remove(tempId);
+    _pinnedSentIds.remove(tempId);
     _tempToServerId.remove(tempId);
     removeMessage(tempId);
   }
@@ -740,7 +776,7 @@ class ChatController extends ChangeNotifier {
     // recorded under a temporary id outlives the id itself, and would be
     // re-derived into a receipt by the next [_recomputeAllReceipts] — after
     // reconciliation dropped the pending mark that [_setReceipt] relies on.
-    if (_isUnsent(messageId)) return;
+    if (_isUnsent(messageId) || _isPinnedSent(messageId)) return;
     _everAcknowledged.add(fromUserId);
     if (status == ReceiptStatus.delivered) {
       (_deliveredBy[messageId] ??= <String>{}).add(fromUserId);
@@ -802,7 +838,7 @@ class ChatController extends ChangeNotifier {
       // optimistic row sits in conversation order like any other and would
       // fall inside a cursor that can only have been computed from server
       // history.
-      if (_isUnsent(m.id)) continue;
+      if (_isUnsent(m.id) || _isPinnedSent(m.id)) continue;
       final msgSeq = _seqByMessageId[m.id];
       final covered = (cursorSeq != null && msgSeq != null)
           ? msgSeq <= cursorSeq
@@ -859,6 +895,7 @@ class ChatController extends ChangeNotifier {
   }) {
     if (status == null) return false;
     if (_isUnsent(messageId)) return false;
+    if (_isPinnedSent(messageId)) return false;
     if (_rankReceipt(status) <= _rankReceipt(_receiptFor(messageId))) {
       return false;
     }

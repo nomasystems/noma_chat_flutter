@@ -161,6 +161,7 @@ class ChatUiLocalizations {
     this.slideUpToLock = 'Slide up to lock',
     this.holdToRecord = 'Hold to record, release to send',
     this.recordingFailed = 'Could not record, try again',
+    this.recordingNotAllowed = "You can't send a voice message here",
     this.voiceRecording = 'Recording...',
     this.preListenLabel = 'Preview',
     this.pauseRecording = 'Pause recording',
@@ -359,8 +360,9 @@ class ChatUiLocalizations {
     this.statusFailedDescription =
         'It could not be sent. Tap the icon to try again.',
     this.deliveryStatusLegendGroupNote =
-        'In a group, two grey checks mean the message reached every member it '
-        'could reach; blue means every member has read it.',
+        'In a group, the delivered state means the message reached every '
+        'member it could reach; the read state means every member has read '
+        'it.',
     this.exportChat = 'Export chat',
     this.inviteViaLink = 'Invite via link',
     this.inviteLinkCopied = 'Invite link copied',
@@ -580,6 +582,13 @@ class ChatUiLocalizations {
   /// enough is never told to hold it longer. Set it to the empty string to
   /// suppress the prompt entirely.
   final String recordingFailed;
+
+  /// Prompt floated over the mic button when the host vetoes the
+  /// recording before it is armed — a read-only room, a counterpart who
+  /// cannot be messaged. Shown only when no `onRecordingRejected` handler
+  /// is supplied. Set it to the empty string to suppress the prompt
+  /// entirely.
+  final String recordingNotAllowed;
   final String voiceRecording;
   final String preListenLabel;
   final String pauseRecording;
@@ -1225,6 +1234,7 @@ class ChatUiLocalizations {
     String? slideUpToLock,
     String? holdToRecord,
     String? recordingFailed,
+    String? recordingNotAllowed,
     String? voiceRecording,
     String? preListenLabel,
     String? pauseRecording,
@@ -1514,6 +1524,7 @@ class ChatUiLocalizations {
       slideUpToLock: slideUpToLock ?? this.slideUpToLock,
       holdToRecord: holdToRecord ?? this.holdToRecord,
       recordingFailed: recordingFailed ?? this.recordingFailed,
+      recordingNotAllowed: recordingNotAllowed ?? this.recordingNotAllowed,
       voiceRecording: voiceRecording ?? this.voiceRecording,
       preListenLabel: preListenLabel ?? this.preListenLabel,
       pauseRecording: pauseRecording ?? this.pauseRecording,
@@ -1953,6 +1964,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Desliza arriba para bloquear',
     holdToRecord: 'Mantén pulsado para grabar, suelta para enviar',
     recordingFailed: 'No se pudo grabar, inténtalo de nuevo',
+    recordingNotAllowed: 'No puedes enviar un mensaje de voz aquí',
     voiceRecording: 'Grabando...',
     preListenLabel: 'Vista previa',
     pauseRecording: 'Pausar grabación',
@@ -2123,7 +2135,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'No se ha podido enviar. Toca el icono para reintentar.',
     deliveryStatusLegendGroupNote:
-        'En un grupo, los dos checks grises indican que el mensaje llegó a todos los miembros a los que pudo llegar; en azul, que todos lo han leído.',
+        'En un grupo, el estado entregado significa que el mensaje llegó a todos los miembros a los que pudo llegar; el estado leído, que todos lo han leído.',
     exportChat: 'Exportar chat',
     inviteViaLink: 'Invitar con enlace',
     inviteLinkCopied: 'Enlace de invitación copiado',
@@ -2323,6 +2335,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Glisser vers le haut pour verrouiller',
     holdToRecord: 'Maintenez pour enregistrer, relâchez pour envoyer',
     recordingFailed: 'Enregistrement impossible, réessayez',
+    recordingNotAllowed: 'Vous ne pouvez pas envoyer de message vocal ici',
     pauseRecording: 'Mettre en pause',
     resumeRecording: 'Reprendre l\'enregistrement',
     voiceRecording: 'Enregistrement...',
@@ -2445,7 +2458,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'Envoi impossible. Touchez l’icône pour réessayer.',
     deliveryStatusLegendGroupNote:
-        'Dans un groupe, deux coches grises signifient que le message a atteint tous les membres joignables ; en bleu, que tous l’ont lu.',
+        'Dans un groupe, l’état distribué signifie que le message a atteint tous les membres joignables ; l’état lu, que tous l’ont lu.',
     exportChat: 'Exporter la discussion',
     inviteViaLink: 'Inviter via un lien',
     inviteLinkCopied: 'Lien d\'invitation copié',
@@ -2648,6 +2661,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Nach oben wischen zum Sperren',
     holdToRecord: 'Zum Aufnehmen halten, zum Senden loslassen',
     recordingFailed: 'Aufnahme fehlgeschlagen, versuche es erneut',
+    recordingNotAllowed: 'Hier kannst du keine Sprachnachricht senden',
     pauseRecording: 'Aufnahme pausieren',
     resumeRecording: 'Aufnahme fortsetzen',
     voiceRecording: 'Aufnahme...',
@@ -2769,7 +2783,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'Konnte nicht gesendet werden. Tippe zum Wiederholen auf das Symbol.',
     deliveryStatusLegendGroupNote:
-        'In einer Gruppe bedeuten zwei graue Haken, dass die Nachricht alle erreichbaren Mitglieder erreicht hat; blau bedeutet, dass alle sie gelesen haben.',
+        'In einer Gruppe bedeutet der Status zugestellt, dass die Nachricht alle erreichbaren Mitglieder erreicht hat; der Status gelesen bedeutet, dass alle sie gelesen haben.',
     exportChat: 'Chat exportieren',
     inviteViaLink: 'Per Link einladen',
     inviteLinkCopied: 'Einladungslink kopiert',
@@ -2968,6 +2982,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Scorri verso l\'alto per bloccare',
     holdToRecord: 'Tieni premuto per registrare, rilascia per inviare',
     recordingFailed: 'Registrazione non riuscita, riprova',
+    recordingNotAllowed: 'Non puoi inviare un messaggio vocale qui',
     pauseRecording: 'Metti in pausa',
     resumeRecording: 'Riprendi registrazione',
     voiceRecording: 'Registrazione...',
@@ -3088,7 +3103,7 @@ class ChatUiLocalizations {
     statusReadDescription: 'La chat è stata aperta e il messaggio letto.',
     statusFailedDescription: 'Invio non riuscito. Tocca l’icona per riprovare.',
     deliveryStatusLegendGroupNote:
-        'In un gruppo, due spunte grigie indicano che il messaggio ha raggiunto tutti i membri raggiungibili; in blu, che tutti l’hanno letto.',
+        'In un gruppo, lo stato consegnato significa che il messaggio ha raggiunto tutti i membri raggiungibili; lo stato letto, che tutti l’hanno letto.',
     exportChat: 'Esporta chat',
     inviteViaLink: 'Invita tramite link',
     inviteLinkCopied: 'Link di invito copiato',
@@ -3287,6 +3302,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Deslizar para cima para bloquear',
     holdToRecord: 'Mantém premido para gravar, solta para enviar',
     recordingFailed: 'Não foi possível gravar, tenta de novo',
+    recordingNotAllowed: 'Não podes enviar uma mensagem de voz aqui',
     pauseRecording: 'Pausar gravação',
     resumeRecording: 'Retomar gravação',
     voiceRecording: 'A gravar...',
@@ -3408,7 +3424,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'Não foi possível enviar. Toca no ícone para tentar de novo.',
     deliveryStatusLegendGroupNote:
-        'Num grupo, dois tiques cinzentos indicam que a mensagem chegou a todos os membros alcançáveis; a azul, que todos a leram.',
+        'Num grupo, o estado entregue significa que a mensagem chegou a todos os membros alcançáveis; o estado lido, que todos a leram.',
     exportChat: 'Exportar conversa',
     inviteViaLink: 'Convidar por link',
     inviteLinkCopied: 'Link de convite copiado',
@@ -3602,6 +3618,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Llisca amunt per bloquejar',
     holdToRecord: 'Mantén premut per gravar, deixa anar per enviar',
     recordingFailed: 'No s\'ha pogut gravar, torna-ho a provar',
+    recordingNotAllowed: 'No pots enviar un missatge de veu aquí',
     pauseRecording: 'Pausar gravació',
     resumeRecording: 'Reprendre la gravació',
     voiceRecording: 'Gravant...',
@@ -3723,7 +3740,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'No s’ha pogut enviar. Toca la icona per tornar-ho a provar.',
     deliveryStatusLegendGroupNote:
-        'En un grup, dos tics grisos indiquen que el missatge ha arribat a tots els membres localitzables; en blau, que tots l’han llegit.',
+        'En un grup, l’estat lliurat significa que el missatge ha arribat a tots els membres localitzables; l’estat llegit, que tots l’han llegit.',
     exportChat: 'Exporta el xat',
     inviteViaLink: 'Convida amb un enllaç',
     inviteLinkCopied: 'Enllaç d\'invitació copiat',
@@ -3864,6 +3881,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Dra upp för att låsa',
     holdToRecord: 'Håll in för att spela in, släpp för att skicka',
     recordingFailed: 'Inspelningen misslyckades, försök igen',
+    recordingNotAllowed: 'Du kan inte skicka röstmeddelanden här',
     voiceRecording: 'Spelar in...',
     microphonePermissionDenied: 'Mikrofonbehörighet nekad',
     statusSent: 'Skickat',
@@ -4057,6 +4075,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Dra opp for å låse',
     holdToRecord: 'Hold inne for å ta opp, slipp for å sende',
     recordingFailed: 'Opptaket mislyktes, prøv igjen',
+    recordingNotAllowed: 'Du kan ikke sende talemeldinger her',
     voiceRecording: 'Tar opp...',
     microphonePermissionDenied: 'Mikrofontilgang avslått',
     statusSent: 'Sendt',
@@ -4250,6 +4269,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Træk op for at låse',
     holdToRecord: 'Hold nede for at optage, slip for at sende',
     recordingFailed: 'Optagelsen mislykkedes, prøv igen',
+    recordingNotAllowed: 'Du kan ikke sende talebeskeder her',
     voiceRecording: 'Optager...',
     microphonePermissionDenied: 'Mikrofonadgang nægtet',
     statusSent: 'Sendt',
@@ -4443,6 +4463,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Przesuń w górę, aby zablokować',
     holdToRecord: 'Przytrzymaj, aby nagrać, puść, aby wysłać',
     recordingFailed: 'Nie udało się nagrać, spróbuj ponownie',
+    recordingNotAllowed: 'Nie możesz tu wysłać wiadomości głosowej',
     voiceRecording: 'Nagrywanie...',
     microphonePermissionDenied: 'Odmowa dostępu do mikrofonu',
     statusSent: 'Wysłano',
@@ -4636,6 +4657,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Přejetím nahoru zamknete',
     holdToRecord: 'Podržte pro nahrávání, uvolněte pro odeslání',
     recordingFailed: 'Nahrávání se nezdařilo, zkuste to znovu',
+    recordingNotAllowed: 'Sem nemůžeš poslat hlasovou zprávu',
     voiceRecording: 'Nahrávání...',
     microphonePermissionDenied: 'Přístup k mikrofonu odepřen',
     statusSent: 'Odesláno',
@@ -4990,6 +5012,7 @@ class ChatUiLocalizations {
     String? slideUpToLock,
     String? holdToRecord,
     String? recordingFailed,
+    String? recordingNotAllowed,
     String? voiceRecording,
     String? preListenLabel,
     String? pauseRecording,
@@ -5297,6 +5320,7 @@ class ChatUiLocalizations {
         slideUpToLock: slideUpToLock,
         holdToRecord: holdToRecord,
         recordingFailed: recordingFailed,
+        recordingNotAllowed: recordingNotAllowed,
         voiceRecording: voiceRecording,
         preListenLabel: preListenLabel,
         pauseRecording: pauseRecording,
