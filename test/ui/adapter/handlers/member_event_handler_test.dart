@@ -216,16 +216,19 @@ void main() {
       expect(ensuredUsers, contains(alice.id));
     });
 
-    test('waits for the name before composing with a cold user cache', () async {
-      await handler.addSystemMessage('r1', 'user_joined', alice.id);
-      final msg = controller.messages.last;
-      expect(msg.text, 'Alice joined');
-      expect(msg.text, isNot(contains(alice.id)));
-      expect(
-        msg.metadata?[SystemMessageMetadataKeys.userLabel],
-        alice.displayName,
-      );
-    });
+    test(
+      'waits for the name before composing with a cold user cache',
+      () async {
+        await handler.addSystemMessage('r1', 'user_joined', alice.id);
+        final msg = controller.messages.last;
+        expect(msg.text, 'Alice joined');
+        expect(msg.text, isNot(contains(alice.id)));
+        expect(
+          msg.metadata?[SystemMessageMetadataKeys.userLabel],
+          alice.displayName,
+        );
+      },
+    );
 
     test('waits for the actor name of a kick with a cold user cache', () async {
       await handler.addSystemMessage(

@@ -2645,11 +2645,20 @@ class ChatUiAdapter {
     await stateSub?.cancel();
   }
 
+  /// Token-first, like [mapExceptionToFailure] does for the edit/delete
+  /// windows: the stable `error` token wins over the legacy `detail`
+  /// string match. Sending into a blocked room answers
+  /// `403 {"detail":"blocked","error":"blocked"}`, but creating the 1:1
+  /// room answers `403 {"detail":"Cannot create room with blocked user:
+  /// ID","error":"blocked"}` — prose in `detail`, the token only in
+  /// `error`. Matching on `detail` alone made every room-materialization
+  /// path miss the block.
   bool _isBlockedError(ChatFailure? failure) {
     if (failure is! ForbiddenFailure) return false;
+    if (failure.errorToken == ChatErrorTokens.blocked) return true;
     final body = failure.body;
     if (body is Map) {
-      return body['detail'] == 'blocked';
+      return body['detail'] == ChatErrorTokens.blocked;
     }
     return false;
   }

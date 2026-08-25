@@ -48,6 +48,13 @@ abstract class RoomListItem with _$RoomListItem {
     String? lastMessageFileName,
     int? lastMessageDurationMs,
     @Default(false) bool lastMessageIsDeleted,
+
+    /// `true` when the last message is a system notice (`ChatMessage.isSystem`)
+    /// rather than something a person wrote: nobody authored it, so the row
+    /// drops the "Alice: " / "You: " sender prefix the same way it does for
+    /// deletions and reactions. `false` for every ordinary message, which is
+    /// also what rows persisted before this field existed rehydrate to.
+    @Default(false) bool lastMessageIsSystem,
     String? lastMessageReactionEmoji,
 
     /// Text of the message the last reaction was aimed at, as its own

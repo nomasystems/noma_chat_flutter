@@ -209,35 +209,32 @@ void main() {
     expect(received, 'maintenance');
   });
 
-  test(
-    'ErrorEvent invokes onError callback without touching the connection '
-    'state, which only the transport owns',
-    () async {
-      ChatEvent? captured;
-      adapter.onError = (e) => captured = e;
-      client.emitConnectionState(ChatConnectionState.connected);
-      await drain();
+  test('ErrorEvent invokes onError callback without touching the connection '
+      'state, which only the transport owns', () async {
+    ChatEvent? captured;
+    adapter.onError = (e) => captured = e;
+    client.emitConnectionState(ChatConnectionState.connected);
+    await drain();
 
-      // The SSE fallback rejecting /v1/eventsource while the WS primary
-      // carries the session: an operational failure, not a dead link.
-      client.emitEvent(
-        const ErrorEvent(
-          exception: ChatNetworkException(
-            'DioException [bad response]: This exception was thrown because '
-            'the response has a status code of 404 and RequestOptions.'
-            'validateStatus was configured to throw for this status code.',
-          ),
+    // The SSE fallback rejecting /v1/eventsource while the WS primary
+    // carries the session: an operational failure, not a dead link.
+    client.emitEvent(
+      const ErrorEvent(
+        exception: ChatNetworkException(
+          'DioException [bad response]: This exception was thrown because '
+          'the response has a status code of 404 and RequestOptions.'
+          'validateStatus was configured to throw for this status code.',
         ),
-      );
-      await drain();
+      ),
+    );
+    await drain();
 
-      expect(captured, isA<ErrorEvent>());
-      expect(
-        adapter.connectionStateNotifier.value,
-        ChatConnectionState.connected,
-      );
-    },
-  );
+    expect(captured, isA<ErrorEvent>());
+    expect(
+      adapter.connectionStateNotifier.value,
+      ChatConnectionState.connected,
+    );
+  });
 
   test('a transport-reported error state still raises the banner', () async {
     client.emitConnectionState(ChatConnectionState.connected);

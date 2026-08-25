@@ -77,7 +77,10 @@ void main() {
     expect(
       mapExceptionToFailure(
         const ChatForbiddenException(
-          body: <String, dynamic>{'code': 403, 'detail': 'You are not a member'},
+          body: <String, dynamic>{
+            'code': 403,
+            'detail': 'You are not a member',
+          },
         ),
       ),
       isA<ForbiddenFailure>(),

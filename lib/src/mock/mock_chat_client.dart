@@ -481,6 +481,7 @@ class MockRoomsApi implements ChatRoomsApi {
         lastMessageUserId: last?.from,
         lastMessageId: last?.id,
         lastMessageType: last?.messageType,
+        lastMessageIsSystem: last?.isSystem ?? false,
       );
     }).toList();
     return ChatSuccess(UserRooms(rooms: rooms));
@@ -621,6 +622,7 @@ class MockRoomsApi implements ChatRoomsApi {
     String? lastMessageFileName,
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
+    bool? lastMessageIsSystem,
     String? lastMessageReactionEmoji,
     String? lastMessageReactionTargetText,
     MessageType? lastMessageReactionTargetType,

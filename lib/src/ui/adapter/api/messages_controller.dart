@@ -2118,6 +2118,7 @@ interface class ChatMessagesController {
             lastMessageFileName: null,
             lastMessageDurationMs: null,
             lastMessageIsDeleted: false,
+            lastMessageIsSystem: false,
             lastMessageReactionEmoji: null,
           ),
         );

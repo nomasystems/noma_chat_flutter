@@ -4,7 +4,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../_internal/ui_debug_log.dart';
-import '../../core/result.dart' show EditWindowExpiredFailure;
+import '../../core/result.dart'
+    show
+        ChatFailure,
+        ContentFilterFailure,
+        EditWindowExpiredFailure,
+        ForbiddenFailure,
+        ValidationFailure;
 import '../../models/chat_analytics_event.dart';
 import '../../models/message.dart';
 import '../../models/reaction.dart';
@@ -539,22 +545,24 @@ class _NomaChatViewState extends State<NomaChatView>
 
   /// The built-in "edit this message" callback.
   ///
-  /// Awaits the edit instead of firing it off, because *one* refusal has
-  /// something to hand back: the edit window closing between opening the
-  /// composer and confirming. There the composer closed, the adapter
-  /// rolled the bubble back to the original wording, and the text the
-  /// user had just written exists nowhere else — so put it back in the
-  /// composer, still in editing mode, alongside the snackbar the
-  /// operation-error stream raises for the same failure. The refusal then
-  /// reads as "not yet" rather than as "done".
+  /// Awaits the edit instead of firing it off, because a *refusal* has
+  /// something to hand back. The composer closed the moment the user
+  /// confirmed, the adapter rolled the bubble back to the original
+  /// wording, and nothing queues or retries an edit — so on a refusal the
+  /// text just written exists nowhere else. Put it back in the composer,
+  /// still in editing mode, and answer `false` so a composer that outlives
+  /// this view reaches the same conclusion.
   ///
-  /// Every other failure is left alone. A network hiccup is retried by
-  /// the row itself, and reopening the composer for it would be a
-  /// silent, unexplained jump back into editing — nothing tells the user
-  /// why, because the default error label only speaks for the expired
-  /// window. Opt the whole thing out with
-  /// `ChatViewBehaviors(restoreComposerOnEditFailure: false)`.
-  void Function(ChatMessage, String) _defaultEdit(String sendKey) =>
+  /// A refusal is the server saying no to this wording or to this user:
+  /// the edit window closed, the room forbade it, moderation vetoed it,
+  /// the payload was rejected. Retrying those changes nothing.
+  ///
+  /// A request that reached the wire and failed there — network, timeout,
+  /// 5xx — is left alone: reopening the composer for it would be a
+  /// silent, unexplained jump back into editing, because the default error
+  /// label only speaks for the expired window. Opt the whole thing out
+  /// with `ChatViewBehaviors(restoreComposerOnEditFailure: false)`.
+  FutureOr<bool> Function(ChatMessage, String) _defaultEdit(String sendKey) =>
       (message, text) async {
         final adapter = widget.adapter;
         final result = await adapter.messages.edit(
@@ -562,12 +570,19 @@ class _NomaChatViewState extends State<NomaChatView>
           message.id,
           text: text,
         );
-        if (!mounted || result.isSuccess) return;
-        if (result.failureOrNull is! EditWindowExpiredFailure) return;
+        if (result.isSuccess) return true;
+        if (!_isEditRefusal(result.failureOrNull)) return true;
         final behaviors = widget.behaviors ?? const ChatViewBehaviors();
-        if (!behaviors.restoreComposerOnEditFailure) return;
-        _controller?.setEditingMessage(message, draftText: text);
+        if (!behaviors.restoreComposerOnEditFailure) return true;
+        if (mounted) _controller?.setEditingMessage(message, draftText: text);
+        return false;
       };
+
+  static bool _isEditRefusal(ChatFailure? failure) =>
+      failure is EditWindowExpiredFailure ||
+      failure is ForbiddenFailure ||
+      failure is ContentFilterFailure ||
+      failure is ValidationFailure;
 
   /// The built-in "delete this message" callback.
   ///
@@ -768,15 +783,25 @@ class _NomaChatViewState extends State<NomaChatView>
       },
       onSendMessageRequest:
           user.onSendMessageRequest ??
-          (req) => adapter.messages.send(
-            sendKey,
-            text: req.text,
-            metadata: req.metadata,
-            referencedMessageId: req.replyTo?.id,
-            messageType: req.replyTo != null
-                ? MessageType.reply
-                : MessageType.regular,
-          ),
+          (req) {
+            unawaited(
+              adapter.messages.send(
+                sendKey,
+                text: req.text,
+                metadata: req.metadata,
+                referencedMessageId: req.replyTo?.id,
+                messageType: req.replyTo != null
+                    ? MessageType.reply
+                    : MessageType.regular,
+              ),
+            );
+            // Taken, not delivered: the send raises its optimistic row
+            // before it touches the network, so the text is on screen from
+            // here on. A failure downgrades that row to "failed" with its
+            // own retry — handing the wording back to the composer as well
+            // would put it in two places at once.
+            return true;
+          },
       onEditMessage: user.onEditMessage ?? _defaultEdit(sendKey),
       onDeleteMessage: user.onDeleteMessage ?? _defaultDelete(sendKey),
       onDiscardFailedMessage:

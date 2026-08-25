@@ -241,7 +241,9 @@ void main() {
     roomMembers = [...roomMembers, 'pablo'];
 
     await tester.pumpWidget(
-      MaterialApp(home: GroupInfoPage(adapter: adapter, roomId: roomId)),
+      MaterialApp(
+        home: GroupInfoPage(adapter: adapter, roomId: roomId),
+      ),
     );
     await tester.pumpAndSettle();
 

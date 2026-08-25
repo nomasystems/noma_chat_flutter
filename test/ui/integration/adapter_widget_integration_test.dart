@@ -89,7 +89,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );
@@ -106,7 +106,7 @@ void main() {
           wrap(
             ChatView(
               controller: controller,
-              callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+              callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
             ),
           ),
         );
@@ -139,7 +139,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );
@@ -174,7 +174,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );

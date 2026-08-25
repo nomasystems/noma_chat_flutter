@@ -45,9 +45,12 @@ class RoomTile extends StatelessWidget {
   final Widget Function(BuildContext, RoomListItem)? subtitleBuilder;
 
   /// Optional override for the last-message preview text. When this builder
-  /// returns a non-null string, it is used verbatim as the subtitle (with the
-  /// usual sender prefix and receipt icon applied). When it returns `null`,
-  /// the default WhatsApp-style preview kicks in.
+  /// returns a non-null string, it is used verbatim as the subtitle: the
+  /// sentence is taken as self-contained, so **no sender prefix is prepended**
+  /// to it (the receipt icon is still painted). A consumer that already names
+  /// the actor inside its own sentence would otherwise read it twice
+  /// ("Alice: Alice joined the plan"). When it returns `null`, the default
+  /// WhatsApp-style preview kicks in, prefix included.
   ///
   /// Useful for consumers that want to render domain-specific previews for
   /// system/event messages while keeping the default render for regular chat.
@@ -313,7 +316,9 @@ class RoomTile extends StatelessWidget {
         : defaultStyle;
 
     final showReceipt = _isOwnLastMessage && room.lastMessageReceipt != null;
-    final prefix = blocked ? '' : _resolvePrefix(context);
+    final prefix = (blocked || overrideText != null)
+        ? ''
+        : _resolvePrefix(context);
     final fullText = '$prefix$body';
 
     if (showReceipt) {
@@ -406,9 +411,11 @@ class RoomTile extends StatelessWidget {
   /// else; no prefix in 1-to-1 chats. When the message is deleted, no prefix
   /// is added because the localized text already implies authorship, and
   /// neither when it is a reaction, whose own sentence already names who
-  /// reacted.
+  /// reacted, nor when it is a system notice: nobody wrote it, and "You: the
+  /// plan starts in 24 hours" reads as if the user had.
   String _resolvePrefix(BuildContext context) {
     if (room.lastMessageIsDeleted) return '';
+    if (room.lastMessageIsSystem) return '';
     if (room.lastMessageType == MessageType.reaction) return '';
     // DMs never get a sender prefix — the title already identifies who
     // the conversation is with. The "Alice: Asdf" shape only makes

@@ -747,6 +747,7 @@ class RoomEnricher {
         lastMessageFileName: isCleared ? null : unread.lastMessageFileName,
         lastMessageDurationMs: isCleared ? null : unread.lastMessageDurationMs,
         lastMessageIsDeleted: isCleared ? false : unread.lastMessageIsDeleted,
+        lastMessageIsSystem: isCleared ? false : unread.lastMessageIsSystem,
         lastMessageReactionEmoji: isCleared
             ? null
             : unread.lastMessageReactionEmoji,
@@ -1261,7 +1262,7 @@ class RoomEnricher {
   /// row with the raw roomId as the title.
   void addFromDetail(String roomId, {ChatMessage? lastMessage}) {
     client.rooms
-        .get(roomId)
+        .get(roomId, cachePolicy: CachePolicy.networkFirst)
         .then((result) {
           if (_isDisposed()) return;
           applyFetchedDetail(
@@ -1338,6 +1339,7 @@ class RoomEnricher {
       lastMessageFileName: lastMessage?.fileName,
       lastMessageDurationMs: _durationMsOf(lastMessage),
       lastMessageIsDeleted: lastMessage?.isDeleted ?? false,
+      lastMessageIsSystem: lastMessage?.isSystem ?? false,
       // A room added from an incoming message starts with 1 unread
       // when that message is from someone else (e.g. you were just
       // added to a group and the creator's first message arrives).
@@ -1414,7 +1416,7 @@ class RoomEnricher {
     }
     _refreshingRooms.add(roomId);
     client.rooms
-        .get(roomId)
+        .get(roomId, cachePolicy: CachePolicy.networkFirst)
         .then((result) {
           if (_isDisposed()) return;
           final detail = result.dataOrNull;
@@ -1668,6 +1670,7 @@ class RoomEnricher {
       lastMessageFileName: unread?.lastMessageFileName,
       lastMessageDurationMs: unread?.lastMessageDurationMs,
       lastMessageIsDeleted: unread?.lastMessageIsDeleted ?? false,
+      lastMessageIsSystem: unread?.lastMessageIsSystem ?? false,
       lastMessageReactionEmoji: unread?.lastMessageReactionEmoji,
       lastMessageReactionTargetText: unread?.lastMessageReactionTargetText,
       lastMessageReactionTargetType: unread?.lastMessageReactionTargetType,

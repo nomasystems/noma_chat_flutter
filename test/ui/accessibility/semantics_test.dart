@@ -80,7 +80,7 @@ void main() {
           home: Scaffold(
             body: MessageInput(
               controller: controller,
-              onSendMessageRequest: (_) {},
+              onSendMessageRequest: (_) => true,
             ),
           ),
         ),

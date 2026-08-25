@@ -2478,6 +2478,12 @@ RoomListView(
 )
 ```
 
+A string returned by `lastMessagePreviewBuilder` is taken as a finished
+sentence: it is painted as-is, with no `"Alice: "` / `"You: "` sender prefix
+in front of it. Name the actor inside your own text when the event calls for
+it, and return `null` whenever you want the default WhatsApp-style preview
+(prefix included) back.
+
 ### AttachmentPickerSheet — extra slots
 
 Add custom options to the attachment picker:

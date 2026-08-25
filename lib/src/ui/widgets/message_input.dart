@@ -40,6 +40,8 @@ class MessageInput extends StatefulWidget {
     this.onAttachTap,
     this.onVoiceMessageReady,
     this.onPermissionDenied,
+    this.canStartRecording,
+    this.onRecordingRejected,
     this.maxRecordingDuration = const Duration(minutes: 15),
     this.maxLines = 5,
     this.showAttachButton = true,
@@ -63,8 +65,25 @@ class MessageInput extends StatefulWidget {
   /// Single send slot — the legacy `onSendMessage` / `onSendMessageRich`
   /// callbacks were removed. Consumers that only need plain text can read
   /// `request.text` and ignore the rest.
-  final void Function(SendMessageRequest request)? onSendMessageRequest;
-  final void Function(ChatMessage message, String newText)? onEditMessage;
+  ///
+  /// Return `true` when the request was taken and the composer may clear.
+  /// Return `false` when the send was refused and nothing else holds the
+  /// wording — the composer puts the text back where the user left it,
+  /// still typed, instead of losing it. A send that left the device and
+  /// failed on the wire is `true`: the bubble it raised carries the text
+  /// and its own retry.
+  final FutureOr<bool> Function(SendMessageRequest request)?
+  onSendMessageRequest;
+
+  /// Confirms an edit of the message the composer is editing.
+  ///
+  /// Same verdict as [onSendMessageRequest]: `true` when the edit was taken
+  /// and the composer may close, `false` when it was refused and the new
+  /// wording exists nowhere else — the composer reopens on that message
+  /// with the text still typed. Nothing else holds it: a refused edit rolls
+  /// the bubble back to the original wording.
+  final FutureOr<bool> Function(ChatMessage message, String newText)?
+  onEditMessage;
   final ChatTheme theme;
   final ValueChanged<bool>? onTypingChanged;
   final VoidCallback? onPickCamera;
@@ -88,6 +107,18 @@ class MessageInput extends StatefulWidget {
   final VoidCallback? onAttachTap;
   final void Function(VoiceMessageData data)? onVoiceMessageReady;
   final VoidCallback? onPermissionDenied;
+
+  /// Asked before the mic button arms anything, so a room the user cannot
+  /// post to never reaches the recorder — nor the system microphone
+  /// permission it would ask for. Returning false vetoes the touch and
+  /// calls [onRecordingRejected]. Synchronous: see
+  /// [VoiceRecorderGesture.canStartRecording].
+  final bool Function()? canStartRecording;
+
+  /// Called instead of starting a recording when [canStartRecording]
+  /// vetoes the touch. Without it a prompt is floated over the mic button.
+  final VoidCallback? onRecordingRejected;
+
   final Duration maxRecordingDuration;
 
   final int maxLines;
@@ -411,11 +442,15 @@ class _MessageInputState extends State<MessageInput> {
     if (text.isEmpty) return;
 
     final editing = widget.controller.editingMessage;
+    final Future<bool> outcome;
+    ChatMessage? replyTo;
     if (editing != null) {
       if (widget.onEditMessage != null) {
-        widget.onEditMessage!(editing, text);
+        outcome = _dispatchEdit(editing, text);
       } else {
-        _dispatchSend(SendMessageRequest(text: text, editing: editing));
+        outcome = _dispatchSend(
+          SendMessageRequest(text: text, editing: editing),
+        );
       }
       widget.controller.setEditingMessage(null);
     } else {
@@ -479,17 +514,49 @@ class _MessageInputState extends State<MessageInput> {
           metadata = {...?metadata, 'mentions': ids};
         }
       }
-      _dispatchSend(
-        SendMessageRequest(
-          text: text,
-          metadata: metadata,
-          replyTo: widget.controller.replyingTo,
-        ),
+      replyTo = widget.controller.replyingTo;
+      outcome = _dispatchSend(
+        SendMessageRequest(text: text, metadata: metadata, replyTo: replyTo),
       );
       widget.controller.setReplyTo(null);
     }
     _resetLinkPreviewState();
     _textController.clear();
+    if (editing == null) widget.controller.setDraft(null, notify: false);
+    if (await outcome) return;
+    _restoreRefusedComposer(text: text, editing: editing, replyTo: replyTo);
+  }
+
+  /// Puts a refused send back the way the user left it: the wording in the
+  /// field, the message being replied to under it, edit mode reopened on
+  /// the message that was being edited. Only reached when the host says
+  /// the request was turned down and nothing else holds the text.
+  ///
+  /// The composer is cleared optimistically when Send is pressed — a
+  /// refusal that resolves a second later must not overwrite whatever the
+  /// user started typing meanwhile, nor a reply or edit they opened in the
+  /// gap, so each of those aborts the hand-back.
+  void _restoreRefusedComposer({
+    required String text,
+    ChatMessage? editing,
+    ChatMessage? replyTo,
+  }) {
+    if (!mounted) return;
+    if (_textController.text.trim().isNotEmpty) return;
+    final controller = widget.controller;
+    if (controller.editingMessage != null || controller.replyingTo != null) {
+      return;
+    }
+    if (editing != null) {
+      controller.setEditingMessage(editing, draftText: text);
+      return;
+    }
+    controller.setDraft(text, notify: false);
+    _textController.text = text;
+    _textController.selection = TextSelection.fromPosition(
+      TextPosition(offset: text.length),
+    );
+    if (replyTo != null) controller.setReplyTo(replyTo);
   }
 
   /// Returns the userIds of every `mentionUsers` entry whose display
@@ -524,8 +591,16 @@ class _MessageInputState extends State<MessageInput> {
         codeUnit == 0x5F; // _
   }
 
-  void _dispatchSend(SendMessageRequest request) {
-    widget.onSendMessageRequest?.call(request);
+  Future<bool> _dispatchSend(SendMessageRequest request) async {
+    final send = widget.onSendMessageRequest;
+    if (send == null) return true;
+    return send(request);
+  }
+
+  Future<bool> _dispatchEdit(ChatMessage message, String text) async {
+    final edit = widget.onEditMessage;
+    if (edit == null) return true;
+    return edit(message, text);
   }
 
   void _resetLinkPreviewState() {
@@ -549,6 +624,7 @@ class _MessageInputState extends State<MessageInput> {
         galleryLabel: widget.theme.l10nOf(context).gallery,
         fileLabel: widget.theme.l10nOf(context).file,
         locationLabel: widget.theme.l10nOf(context).location,
+        title: widget.theme.l10nOf(context).attach,
         theme: widget.theme,
       ),
     );
@@ -636,6 +712,8 @@ class _MessageInputState extends State<MessageInput> {
         theme: widget.theme,
         onPermissionDenied: widget.onPermissionDenied,
         onVoiceMessageReady: widget.onVoiceMessageReady,
+        canStartRecording: widget.canStartRecording,
+        onRecordingRejected: widget.onRecordingRejected,
         voiceButtonKey: _voiceButtonKey,
         child: inputArea,
       );
@@ -979,7 +1057,7 @@ class _MessageInputState extends State<MessageInput> {
     return Semantics(
       key: const ValueKey('chat_attach_button'),
       identifier: 'chat_attach_button',
-      label: widget.theme.l10nOf(context).gallery,
+      label: widget.theme.l10nOf(context).attach,
       button: true,
       child: GestureDetector(
         onTap: widget.onAttachTap ?? _showAttachmentPicker,

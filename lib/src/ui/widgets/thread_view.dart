@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../controller/chat_controller.dart';
@@ -26,7 +28,12 @@ class ThreadView extends StatelessWidget {
   final ChatMessage parentMessage;
   final ChatController controller;
   final List<ChatMessage> replies;
-  final ValueChanged<String>? onSendReply;
+
+  /// Posts a reply typed in the thread composer. Return `true` when the
+  /// reply was taken and the composer may clear, `false` when it was
+  /// refused and the text should be handed back — same contract as
+  /// `ChatViewCallbacks.onSendMessageRequest`.
+  final FutureOr<bool> Function(String text)? onSendReply;
   final VoidCallback? onLoadMore;
   final VoidCallback? onClose;
   final ChatTheme theme;
@@ -78,7 +85,8 @@ class ThreadView extends StatelessWidget {
         ),
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (request) => onSendReply?.call(request.text),
+          onSendMessageRequest: (request) async =>
+              await onSendReply?.call(request.text) ?? true,
           theme: theme.copyWith(
             l10n: theme
                 .l10nOf(context)

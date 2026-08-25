@@ -607,6 +607,7 @@ class RoomsApi implements ChatRoomsApi {
     String? lastMessageFileName,
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
+    bool? lastMessageIsSystem,
     String? lastMessageReactionEmoji,
     String? lastMessageReactionTargetText,
     MessageType? lastMessageReactionTargetType,
@@ -642,6 +643,9 @@ class RoomsApi implements ChatRoomsApi {
         lastMessageIsDeleted: replacesLastMessage
             ? (lastMessageIsDeleted ?? false)
             : (lastMessageIsDeleted ?? existing?.lastMessageIsDeleted ?? false),
+        lastMessageIsSystem: replacesLastMessage
+            ? (lastMessageIsSystem ?? false)
+            : (lastMessageIsSystem ?? existing?.lastMessageIsSystem ?? false),
         lastMessageReactionEmoji: replacesLastMessage
             ? lastMessageReactionEmoji
             : (lastMessageReactionEmoji ?? existing?.lastMessageReactionEmoji),

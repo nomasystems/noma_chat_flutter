@@ -108,7 +108,10 @@ void main() {
           ThreadView(
             parentMessage: parentMessage,
             controller: controller,
-            onSendReply: (text) => sentText = text,
+            onSendReply: (text) {
+              sentText = text;
+              return true;
+            },
             currentUserId: 'u1',
           ),
         ),

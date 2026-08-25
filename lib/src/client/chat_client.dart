@@ -553,6 +553,7 @@ abstract class ChatRoomsApi {
   /// Updates the cached room preview (last message, timestamp, type metadata, etc.)
   /// so it survives app restarts. Type-aware fields ([lastMessageType], [lastMessageMimeType],
   /// [lastMessageFileName], [lastMessageDurationMs], [lastMessageIsDeleted],
+  /// [lastMessageIsSystem],
   /// [lastMessageReactionEmoji], [lastMessageReactionTargetText],
   /// [lastMessageReactionTargetType]) feed the WhatsApp-style preview
   /// `RoomTile` composes at paint time. [lastMessage] is the sender's own
@@ -581,6 +582,7 @@ abstract class ChatRoomsApi {
     String? lastMessageFileName,
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
+    bool? lastMessageIsSystem,
     String? lastMessageReactionEmoji,
     String? lastMessageReactionTargetText,
     MessageType? lastMessageReactionTargetType,

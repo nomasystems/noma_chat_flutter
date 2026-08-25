@@ -23,7 +23,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );
@@ -39,7 +39,7 @@ void main() {
           wrap(
             ChatView(
               controller: controller,
-              callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+              callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
             ),
           ),
         );
@@ -69,7 +69,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );
@@ -81,7 +81,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
             behaviors: const ChatViewBehaviors(
               connectionState: ChatConnectionState.reconnecting,
             ),
@@ -96,7 +96,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );
@@ -108,7 +108,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
           ),
         ),
       );
@@ -122,7 +122,10 @@ void main() {
           ChatView(
             controller: controller,
             callbacks: ChatViewCallbacks(
-              onSendMessageRequest: (req) => sent = req.text,
+              onSendMessageRequest: (req) {
+                sent = req.text;
+                return true;
+              },
             ),
           ),
         ),
@@ -141,7 +144,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
             behaviors: const ChatViewBehaviors(
               emptyTitle: 'Start chatting!',
               emptyIcon: Icons.forum,
@@ -164,10 +167,11 @@ void main() {
           ChatView(
             controller: controller,
             callbacks: ChatViewCallbacks(
-              onSendMessageRequest: (_) {},
+              onSendMessageRequest: (_) => true,
               onEditMessage: (msg, text) {
                 editedMsg = msg;
                 newText = text;
+                return true;
               },
             ),
           ),
@@ -199,7 +203,7 @@ void main() {
           ChatView(
             controller: controller,
             callbacks: ChatViewCallbacks(
-              onSendMessageRequest: (_) {},
+              onSendMessageRequest: (_) => true,
               onTypingChanged: (v) => typing = v,
             ),
           ),
@@ -216,7 +220,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
             behaviors: const ChatViewBehaviors(
               connectionState: ChatConnectionState.reconnecting,
             ),
@@ -233,7 +237,7 @@ void main() {
         wrap(
           ChatView(
             controller: controller,
-            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+            callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
             behaviors: const ChatViewBehaviors(
               connectionState: ChatConnectionState.connected,
             ),
@@ -291,7 +295,7 @@ void main() {
     ) async {
       await pumpWithCallbacks(
         tester,
-        ChatViewCallbacks(onSendMessageRequest: (_) {}),
+        ChatViewCallbacks(onSendMessageRequest: (_) => true),
       );
 
       expect(linkRecognizer(tester), isNotNull);
@@ -305,7 +309,7 @@ void main() {
       await pumpWithCallbacks(
         tester,
         ChatViewCallbacks(
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           onTapLink: (value) => opened = value,
         ),
       );
@@ -360,7 +364,7 @@ void main() {
       await pumpWithCallbacks(
         tester,
         ChatViewCallbacks(
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           onTapMention: (value) => opened = value,
         ),
       );
@@ -373,7 +377,7 @@ void main() {
     testWidgets('an unwired mention is inert and looks it', (tester) async {
       await pumpWithCallbacks(
         tester,
-        ChatViewCallbacks(onSendMessageRequest: (_) {}),
+        ChatViewCallbacks(onSendMessageRequest: (_) => true),
       );
 
       final mention = mentionSpan(tester);

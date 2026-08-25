@@ -143,6 +143,7 @@ class RoomListMutator {
         lastMessageFileName: message.fileName,
         lastMessageDurationMs: lastDurationMs,
         lastMessageIsDeleted: message.isDeleted,
+        lastMessageIsSystem: message.isSystem,
         lastMessageReactionEmoji: message.messageType == MessageType.reaction
             ? message.reaction
             : null,
@@ -168,6 +169,7 @@ class RoomListMutator {
         lastMessageFileName: message.fileName,
         lastMessageDurationMs: lastDurationMs,
         lastMessageIsDeleted: message.isDeleted,
+        lastMessageIsSystem: message.isSystem,
         lastMessageReactionEmoji: message.messageType == MessageType.reaction
             ? message.reaction
             : null,
@@ -221,6 +223,7 @@ class RoomListMutator {
             lastMessageFileName: remembered.lastMessageFileName,
             lastMessageDurationMs: remembered.lastMessageDurationMs,
             lastMessageIsDeleted: remembered.lastMessageIsDeleted,
+            lastMessageIsSystem: remembered.lastMessageIsSystem,
             lastMessageReactionEmoji: remembered.lastMessageReactionEmoji,
             lastMessageReactionTargetText:
                 remembered.lastMessageReactionTargetText,
@@ -243,6 +246,7 @@ class RoomListMutator {
           lastMessageFileName: null,
           lastMessageDurationMs: null,
           lastMessageIsDeleted: false,
+          lastMessageIsSystem: false,
           lastMessageReactionEmoji: null,
           lastMessageReactionTargetText: null,
           lastMessageReactionTargetType: null,
@@ -329,6 +333,7 @@ class RoomListMutator {
         lastMessageReactionTargetText: _messageSnippet(referencedMsg),
         lastMessageReactionTargetType: referencedMsg?.messageType,
         lastMessageIsDeleted: false,
+        lastMessageIsSystem: false,
       ),
     );
     unawaited(
@@ -341,6 +346,7 @@ class RoomListMutator {
         lastMessageReactionTargetText: _messageSnippet(referencedMsg),
         lastMessageReactionTargetType: referencedMsg?.messageType,
         lastMessageIsDeleted: false,
+        lastMessageIsSystem: false,
       ),
     );
   }
@@ -406,6 +412,7 @@ class RoomListMutator {
               lastMessageFileName: match.lastMessageFileName,
               lastMessageDurationMs: match.lastMessageDurationMs,
               lastMessageIsDeleted: match.lastMessageIsDeleted,
+              lastMessageIsSystem: match.lastMessageIsSystem,
               lastMessageReactionEmoji: match.lastMessageReactionEmoji,
               lastMessageReceipt: match.lastMessageReceipt,
               name: match.name,

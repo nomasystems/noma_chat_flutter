@@ -27,7 +27,7 @@ import '../../_internal/ui_debug_log.dart';
 /// `Semantics(identifier:)` the bubble publishes so the same name addresses
 /// the row from a widget test and from a native driver. The full name comes
 /// from [messageBubbleSemanticsId]; this prefix only cheapens the reject path
-/// of [_MessageListState._findChildIndex].
+/// of [MessageListState._findChildIndex].
 const String _messageBubbleKeyPrefix = 'chat_message_';
 
 /// Scrollable list of message bubbles with date separators, typing indicator,
@@ -282,10 +282,10 @@ class MessageList extends StatefulWidget {
   onVoicePlayed;
 
   @override
-  State<MessageList> createState() => _MessageListState();
+  MessageListState createState() => MessageListState();
 }
 
-class _MessageListState extends State<MessageList> {
+class MessageListState extends State<MessageList> {
   bool _showFab = false;
   final Map<String, GlobalKey> _messageKeys = {};
   String? _pendingScrollToId;
@@ -1254,16 +1254,25 @@ class _MessageListState extends State<MessageList> {
     return widget.forwardedSourceLabels[sourceRoomId];
   }
 
+  /// Where [messageId]'s row sits on screen right now, or `null` when it
+  /// is not laid out (scrolled out of the cache, or recycled).
+  ///
+  /// Measured on demand rather than remembered: a rect captured when a
+  /// long press fired is stale by the time an overlay opened on top of a
+  /// closing context menu needs it. Hosts that anchor something to a row
+  /// after an `await` should call this again through a
+  /// `GlobalKey<MessageListState>` instead of reusing the rect the long
+  /// press carried.
+  Rect? rectForMessage(String messageId) {
+    final ctx = _messageKeys[messageId]?.currentContext;
+    if (ctx == null) return null;
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize || !box.attached) return null;
+    return box.localToGlobal(Offset.zero) & box.size;
+  }
+
   void _emitLongPress(ChatMessage msg) {
-    final key = _messageKeys[msg.id];
-    final ctx = key?.currentContext;
-    var rect = Rect.zero;
-    if (ctx != null) {
-      final box = ctx.findRenderObject() as RenderBox?;
-      if (box != null && box.hasSize) {
-        rect = box.localToGlobal(Offset.zero) & box.size;
-      }
-    }
+    final rect = rectForMessage(msg.id) ?? Rect.zero;
     _markRowActive(msg.id);
     widget.onMessageLongPress!(msg, rect);
   }
@@ -1336,7 +1345,7 @@ class _ReadReceiptBundle {
   final List<ReadReceipt> receipts;
 }
 
-// === Pure helpers (no state) — extracted from `_MessageListState` so
+// === Pure helpers (no state) — extracted from `MessageListState` so
 // the date-separator + sender-grouping logic can be reasoned about
 // (and tested) without instantiating the full widget. ===
 

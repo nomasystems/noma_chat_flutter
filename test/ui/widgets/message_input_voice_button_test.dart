@@ -113,7 +113,7 @@ void main() {
         alignment: Alignment.bottomCenter,
         child: MessageInput(
           controller: chat,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           onVoiceMessageReady: (_) {},
           canStartRecording: canStartRecording,
           onRecordingRejected: onRecordingRejected,

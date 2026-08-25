@@ -39,7 +39,9 @@ void main() {
     });
 
     Future<void> pumpInput(WidgetTester tester) => tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
+      wrap(
+        MessageInput(controller: controller, onSendMessageRequest: (_) => true),
+      ),
     );
 
     testWidgets('chat_message_input is exposed on the semantics tree', (
@@ -69,7 +71,7 @@ void main() {
       );
     });
 
-    testWidgets('chat_attach_button is exposed and keeps its Gallery label', (
+    testWidgets('chat_attach_button is exposed and names the attach action', (
       tester,
     ) async {
       await pumpInput(tester);
@@ -80,10 +82,53 @@ void main() {
         tester.getSemantics(find.byKey(const ValueKey('chat_attach_button'))),
         isSemantics(
           identifier: 'chat_attach_button',
-          label: 'Gallery',
+          label: 'Attach',
           isButton: true,
         ),
       );
+    });
+
+    testWidgets('chat_attach_button is not labelled after one of the options '
+        'of the sheet it opens', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+            onPickCamera: () {},
+            onPickGallery: () {},
+            onPickFile: () {},
+            onShareLocation: () {},
+          ),
+        ),
+      );
+
+      const l10n = ChatUiLocalizations.en;
+      final button = tester.getSemantics(
+        find.byKey(const ValueKey('chat_attach_button')),
+      );
+      expect(button.label, l10n.attach);
+      expect(button.label, isNot(l10n.gallery));
+      expect(button.label, isNot(l10n.camera));
+      expect(button.label, isNot(l10n.file));
+      expect(button.label, isNot(l10n.location));
+
+      await tester.tap(find.byKey(const ValueKey('chat_attach_button')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('chat_attachment_sheet')),
+        findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey('chat_attachment_sheet_title')),
+            )
+            .data,
+        button.label,
+      );
+      expect(find.text(l10n.gallery), findsOneWidget);
     });
 
     testWidgets('chat_send_button is exposed and keeps its Send label', (
