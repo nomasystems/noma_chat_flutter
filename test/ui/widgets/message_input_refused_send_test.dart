@@ -324,4 +324,61 @@ void main() {
       expect(after.controller!.text, isEmpty);
     });
   });
+
+  group('the composer the host really mounts', () {
+    late MockChatClient mockClient;
+    late ChatUiAdapter adapter;
+
+    setUp(() {
+      mockClient = MockChatClient(currentUserId: 'u1');
+      mockClient.seedRoom(
+        const ChatRoom(id: 'room1', name: 'Alice', members: ['u1', 'u2']),
+      );
+      adapter = ChatUiAdapter(client: mockClient, currentUser: user);
+    });
+
+    tearDown(() async {
+      await adapter.dispose();
+      await mockClient.dispose();
+    });
+
+    testWidgets('a refusal that comes back through NomaChatView keeps it', (
+      tester,
+    ) async {
+      final refused = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            callbacks: ChatViewCallbacks(
+              onSendMessageRequest: (request) async {
+                refused.add(request.text);
+                return false;
+              },
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.enterText(find.byType(TextField), draft);
+      await tester.pump();
+      await tester.tap(find.bySemanticsLabel('Send'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      expect(refused, [draft]);
+      expect(find.byType(MessageInput), findsOneWidget);
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.controller!.text, draft);
+      expect(
+        tester.widget<ChatView>(find.byType(ChatView)).controller.draft,
+        draft,
+      );
+
+      await tester.pump(const Duration(seconds: 2));
+    });
+  });
 }

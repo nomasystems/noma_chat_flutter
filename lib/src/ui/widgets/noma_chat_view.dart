@@ -557,11 +557,12 @@ class _NomaChatViewState extends State<NomaChatView>
   /// the edit window closed, the room forbade it, moderation vetoed it,
   /// the payload was rejected. Retrying those changes nothing.
   ///
-  /// A request that reached the wire and failed there — network, timeout,
-  /// 5xx — is left alone: reopening the composer for it would be a
-  /// silent, unexplained jump back into editing, because the default error
-  /// label only speaks for the expired window. Opt the whole thing out
-  /// with `ChatViewBehaviors(restoreComposerOnEditFailure: false)`.
+  /// Anything else is left alone — a request that never came back with a
+  /// verdict (network, timeout), or one the server failed for reasons of
+  /// its own (5xx): reopening the composer for those would be a silent,
+  /// unexplained jump back into editing, because the default error label
+  /// only speaks for the expired window. Opt the whole thing out with
+  /// `ChatViewBehaviors(restoreComposerOnEditFailure: false)`.
   FutureOr<bool> Function(ChatMessage, String) _defaultEdit(String sendKey) =>
       (message, text) async {
         final adapter = widget.adapter;

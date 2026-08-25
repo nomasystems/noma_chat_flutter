@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../adapter/chat_ui_adapter.dart';
 import '../controller/room_list_controller.dart';
 import '../models/room_list_item.dart';
+import '../models/room_swipe_action.dart';
 import '../theme/chat_theme.dart';
 import '_ambient_l10n_adopter.dart';
 import 'chat_view_config.dart' show BlockedContentPolicy;
@@ -49,6 +50,7 @@ class RoomListView extends StatelessWidget {
     this.statusIconBuilder,
     this.blockedSenderIds,
     this.blockedContentPolicy = BlockedContentPolicy.placeholder,
+    this.swipeActionsBuilder,
   });
 
   final RoomListController controller;
@@ -92,6 +94,13 @@ class RoomListView extends StatelessWidget {
   /// the long press stays unwired and no menu opens.
   final void Function(RoomListItem room, RoomAction action)?
   onContextMenuAction;
+
+  /// Actions each row reveals when it is dragged sideways, forwarded to
+  /// [RoomTile.swipeActions]. Returning `null` or an empty list leaves that
+  /// row exactly as it was, so the long-press menu stays the only way in
+  /// for hosts that do not wire this.
+  final List<RoomSwipeAction>? Function(BuildContext, RoomListItem)?
+  swipeActionsBuilder;
 
   final Widget Function(BuildContext, RoomListItem, bool)? tileBuilder;
   final Map<String, String> lastMessageSenderNames;
@@ -207,6 +216,8 @@ class RoomListView extends StatelessWidget {
       statusIconBuilder: statusIconBuilder,
       blockedSenderIds: _blockedSenderIds,
       blockedContentPolicy: blockedContentPolicy,
+      swipeActions:
+          swipeActionsBuilder?.call(context, room) ?? const <RoomSwipeAction>[],
       onTap: () {
         if (controller.isSelecting) {
           controller.toggleSelect(room.id);

@@ -2484,6 +2484,65 @@ in front of it. Name the actor inside your own text when the event calls for
 it, and return `null` whenever you want the default WhatsApp-style preview
 (prefix included) back.
 
+### RoomTile swipe actions
+
+Dragging a row sideways reveals a strip of buttons — a second, visible way
+into the conversation actions, next to the long press (which keeps working
+exactly as before). `RoomListView` builds the strip per row:
+
+```dart
+RoomListView(
+  controller: controller,
+  swipeActionsBuilder: (context, room) => [
+    RoomSwipeAction(
+      icon: room.muted
+          ? Icons.notifications_active_outlined
+          : Icons.notifications_off_outlined,
+      label: room.muted ? 'Unmute' : 'Mute',
+      identifier: 'chat_row_swipe_mute',
+      onPressed: () => toggleMute(room),
+    ),
+    RoomSwipeAction(
+      icon: Icons.archive_outlined,
+      label: 'Archive',
+      backgroundColor: Colors.indigo,
+      foregroundColor: Colors.white,
+      onPressed: () => archive(room),
+    ),
+  ],
+)
+```
+
+A bare `RoomTile` takes the same list directly as `swipeActions:`, so a host
+that builds its own rows does not need `RoomListView` to get the gesture.
+
+What the widget guarantees:
+
+- **The swipe reveals, it never fires.** No action runs until its button is
+  tapped — muting or archiving a conversation by brushing past it would be
+  the wrong trade. The row closes on its own before `onPressed` runs, so the
+  callback is free to push a route or open a sheet.
+- **No actions, no change.** `swipeActionsBuilder` returning `null` or an
+  empty list (and `RoomTile` built without `swipeActions`) yields the widget
+  tree the row had before this existed: no gesture recognizer, no extra
+  layer, no hit-test difference.
+- **`side` defaults to `RoomSwipeSide.end`** — the trailing edge. `start` and
+  `end` resolve against the ambient `Directionality`, so both sides mirror
+  in RTL.
+- **Leading-edge guard.** A drag born within 24 logical pixels of the
+  leading edge — the left edge in LTR, the right one in RTL, which is where
+  the platform back gesture lives — never pulls that side's actions into
+  view. It can still close an open row and still open the other side. This
+  is the reason the default side is the trailing one.
+- **`identifier`** sets the button's semantics identifier, so integration
+  drivers address it by name instead of by coordinates. It survives a host
+  that wraps the tile in `MergeSemantics`.
+
+`backgroundColor`/`foregroundColor` fall back to the ambient
+`ColorScheme.secondaryContainer`/`onSecondaryContainer`. Each button is 76
+logical pixels wide and its label is a single ellipsized line: pass a short
+caption (`'Unmute'`, not `'Turn notifications back on'`).
+
 ### AttachmentPickerSheet — extra slots
 
 Add custom options to the attachment picker:
@@ -2538,6 +2597,14 @@ ChatRoomOption.muteRoom(
   onUnmute: () => adapter.rooms.unmute(roomId),
 );
 ```
+
+Once the mute is on, the expiry is read out, not just implied by the bell
+icon: `RoomTile` adds a **"Muted until 01/01 18:30"** line under the preview
+and `ChatRoomAppBar` appends it to its subtitle, both driven by
+`RoomListItem.muteUntil` and localized through
+`ChatUiLocalizations.mutedUntilTemplate` (`'Muted until {date}'`). A permanent
+mute carries no expiry and renders the icon alone, as before. The deadline
+travels in UTC and is printed in the device's zone.
 
 `ChatRoomOption.archiveChat` / `unarchiveChat` map to `adapter.rooms.hide` /
 `unhide`; archived rooms surface in the collapsible **Archived** section that

@@ -379,6 +379,7 @@ class ChatUiLocalizations {
     this.mute8Hours = '8 hours',
     this.mute1Week = '1 week',
     this.muteAlways = 'Always',
+    this.mutedUntilTemplate = 'Muted until {date}',
     this.archived = 'Archived',
     this.archiveChat = 'Archive',
     this.unarchiveChat = 'Unarchive',
@@ -965,6 +966,14 @@ class ChatUiLocalizations {
   /// Mute-duration option: silence notifications permanently.
   final String muteAlways;
 
+  /// Expiry line of a timed mute, shown wherever a room advertises that
+  /// it is silenced. `{date}` is the already-formatted local deadline.
+  /// A permanent mute carries no deadline, so it never renders this.
+  final String mutedUntilTemplate;
+
+  String mutedUntil(String date) =>
+      mutedUntilTemplate.replaceAll('{date}', date);
+
   /// Collapsible section header grouping archived (hidden) chats.
   final String archived;
 
@@ -1383,6 +1392,7 @@ class ChatUiLocalizations {
     String? mute8Hours,
     String? mute1Week,
     String? muteAlways,
+    String? mutedUntilTemplate,
     String? archived,
     String? archiveChat,
     String? unarchiveChat,
@@ -1755,6 +1765,7 @@ class ChatUiLocalizations {
       mute8Hours: mute8Hours ?? this.mute8Hours,
       mute1Week: mute1Week ?? this.mute1Week,
       muteAlways: muteAlways ?? this.muteAlways,
+      mutedUntilTemplate: mutedUntilTemplate ?? this.mutedUntilTemplate,
       archived: archived ?? this.archived,
       archiveChat: archiveChat ?? this.archiveChat,
       unarchiveChat: unarchiveChat ?? this.unarchiveChat,
@@ -2150,6 +2161,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 horas',
     mute1Week: '1 semana',
     muteAlways: 'Siempre',
+    mutedUntilTemplate: 'Silenciado hasta {date}',
     archived: 'Archivados',
     archiveChat: 'Archivar',
     unarchiveChat: 'Desarchivar',
@@ -2474,6 +2486,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 heures',
     mute1Week: '1 semaine',
     muteAlways: 'Toujours',
+    mutedUntilTemplate: "En sourdine jusqu'à {date}",
     archived: 'Archivés',
     archiveChat: 'Archiver',
     unarchiveChat: 'Désarchiver',
@@ -2800,6 +2813,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 Stunden',
     mute1Week: '1 Woche',
     muteAlways: 'Immer',
+    mutedUntilTemplate: 'Stummgeschaltet bis {date}',
     archived: 'Archiviert',
     archiveChat: 'Archivieren',
     unarchiveChat: 'Aus Archiv',
@@ -3121,6 +3135,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 ore',
     mute1Week: '1 settimana',
     muteAlways: 'Sempre',
+    mutedUntilTemplate: 'Silenziato fino a {date}',
     archived: 'Archiviati',
     archiveChat: 'Archivia',
     unarchiveChat: 'Rimuovi dall\'archivio',
@@ -3443,6 +3458,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 horas',
     mute1Week: '1 semana',
     muteAlways: 'Sempre',
+    mutedUntilTemplate: 'Silenciado até {date}',
     archived: 'Arquivadas',
     archiveChat: 'Arquivar',
     unarchiveChat: 'Desarquivar',
@@ -3760,6 +3776,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 hores',
     mute1Week: '1 setmana',
     muteAlways: 'Sempre',
+    mutedUntilTemplate: 'Silenciat fins a {date}',
     archived: 'Arxivats',
     archiveChat: 'Arxiva',
     unarchiveChat: 'Desarxiva',
@@ -3972,6 +3989,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 timmar',
     mute1Week: '1 vecka',
     muteAlways: 'Alltid',
+    mutedUntilTemplate: 'Tystad till {date}',
     archived: 'Arkiverad',
     archiveChat: 'Arkivera',
     unarchiveChat: 'Avarkivera',
@@ -4167,6 +4185,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 timer',
     mute1Week: '1 uke',
     muteAlways: 'Alltid',
+    mutedUntilTemplate: 'Dempet til {date}',
     archived: 'Arkivert',
     archiveChat: 'Arkiver',
     unarchiveChat: 'Fjern fra arkiv',
@@ -4362,6 +4381,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 timer',
     mute1Week: '1 uge',
     muteAlways: 'Altid',
+    mutedUntilTemplate: 'Lyd slået fra til {date}',
     archived: 'Arkiveret',
     archiveChat: 'Arkiver',
     unarchiveChat: 'Fjern fra arkiv',
@@ -4557,6 +4577,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 godzin',
     mute1Week: '1 tydzień',
     muteAlways: 'Zawsze',
+    mutedUntilTemplate: 'Wyciszone do {date}',
     archived: 'Zarchiwizowane',
     archiveChat: 'Archiwizuj',
     unarchiveChat: 'Wyodrębnij z archiwum',
@@ -4752,6 +4773,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 hodin',
     mute1Week: '1 týden',
     muteAlways: 'Vždy',
+    mutedUntilTemplate: 'Ztlumeno do {date}',
     archived: 'Archivováno',
     archiveChat: 'Archivovat',
     unarchiveChat: 'Zrušit archivaci',
@@ -5210,6 +5232,7 @@ class ChatUiLocalizations {
     String? mute8Hours,
     String? mute1Week,
     String? muteAlways,
+    String? mutedUntilTemplate,
     String? archived,
     String? archiveChat,
     String? unarchiveChat,
@@ -5519,6 +5542,7 @@ class ChatUiLocalizations {
         mute8Hours: mute8Hours,
         mute1Week: mute1Week,
         muteAlways: muteAlways,
+        mutedUntilTemplate: mutedUntilTemplate,
         archived: archived,
         archiveChat: archiveChat,
         unarchiveChat: unarchiveChat,

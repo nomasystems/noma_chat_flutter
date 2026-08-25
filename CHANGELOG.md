@@ -6,6 +6,349 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.28.0 - 2026-08-25
+
+Minor bump, but read *Changed* before upgrading: part of it breaks a build,
+and the rest changes what an existing screen does without touching what it
+compiles to. Breaking: the composer's send and edit slots, and
+`ThreadView`'s reply slot, now *answer* whether the request was taken, so a
+refusal hands the wording back instead of losing it; and `RoomListItem` and
+`UnreadRoom` gain a field in the middle, which shifts every positional
+Freezed callback written against them and adds a parameter to
+`ChatRoomsApi.updateCachedRoomPreview`. Silent underneath a call site that
+still compiles — and not only in the two the list flags as **Breaking
+(behaviour)**: `withRoomState` no longer re-opens a composer the host
+deliberately closed, and `RoomTile.lastMessagePreviewBuilder` no longer
+gets a sender prefix put in front of it. *Changed* also holds the
+connection banner's red band back for eight seconds instead of flashing it
+on the first dropped socket, clears the stored draft when a message goes
+out, reopens the composer on more kinds of refused edit, freezes
+`silentlyDropped` at "sent", stops prefixing a sender onto a system notice
+in the chat list, renames the attach button, formats file sizes and
+rewrites the delivery legend. The additive part runs longer than it looks:
+swipe actions on the chat list, a "muted until" line that says when the
+silence ends, a veto the host can put in front of the mic button, and
+several smaller hooks besides — the full list is under *Added*.
+
+The headline fix asks nothing of a host. It arrives with an API of its own
+— `confirmSent(pinnedAsSent:)`, a failure injector for tests — and it
+freezes what `silentlyDropped` may render as, but none of that has to be
+adopted for the fix to hold. Sending to someone who blocked you was only
+invisible on the plain-text path. On every other one — attachment, voice
+clip, forward — and on every 1:1 room that had to be created first, it
+surfaced as a red failed bubble, which is exactly the tell a block is
+supposed to hide.
+
+### Added
+
+- **A chat-list row can be swiped.** `RoomSwipeAction` describes one button
+  — `icon`, `label`, `onPressed`, plus `side`, `backgroundColor`,
+  `foregroundColor` and an `identifier` for drivers — and `RoomSwipeSide`
+  says which edge it is revealed from, resolved against the ambient
+  `Directionality`. Wire a list of them through
+  `RoomListView.swipeActionsBuilder(context, room)`, or hand them to a bare
+  `RoomTile` as `swipeActions:`.
+
+  The swipe *reveals* the buttons, it never fires one: nothing destructive
+  happens on a gesture the user may not have meant, and `onLongPress` stays
+  the shortcut it always was. A row with no actions for a side is not
+  draggable towards that side, a drag born on the leading edge never opens
+  the leading actions (the platform back gesture keeps that strip), and a
+  tile built without actions gets no gesture recognizer at all — its widget
+  tree is the one it had before this existed.
+
+- **A silenced room says until when.** `RoomTile` grows a third line and
+  `ChatRoomAppBar` appends it to its subtitle, both from the new
+  `ChatUiLocalizations.mutedUntilTemplate` (`'Muted until {date}'`, with
+  `mutedUntil(date)` to fill it) and `DateFormatter.formatMuteUntil`, which
+  converts the backend's UTC expiry to the device zone first — a mute that
+  ends at 20:30 in Madrid must not advertise 18:30 — and prepends the day
+  when the deadline is not today. A permanent mute carries no expiry and
+  keeps the bell icon alone, and an expiry already elapsed (a stale cache)
+  is ignored. Translated in all twelve locales.
+
+- **`canStartRecording` / `onRecordingRejected`, on `ChatViewCallbacks` and
+  on `MessageInput` alike** — a host that builds the composer itself takes
+  the same two optional parameters, and `ChatView` simply forwards the
+  callbacks it was given. They are asked the instant a finger lands on the
+  mic button — before the recorder is
+  armed and therefore before the platform asks for the microphone
+  permission. Return `false` for a room that cannot take a voice message (a
+  contact gate, a membership that ended) and nothing is armed; the host
+  explains it through `onRecordingRejected`, or the composer floats the new
+  `ChatUiLocalizations.recordingNotAllowed` over the button. Synchronous by
+  design: an `await` there would sit between the finger landing and the
+  recorder coming up on *every* legitimate recording. Left null, every touch
+  goes through as before.
+
+- **`ChatViewBehaviors.sustainedConnectionErrorDelay`**, and
+  `ConnectionBanner.sustainedErrorDelay` /
+  `ConnectionBanner.defaultSustainedErrorDelay` (8s) underneath it — see the
+  banner's new behaviour under *Changed*.
+
+- `MessageListState` is now public, with `rectForMessage(messageId)`:
+  where a row sits on screen *right now*, or `null` when it is not laid
+  out. A host anchoring an overlay to a row after an `await` should ask
+  again through a `GlobalKey<MessageListState>` rather than reuse the rect
+  a long press carried, which is a frame old by then.
+
+- `MessageBubble.displayNameResolver`, wired by `MessageList` from the
+  resolver the host already supplies, so a membership banner composed while
+  the user cache was still cold gets a second chance at a real name when it
+  repaints.
+
+- **`resolveDisplayName` on `localizedSystemMessageText` and
+  `localizedSystemMessageTextFromMetadata`**, both exported. Named and
+  optional, so every existing call compiles and reads exactly as before.
+  Hand one over and a membership label that is still the raw id it was
+  meant to name — a banner composed while the user cache was cold — is
+  looked up again on this paint; a label that already is a name stays
+  frozen, the way the text of any other sent message does.
+
+- **`ChatNoticeAnchor`**, a mixin for a `State` that raises SDK notices, plus
+  `chatNoticeL10n(context, theme)` and the new `messenger:` / `presenter:`
+  arguments on `showChatNotice`. It resolves the presenter, the
+  `ScaffoldMessenger` and the localizations in `didChangeDependencies` — the
+  last moment those lookups are guaranteed to answer — and hands them over
+  as fallbacks later. See *Fixed*.
+
+- `ChatController.confirmSent(..., pinnedAsSent: true)`, which freezes a row
+  at `ReceiptStatus.sent` for the rest of the session — and, in practice,
+  past it: the set of pinned ids lives only as long as the controller, but a
+  row that reached the cache carrying `silentlyDropped` is re-derived as
+  pinned on the next start, which is the freeze *Changed* describes.
+
+- `MockMessagesApi.failNextSendWith`, a one-shot failure injector for tests
+  that need to drive a send path's rejection branch.
+
+### Changed
+
+- **Breaking — `onSendMessageRequest` and `onEditMessage` return
+  `FutureOr<bool>`** (on `ChatViewCallbacks` and on `MessageInput` alike),
+  and `ThreadView.onSendReply` becomes `FutureOr<bool> Function(String)`.
+  The verdict is *was this taken?*, not *did it arrive*:
+
+  - `true` — something now owns the text (an optimistic bubble, a queue) and
+    the composer clears, exactly as it always did. A send that reached the
+    wire and failed there is `true`: its bubble is on screen with its own
+    retry, and returning `false` would put the same words in two places.
+  - `false` — the request was refused outright and the wording exists
+    nowhere else (a closed contact gate, a read-only room, a moderation
+    veto). The composer hands it back: the text where the user left it, the
+    reply it was under, edit mode reopened on the message being edited.
+
+  Migration is mechanical — a host that dispatches and does not care ends
+  its callback with `return true`. The hand-back aborts on its own if the
+  user started typing, replying or editing in the gap, so a refusal that
+  resolves a second later never overwrites fresher input.
+
+- **Breaking — `RoomListItem` and `UnreadRoom` carry
+  `lastMessageIsSystem`**, defaulting to `false`. Only `UnreadRoom` is
+  written to disk; `RoomListItem` never is, and takes the flag back from
+  the stored `UnreadRoom` when the list is rehydrated — so a row keeps
+  knowing across restarts that its last line was a system notice rather
+  than something a person wrote. Breaking twice over, both
+  times only where a signature is spelled out by hand or read positionally.
+  Anyone implementing `ChatRoomsApi` themselves has to declare the matching
+  `bool? lastMessageIsSystem` parameter `updateCachedRoomPreview` gains.
+  And because the field sits in the middle of both models rather than at
+  their end, the positional callbacks Freezed generates from them —
+  `when`, `maybeWhen`, `whenOrNull` — take one more argument in that
+  position, so every one already written against `RoomListItem` or
+  `UnreadRoom` has to be updated. The constructors and `copyWith` are
+  named throughout and compile untouched.
+
+- **The composer clears the stored draft when it sends.** `MessageInput`
+  emptied its own field but left `ChatController.draft` holding the wording
+  that had just gone out, so anything that reads the draft back saw a
+  message which no longer existed anywhere else: the composer reseeds
+  itself from it on any rebuild that finds the field empty, and a host
+  persisting drafts per room was keeping text the user had already sent. A
+  send now ends with `setDraft(null, notify: false)` — silently, so nothing
+  rebuilds on account of it. An edit leaves the draft untouched: it never
+  held the edited message's text to begin with.
+
+- **Breaking (behaviour) — `ChatViewBehaviors.withRoomState` stops
+  overwriting the host's `readOnly` and `readOnlyLabel`.** They are now
+  combined: the composer stays closed when *either* the room state or the
+  host says so, and the room's own `readOnlyLabel` wins only when the room
+  itself is read-only. An app that closes the composer for a reason only it
+  knows — a contact gate, a per-app permission — was being silently
+  re-opened by any room the SDK considered writable.
+
+- **`ChatMessage.silentlyDropped` must not be rendered as its own state.**
+  The old documentation invited a distinct treatment (a single grey check
+  that never progresses); that is precisely the tell a block is meant not to
+  give. The row renders as an ordinary "sent" and is now *frozen* there —
+  no delivered cursor, fan-out or per-user ack may advance it, in the
+  session or after a cold start. The flag is local bookkeeping.
+
+- **`restoreComposerOnEditFailure` covers every refusal, not just the
+  expired window.** `ForbiddenFailure`, `ContentFilterFailure` and
+  `ValidationFailure` now reopen the composer on the edited message with the
+  typed text, alongside `EditWindowExpiredFailure`. A refused edit has no
+  failed bubble to fall back on — the adapter rolls the row back to the
+  original wording — so this was the only thing standing between the user
+  and losing what they had just written. The line is drawn at a refusal
+  from the server, not at a failed trip to it: a request that never brought
+  a verdict back (network, timeout) and a 5xx that says nothing about the
+  wording still leave the composer shut. A host passing its own
+  `onEditMessage` gets the same effect by returning `false`.
+
+- **The chat-list row stops prefixing a sender onto text it did not write.**
+  A system notice (`lastMessageIsSystem`) renders bare, the way deletions
+  and reactions already did — "You: the plan starts in 24 hours" read as if
+  the user had written it.
+
+- **Breaking (behaviour) — `RoomTile.lastMessagePreviewBuilder` no longer
+  gets a sender prefix in front of it.** A non-null builder is now taken as
+  a self-contained sentence: **no sender prefix is prepended** to it any
+  more (the receipt icon still is), because a host that already names the
+  actor was getting it twice, as in "Alice: Alice joined the plan". The
+  signature does not move, so nothing warns: a host that was relying on the
+  SDK to put the name in front of its own preview has to write it itself.
+
+- **The connection banner keeps red for a link that is really down.**
+  A transport reports `error` the instant a socket drops and only moves to
+  `connecting` once its backoff timer fires, so the raw state said "broken"
+  during retries the user never needed to know about.
+  `ChatConnectionState.error` now wears the discreet `reconnecting`
+  presentation until the link has been down for
+  `sustainedConnectionErrorDelay` (8s by default), and only then escalates
+  to the red band with its icon. The label follows the presentation rather
+  than the raw state — it is read out of `labels[reconnecting]` for as long
+  as the demotion lasts — so a host that mapped its own wording onto
+  `ChatConnectionState.error` sees the `reconnecting` entry instead during
+  those first seconds. The countdown restarts only on `connected`, so a loop
+  that keeps failing still escalates; `Duration.zero` restores the immediate
+  red. `ConnectionBanner` is a `StatefulWidget` as a result, and
+  its constructor grows the optional `sustainedErrorDelay` — still `const`,
+  so every call site written against the old one compiles untouched. It
+  does not behave as it did: the parameter defaults to the same 8s, so a
+  screen that used to show the red band the instant its socket dropped now
+  shows the discreet `reconnecting` presentation for those first eight
+  seconds and escalates only if the link is still down. Pass
+  `sustainedErrorDelay: Duration.zero` to get the old timing back.
+
+- **The composer's attach button announces "Attach", not "Gallery".** It was
+  reusing the label of one of the options behind it, so a screen reader named
+  a single destination for a button that opens four. The new
+  `ChatUiLocalizations.attach` string carries it, the attachment sheet is
+  titled with the same words (`AttachmentPickerSheet.title`, suppressed by
+  passing `''`), and hosts addressing the button by its semantics label in an
+  integration test will need to follow. That title is a semantics header
+  carrying the identifier `chat_attachment_sheet_title`, so a driver can
+  wait on the sheet's heading by name instead of on the words in it —
+  which change with the locale, and are gone entirely when the title is
+  suppressed. The localization is done by `AttachmentPickerSheet.show`,
+  which is where a `BuildContext` exists to do it: a host constructing the
+  sheet widget directly and leaving `title` alone gets the English literal
+  `'Attach'` in every locale, and has to pass the string itself.
+
+- **A document bubble shows a readable size.** The raw `fileSize` a message
+  carries is normally a byte count (`'387'`) and was printed verbatim; it is
+  now scaled to B / KB / MB / GB / TB with one decimal from KB up — under
+  1000 bytes it stays the whole count (`'387 B'`) — 1000-based like the
+  platform pickers, with the decimal separator of the active locale. A host
+  that already hands over formatted text (`'2.4 MB'`) keeps it: anything that
+  does not parse as a non-negative integer is passed through untouched.
+
+- **The delivery-status legend stops naming colours.** In English and in
+  every locale that translates it, the group note now speaks of the
+  *delivered* and *read* states rather than of grey and blue checks, so it
+  still reads correctly under a custom `statusIconBuilder` or a palette that
+  never had those colours.
+
+### Fixed
+
+- **Sending to someone who blocked you is finally invisible everywhere.**
+  Two problems compounded. The block check only recognized
+  `403 {"detail":"blocked"}`, but creating the 1:1 room answers with prose
+  in `detail` and the token in `error` — so every guard on the
+  room-creation path was dead code and a first message to a blocker came
+  back as a failed bubble. It is token-first now (`error == "blocked"`, the
+  `detail` match kept as a legacy fallback). And the swallow itself only
+  existed for plain text: attachments, voice clips and forwards each raised
+  a red row instead. All three now land the same way as text — the row stays
+  at "sent", no `OperationError` is emitted, and the send reports success —
+  across all four ways a DM room gets materialized (draft, attachment, voice
+  and forward target), and on a manual retry.
+
+  Every one of those rows is stamped `ChatMessage.silentlyDropped` as it is
+  swallowed. The flag used to be set only where the backend answers the
+  `sendDirectMessage` call with an empty `204`; a send refused with
+  `403 blocked` now carries it too, which is what pins the row at "sent"
+  for good and what survives to the cache.
+
+  The swallowed row is written to the message cache as well, not just to the
+  chat-list preview. The server has no record of it, so nothing would ever
+  bring it back: without that, the sender reopened the room and found the
+  message missing from the thread while the list still previewed it.
+
+- **A refused edit is no longer indistinguishable from an applied one.**
+  The 403 fallback compared the backend's `detail` verbatim against
+  `edit_window_expired`, but the backend writes `edit window expired`,
+  spaces and all — so the fallback never matched on exactly the servers it
+  exists for. `detail` is now lower-cased and its whitespace collapsed
+  before the comparison, and `EditWindowExpiredFailure` reaches the notice
+  and the composer restore. The same normalization runs before the delete
+  token, so a `delete window expired` written the same way now lands on
+  `DeleteWindowExpiredFailure` instead of a bare `ForbiddenFailure`.
+
+- **Notices raised while their screen is coming down are no longer lost.**
+  An operation that fails as its route pops resumes on a context whose
+  element is deactivated: `mounted` is still `true`, but every ancestor
+  lookup answers with *Looking up a deactivated widget's ancestor is unsafe*
+  rather than with `null`, which threw away the message *and* took the
+  caller's remaining work with it. Every lookup in `showChatNotice` is now
+  guarded, a presenter or a `snackBarBuilder` that throws degrades to the
+  plain bar instead of losing the notice, and the SDK's own pages resolve
+  their messenger, presenter and strings ahead of time through
+  `ChatNoticeAnchor`.
+
+- **The room header stops counting yesterday's members.** Reads whose whole
+  contract is to re-read the server — the room detail fetched when a room is
+  opened, on `RoomUpdatedEvent` and `UserRoleChangedEvent`, and by
+  `GroupInfoPage` — now ask for `CachePolicy.networkFirst` instead of
+  inheriting the host's `cacheFirst` default, and so does the detail read
+  that materializes a room the list has never seen before, which was
+  seeding a brand-new row from whatever the cache happened to hold. On top
+  of that, a
+  reconnect/resume resync re-reads the detail of the room currently open: it
+  reloaded the list and the messages but not that detail, so a join missed
+  while the socket was down printed its system banner in the transcript next
+  to a header still counting the members the room had on the way in — and
+  stayed that way for as long as the room stayed open.
+
+- **The connection banner is no longer driven by unrelated errors.** A
+  transport-level `ErrorEvent` reaching the event router used to set the
+  connection state directly; the transport is now the only thing that
+  governs the banner.
+
+- **The reaction picker lands on the message it was opened from.** It was
+  positioned with the rect measured at long-press time, by then a frame old
+  and possibly from a recycled bubble, since the context menu had opened and
+  closed in between; the row is re-measured just before the picker opens.
+  The row also stays tinted while the picker is up, the picker is clamped
+  inside the safe area and the keyboard inset, and a row that cannot be
+  measured at all rests it over the composer instead of pinning it to the
+  top edge.
+
+- **A membership banner says a name, not a user id.** When the user cache
+  had not yet heard of the person who joined or left, the banner was composed
+  with the raw id and kept it forever. Composition now waits for the lookup
+  within a 3-second budget (and keeps watching the cache when another path
+  already had that id in flight, which the de-duplication answered with
+  `null`), and past the budget the bubble still repairs the label on paint —
+  including the metadata a host's own `systemMessageBuilder` or
+  `systemMessageTextResolver` composes from, not just the SDK's sentence.
+
+  The wait is paid where the banner is composed, and the router dispatches
+  that composition without awaiting it. A banner whose names need the full
+  three seconds can therefore land after events that arrived behind it —
+  the transcript is right about what happened, not always about the order
+  in which it did.
+
 ## 0.27.0 - 2026-08-21
 
 Minor bump: no API is removed or narrowed, but several defaults now behave

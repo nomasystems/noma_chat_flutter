@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
 import '../models/room_list_item.dart';
+import '../models/room_swipe_action.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
 import '../utils/last_message_preview.dart';
@@ -31,6 +32,7 @@ class RoomTile extends StatelessWidget {
     this.statusIconBuilder,
     this.blockedSenderIds = const <String>{},
     this.blockedContentPolicy = BlockedContentPolicy.placeholder,
+    this.swipeActions = const <RoomSwipeAction>[],
   });
 
   final RoomListItem room;
@@ -96,6 +98,20 @@ class RoomTile extends StatelessWidget {
   /// leaves the row with no preview at all, and
   /// [BlockedContentPolicy.show] prints it verbatim.
   final BlockedContentPolicy blockedContentPolicy;
+
+  /// Actions revealed by dragging the row sideways, so muting or archiving
+  /// a conversation is reachable without knowing that a long press exists.
+  ///
+  /// Empty by default: a tile built without them renders and hit-tests
+  /// exactly as it did before, with no gesture recognizer added. Each side
+  /// is draggable only while it has actions, and a drag that begins on the
+  /// leading edge never opens the leading side, so the platform back
+  /// gesture keeps that strip to itself.
+  ///
+  /// The buttons are revealed, not fired by the swipe itself: nothing
+  /// destructive happens on a gesture the user may not have meant.
+  /// [onLongPress] stays wired as the shortcut it always was.
+  final List<RoomSwipeAction> swipeActions;
 
   /// `true` when this row's last message is one the room would prune.
   bool get _lastMessageIsBlocked {
@@ -187,62 +203,111 @@ class RoomTile extends StatelessWidget {
     final subtitle =
         subtitleBuilder?.call(context, room) ?? _buildDefaultSubtitle(context);
 
+    final mutedUntil = _buildMutedUntil(context);
+
+    final tileColor = isSelected
+        ? (theme.roomList.tileSelectedColor ?? Colors.blue.shade50)
+        : (theme.roomList.tileBackgroundColor ?? Colors.transparent);
+
     return Semantics(
       label: room.displayName,
       container: true,
-      child: Material(
-        color: isSelected
-            ? (theme.roomList.tileSelectedColor ?? Colors.blue.shade50)
-            : (theme.roomList.tileBackgroundColor ?? Colors.transparent),
-        child: InkWell(
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Padding(
-            padding: const EdgeInsets.only(
-              left: 28,
-              right: 16,
-              top: 12,
-              bottom: 12,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                leading,
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        room.displayName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style:
-                            (theme.roomList.nameStyle ??
-                                    const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ))
-                                .copyWith(
-                                  fontWeight: room.unreadCount > 0
-                                      ? FontWeight.w700
-                                      : null,
-                                ),
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
-                        subtitle,
+      child: _wrapWithSwipeActions(
+        tileColor,
+        Material(
+          color: tileColor,
+          child: InkWell(
+            onTap: onTap,
+            onLongPress: onLongPress,
+            child: Padding(
+              padding: const EdgeInsets.only(
+                left: 28,
+                right: 16,
+                top: 12,
+                bottom: 12,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  leading,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          room.displayName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              (theme.roomList.nameStyle ??
+                                      const TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.w600,
+                                      ))
+                                  .copyWith(
+                                    fontWeight: room.unreadCount > 0
+                                        ? FontWeight.w700
+                                        : null,
+                                  ),
+                        ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          subtitle,
+                        ],
+                        if (mutedUntil != null) ...[
+                          const SizedBox(height: 2),
+                          mutedUntil,
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 8),
-                trailing,
-              ],
+                  const SizedBox(width: 8),
+                  trailing,
+                ],
+              ),
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  /// Leaves [tile] untouched when there is nothing to swipe to, so the
+  /// widget tree of a tile without actions is byte-for-byte the one it
+  /// had before swiping existed.
+  Widget _wrapWithSwipeActions(Color tileColor, Widget tile) {
+    if (swipeActions.isEmpty) return tile;
+    return _SwipeActionRow(
+      actions: swipeActions,
+      restingColor: tileColor,
+      child: tile,
+    );
+  }
+
+  /// Deadline line of a timed mute — the only place the row says when the
+  /// notifications come back.
+  ///
+  /// A permanent mute carries no [RoomListItem.muteUntil] and renders the
+  /// bell icon alone, as it always did. An expiry already in the past comes
+  /// from a stale cache — the backend drops the field once the mute lapses —
+  /// so it is not read out either.
+  Widget? _buildMutedUntil(BuildContext context) {
+    final until = room.muteUntil;
+    if (!room.muted || until == null) return null;
+    if (!until.isAfter(DateTime.now())) return null;
+    final l10n = theme.l10nOf(context);
+    final base =
+        theme.roomList.previewStyle ??
+        TextStyle(fontSize: 14, color: Colors.grey.shade600);
+    return Text(
+      l10n.mutedUntil(DateFormatter.formatMuteUntil(until, l10n: l10n)),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: base.copyWith(
+        fontSize: 12,
+        color: theme.roomList.mutedIconColor ?? Colors.grey,
       ),
     );
   }
@@ -467,6 +532,299 @@ class _InvitationButton extends StatelessWidget {
             fontSize: 12,
             fontWeight: FontWeight.w600,
             color: color,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Width of one revealed action button.
+const double _kSwipeActionWidth = 76;
+
+/// Strip of the leading edge where a drag is assumed to be the platform's
+/// back gesture rather than a row swipe. A drag that starts inside it can
+/// still close an open row and can still open the trailing side; what it
+/// cannot do is pull the leading actions out from under the back gesture.
+const double _kSwipeEdgeGuard = 24;
+
+/// Fraction of a side's width past which a released drag settles open
+/// instead of snapping back.
+const double _kSwipeOpenFraction = 0.4;
+
+/// Velocity (px/s) that opens or closes a row regardless of how far it
+/// was actually dragged.
+const double _kSwipeFlingVelocity = 320;
+
+/// Reveals [actions] when the row is dragged sideways and puts it back
+/// when one of them is tapped, when the row itself is tapped, or when the
+/// drag is released short of the opening threshold.
+///
+/// Deliberately not a `Dismissible`: dismissing acts on release, which is
+/// the wrong shape for a list where the actions are "mute" and "archive"
+/// and where more than one action per side has to fit.
+class _SwipeActionRow extends StatefulWidget {
+  const _SwipeActionRow({
+    required this.actions,
+    required this.restingColor,
+    required this.child,
+  });
+
+  final List<RoomSwipeAction> actions;
+
+  /// Painted under the row while it is off its resting place, so the
+  /// buttons never show through a tile whose own background is
+  /// transparent (which is the default).
+  final Color restingColor;
+
+  final Widget child;
+
+  @override
+  State<_SwipeActionRow> createState() => _SwipeActionRowState();
+}
+
+class _SwipeActionRowState extends State<_SwipeActionRow>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  Animation<double>? _settle;
+
+  /// Visual offset of the row: positive means the left-hand actions are
+  /// showing, negative the right-hand ones.
+  double _offset = 0;
+
+  /// Whether the drag in progress was born on the edge the platform reserves
+  /// for its back gesture: the left one in LTR, the right one in RTL.
+  bool _startedOnBackGestureEdge = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 180),
+    );
+  }
+
+  /// Pulls an already-open row back into range when the action list changes
+  /// under it, so a row left open with two buttons and rebuilt with one does
+  /// not stay parked at the old extent with a gap where the button was.
+  @override
+  void didUpdateWidget(covariant _SwipeActionRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_offset == 0) return;
+    final clamped = _offset.clamp(-_rightExtent, _leftExtent);
+    if (clamped == _offset) return;
+    _controller.stop();
+    _offset = clamped;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  bool get _isRtl => Directionality.of(context) == TextDirection.rtl;
+
+  List<RoomSwipeAction> _sideActions(RoomSwipeSide side) =>
+      widget.actions.where((a) => a.side == side).toList(growable: false);
+
+  List<RoomSwipeAction> get _leftActions =>
+      _sideActions(_isRtl ? RoomSwipeSide.end : RoomSwipeSide.start);
+
+  List<RoomSwipeAction> get _rightActions =>
+      _sideActions(_isRtl ? RoomSwipeSide.start : RoomSwipeSide.end);
+
+  double get _leftExtent => _leftActions.length * _kSwipeActionWidth;
+  double get _rightExtent => _rightActions.length * _kSwipeActionWidth;
+
+  /// How far the row may travel in each direction for the drag in progress.
+  ///
+  /// A drag born on the back-gesture edge is the platform's to interpret, so
+  /// it is never allowed to pull that edge's actions into view; it can only
+  /// push the row back towards its resting place, or open the opposite side,
+  /// which the platform does not claim.
+  double get _maxLeft =>
+      _startedOnBackGestureEdge && !_isRtl ? 0.0 : _leftExtent;
+
+  double get _maxRight =>
+      _startedOnBackGestureEdge && _isRtl ? 0.0 : _rightExtent;
+
+  bool get _isOpen => _offset != 0;
+
+  void _animateTo(double target) {
+    if (target == _offset) return;
+    final tween = Tween<double>(begin: _offset, end: target);
+    final settle = tween.animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+    );
+    _settle?.removeListener(_onSettleTick);
+    _settle = settle..addListener(_onSettleTick);
+    _controller.forward(from: 0);
+  }
+
+  void _onSettleTick() {
+    final settle = _settle;
+    if (settle == null) return;
+    setState(() => _offset = settle.value);
+  }
+
+  void _close() => _animateTo(0);
+
+  void _run(RoomSwipeAction action) {
+    _close();
+    action.onPressed();
+  }
+
+  void _onDragStart(DragStartDetails details) {
+    _controller.stop();
+    final width = context.size?.width ?? 0;
+    _startedOnBackGestureEdge = _isRtl
+        ? width - details.localPosition.dx <= _kSwipeEdgeGuard
+        : details.localPosition.dx <= _kSwipeEdgeGuard;
+  }
+
+  void _onDragUpdate(DragUpdateDetails details) {
+    final next = (_offset + details.delta.dx).clamp(-_maxRight, _maxLeft);
+    if (next == _offset) return;
+    setState(() => _offset = next);
+  }
+
+  void _onDragEnd(DragEndDetails details) {
+    final velocity = details.primaryVelocity ?? 0;
+    final maxLeft = _maxLeft;
+    final maxRight = _maxRight;
+    if (velocity <= -_kSwipeFlingVelocity) {
+      if (_offset > 0) {
+        _close();
+        return;
+      }
+      if (maxRight > 0) {
+        _animateTo(-maxRight);
+        return;
+      }
+    }
+    if (velocity >= _kSwipeFlingVelocity) {
+      if (_offset < 0) {
+        _close();
+        return;
+      }
+      if (maxLeft > 0) {
+        _animateTo(maxLeft);
+        return;
+      }
+    }
+    if (maxRight > 0 && _offset <= -maxRight * _kSwipeOpenFraction) {
+      _animateTo(-maxRight);
+      return;
+    }
+    if (maxLeft > 0 && _offset >= maxLeft * _kSwipeOpenFraction) {
+      _animateTo(maxLeft);
+      return;
+    }
+    _close();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final open = _isOpen;
+    // The translation wraps the gesture detector, not the other way round:
+    // an opaque detector left at the row's resting place would keep
+    // swallowing the taps aimed at the buttons it just uncovered.
+    //
+    // The shape of this tree never changes with [open] — a `Stack` with the
+    // panel slot first and the row second, always. Swapping shapes tore the
+    // detector's element down mid-drag and the row froze after the first
+    // few pixels, which is the whole gesture.
+    return Stack(
+      textDirection: TextDirection.ltr,
+      children: [
+        Positioned.fill(
+          child: open ? _buildActionPanel() : const SizedBox.shrink(),
+        ),
+        Transform.translate(
+          offset: Offset(_offset, 0),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onHorizontalDragStart: _onDragStart,
+            onHorizontalDragUpdate: _onDragUpdate,
+            onHorizontalDragEnd: _onDragEnd,
+            // While the actions are showing, a tap on the row puts it back
+            // instead of opening the conversation: the first tap after a
+            // swipe is nearly always "never mind".
+            onTap: open ? _close : null,
+            child: ColoredBox(
+              // Opaque only while the row is off its resting place, so the
+              // buttons never show through a tile whose own background is
+              // transparent (which is the default).
+              color: open ? widget.restingColor : const Color(0x00000000),
+              child: AbsorbPointer(absorbing: open, child: widget.child),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildActionPanel() {
+    return Row(
+      textDirection: TextDirection.ltr,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (_offset > 0)
+          for (final action in _leftActions)
+            _SwipeActionButton(action: action, onPressed: _run),
+        const Spacer(),
+        if (_offset < 0)
+          for (final action in _rightActions)
+            _SwipeActionButton(action: action, onPressed: _run),
+      ],
+    );
+  }
+}
+
+class _SwipeActionButton extends StatelessWidget {
+  const _SwipeActionButton({required this.action, required this.onPressed});
+
+  final RoomSwipeAction action;
+  final void Function(RoomSwipeAction) onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final background = action.backgroundColor ?? scheme.secondaryContainer;
+    final foreground = action.foregroundColor ?? scheme.onSecondaryContainer;
+    return Semantics(
+      identifier: action.identifier,
+      button: true,
+      label: action.label,
+      child: Material(
+        color: background,
+        child: InkWell(
+          onTap: () => onPressed(action),
+          child: SizedBox(
+            width: _kSwipeActionWidth,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(action.icon, size: 20, color: foreground),
+                const SizedBox(height: 4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: Text(
+                    action.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: foreground,
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

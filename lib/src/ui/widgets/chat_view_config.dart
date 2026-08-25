@@ -574,10 +574,11 @@ class ChatViewBehaviors {
   /// original wording by the adapter, so without this the wording that was
   /// just written is the only copy that exists — and it is gone.
   ///
-  /// Limited to refusals: a request that reached the wire and failed there
-  /// (network, timeout, 5xx) leaves the composer shut, because nothing
-  /// tells the user why it would be reopening and the same edit may still
-  /// be worth another tap.
+  /// Limited to refusals — the server saw this wording and turned it down.
+  /// A failure that never brought a verdict back (network, timeout) or one
+  /// that says nothing about the wording itself (5xx) leaves the composer
+  /// shut, because nothing tells the user why it would be reopening and the
+  /// same edit may still be worth another tap.
   ///
   /// Only [NomaChatView]'s built-in edit callback honours this; a host that
   /// passes its own `onEditMessage` decides for itself by returning
@@ -687,8 +688,20 @@ class ChatViewBehaviors {
   final String? emptyTitle;
   final String? emptySubtitle;
 
+  /// When `true`, the composer row is replaced by a non-interactive band
+  /// carrying [readOnlyLabel], and `canSend` drops — which also disables
+  /// attachments and voice. Takes precedence over [isBlocked] and
+  /// [isParticipating] in the footer.
+  ///
+  /// Hosts embedding [NomaChatView] may set it to close the composer for a
+  /// reason only the app knows (a contact gate, a per-app permission): the
+  /// room state the SDK owns — announcement rooms, `selfMuted` — is combined
+  /// with it rather than replacing it, so the composer stays closed when
+  /// either side says so.
   bool get readOnly => _readOnly ?? false;
 
+  /// Reason rendered inside the read-only band. The room's own reason wins
+  /// when the SDK marks the room read-only; otherwise the host's is used.
   final String? readOnlyLabel;
 
   /// Forwarded to the composer. When true (default), URLs typed in the input
@@ -823,6 +836,12 @@ class ChatViewBehaviors {
 
   /// Stamps the room state [NomaChatView] owns, overriding whatever the
   /// host passed. Everything else is carried over untouched.
+  ///
+  /// [readOnly] is the exception: it is combined with the host's instead of
+  /// replacing it, so an app that closes the composer for its own reason —
+  /// a contact gate, a per-app permission — is not silently re-opened by a
+  /// room that happens to be writable. The room's [readOnlyLabel] still wins
+  /// whenever the room itself is read-only; the host's is used otherwise.
   ChatViewBehaviors withRoomState({
     required String? initialMessageId,
     required String? unreadBoundaryMessageId,
@@ -865,8 +884,8 @@ class ChatViewBehaviors {
     unreadCount: unreadCount,
     isBlocked: isBlocked,
     isParticipating: isParticipating,
-    readOnly: readOnly,
-    readOnlyLabel: readOnlyLabel,
+    readOnly: readOnly || (_readOnly ?? false),
+    readOnlyLabel: readOnly ? readOnlyLabel : this.readOnlyLabel,
     isGroup: isGroup,
     restoreComposerOnEditFailure: _restoreComposerOnEditFailure,
     confirmDeleteForEveryone: _confirmDeleteForEveryone,

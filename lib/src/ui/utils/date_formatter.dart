@@ -56,6 +56,30 @@ class DateFormatter {
     return isSameDay(date, yesterday);
   }
 
+  /// Wall-clock deadline of a timed mute, for the "muted until …" line.
+  ///
+  /// The backend stamps the expiry in UTC, so the instant is converted to
+  /// the device zone before it is read out: a mute that ends at 20:30 in
+  /// Madrid must not advertise 18:30. An expiry later today shows the time
+  /// alone; a later one prepends the day.
+  static String formatMuteUntil(
+    DateTime until, {
+    DateTime? now,
+    ChatUiLocalizations l10n = ChatUiLocalizations.en,
+  }) {
+    final local = until.toLocal();
+    final time = formatTime(local);
+    final reference = (now ?? DateTime.now()).toLocal();
+    if (isSameDay(local, reference)) return time;
+    final day = formatSeparator(
+      local,
+      now: reference,
+      todayLabel: l10n.today,
+      yesterdayLabel: l10n.yesterday,
+    );
+    return '$day $time';
+  }
+
   static String formatRelative(
     DateTime date, {
     DateTime? now,

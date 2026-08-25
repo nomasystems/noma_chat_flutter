@@ -199,6 +199,50 @@ void main() {
     expect(adapter.roomListController.getRoomById(roomId)?.memberCount, 4);
   });
 
+  test('a resync with the room already open re-reads its detail, so a join '
+      'missed while disconnected reaches the header without leaving the '
+      'room', () async {
+    final adapter = ChatUiAdapter(
+      client: client,
+      currentUser: me,
+      manageAppLifecycle: false,
+    );
+    addTearDown(adapter.dispose);
+    adapter.start();
+    await client.connect();
+    await Future<void>.delayed(Duration.zero);
+    await adapter.rooms.load();
+
+    adapter.setActiveRoom(roomId);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(adapter.roomListController.getRoomById(roomId)?.memberCount, 3);
+
+    // Pablo joins while this device is backgrounded / its socket is down:
+    // the `user_joined` frame is never delivered, so nothing evicts the
+    // cached detail. Reconnecting resyncs the list and the transcript.
+    roomMembers = [...roomMembers, 'pablo'];
+    final readsBeforeResync = detailReads;
+
+    await adapter.resync();
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(
+      detailReads,
+      greaterThan(readsBeforeResync),
+      reason:
+          'the list pass resolves the detail through the cache, so the '
+          'resync has to re-read the foregrounded room itself',
+    );
+    expect(
+      adapter.roomListController.getRoomById(roomId)?.memberCount,
+      4,
+      reason:
+          'setActiveRoom does not fire again for a room already active, so '
+          'without this the header keeps the old count for as long as the '
+          'user stays in the room',
+    );
+  });
+
   test('the refreshed detail replaces the cached one, so a later cache-first '
       'read no longer serves the old count', () async {
     final adapter = ChatUiAdapter(

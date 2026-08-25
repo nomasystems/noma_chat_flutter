@@ -141,6 +141,14 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
           .replaceAll('{count}', names.length.toString());
     }
 
+    final status = _resolveStatusSubtitle(context);
+    final mutedUntil = _resolveMutedUntil(context);
+    if (mutedUntil == null) return status;
+    if (status == null) return mutedUntil;
+    return '$status · $mutedUntil';
+  }
+
+  String? _resolveStatusSubtitle(BuildContext context) {
     final r = room;
     if (r != null) {
       if (r.isGroup) {
@@ -162,6 +170,18 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
       }
     }
     return null;
+  }
+
+  /// Deadline of a timed mute, so the bell icon in the header says until
+  /// when. A permanent mute carries no expiry and keeps the icon alone; an
+  /// expiry already elapsed comes from a stale room and is ignored.
+  String? _resolveMutedUntil(BuildContext context) {
+    final r = room;
+    final until = r?.muteUntil;
+    if (r == null || !r.muted || until == null) return null;
+    if (!until.isAfter(DateTime.now())) return null;
+    final l10n = theme.l10nOf(context);
+    return l10n.mutedUntil(DateFormatter.formatMuteUntil(until, l10n: l10n));
   }
 
   @override
