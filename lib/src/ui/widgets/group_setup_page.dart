@@ -89,7 +89,11 @@ class GroupSetupPage extends StatefulWidget {
   State<GroupSetupPage> createState() => _GroupSetupPageState();
 }
 
-class _GroupSetupPageState extends State<GroupSetupPage> {
+class _GroupSetupPageState extends State<GroupSetupPage>
+    with ChatNoticeAnchor<GroupSetupPage> {
+  @override
+  ChatTheme get noticeTheme => widget.theme;
+
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
@@ -257,11 +261,7 @@ class _GroupSetupPageState extends State<GroupSetupPage> {
     if (!mounted) return;
     setState(() => _creating = false);
     if (result.isFailure) {
-      showChatNotice(
-        context,
-        result.failureOrNull?.message ??
-            widget.theme.l10nOf(context).photoUploadFailed,
-      );
+      showNotice(result.failureOrNull?.message ?? noticeL10n.photoUploadFailed);
       return;
     }
     final roomId = result.dataOrThrow;

@@ -45,22 +45,28 @@ void main() {
   Widget wrap(Widget child) => MaterialApp(home: Scaffold(body: child));
 
   group('MessageInput a11y', () {
-    testWidgets('attach button exposes Gallery semantic label', (tester) async {
+    testWidgets('attach button exposes Attach semantic label', (tester) async {
       await tester.pumpWidget(
         wrap(
-          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
         ),
       );
-      expect(find.bySemanticsLabel('Gallery'), findsOneWidget);
+      expect(find.bySemanticsLabel('Attach'), findsOneWidget);
     });
 
     testWidgets('attach button tap target is at least 48dp', (tester) async {
       await tester.pumpWidget(
         wrap(
-          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
         ),
       );
-      final size = tester.getSize(find.bySemanticsLabel('Gallery'));
+      final size = tester.getSize(find.bySemanticsLabel('Attach'));
       expect(size.width, greaterThanOrEqualTo(48.0));
       expect(size.height, greaterThanOrEqualTo(48.0));
     });
@@ -72,7 +78,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessageRequest: (_) {},
+            onSendMessageRequest: (_) => true,
             onPickCamera: () {},
           ),
         ),
@@ -89,7 +95,10 @@ void main() {
     ) async {
       await tester.pumpWidget(
         wrap(
-          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
         ),
       );
       await tester.enterText(find.byType(TextField), 'hola');
@@ -101,7 +110,10 @@ void main() {
     testWidgets('send button tap target is at least 48dp', (tester) async {
       await tester.pumpWidget(
         wrap(
-          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
         ),
       );
       await tester.enterText(find.byType(TextField), 'hola');
@@ -118,7 +130,7 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessageRequest: (_) {},
+            onSendMessageRequest: (_) => true,
             linkPreviewFetcher: _StubFetcher(),
           ),
         ),
@@ -140,7 +152,10 @@ void main() {
 
       await tester.pumpWidget(
         wrap(
-          MessageInput(controller: controller, onSendMessageRequest: (_) {}),
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
         ),
       );
 

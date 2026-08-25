@@ -31,7 +31,7 @@ void main() {
       body: MessageInput(
         controller: controller,
         enableLinkPreview: false,
-        onSendMessageRequest: (_) {},
+        onSendMessageRequest: (_) => true,
       ),
     ),
   );

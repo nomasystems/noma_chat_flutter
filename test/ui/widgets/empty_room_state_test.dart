@@ -35,7 +35,12 @@ void main() {
     controller: controller,
     builders: ChatViewBuilders(emptyRoomBuilder: emptyRoomBuilder),
     callbacks: ChatViewCallbacks(
-      onSendMessageRequest: canSend ? (req) => sent.add(req.text) : null,
+      onSendMessageRequest: canSend
+          ? (req) {
+              sent.add(req.text);
+              return true;
+            }
+          : null,
     ),
     behaviors: ChatViewBehaviors(
       readOnly: readOnly,

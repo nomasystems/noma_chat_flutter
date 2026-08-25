@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
@@ -14,6 +16,7 @@ import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../services/link_preview_fetcher.dart';
 import 'attachment_picker_sheet.dart';
+import 'connection_banner.dart';
 import 'empty_room_state.dart';
 import 'message_context_menu.dart';
 import 'message_status_icon.dart';
@@ -284,6 +287,8 @@ class ChatViewCallbacks {
     this.onAttachTap,
     this.onVoiceMessageReady,
     this.onPermissionDenied,
+    this.canStartRecording,
+    this.onRecordingRejected,
     this.onContextMenuAction,
     this.onRetryMessage,
     this.onDiscardFailedMessage,
@@ -301,8 +306,32 @@ class ChatViewCallbacks {
   /// Single canonical send callback — the legacy `onSendMessage` /
   /// `onSendMessageRich` shapes were removed in this release. Hosts that
   /// only need plain text can read `request.text` and ignore the rest.
-  final void Function(SendMessageRequest request)? onSendMessageRequest;
-  final void Function(ChatMessage message, String newText)? onEditMessage;
+  ///
+  /// Return `true` when the request was taken: something now owns the text
+  /// — an optimistic bubble, a queue — and the composer clears, as it
+  /// always did. Return `false` when the send was refused outright and the
+  /// text exists nowhere else (a closed contact gate, a read-only room, a
+  /// moderation veto); the composer then hands the wording back instead of
+  /// swallowing it. A send that reached the wire and failed there is
+  /// `true`: its bubble is on screen with its own retry, and returning
+  /// `false` would show the same text twice.
+  ///
+  /// Hosts that dispatch and do not care can `return true` right away —
+  /// awaiting the outcome is only needed to refuse.
+  final FutureOr<bool> Function(SendMessageRequest request)?
+  onSendMessageRequest;
+
+  /// Confirms an edit of [message] to `newText`.
+  ///
+  /// Same verdict as [onSendMessageRequest]: `true` when the edit was taken
+  /// and the composer may close, `false` when it was refused and the new
+  /// wording exists nowhere else — the composer then reopens on [message]
+  /// carrying the text the user had typed. A refused edit has no failed
+  /// bubble to fall back on: the adapter rolls the row back to the original
+  /// wording, so `false` is the only thing standing between the user and
+  /// losing what they just wrote.
+  final FutureOr<bool> Function(ChatMessage message, String newText)?
+  onEditMessage;
   final ValueChanged<ChatMessage>? onDeleteMessage;
   final ValueChanged<ChatMessage>? onMessageLongPress;
   final VoidCallback? onLoadMoreMessages;
@@ -347,6 +376,21 @@ class ChatViewCallbacks {
 
   final void Function(VoiceMessageData data)? onVoiceMessageReady;
   final VoidCallback? onPermissionDenied;
+
+  /// Asked the instant a finger lands on the mic button, before the
+  /// recorder is armed and before the system microphone permission is
+  /// requested. Return false when this room cannot take a voice message
+  /// — read-only, a counterpart who cannot be messaged, a membership that
+  /// ended — and [onRecordingRejected] is called instead of recording.
+  ///
+  /// Synchronous by design: an asynchronous check here would delay every
+  /// legitimate recording. Leave it null to let every touch through.
+  final bool Function()? canStartRecording;
+
+  /// Called when [canStartRecording] vetoed a touch, so the host can
+  /// explain the refusal in its own words. Without it the composer floats
+  /// its own prompt over the mic button.
+  final VoidCallback? onRecordingRejected;
 
   final void Function(ChatMessage message, MessageAction action)?
   onContextMenuAction;
@@ -432,6 +476,7 @@ class ChatViewBehaviors {
     Map<String, ChatMessage>? referencedMessages,
     this.connectionState,
     Map<ChatConnectionState, String>? connectionLabels,
+    Duration? sustainedConnectionErrorDelay,
     Set<MessageAction>? contextMenuActions,
     Duration? editWindow = _unsetWindow,
     Duration? deleteWindow = _unsetWindow,
@@ -468,6 +513,7 @@ class ChatViewBehaviors {
        _messageStatuses = messageStatuses,
        _referencedMessages = referencedMessages,
        _connectionLabels = connectionLabels,
+       _sustainedConnectionErrorDelay = sustainedConnectionErrorDelay,
        _contextMenuActions = contextMenuActions,
        _editWindow = editWindow,
        _deleteWindow = deleteWindow,
@@ -498,6 +544,7 @@ class ChatViewBehaviors {
   final Map<String, ReceiptStatus>? _messageStatuses;
   final Map<String, ChatMessage>? _referencedMessages;
   final Map<ChatConnectionState, String>? _connectionLabels;
+  final Duration? _sustainedConnectionErrorDelay;
   final Set<MessageAction>? _contextMenuActions;
   final Duration? _editWindow;
   final Duration? _deleteWindow;
@@ -518,19 +565,24 @@ class ChatViewBehaviors {
   final BlockedContentPolicy? _blockedContentPolicy;
   final Set<String>? _blockedSenderIds;
 
-  /// When `true` (default), an edit the server refuses *because its edit
-  /// window closed* (`EditWindowExpiredFailure`) puts the composer back
-  /// into editing mode carrying the text the user had typed, instead of
-  /// dropping it. The bubble itself is already rolled back to the
+  /// When `true` (default), an edit the server *refuses* — its edit window
+  /// closed (`EditWindowExpiredFailure`), the room turned it down
+  /// (`ForbiddenFailure`), moderation vetoed it (`ContentFilterFailure`),
+  /// the payload was rejected (`ValidationFailure`) — puts the composer
+  /// back into editing mode carrying the text the user had typed, instead
+  /// of dropping it. The bubble itself is already rolled back to the
   /// original wording by the adapter, so without this the wording that was
   /// just written is the only copy that exists — and it is gone.
   ///
-  /// Deliberately limited to that one failure: it is the only refusal the
-  /// user is told about, so it is the only one where the composer
-  /// reopening reads as an explanation rather than as a glitch.
+  /// Limited to refusals — the server saw this wording and turned it down.
+  /// A failure that never brought a verdict back (network, timeout) or one
+  /// that says nothing about the wording itself (5xx) leaves the composer
+  /// shut, because nothing tells the user why it would be reopening and the
+  /// same edit may still be worth another tap.
   ///
   /// Only [NomaChatView]'s built-in edit callback honours this; a host that
-  /// passes its own `onEditMessage` owns the composer from that point on.
+  /// passes its own `onEditMessage` decides for itself by returning
+  /// `false`, which hands the composer back the same way.
   bool get restoreComposerOnEditFailure =>
       _restoreComposerOnEditFailure ?? true;
 
@@ -591,6 +643,20 @@ class ChatViewBehaviors {
   Map<ChatConnectionState, String> get connectionLabels =>
       _connectionLabels ?? const {};
 
+  /// How long the link has to stay down before
+  /// [ChatConnectionState.error] escalates from the discreet
+  /// `reconnecting` presentation of [ConnectionBanner] to the red one.
+  ///
+  /// A transport reports `error` the instant a socket drops and only moves
+  /// to `connecting` once its backoff timer fires, so the raw state says
+  /// "broken" during retries the user never needed to know about. Raise it
+  /// for links that reconnect slowly, or set [Duration.zero] to paint the
+  /// red band as soon as the transport reports the error. Defaults to
+  /// [ConnectionBanner.defaultSustainedErrorDelay].
+  Duration get sustainedConnectionErrorDelay =>
+      _sustainedConnectionErrorDelay ??
+      ConnectionBanner.defaultSustainedErrorDelay;
+
   Set<MessageAction> get contextMenuActions =>
       _contextMenuActions ?? _defaultContextMenuActions;
 
@@ -622,8 +688,20 @@ class ChatViewBehaviors {
   final String? emptyTitle;
   final String? emptySubtitle;
 
+  /// When `true`, the composer row is replaced by a non-interactive band
+  /// carrying [readOnlyLabel], and `canSend` drops — which also disables
+  /// attachments and voice. Takes precedence over [isBlocked] and
+  /// [isParticipating] in the footer.
+  ///
+  /// Hosts embedding [NomaChatView] may set it to close the composer for a
+  /// reason only the app knows (a contact gate, a per-app permission): the
+  /// room state the SDK owns — announcement rooms, `selfMuted` — is combined
+  /// with it rather than replacing it, so the composer stays closed when
+  /// either side says so.
   bool get readOnly => _readOnly ?? false;
 
+  /// Reason rendered inside the read-only band. The room's own reason wins
+  /// when the SDK marks the room read-only; otherwise the host's is used.
   final String? readOnlyLabel;
 
   /// Forwarded to the composer. When true (default), URLs typed in the input
@@ -717,6 +795,8 @@ class ChatViewBehaviors {
     referencedMessages: _referencedMessages ?? base._referencedMessages,
     connectionState: connectionState ?? base.connectionState,
     connectionLabels: _connectionLabels ?? base._connectionLabels,
+    sustainedConnectionErrorDelay:
+        _sustainedConnectionErrorDelay ?? base._sustainedConnectionErrorDelay,
     contextMenuActions: _contextMenuActions ?? base._contextMenuActions,
     editWindow: _editWindow == _unsetWindow ? base._editWindow : _editWindow,
     deleteWindow: _deleteWindow == _unsetWindow
@@ -756,6 +836,12 @@ class ChatViewBehaviors {
 
   /// Stamps the room state [NomaChatView] owns, overriding whatever the
   /// host passed. Everything else is carried over untouched.
+  ///
+  /// [readOnly] is the exception: it is combined with the host's instead of
+  /// replacing it, so an app that closes the composer for its own reason —
+  /// a contact gate, a per-app permission — is not silently re-opened by a
+  /// room that happens to be writable. The room's [readOnlyLabel] still wins
+  /// whenever the room itself is read-only; the host's is used otherwise.
   ChatViewBehaviors withRoomState({
     required String? initialMessageId,
     required String? unreadBoundaryMessageId,
@@ -778,6 +864,7 @@ class ChatViewBehaviors {
     referencedMessages: _referencedMessages,
     connectionState: connectionState,
     connectionLabels: _connectionLabels,
+    sustainedConnectionErrorDelay: _sustainedConnectionErrorDelay,
     contextMenuActions: _contextMenuActions,
     editWindow: _editWindow,
     deleteWindow: _deleteWindow,
@@ -797,8 +884,8 @@ class ChatViewBehaviors {
     unreadCount: unreadCount,
     isBlocked: isBlocked,
     isParticipating: isParticipating,
-    readOnly: readOnly,
-    readOnlyLabel: readOnlyLabel,
+    readOnly: readOnly || (_readOnly ?? false),
+    readOnlyLabel: readOnly ? readOnlyLabel : this.readOnlyLabel,
     isGroup: isGroup,
     restoreComposerOnEditFailure: _restoreComposerOnEditFailure,
     confirmDeleteForEveryone: _confirmDeleteForEveryone,

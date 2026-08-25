@@ -11,7 +11,7 @@ ChatFailure mapExceptionToFailure(Object e) {
     // don't yet emit the token). Either path lands on the same typed
     // failure, and both carry the token onward via `errorToken`.
     final token = e.errorToken;
-    final detail = _forbiddenDetail(e);
+    final detail = _forbiddenDetailToken(e);
     if (token == ChatErrorTokens.editWindowExpired ||
         detail == ChatErrorTokens.editWindowExpired) {
       return const EditWindowExpiredFailure();
@@ -65,17 +65,25 @@ ChatFailure mapExceptionToFailure(Object e) {
   return UnexpectedFailure(e.toString(), e);
 }
 
-/// Extracts the backend's `detail` code from a 403 so the mapper can route
-/// edit/delete-window rejections to their typed failures when the server
-/// did not emit a stable `error` token. The detail lives in the response
-/// body (`ChatForbiddenException.message` only carries the transport-level
+/// Extracts the backend's `detail` from a 403 and reduces it to token
+/// shape, so the mapper can route edit/delete-window rejections to their
+/// typed failures when the server did not emit a stable `error` token.
+/// The detail lives in the response body
+/// (`ChatForbiddenException.message` only carries the transport-level
 /// text).
-String? _forbiddenDetail(ChatForbiddenException e) {
+///
+/// `detail` is prose, not a token: the backend answers a closed edit
+/// window with `edit window expired`, spaces and all, and comparing that
+/// verbatim against `edit_window_expired` never matched — which left the
+/// whole fallback dead exactly on the servers it exists for, and a
+/// refused edit indistinguishable from an applied one. Lower-casing and
+/// collapsing whitespace to `_` makes the two spellings the same key.
+String? _forbiddenDetailToken(ChatForbiddenException e) {
   final body = e.body;
-  if (body is Map && body['detail'] is String) {
-    return (body['detail'] as String).trim();
-  }
-  return null;
+  if (body is! Map || body['detail'] is! String) return null;
+  final detail = (body['detail'] as String).trim().toLowerCase();
+  if (detail.isEmpty) return null;
+  return detail.replaceAll(RegExp(r'\s+'), '_');
 }
 
 Future<ChatResult<T>> safeApiCall<T>(Future<T> Function() call) async {

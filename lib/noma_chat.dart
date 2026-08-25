@@ -106,6 +106,7 @@ export 'src/utils/chat_export.dart';
 // === UI: Models ===
 export 'src/ui/models/reaction_user.dart';
 export 'src/ui/models/room_list_item.dart';
+export 'src/ui/models/room_swipe_action.dart';
 export 'src/ui/models/attachment_policy.dart';
 export 'src/ui/models/attachment_rejection.dart';
 export 'src/ui/models/camera_capture_result.dart';
@@ -152,7 +153,8 @@ export 'src/ui/theme/default_palette.dart';
 
 // === UI: Localization ===
 export 'src/ui/l10n/chat_ui_localizations.dart';
-export 'src/ui/l10n/system_message_text.dart';
+export 'src/ui/l10n/system_message_text.dart'
+    hide messageWithResolvedSystemLabels;
 
 // === UI: Utils ===
 export 'src/ui/utils/chat_notice.dart';

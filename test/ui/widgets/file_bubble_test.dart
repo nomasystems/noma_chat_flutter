@@ -18,6 +18,36 @@ void main() {
       expect(find.text('2.4 MB'), findsOneWidget);
     });
 
+    testWidgets('renders a raw byte count with its unit', (tester) async {
+      // `messages_controller` writes `bytes.length.toString()`, so this is
+      // the value a real document attachment carries.
+      await tester.pumpWidget(
+        wrap(const FileBubble(fileName: 'report.pdf', fileSize: '387')),
+      );
+      expect(find.text('387'), findsNothing);
+      expect(find.text('387 B'), findsOneWidget);
+    });
+
+    testWidgets('scales a large raw byte count', (tester) async {
+      await tester.pumpWidget(
+        wrap(const FileBubble(fileName: 'report.pdf', fileSize: '1500000')),
+      );
+      expect(find.text('1.5 MB'), findsOneWidget);
+    });
+
+    testWidgets('uses the theme locale decimal separator', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          FileBubble(
+            fileName: 'report.pdf',
+            fileSize: '1500000',
+            theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+          ),
+        ),
+      );
+      expect(find.text('1,5 MB'), findsOneWidget);
+    });
+
     testWidgets('has Semantics label with file name', (tester) async {
       await tester.pumpWidget(wrap(const FileBubble(fileName: 'report.pdf')));
       final finder = find.byWidgetPredicate(

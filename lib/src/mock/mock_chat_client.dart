@@ -481,6 +481,7 @@ class MockRoomsApi implements ChatRoomsApi {
         lastMessageUserId: last?.from,
         lastMessageId: last?.id,
         lastMessageType: last?.messageType,
+        lastMessageIsSystem: last?.isSystem ?? false,
       );
     }).toList();
     return ChatSuccess(UserRooms(rooms: rooms));
@@ -621,6 +622,7 @@ class MockRoomsApi implements ChatRoomsApi {
     String? lastMessageFileName,
     int? lastMessageDurationMs,
     bool? lastMessageIsDeleted,
+    bool? lastMessageIsSystem,
     String? lastMessageReactionEmoji,
     String? lastMessageReactionTargetText,
     MessageType? lastMessageReactionTargetType,
@@ -756,6 +758,12 @@ class MockMessagesApi implements ChatMessagesApi {
   /// reverting its debounce seal on an exception, not just on `isFailure`.
   bool throwNextList = false;
 
+  /// When set, the next [send] call fails with this failure and leaves the
+  /// room untouched, then resets to `null`. Lets tests drive the send
+  /// paths' rejection branches — a `403 {"detail":"blocked"}` above all,
+  /// which every send path swallows as a locally sent message.
+  ChatFailure? failNextSendWith;
+
   @override
   Future<ChatResult<ChatMessage>> get(String roomId, String messageId) async {
     final messages = _client._messages[roomId] ?? [];
@@ -778,6 +786,11 @@ class MockMessagesApi implements ChatMessagesApi {
     String? tempId,
     String? clientMessageId,
   }) async {
+    final forced = failNextSendWith;
+    if (forced != null) {
+      failNextSendWith = null;
+      return ChatFailureResult(forced);
+    }
     final msg = ChatMessage(
       id: _client._nextMessageId(),
       from: _client.currentUserId,

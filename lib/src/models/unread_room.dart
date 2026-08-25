@@ -36,6 +36,12 @@ abstract class UnreadRoom with _$UnreadRoom {
     String? lastMessageFileName,
     int? lastMessageDurationMs,
     @Default(false) bool lastMessageIsDeleted,
+
+    /// `true` when the last message is a system notice rather than something
+    /// a person wrote. Feeds `RoomListItem.lastMessageIsSystem` on
+    /// rehydration so the row keeps dropping the sender prefix across
+    /// restarts.
+    @Default(false) bool lastMessageIsSystem,
     String? lastMessageReactionEmoji,
 
     /// Text of the message the last reaction was aimed at, truncated to 30

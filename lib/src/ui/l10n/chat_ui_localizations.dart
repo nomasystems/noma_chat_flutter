@@ -61,6 +61,7 @@ class ChatUiLocalizations {
     this.camera = 'Camera',
     this.gallery = 'Gallery',
     this.location = 'Location',
+    this.attach = 'Attach',
     this.connecting = 'Connecting...',
     this.reconnecting = 'Reconnecting...',
     this.disconnected = 'Disconnected',
@@ -161,6 +162,7 @@ class ChatUiLocalizations {
     this.slideUpToLock = 'Slide up to lock',
     this.holdToRecord = 'Hold to record, release to send',
     this.recordingFailed = 'Could not record, try again',
+    this.recordingNotAllowed = "You can't send a voice message here",
     this.voiceRecording = 'Recording...',
     this.preListenLabel = 'Preview',
     this.pauseRecording = 'Pause recording',
@@ -359,8 +361,9 @@ class ChatUiLocalizations {
     this.statusFailedDescription =
         'It could not be sent. Tap the icon to try again.',
     this.deliveryStatusLegendGroupNote =
-        'In a group, two grey checks mean the message reached every member it '
-        'could reach; blue means every member has read it.',
+        'In a group, the delivered state means the message reached every '
+        'member it could reach; the read state means every member has read '
+        'it.',
     this.exportChat = 'Export chat',
     this.inviteViaLink = 'Invite via link',
     this.inviteLinkCopied = 'Invite link copied',
@@ -376,6 +379,7 @@ class ChatUiLocalizations {
     this.mute8Hours = '8 hours',
     this.mute1Week = '1 week',
     this.muteAlways = 'Always',
+    this.mutedUntilTemplate = 'Muted until {date}',
     this.archived = 'Archived',
     this.archiveChat = 'Archive',
     this.unarchiveChat = 'Unarchive',
@@ -420,6 +424,7 @@ class ChatUiLocalizations {
   final String camera;
   final String gallery;
   final String location;
+  final String attach;
   final String connecting;
   final String reconnecting;
   final String disconnected;
@@ -580,6 +585,13 @@ class ChatUiLocalizations {
   /// enough is never told to hold it longer. Set it to the empty string to
   /// suppress the prompt entirely.
   final String recordingFailed;
+
+  /// Prompt floated over the mic button when the host vetoes the
+  /// recording before it is armed — a read-only room, a counterpart who
+  /// cannot be messaged. Shown only when no `onRecordingRejected` handler
+  /// is supplied. Set it to the empty string to suppress the prompt
+  /// entirely.
+  final String recordingNotAllowed;
   final String voiceRecording;
   final String preListenLabel;
   final String pauseRecording;
@@ -954,6 +966,14 @@ class ChatUiLocalizations {
   /// Mute-duration option: silence notifications permanently.
   final String muteAlways;
 
+  /// Expiry line of a timed mute, shown wherever a room advertises that
+  /// it is silenced. `{date}` is the already-formatted local deadline.
+  /// A permanent mute carries no deadline, so it never renders this.
+  final String mutedUntilTemplate;
+
+  String mutedUntil(String date) =>
+      mutedUntilTemplate.replaceAll('{date}', date);
+
   /// Collapsible section header grouping archived (hidden) chats.
   final String archived;
 
@@ -1136,6 +1156,7 @@ class ChatUiLocalizations {
     String? camera,
     String? gallery,
     String? location,
+    String? attach,
     String? connecting,
     String? reconnecting,
     String? disconnected,
@@ -1225,6 +1246,7 @@ class ChatUiLocalizations {
     String? slideUpToLock,
     String? holdToRecord,
     String? recordingFailed,
+    String? recordingNotAllowed,
     String? voiceRecording,
     String? preListenLabel,
     String? pauseRecording,
@@ -1370,6 +1392,7 @@ class ChatUiLocalizations {
     String? mute8Hours,
     String? mute1Week,
     String? muteAlways,
+    String? mutedUntilTemplate,
     String? archived,
     String? archiveChat,
     String? unarchiveChat,
@@ -1405,6 +1428,7 @@ class ChatUiLocalizations {
       camera: camera ?? this.camera,
       gallery: gallery ?? this.gallery,
       location: location ?? this.location,
+      attach: attach ?? this.attach,
       connecting: connecting ?? this.connecting,
       reconnecting: reconnecting ?? this.reconnecting,
       disconnected: disconnected ?? this.disconnected,
@@ -1514,6 +1538,7 @@ class ChatUiLocalizations {
       slideUpToLock: slideUpToLock ?? this.slideUpToLock,
       holdToRecord: holdToRecord ?? this.holdToRecord,
       recordingFailed: recordingFailed ?? this.recordingFailed,
+      recordingNotAllowed: recordingNotAllowed ?? this.recordingNotAllowed,
       voiceRecording: voiceRecording ?? this.voiceRecording,
       preListenLabel: preListenLabel ?? this.preListenLabel,
       pauseRecording: pauseRecording ?? this.pauseRecording,
@@ -1740,6 +1765,7 @@ class ChatUiLocalizations {
       mute8Hours: mute8Hours ?? this.mute8Hours,
       mute1Week: mute1Week ?? this.mute1Week,
       muteAlways: muteAlways ?? this.muteAlways,
+      mutedUntilTemplate: mutedUntilTemplate ?? this.mutedUntilTemplate,
       archived: archived ?? this.archived,
       archiveChat: archiveChat ?? this.archiveChat,
       unarchiveChat: unarchiveChat ?? this.unarchiveChat,
@@ -1859,6 +1885,7 @@ class ChatUiLocalizations {
     camera: 'Cámara',
     gallery: 'Galería',
     location: 'Ubicación',
+    attach: 'Adjuntar',
     connecting: 'Conectando...',
     reconnecting: 'Reconectando...',
     disconnected: 'Desconectado',
@@ -1953,6 +1980,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Desliza arriba para bloquear',
     holdToRecord: 'Mantén pulsado para grabar, suelta para enviar',
     recordingFailed: 'No se pudo grabar, inténtalo de nuevo',
+    recordingNotAllowed: 'No puedes enviar un mensaje de voz aquí',
     voiceRecording: 'Grabando...',
     preListenLabel: 'Vista previa',
     pauseRecording: 'Pausar grabación',
@@ -2123,7 +2151,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'No se ha podido enviar. Toca el icono para reintentar.',
     deliveryStatusLegendGroupNote:
-        'En un grupo, los dos checks grises indican que el mensaje llegó a todos los miembros a los que pudo llegar; en azul, que todos lo han leído.',
+        'En un grupo, el estado entregado significa que el mensaje llegó a todos los miembros a los que pudo llegar; el estado leído, que todos lo han leído.',
     exportChat: 'Exportar chat',
     inviteViaLink: 'Invitar con enlace',
     inviteLinkCopied: 'Enlace de invitación copiado',
@@ -2133,6 +2161,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 horas',
     mute1Week: '1 semana',
     muteAlways: 'Siempre',
+    mutedUntilTemplate: 'Silenciado hasta {date}',
     archived: 'Archivados',
     archiveChat: 'Archivar',
     unarchiveChat: 'Desarchivar',
@@ -2255,6 +2284,7 @@ class ChatUiLocalizations {
     camera: 'Appareil photo',
     gallery: 'Galerie',
     location: 'Position',
+    attach: 'Joindre',
     connecting: 'Connexion...',
     reconnecting: 'Reconnexion...',
     disconnected: 'Déconnecté',
@@ -2323,6 +2353,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Glisser vers le haut pour verrouiller',
     holdToRecord: 'Maintenez pour enregistrer, relâchez pour envoyer',
     recordingFailed: 'Enregistrement impossible, réessayez',
+    recordingNotAllowed: 'Vous ne pouvez pas envoyer de message vocal ici',
     pauseRecording: 'Mettre en pause',
     resumeRecording: 'Reprendre l\'enregistrement',
     voiceRecording: 'Enregistrement...',
@@ -2445,7 +2476,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'Envoi impossible. Touchez l’icône pour réessayer.',
     deliveryStatusLegendGroupNote:
-        'Dans un groupe, deux coches grises signifient que le message a atteint tous les membres joignables ; en bleu, que tous l’ont lu.',
+        'Dans un groupe, l’état distribué signifie que le message a atteint tous les membres joignables ; l’état lu, que tous l’ont lu.',
     exportChat: 'Exporter la discussion',
     inviteViaLink: 'Inviter via un lien',
     inviteLinkCopied: 'Lien d\'invitation copié',
@@ -2455,6 +2486,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 heures',
     mute1Week: '1 semaine',
     muteAlways: 'Toujours',
+    mutedUntilTemplate: "En sourdine jusqu'à {date}",
     archived: 'Archivés',
     archiveChat: 'Archiver',
     unarchiveChat: 'Désarchiver',
@@ -2578,6 +2610,7 @@ class ChatUiLocalizations {
     camera: 'Kamera',
     gallery: 'Galerie',
     location: 'Standort',
+    attach: 'Anhängen',
     connecting: 'Verbinden...',
     reconnecting: 'Erneut verbinden...',
     disconnected: 'Getrennt',
@@ -2648,6 +2681,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Nach oben wischen zum Sperren',
     holdToRecord: 'Zum Aufnehmen halten, zum Senden loslassen',
     recordingFailed: 'Aufnahme fehlgeschlagen, versuche es erneut',
+    recordingNotAllowed: 'Hier kannst du keine Sprachnachricht senden',
     pauseRecording: 'Aufnahme pausieren',
     resumeRecording: 'Aufnahme fortsetzen',
     voiceRecording: 'Aufnahme...',
@@ -2769,7 +2803,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'Konnte nicht gesendet werden. Tippe zum Wiederholen auf das Symbol.',
     deliveryStatusLegendGroupNote:
-        'In einer Gruppe bedeuten zwei graue Haken, dass die Nachricht alle erreichbaren Mitglieder erreicht hat; blau bedeutet, dass alle sie gelesen haben.',
+        'In einer Gruppe bedeutet der Status zugestellt, dass die Nachricht alle erreichbaren Mitglieder erreicht hat; der Status gelesen bedeutet, dass alle sie gelesen haben.',
     exportChat: 'Chat exportieren',
     inviteViaLink: 'Per Link einladen',
     inviteLinkCopied: 'Einladungslink kopiert',
@@ -2779,6 +2813,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 Stunden',
     mute1Week: '1 Woche',
     muteAlways: 'Immer',
+    mutedUntilTemplate: 'Stummgeschaltet bis {date}',
     archived: 'Archiviert',
     archiveChat: 'Archivieren',
     unarchiveChat: 'Aus Archiv',
@@ -2899,6 +2934,7 @@ class ChatUiLocalizations {
     camera: 'Fotocamera',
     gallery: 'Galleria',
     location: 'Posizione',
+    attach: 'Allega',
     connecting: 'Connessione...',
     reconnecting: 'Riconnessione...',
     disconnected: 'Disconnesso',
@@ -2968,6 +3004,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Scorri verso l\'alto per bloccare',
     holdToRecord: 'Tieni premuto per registrare, rilascia per inviare',
     recordingFailed: 'Registrazione non riuscita, riprova',
+    recordingNotAllowed: 'Non puoi inviare un messaggio vocale qui',
     pauseRecording: 'Metti in pausa',
     resumeRecording: 'Riprendi registrazione',
     voiceRecording: 'Registrazione...',
@@ -3088,7 +3125,7 @@ class ChatUiLocalizations {
     statusReadDescription: 'La chat è stata aperta e il messaggio letto.',
     statusFailedDescription: 'Invio non riuscito. Tocca l’icona per riprovare.',
     deliveryStatusLegendGroupNote:
-        'In un gruppo, due spunte grigie indicano che il messaggio ha raggiunto tutti i membri raggiungibili; in blu, che tutti l’hanno letto.',
+        'In un gruppo, lo stato consegnato significa che il messaggio ha raggiunto tutti i membri raggiungibili; lo stato letto, che tutti l’hanno letto.',
     exportChat: 'Esporta chat',
     inviteViaLink: 'Invita tramite link',
     inviteLinkCopied: 'Link di invito copiato',
@@ -3098,6 +3135,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 ore',
     mute1Week: '1 settimana',
     muteAlways: 'Sempre',
+    mutedUntilTemplate: 'Silenziato fino a {date}',
     archived: 'Archiviati',
     archiveChat: 'Archivia',
     unarchiveChat: 'Rimuovi dall\'archivio',
@@ -3218,6 +3256,7 @@ class ChatUiLocalizations {
     camera: 'Câmara',
     gallery: 'Galeria',
     location: 'Localização',
+    attach: 'Anexar',
     connecting: 'A ligar...',
     reconnecting: 'A religar...',
     disconnected: 'Desligado',
@@ -3287,6 +3326,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Deslizar para cima para bloquear',
     holdToRecord: 'Mantém premido para gravar, solta para enviar',
     recordingFailed: 'Não foi possível gravar, tenta de novo',
+    recordingNotAllowed: 'Não podes enviar uma mensagem de voz aqui',
     pauseRecording: 'Pausar gravação',
     resumeRecording: 'Retomar gravação',
     voiceRecording: 'A gravar...',
@@ -3408,7 +3448,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'Não foi possível enviar. Toca no ícone para tentar de novo.',
     deliveryStatusLegendGroupNote:
-        'Num grupo, dois tiques cinzentos indicam que a mensagem chegou a todos os membros alcançáveis; a azul, que todos a leram.',
+        'Num grupo, o estado entregue significa que a mensagem chegou a todos os membros alcançáveis; o estado lido, que todos a leram.',
     exportChat: 'Exportar conversa',
     inviteViaLink: 'Convidar por link',
     inviteLinkCopied: 'Link de convite copiado',
@@ -3418,6 +3458,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 horas',
     mute1Week: '1 semana',
     muteAlways: 'Sempre',
+    mutedUntilTemplate: 'Silenciado até {date}',
     archived: 'Arquivadas',
     archiveChat: 'Arquivar',
     unarchiveChat: 'Desarquivar',
@@ -3535,6 +3576,7 @@ class ChatUiLocalizations {
     file: 'Fitxer',
     camera: 'Càmera',
     location: 'Ubicació',
+    attach: 'Adjuntar',
     gallery: 'Galeria',
     connecting: 'Connectant...',
     reconnecting: 'Reconnectant...',
@@ -3602,6 +3644,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Llisca amunt per bloquejar',
     holdToRecord: 'Mantén premut per gravar, deixa anar per enviar',
     recordingFailed: 'No s\'ha pogut gravar, torna-ho a provar',
+    recordingNotAllowed: 'No pots enviar un missatge de veu aquí',
     pauseRecording: 'Pausar gravació',
     resumeRecording: 'Reprendre la gravació',
     voiceRecording: 'Gravant...',
@@ -3723,7 +3766,7 @@ class ChatUiLocalizations {
     statusFailedDescription:
         'No s’ha pogut enviar. Toca la icona per tornar-ho a provar.',
     deliveryStatusLegendGroupNote:
-        'En un grup, dos tics grisos indiquen que el missatge ha arribat a tots els membres localitzables; en blau, que tots l’han llegit.',
+        'En un grup, l’estat lliurat significa que el missatge ha arribat a tots els membres localitzables; l’estat llegit, que tots l’han llegit.',
     exportChat: 'Exporta el xat',
     inviteViaLink: 'Convida amb un enllaç',
     inviteLinkCopied: 'Enllaç d\'invitació copiat',
@@ -3733,6 +3776,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 hores',
     mute1Week: '1 setmana',
     muteAlways: 'Sempre',
+    mutedUntilTemplate: 'Silenciat fins a {date}',
     archived: 'Arxivats',
     archiveChat: 'Arxiva',
     unarchiveChat: 'Desarxiva',
@@ -3782,6 +3826,7 @@ class ChatUiLocalizations {
     camera: 'Kamera',
     gallery: 'Galleri',
     location: 'Plats',
+    attach: 'Bifoga',
     connecting: 'Ansluter...',
     reconnecting: 'Återansluter...',
     disconnected: 'Frånkopplad',
@@ -3864,6 +3909,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Dra upp för att låsa',
     holdToRecord: 'Håll in för att spela in, släpp för att skicka',
     recordingFailed: 'Inspelningen misslyckades, försök igen',
+    recordingNotAllowed: 'Du kan inte skicka röstmeddelanden här',
     voiceRecording: 'Spelar in...',
     microphonePermissionDenied: 'Mikrofonbehörighet nekad',
     statusSent: 'Skickat',
@@ -3943,6 +3989,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 timmar',
     mute1Week: '1 vecka',
     muteAlways: 'Alltid',
+    mutedUntilTemplate: 'Tystad till {date}',
     archived: 'Arkiverad',
     archiveChat: 'Arkivera',
     unarchiveChat: 'Avarkivera',
@@ -3975,6 +4022,7 @@ class ChatUiLocalizations {
     camera: 'Kamera',
     gallery: 'Galleri',
     location: 'Posisjon',
+    attach: 'Legg ved',
     connecting: 'Kobler til...',
     reconnecting: 'Kobler til på nytt...',
     disconnected: 'Frakoblet',
@@ -4057,6 +4105,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Dra opp for å låse',
     holdToRecord: 'Hold inne for å ta opp, slipp for å sende',
     recordingFailed: 'Opptaket mislyktes, prøv igjen',
+    recordingNotAllowed: 'Du kan ikke sende talemeldinger her',
     voiceRecording: 'Tar opp...',
     microphonePermissionDenied: 'Mikrofontilgang avslått',
     statusSent: 'Sendt',
@@ -4136,6 +4185,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 timer',
     mute1Week: '1 uke',
     muteAlways: 'Alltid',
+    mutedUntilTemplate: 'Dempet til {date}',
     archived: 'Arkivert',
     archiveChat: 'Arkiver',
     unarchiveChat: 'Fjern fra arkiv',
@@ -4168,6 +4218,7 @@ class ChatUiLocalizations {
     camera: 'Kamera',
     gallery: 'Galleri',
     location: 'Placering',
+    attach: 'Vedhæft',
     connecting: 'Forbinder...',
     reconnecting: 'Genopretter forbindelse...',
     disconnected: 'Afbrudt',
@@ -4250,6 +4301,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Træk op for at låse',
     holdToRecord: 'Hold nede for at optage, slip for at sende',
     recordingFailed: 'Optagelsen mislykkedes, prøv igen',
+    recordingNotAllowed: 'Du kan ikke sende talebeskeder her',
     voiceRecording: 'Optager...',
     microphonePermissionDenied: 'Mikrofonadgang nægtet',
     statusSent: 'Sendt',
@@ -4329,6 +4381,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 timer',
     mute1Week: '1 uge',
     muteAlways: 'Altid',
+    mutedUntilTemplate: 'Lyd slået fra til {date}',
     archived: 'Arkiveret',
     archiveChat: 'Arkiver',
     unarchiveChat: 'Fjern fra arkiv',
@@ -4361,6 +4414,7 @@ class ChatUiLocalizations {
     camera: 'Aparat',
     gallery: 'Galeria',
     location: 'Lokalizacja',
+    attach: 'Załącz',
     connecting: 'Łączenie...',
     reconnecting: 'Ponowne łączenie...',
     disconnected: 'Rozłączono',
@@ -4443,6 +4497,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Przesuń w górę, aby zablokować',
     holdToRecord: 'Przytrzymaj, aby nagrać, puść, aby wysłać',
     recordingFailed: 'Nie udało się nagrać, spróbuj ponownie',
+    recordingNotAllowed: 'Nie możesz tu wysłać wiadomości głosowej',
     voiceRecording: 'Nagrywanie...',
     microphonePermissionDenied: 'Odmowa dostępu do mikrofonu',
     statusSent: 'Wysłano',
@@ -4522,6 +4577,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 godzin',
     mute1Week: '1 tydzień',
     muteAlways: 'Zawsze',
+    mutedUntilTemplate: 'Wyciszone do {date}',
     archived: 'Zarchiwizowane',
     archiveChat: 'Archiwizuj',
     unarchiveChat: 'Wyodrębnij z archiwum',
@@ -4554,6 +4610,7 @@ class ChatUiLocalizations {
     camera: 'Fotoaparát',
     gallery: 'Galerie',
     location: 'Poloha',
+    attach: 'Přiložit',
     connecting: 'Připojování...',
     reconnecting: 'Obnovování připojení...',
     disconnected: 'Odpojeno',
@@ -4636,6 +4693,7 @@ class ChatUiLocalizations {
     slideUpToLock: 'Přejetím nahoru zamknete',
     holdToRecord: 'Podržte pro nahrávání, uvolněte pro odeslání',
     recordingFailed: 'Nahrávání se nezdařilo, zkuste to znovu',
+    recordingNotAllowed: 'Sem nemůžeš poslat hlasovou zprávu',
     voiceRecording: 'Nahrávání...',
     microphonePermissionDenied: 'Přístup k mikrofonu odepřen',
     statusSent: 'Odesláno',
@@ -4715,6 +4773,7 @@ class ChatUiLocalizations {
     mute8Hours: '8 hodin',
     mute1Week: '1 týden',
     muteAlways: 'Vždy',
+    mutedUntilTemplate: 'Ztlumeno do {date}',
     archived: 'Archivováno',
     archiveChat: 'Archivovat',
     unarchiveChat: 'Zrušit archivaci',
@@ -4901,6 +4960,7 @@ class ChatUiLocalizations {
     String? camera,
     String? gallery,
     String? location,
+    String? attach,
     String? connecting,
     String? reconnecting,
     String? disconnected,
@@ -4990,6 +5050,7 @@ class ChatUiLocalizations {
     String? slideUpToLock,
     String? holdToRecord,
     String? recordingFailed,
+    String? recordingNotAllowed,
     String? voiceRecording,
     String? preListenLabel,
     String? pauseRecording,
@@ -5171,6 +5232,7 @@ class ChatUiLocalizations {
     String? mute8Hours,
     String? mute1Week,
     String? muteAlways,
+    String? mutedUntilTemplate,
     String? archived,
     String? archiveChat,
     String? unarchiveChat,
@@ -5208,6 +5270,7 @@ class ChatUiLocalizations {
         camera: camera,
         gallery: gallery,
         location: location,
+        attach: attach,
         connecting: connecting,
         reconnecting: reconnecting,
         disconnected: disconnected,
@@ -5297,6 +5360,7 @@ class ChatUiLocalizations {
         slideUpToLock: slideUpToLock,
         holdToRecord: holdToRecord,
         recordingFailed: recordingFailed,
+        recordingNotAllowed: recordingNotAllowed,
         voiceRecording: voiceRecording,
         preListenLabel: preListenLabel,
         pauseRecording: pauseRecording,
@@ -5478,6 +5542,7 @@ class ChatUiLocalizations {
         mute8Hours: mute8Hours,
         mute1Week: mute1Week,
         muteAlways: muteAlways,
+        mutedUntilTemplate: mutedUntilTemplate,
         archived: archived,
         archiveChat: archiveChat,
         unarchiveChat: unarchiveChat,

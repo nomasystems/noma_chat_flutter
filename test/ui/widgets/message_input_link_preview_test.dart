@@ -92,7 +92,9 @@ void main() {
     controller.setDraft('hello from draft');
 
     await tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
+      wrap(
+        MessageInput(controller: controller, onSendMessageRequest: (_) => true),
+      ),
     );
 
     expect(find.text('hello from draft'), findsOneWidget);
@@ -113,7 +115,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           linkPreviewFetcher: fake,
         ),
       ),
@@ -141,7 +143,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           linkPreviewFetcher: fake,
         ),
       ),
@@ -180,7 +182,10 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (req) => receivedMetadata = req.metadata,
+          onSendMessageRequest: (req) {
+            receivedMetadata = req.metadata;
+            return true;
+          },
           linkPreviewFetcher: fake,
         ),
       ),
@@ -218,7 +223,10 @@ void main() {
         wrap(
           MessageInput(
             controller: controller,
-            onSendMessageRequest: (req) => receivedMetadata = req.metadata,
+            onSendMessageRequest: (req) {
+              receivedMetadata = req.metadata;
+              return true;
+            },
             linkPreviewFetcher: narrowing,
           ),
         ),
@@ -250,7 +258,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           enableLinkPreview: false,
           linkPreviewFetcher: fake,
         ),

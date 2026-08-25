@@ -98,7 +98,11 @@ class ChatEventRouterDeps {
   final void Function(String roomId, String userId, {String? actorUserId})
   handleUserLeftFn;
   final void Function(String roomId, String userId) handleUserRejoinedFn;
-  final void Function(
+
+  /// Asynchronous because the banner waits, within a budget, for a display
+  /// name the user cache does not have yet — the router fires it and moves
+  /// on, so a slow lookup never holds up the rest of the event.
+  final Future<void> Function(
     String roomId,
     String systemType,
     String userId, {
@@ -221,11 +225,13 @@ class ChatEventRouter {
     String systemType,
     String userId, {
     String? actorUserId,
-  }) => _deps.addSystemMessageFn(
-    roomId,
-    systemType,
-    userId,
-    actorUserId: actorUserId,
+  }) => unawaited(
+    _deps.addSystemMessageFn(
+      roomId,
+      systemType,
+      userId,
+      actorUserId: actorUserId,
+    ),
   );
   void _addRoomFromDetailFn(String roomId, {ChatMessage? lastMessage}) =>
       _deps.addRoomFromDetailFn(roomId, lastMessage: lastMessage);
@@ -444,7 +450,6 @@ class ChatEventRouter {
         _connectionStateNotifier.value = ChatConnectionState.disconnected;
       case ErrorEvent():
         _lastKnownConnectedFromEvents = false;
-        _connectionStateNotifier.value = ChatConnectionState.error;
         _onError?.call(event);
       case BroadcastEvent(:final message):
         _onBroadcast?.call(message);

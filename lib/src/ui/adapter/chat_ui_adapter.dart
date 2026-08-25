@@ -1394,12 +1394,27 @@ class ChatUiAdapter {
   /// than answering 200 with a partial page, so there's nothing here left
   /// to distrust about a 200. This is what reconciles a room removed on
   /// another device while this one was offline/reconnecting.
+  ///
+  /// The foregrounded room also gets its detail re-read. The roster frames
+  /// that keep `memberCount` (and the title, the avatar, the read-only
+  /// flag) current only arrive while the socket is up, and the list pass
+  /// above resolves each room's detail through the cache — so a join that
+  /// happened while this device was backgrounded or disconnected came back
+  /// as a visible system message in the transcript next to a header still
+  /// counting the members the room had on the way in, and stayed that way
+  /// for as long as the user kept the room open (`setActiveRoom` does not
+  /// fire again for a room already active). Re-reading the detail here is
+  /// the same self-healing moment opening the room already is, for the one
+  /// room whose header is on screen.
   Future<bool> _runResyncOnce() async {
     final roomsResult = await loadRooms(forceNetwork: true);
     if (_disposed) return false;
     if (roomsResult.isFailure) return false;
     final activeRoomId = _activeRoomId;
     if (activeRoomId != null) {
+      if (roomListController.getRoomById(activeRoomId) != null) {
+        _enrichRoomFromDetail(activeRoomId);
+      }
       final messagesResult = await loadMessages(activeRoomId);
       if (_disposed) return false;
       if (messagesResult.isFailure) return false;
@@ -2645,11 +2660,20 @@ class ChatUiAdapter {
     await stateSub?.cancel();
   }
 
+  /// Token-first, like [mapExceptionToFailure] does for the edit/delete
+  /// windows: the stable `error` token wins over the legacy `detail`
+  /// string match. Sending into a blocked room answers
+  /// `403 {"detail":"blocked","error":"blocked"}`, but creating the 1:1
+  /// room answers `403 {"detail":"Cannot create room with blocked user:
+  /// ID","error":"blocked"}` — prose in `detail`, the token only in
+  /// `error`. Matching on `detail` alone made every room-materialization
+  /// path miss the block.
   bool _isBlockedError(ChatFailure? failure) {
     if (failure is! ForbiddenFailure) return false;
+    if (failure.errorToken == ChatErrorTokens.blocked) return true;
     final body = failure.body;
     if (body is Map) {
-      return body['detail'] == 'blocked';
+      return body['detail'] == ChatErrorTokens.blocked;
     }
     return false;
   }

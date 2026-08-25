@@ -53,16 +53,17 @@ class _ThreadPageState extends State<ThreadPage> {
     });
   }
 
-  Future<void> _sendReply(String text) async {
+  Future<bool> _sendReply(String text) async {
     final res = await _chat.adapter.messages.sendThreadReply(
       widget.roomId,
       widget.rootMessage.id,
       text: text,
     );
-    if (!mounted) return;
+    if (!mounted) return res.isSuccess;
     if (res.isSuccess) {
       setState(() => _replies = [..._replies, res.dataOrNull!]);
     }
+    return res.isSuccess;
   }
 
   @override

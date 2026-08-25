@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import '../theme/chat_theme.dart';
 import 'full_emoji_picker.dart';
@@ -74,19 +76,42 @@ class _FloatingPickerLayout extends StatelessWidget {
   Widget build(BuildContext context) {
     final screenSize = MediaQuery.sizeOf(context);
     final padding = MediaQuery.paddingOf(context);
+    final viewInsets = MediaQuery.viewInsetsOf(context);
     const pickerHeight = 56.0;
     const margin = 8.0;
 
-    final spaceAbove = anchorRect.top - padding.top;
-    final showAbove = spaceAbove > pickerHeight + margin;
-
-    final top = showAbove
-        ? anchorRect.top - pickerHeight - margin
-        : anchorRect.bottom + margin;
-
     final pickerWidth = (reactions.length + 1) * 48.0 + 16;
-    var left = anchorRect.center.dx - pickerWidth / 2;
-    left = left.clamp(margin, screenSize.width - pickerWidth - margin);
+    final minTop = padding.top + margin;
+    final maxTop =
+        screenSize.height -
+        padding.bottom -
+        viewInsets.bottom -
+        pickerHeight -
+        margin;
+    const minLeft = margin;
+    final maxLeft = screenSize.width - pickerWidth - margin;
+
+    double clampTop(double v) => v.clamp(minTop, math.max(minTop, maxTop));
+    double clampLeft(double v) => v.clamp(minLeft, math.max(minLeft, maxLeft));
+
+    // An empty anchor means the row could not be measured. Resting over
+    // the composer says "no particular message"; obeying `Rect.zero`
+    // would pin the picker to the top edge instead.
+    final double top;
+    final double left;
+    if (anchorRect.isEmpty) {
+      top = clampTop(maxTop);
+      left = clampLeft((screenSize.width - pickerWidth) / 2);
+    } else {
+      final spaceAbove = anchorRect.top - padding.top;
+      final showAbove = spaceAbove > pickerHeight + margin;
+      top = clampTop(
+        showAbove
+            ? anchorRect.top - pickerHeight - margin
+            : anchorRect.bottom + margin,
+      );
+      left = clampLeft(anchorRect.center.dx - pickerWidth / 2);
+    }
 
     return Stack(
       children: [

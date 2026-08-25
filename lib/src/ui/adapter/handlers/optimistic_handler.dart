@@ -216,35 +216,13 @@ class OptimisticHandler {
       clientMessageId: tempId,
     );
 
-    // 403 "blocked" on send is swallowed (WhatsApp parity): a blocked
-    // sender sees NOTHING. The backend rejects delivery in both
-    // directions once either party blocks the other, but the sender must
-    // not be able to tell — no failed bubble, no error toast, the chat
-    // stays put. We mark the optimistic message as SENT locally (it will
-    // never be delivered, but the sender keeps typing into the void) and
-    // early-return success so the failure never reaches `_emitFailure`.
-    // The "I am the blocker → drop the row" pruning that used to live
-    // here is gone: blocking keeps the room (handled elsewhere).
     if (result.isFailure && _isBlockedError(result.failureOrNull)) {
-      final sent = _ensureSentReceipt(optimistic);
-      if (controller != null) {
-        controller.confirmSent(tempId, sent);
-      }
-      unawaited(
-        cache
-                ?.deletePendingMessage(effectiveRoomId, tempId)
-                .catchError(_swallowCacheThrow) ??
-            Future.value(),
+      return swallowBlockedAsSent(
+        controller: controller,
+        roomId: effectiveRoomId,
+        tempId: tempId,
+        optimistic: optimistic,
       );
-      _updateRoomLastMessage(effectiveRoomId, sent);
-      _analyticsEmit(
-        ChatAnalyticsEvent.sendOutcome(
-          roomId: effectiveRoomId,
-          kind: messageType,
-          success: true,
-        ),
-      );
-      return ChatSuccess<ChatMessage>(sent);
     }
 
     final logs = _logs;
@@ -330,6 +308,53 @@ class OptimisticHandler {
     );
   }
 
+  /// Turns a `403 blocked` rejection into a locally successful send
+  /// (WhatsApp parity): the recipient blocks the sender, and the sender
+  /// must not be able to tell. No failed bubble, no error toast, no
+  /// operation failure — the room stays exactly as it was.
+  ///
+  /// The row is stamped [ChatMessage.silentlyDropped] and confirmed with
+  /// `pinnedAsSent`, so it shows one tick and can never be advanced to
+  /// delivered or read by a later cursor: nobody received it. The flag is
+  /// persisted, so the freeze survives a cold start as well.
+  ///
+  /// It is also written to the message cache rather than only to the room
+  /// preview. The server has no record of it, so nothing would ever bring
+  /// it back: without this the sender reopens the room and finds the
+  /// message gone from the thread while the chat list still previews it.
+  ///
+  /// Every REST send path routes its blocked rejection here — plain send,
+  /// draft DM, manual retry, attachment, voice and forward — so the
+  /// sender's view of a block is identical whatever they sent.
+  ChatResult<ChatMessage> swallowBlockedAsSent({
+    required ChatController? controller,
+    required String roomId,
+    required String tempId,
+    required ChatMessage optimistic,
+  }) {
+    final sent = _ensureSentReceipt(optimistic.copyWith(silentlyDropped: true));
+    controller?.confirmSent(tempId, sent, pinnedAsSent: true);
+    unawaited(
+      cache
+              ?.deletePendingMessage(roomId, tempId)
+              .catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
+    unawaited(
+      cache?.saveMessages(roomId, [sent]).catchError(_swallowCacheThrow) ??
+          Future.value(),
+    );
+    _updateRoomLastMessage(roomId, sent);
+    _analyticsEmit(
+      ChatAnalyticsEvent.sendOutcome(
+        roomId: roomId,
+        kind: sent.messageType,
+        success: true,
+      ),
+    );
+    return ChatSuccess<ChatMessage>(sent);
+  }
+
   /// A [ChatFailure]'s server-provided `errorToken` when it has one, else
   /// its class name (`'NetworkFailure'`, `'ValidationFailure'`, …). Never
   /// `failure.message`, which can echo server- or user-provided text —
@@ -393,6 +418,19 @@ class OptimisticHandler {
           Future.value(),
     );
 
+    // Creating the 1:1 room is itself refused with `403 blocked` when the
+    // other party blocks this user, and that rejection reached the server
+    // — so it must be swallowed here too rather than left as a failed
+    // bubble that tells the sender exactly what they must not learn.
+    if (_isBlockedError(materializationFailure.failureOrNull)) {
+      return swallowDraftBlockedAsSent(
+        controller: controller,
+        draftKey: draftKey,
+        optimistic: optimistic,
+        operationKind: operationKind,
+      );
+    }
+
     final otherUserId = controller.draftOtherUserId;
     if (otherUserId == null ||
         !_neverReachedServer(materializationFailure.failureOrNull)) {
@@ -415,6 +453,14 @@ class OptimisticHandler {
     );
 
     if (direct.isFailure) {
+      if (_isBlockedError(direct.failureOrNull)) {
+        return swallowDraftBlockedAsSent(
+          controller: controller,
+          draftKey: draftKey,
+          optimistic: optimistic,
+          operationKind: operationKind,
+        );
+      }
       return _emitFailure<ChatMessage>(
         materializationFailure,
         operationKind,
@@ -440,6 +486,31 @@ class OptimisticHandler {
     }
     _emitOperationSuccess(operationKind, roomId: draftKey, messageId: tempId);
     return ChatSuccess<ChatMessage>(sent);
+  }
+
+  /// [swallowBlockedAsSent] for the draft-DM path, which reports its own
+  /// success separately from [sendMessage]'s return value.
+  ///
+  /// Shared with the attachment and voice paths, whose draft rooms are
+  /// materialized in `MessagesController` rather than here.
+  ChatResult<ChatMessage> swallowDraftBlockedAsSent({
+    required ChatController controller,
+    required String draftKey,
+    required ChatMessage optimistic,
+    required OperationKind operationKind,
+  }) {
+    final swallowed = swallowBlockedAsSent(
+      controller: controller,
+      roomId: draftKey,
+      tempId: optimistic.id,
+      optimistic: optimistic,
+    );
+    _emitOperationSuccess(
+      operationKind,
+      roomId: draftKey,
+      messageId: optimistic.id,
+    );
+    return swallowed;
   }
 
   /// Drops the draft-keyed pending row written by a previous
@@ -792,6 +863,14 @@ class OptimisticHandler {
             Future.value(),
       );
     } else {
+      if (_isBlockedError(result.failureOrNull)) {
+        return swallowBlockedAsSent(
+          controller: controller,
+          roomId: roomId,
+          tempId: messageId,
+          optimistic: message,
+        );
+      }
       controller.markFailed(messageId);
       unawaited(
         cache

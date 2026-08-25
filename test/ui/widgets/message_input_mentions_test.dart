@@ -30,7 +30,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           // Mentions disabled (default).
         ),
       ),
@@ -52,7 +52,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           enableMentions: true,
           mentionUsers: const [alice, bob],
         ),
@@ -77,7 +77,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           enableMentions: true,
           mentionUsers: const [alice, bob],
         ),
@@ -107,7 +107,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           enableMentions: true,
           mentionUsers: const [alice, bob],
         ),
@@ -131,7 +131,7 @@ void main() {
       wrap(
         MessageInput(
           controller: controller,
-          onSendMessageRequest: (_) {},
+          onSendMessageRequest: (_) => true,
           enableMentions: true,
           mentionUsers: const [alice, bob],
         ),

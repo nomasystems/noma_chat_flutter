@@ -347,6 +347,8 @@ class VoiceRecorderGesture extends StatefulWidget {
     required this.child,
     this.voiceButtonKey,
     this.onUnsupported,
+    this.canStartRecording,
+    this.onRecordingRejected,
   });
 
   final MessageInputVoiceController controller;
@@ -380,6 +382,31 @@ class VoiceRecorderGesture extends StatefulWidget {
   ///
   /// Leaving it null makes the whole child act as the mic button.
   final GlobalKey? voiceButtonKey;
+
+  /// Asked, on every touch that lands on the mic button, whether a
+  /// recording may start at all — before the recorder is armed and
+  /// therefore before the platform asks for the microphone permission.
+  ///
+  /// A room the user cannot post to (read-only, a counterpart who cannot
+  /// be messaged, a membership that ended) has no business arming the
+  /// hardware for audio that can never be sent, and asking for a system
+  /// permission on behalf of a message that will be refused is worse
+  /// still. Returning false vetoes the touch: nothing is armed, no
+  /// gesture state is taken and [onRecordingRejected] is called instead.
+  ///
+  /// Synchronous on purpose. An `await` here would sit between the finger
+  /// landing and the recorder coming up on every legitimate recording,
+  /// which is the one place in this gesture where latency is felt.
+  ///
+  /// Leaving it null lets every touch through, which is what composers
+  /// that never had a veto keep doing.
+  final bool Function()? canStartRecording;
+
+  /// Called when [canStartRecording] vetoed a touch, so the host can say
+  /// why in its own words. Falls back to a prompt floated over the mic
+  /// button with [ChatUiLocalizations.recordingNotAllowed] when not
+  /// supplied, so a veto is never silent.
+  final VoidCallback? onRecordingRejected;
 
   @override
   State<VoiceRecorderGesture> createState() => _VoiceRecorderGestureState();
@@ -464,6 +491,12 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     } else {
       rect = Rect.fromCenter(center: event.position, width: 48, height: 48);
     }
+    final canStart = widget.canStartRecording;
+    if (canStart != null && !canStart()) {
+      _micRect = rect;
+      _rejectRecording();
+      return;
+    }
     _removeHoldHint();
     _activePointer = event.pointer;
     _touchOrigin = event.position;
@@ -475,6 +508,19 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     _pointerCancelled = false;
     _startInFlight = true;
     unawaited(_startRecording());
+  }
+
+  /// Answers a touch the host vetoed. Nothing was armed and no gesture
+  /// state was taken, so the only thing owed is an explanation: the
+  /// host's own if it supplied one, the default prompt otherwise.
+  void _rejectRecording() {
+    final onRejected = widget.onRecordingRejected;
+    if (onRejected != null) {
+      _removeHoldHint();
+      onRejected();
+      return;
+    }
+    _showHintPill(widget.theme.l10nOf(context).recordingNotAllowed);
   }
 
   /// Arms the recorder for the touch that just landed and routes whatever

@@ -216,6 +216,39 @@ void main() {
       expect(ensuredUsers, contains(alice.id));
     });
 
+    test(
+      'waits for the name before composing with a cold user cache',
+      () async {
+        await handler.addSystemMessage('r1', 'user_joined', alice.id);
+        final msg = controller.messages.last;
+        expect(msg.text, 'Alice joined');
+        expect(msg.text, isNot(contains(alice.id)));
+        expect(
+          msg.metadata?[SystemMessageMetadataKeys.userLabel],
+          alice.displayName,
+        );
+      },
+    );
+
+    test('waits for the actor name of a kick with a cold user cache', () async {
+      await handler.addSystemMessage(
+        'r1',
+        'user_left',
+        bob.id,
+        actorUserId: alice.id,
+      );
+      final metadata = controller.messages.last.metadata;
+      expect(metadata?[SystemMessageMetadataKeys.userLabel], 'Bob');
+      expect(metadata?[SystemMessageMetadataKeys.actorLabel], 'Alice');
+    });
+
+    test('still posts the banner when the name never resolves', () async {
+      await handler.addSystemMessage('r1', 'user_joined', 'unknown-user');
+      final msg = controller.messages.last;
+      expect(msg.isSystem, isTrue);
+      expect(msg.metadata?[SystemMessageMetadataKeys.userId], 'unknown-user');
+    });
+
     test('carries the ingredients that let the banner be re-localized', () {
       userCache.insert(alice);
       handler.addSystemMessage('r1', 'user_joined', alice.id);

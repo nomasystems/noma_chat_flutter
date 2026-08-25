@@ -281,6 +281,7 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.lastMessageDurationMs != null)
     'lastMessageDurationMs': unread.lastMessageDurationMs,
   if (unread.lastMessageIsDeleted) 'lastMessageIsDeleted': true,
+  if (unread.lastMessageIsSystem) 'lastMessageIsSystem': true,
   if (unread.lastMessageReactionEmoji != null)
     'lastMessageReactionEmoji': unread.lastMessageReactionEmoji,
   if (unread.lastMessageReactionTargetText != null)
@@ -325,6 +326,7 @@ UnreadRoom unreadRoomFromMap(
   lastMessageFileName: map['lastMessageFileName'] as String?,
   lastMessageDurationMs: (map['lastMessageDurationMs'] as num?)?.toInt(),
   lastMessageIsDeleted: map['lastMessageIsDeleted'] as bool? ?? false,
+  lastMessageIsSystem: map['lastMessageIsSystem'] as bool? ?? false,
   lastMessageReactionEmoji: map['lastMessageReactionEmoji'] as String?,
   lastMessageReactionTargetText:
       map['lastMessageReactionTargetText'] as String?,

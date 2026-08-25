@@ -131,6 +131,88 @@ void main() {
     );
 
     testWidgets(
+      'a host that passes readOnly closes the composer of a writable room',
+      (tester) async {
+        adapter.roomListController.addRoom(
+          const RoomListItem(id: 'room1', name: 'Alice'),
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            NomaChatView(
+              roomId: 'room1',
+              adapter: adapter,
+              hydrateGroupMembers: false,
+              behaviors: const ChatViewBehaviors(
+                readOnly: true,
+                readOnlyLabel: 'You cannot message this person',
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(MessageInput), findsNothing);
+        expect(find.byType(TextField), findsNothing);
+        expect(find.text('You cannot message this person'), findsOneWidget);
+        expect(chatViewOf(tester).behaviors.readOnly, isTrue);
+      },
+    );
+
+    testWidgets(
+      "the room's own reason wins over the host's when both close the composer",
+      (tester) async {
+        adapter.roomListController.addRoom(
+          const RoomListItem(id: 'room1', name: 'Alice', selfMuted: true),
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            NomaChatView(
+              roomId: 'room1',
+              adapter: adapter,
+              hydrateGroupMembers: false,
+              behaviors: const ChatViewBehaviors(
+                readOnly: true,
+                readOnlyLabel: 'You cannot message this person',
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(MessageInput), findsNothing);
+        expect(find.text('You cannot message this person'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'a host that leaves readOnly alone keeps the composer of a writable room',
+      (tester) async {
+        adapter.roomListController.addRoom(
+          const RoomListItem(id: 'room1', name: 'Alice'),
+        );
+
+        await tester.pumpWidget(
+          wrap(
+            NomaChatView(
+              roomId: 'room1',
+              adapter: adapter,
+              hydrateGroupMembers: false,
+              behaviors: const ChatViewBehaviors(
+                readOnlyLabel: 'You cannot message this person',
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        expect(find.byType(MessageInput), findsOneWidget);
+        expect(chatViewOf(tester).behaviors.readOnly, isFalse);
+      },
+    );
+
+    testWidgets(
       'contextMenuActionsResolver overrides the role-aware defaults',
       (tester) async {
         adapter.roomListController.addRoom(

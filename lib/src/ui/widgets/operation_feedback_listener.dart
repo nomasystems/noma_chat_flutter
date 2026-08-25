@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/result.dart'
     show ContentFilterFailure, EditWindowExpiredFailure, ValidationFailure;
 import '../adapter/operation_error.dart';
+import '../l10n/chat_ui_localizations.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
 
@@ -128,6 +129,18 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
   StreamSubscription<OperationSuccess>? _sub;
   StreamSubscription<OperationError>? _errorSub;
 
+  // Resolved while the element is unquestionably active, and read again
+  // when an operation event lands — which is the one moment the context
+  // cannot be trusted. An event arrives from a stream, not from a build,
+  // so nothing guarantees this subtree is still active when it does;
+  // `mounted` does not catch that, because an element stays mounted
+  // through deactivation and only an ancestor lookup finds out, by
+  // throwing. Reading the dependencies here is what Flutter's own error
+  // for that case tells you to do.
+  ChatUiLocalizations? _l10n;
+  ScaffoldMessengerState? _messenger;
+  ChatNoticePresenter? _presenter;
+
   @override
   void initState() {
     super.initState();
@@ -135,8 +148,19 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _l10n = widget.theme.l10nOf(context);
+    _messenger = ScaffoldMessenger.maybeOf(context);
+    _presenter = ChatNoticeScope.maybeOf(context);
+  }
+
+  @override
   void didUpdateWidget(covariant OperationFeedbackListener oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.theme != widget.theme) {
+      _l10n = widget.theme.l10nOf(context);
+    }
     if (oldWidget.successes != widget.successes ||
         oldWidget.errors != widget.errors ||
         oldWidget.enabled != widget.enabled) {
@@ -187,16 +211,17 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
     // adapter rolls the row back to the original wording, so nothing on
     // screen changes and, without this line, a refused edit is
     // indistinguishable from an applied one.
+    final l10n = _l10n ?? theme.l10n;
     final failure = event.failure;
     if (failure is ContentFilterFailure) {
-      return theme.l10nOf(context).messageBlockedByModeration;
+      return l10n.messageBlockedByModeration;
     }
     if (failure is EditWindowExpiredFailure) {
-      return theme.l10nOf(context).editWindowExpired;
+      return l10n.editWindowExpired;
     }
     if (failure is ValidationFailure &&
         failure.errors?['reason'] == 'attachment_never_uploaded') {
-      return theme.l10nOf(context).attachmentNeverUploaded;
+      return l10n.attachmentNeverUploaded;
     }
     return null;
   }
@@ -215,6 +240,8 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
   void _show(String label) => showChatNotice(
     context,
     label,
+    messenger: _messenger,
+    presenter: _presenter,
     snackBarBuilder: (context, message) =>
         widget.snackBarBuilder?.call(context, message) ??
         SnackBar(
@@ -229,7 +256,7 @@ class _OperationFeedbackListenerState extends State<OperationFeedbackListener> {
     OperationSuccess event,
     ChatTheme theme,
   ) {
-    final l10n = theme.l10nOf(context);
+    final l10n = _l10n ?? theme.l10n;
     switch (event.kind) {
       case OperationKind.pinMessage:
         return l10n.feedbackMessagePinned;

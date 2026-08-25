@@ -65,6 +65,7 @@ class AttachmentPickerSheet extends StatelessWidget {
     this.galleryLabel = 'Gallery',
     this.fileLabel = 'File',
     this.locationLabel = 'Location',
+    this.title = 'Attach',
     this.theme = ChatTheme.defaults,
   });
 
@@ -92,6 +93,11 @@ class AttachmentPickerSheet extends StatelessWidget {
   final String galleryLabel;
   final String fileLabel;
   final String locationLabel;
+
+  /// Heading shown above the options. Keep it the same wording as the
+  /// composer's attach button so both name the same action.
+  final String title;
+
   final ChatTheme theme;
 
   static Future<void> show(
@@ -101,6 +107,7 @@ class AttachmentPickerSheet extends StatelessWidget {
     VoidCallback? onPickFile,
     VoidCallback? onShareLocation,
     List<AttachmentSheetOption> extraOptions = const [],
+    String? title,
     ChatTheme theme = ChatTheme.defaults,
   }) {
     return showModalBottomSheet(
@@ -123,6 +130,7 @@ class AttachmentPickerSheet extends StatelessWidget {
         galleryLabel: theme.l10nOf(context).gallery,
         fileLabel: theme.l10nOf(context).file,
         locationLabel: theme.l10nOf(context).location,
+        title: title ?? theme.l10nOf(context).attach,
         theme: theme,
       ),
     );
@@ -170,27 +178,47 @@ class AttachmentPickerSheet extends StatelessWidget {
           width: double.infinity,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            child: Wrap(
-              alignment: WrapAlignment.spaceEvenly,
-              spacing: 16,
-              runSpacing: 20,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final (index, o) in all.indexed)
-                  _PickerOption(
-                    key: ValueKey(_optionId(o, index - builtIn.length)),
-                    identifier: _optionId(o, index - builtIn.length),
-                    icon: o.icon,
-                    label: o.label,
-                    circleColor:
-                        o.circleColor ?? theme.attachmentPickerCircleColor,
-                    iconColor: o.iconColor ?? theme.attachmentPickerIconColor,
-                    labelStyle: theme.attachmentPickerLabelStyle,
-                    previewBuilder: o.previewBuilder,
-                    onTap: () {
-                      Navigator.pop(context);
-                      o.onTap();
-                    },
+                if (title.isNotEmpty) ...[
+                  Semantics(
+                    header: true,
+                    identifier: 'chat_attachment_sheet_title',
+                    child: Text(
+                      title,
+                      key: const ValueKey('chat_attachment_sheet_title'),
+                      textAlign: TextAlign.start,
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
                   ),
+                  const SizedBox(height: 16),
+                ],
+                Wrap(
+                  alignment: WrapAlignment.spaceEvenly,
+                  spacing: 16,
+                  runSpacing: 20,
+                  children: [
+                    for (final (index, o) in all.indexed)
+                      _PickerOption(
+                        key: ValueKey(_optionId(o, index - builtIn.length)),
+                        identifier: _optionId(o, index - builtIn.length),
+                        icon: o.icon,
+                        label: o.label,
+                        circleColor:
+                            o.circleColor ?? theme.attachmentPickerCircleColor,
+                        iconColor:
+                            o.iconColor ?? theme.attachmentPickerIconColor,
+                        labelStyle: theme.attachmentPickerLabelStyle,
+                        previewBuilder: o.previewBuilder,
+                        onTap: () {
+                          Navigator.pop(context);
+                          o.onTap();
+                        },
+                      ),
+                  ],
+                ),
               ],
             ),
           ),

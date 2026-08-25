@@ -31,7 +31,9 @@ void main() {
     tester,
   ) async {
     await tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
+      wrap(
+        MessageInput(controller: controller, onSendMessageRequest: (_) => true),
+      ),
     );
     expect(
       tester.widget<TextField>(find.byType(TextField)).focusNode!.hasFocus,
@@ -57,7 +59,9 @@ void main() {
     );
     controller.addMessage(myMessage);
     await tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
+      wrap(
+        MessageInput(controller: controller, onSendMessageRequest: (_) => true),
+      ),
     );
 
     controller.setEditingMessage(myMessage);
@@ -72,7 +76,9 @@ void main() {
   testWidgets('does not steal focus when neither reply nor edit is active '
       '(no behaviour change)', (tester) async {
     await tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
+      wrap(
+        MessageInput(controller: controller, onSendMessageRequest: (_) => true),
+      ),
     );
     await tester.pump();
 
@@ -85,7 +91,9 @@ void main() {
   testWidgets('clearing the reply does not leave focus stuck requesting '
       'again on unrelated rebuilds', (tester) async {
     await tester.pumpWidget(
-      wrap(MessageInput(controller: controller, onSendMessageRequest: (_) {})),
+      wrap(
+        MessageInput(controller: controller, onSendMessageRequest: (_) => true),
+      ),
     );
     controller.setReplyTo(otherMessage);
     await tester.pump();

@@ -21,15 +21,17 @@ void main() {
   Widget viewWith({
     List<MessageAction> actions = const [MessageAction.copy],
     ChatConnectionState? state,
+    Duration? sustainedConnectionErrorDelay,
     Widget Function(BuildContext)? headerBuilder,
     bool readOnly = false,
   }) => ChatView(
     controller: controller,
-    callbacks: ChatViewCallbacks(onSendMessageRequest: (_) {}),
+    callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
     builders: ChatViewBuilders(headerBuilder: headerBuilder),
     behaviors: ChatViewBehaviors(
       contextMenuActions: actions.toSet(),
       connectionState: state,
+      sustainedConnectionErrorDelay: sustainedConnectionErrorDelay,
       readOnly: readOnly,
       enableLinkPreview: false,
     ),
@@ -57,6 +59,57 @@ void main() {
       wrap(viewWith(headerBuilder: (_) => const Text('Custom header'))),
     );
     expect(find.text('Custom header'), findsOneWidget);
+  });
+
+  testWidgets('a host that sets sustainedConnectionErrorDelay to zero gets '
+      'the red band on arrival', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        viewWith(
+          state: ChatConnectionState.error,
+          sustainedConnectionErrorDelay: Duration.zero,
+        ),
+      ),
+    );
+    expect(find.text('Connection error'), findsOneWidget);
+  });
+
+  testWidgets('a host that leaves it unset keeps the default hold-back', (
+    tester,
+  ) async {
+    await tester.pumpWidget(wrap(viewWith(state: ChatConnectionState.error)));
+    expect(find.text('Connection error'), findsNothing);
+    expect(find.text('Reconnecting...'), findsOneWidget);
+
+    await tester.pump(ConnectionBanner.defaultSustainedErrorDelay);
+    expect(find.text('Connection error'), findsOneWidget);
+  });
+
+  test('sustainedConnectionErrorDelay survives merging and room state', () {
+    const host = ChatViewBehaviors(
+      sustainedConnectionErrorDelay: Duration(seconds: 30),
+    );
+    const defaults = ChatViewBehaviors(enableMentions: true);
+
+    final merged = host.mergedOnto(defaults);
+    expect(merged.sustainedConnectionErrorDelay, const Duration(seconds: 30));
+
+    final stamped = merged.withRoomState(
+      initialMessageId: null,
+      unreadBoundaryMessageId: null,
+      unreadCount: 0,
+      isBlocked: false,
+      isParticipating: true,
+      readOnly: false,
+      readOnlyLabel: null,
+      isGroup: false,
+    );
+    expect(stamped.sustainedConnectionErrorDelay, const Duration(seconds: 30));
+
+    expect(
+      defaults.sustainedConnectionErrorDelay,
+      ConnectionBanner.defaultSustainedErrorDelay,
+    );
   });
 
   testWidgets('with messages the input composer is mounted', (tester) async {

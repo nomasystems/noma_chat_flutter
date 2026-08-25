@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../theme/chat_theme.dart';
 import '../../utils/date_formatter.dart';
+import '../../utils/file_size_formatter.dart';
 import '_attachment_upload_overlay.dart';
 import '_bubble_metadata.dart';
 
@@ -145,7 +146,10 @@ class FileBubble extends StatelessWidget {
                     children: [
                       if (fileSize != null)
                         Text(
-                          fileSize!,
+                          formatFileSize(
+                            fileSize!,
+                            localeCode: theme.l10nOf(context).localeCode,
+                          ),
                           style:
                               theme.fileSizeTextStyle ??
                               TextStyle(

@@ -66,6 +66,14 @@ class ChatView extends StatefulWidget {
 class _ChatViewState extends State<ChatView> {
   late final AudioPlaybackCoordinator _audioCoordinator;
 
+  final GlobalKey<MessageListState> _messageListKey =
+      GlobalKey<MessageListState>();
+
+  /// Row the floating reaction picker is currently anchored to. The list
+  /// only keeps its own tint alive for as long as the context menu stays
+  /// up, so the picker that opens after that menu closes has to drive it.
+  String? _reactionAnchorMessageId;
+
   @override
   void initState() {
     super.initState();
@@ -118,15 +126,7 @@ class _ChatViewState extends State<ChatView> {
         callbacks.onDiscardFailedMessage?.call(message);
       case MessageAction.react:
         if (behaviors.availableReactions.isNotEmpty) {
-          final emoji = await FloatingReactionPicker.show(
-            context,
-            anchorRect: messageRect,
-            reactions: behaviors.availableReactions,
-            theme: widget.theme,
-          );
-          if (emoji != null && context.mounted) {
-            callbacks.onReactionSelected?.call(message, emoji);
-          }
+          await _showReactionPicker(context, message, messageRect);
         }
       case MessageAction.report:
         callbacks.onReportMessage?.call(message);
@@ -135,6 +135,35 @@ class _ChatViewState extends State<ChatView> {
     }
 
     callbacks.onContextMenuAction?.call(message, action);
+  }
+
+  /// Opens the floating picker over [message], re-measuring the row first.
+  ///
+  /// [fallbackRect] is what the long press measured, which by now is a
+  /// frame old and possibly from a recycled bubble: the context menu has
+  /// opened and closed since, and the list may have scrolled underneath.
+  Future<void> _showReactionPicker(
+    BuildContext context,
+    ChatMessage message,
+    Rect fallbackRect,
+  ) async {
+    final anchorRect =
+        _messageListKey.currentState?.rectForMessage(message.id) ??
+        fallbackRect;
+    setState(() => _reactionAnchorMessageId = message.id);
+    try {
+      final emoji = await FloatingReactionPicker.show(
+        context,
+        anchorRect: anchorRect,
+        reactions: widget.behaviors.availableReactions,
+        theme: widget.theme,
+      );
+      if (emoji != null && context.mounted) {
+        widget.callbacks.onReactionSelected?.call(message, emoji);
+      }
+    } finally {
+      if (mounted) setState(() => _reactionAnchorMessageId = null);
+    }
   }
 
   @override
@@ -149,6 +178,7 @@ class _ChatViewState extends State<ChatView> {
             state: behaviors.connectionState!,
             theme: widget.theme,
             labels: behaviors.connectionLabels,
+            sustainedErrorDelay: behaviors.sustainedConnectionErrorDelay,
           ),
         if (headerWidget != null) headerWidget,
         Expanded(
@@ -269,8 +299,10 @@ class _ChatViewState extends State<ChatView> {
     final builders = widget.builders;
     final callbacks = widget.callbacks;
     return MessageList(
+      key: _messageListKey,
       controller: widget.controller,
       theme: widget.theme,
+      activeRowMessageId: _reactionAnchorMessageId,
       blockedSenderIds: behaviors.blockedSenderIds,
       blockedContentPolicy: behaviors.blockedContentPolicy,
       blockedMessageBuilder: builders.blockedMessageBuilder,
@@ -422,6 +454,8 @@ class _ChatViewState extends State<ChatView> {
       onAttachTap: callbacks.onAttachTap,
       onVoiceMessageReady: callbacks.onVoiceMessageReady,
       onPermissionDenied: callbacks.onPermissionDenied,
+      canStartRecording: callbacks.canStartRecording,
+      onRecordingRejected: callbacks.onRecordingRejected,
       maxRecordingDuration: behaviors.maxRecordingDuration,
       maxLines: behaviors.inputMaxLines,
       showAttachButton: behaviors.showAttachButton,

@@ -98,6 +98,7 @@ class RoomMapper {
     String? lastMessageFileName;
     int? lastMessageDurationMs;
     bool lastMessageIsDeleted = false;
+    bool lastMessageIsSystem = false;
     String? lastMessageReactionEmoji;
     ReceiptStatus? lastMessageReceipt;
     bool hasLocationMeta = false;
@@ -131,6 +132,9 @@ class RoomMapper {
         lastMessageFileName ??=
             _asString(meta['fileName']) ?? _asString(meta['file_name']);
         hasLocationMeta = meta['lat'] is num && meta['lng'] is num;
+        // Same flag [MessageMapper] lifts for a full row: a system notice
+        // has no author, so the row must not prefix it with a sender.
+        lastMessageIsSystem = meta['system'] == true;
       }
       lastMessageIsDeleted = jsonBoolOr(lastMsg['isDeleted'], false);
       lastMessageReactionEmoji = _parseReactionEmoji(lastMsg['reaction']);
@@ -167,6 +171,7 @@ class RoomMapper {
       lastMessageFileName: lastMessageFileName,
       lastMessageDurationMs: lastMessageDurationMs,
       lastMessageIsDeleted: lastMessageIsDeleted,
+      lastMessageIsSystem: lastMessageIsSystem,
       lastMessageReactionEmoji: lastMessageReactionEmoji,
       lastMessageReceipt: lastMessageReceipt,
       name: jsonStringOrNull(json['name']),

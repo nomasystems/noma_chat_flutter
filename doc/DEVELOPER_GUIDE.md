@@ -1117,20 +1117,31 @@ await chat.client.contacts.unblock(userId);
 final blocked = await chat.client.contacts.listBlocked();
 ```
 
-`contacts.sendDirectMessage()` returns success even when the recipient has
-blocked the sender — the backend answers `204 No Content` in that case and
-the SDK synthesizes a local `ChatMessage` with `ReceiptStatus.sent` so the
-composer clears normally. Check `message.silentlyDropped` to tell that case
-apart from a real send and show a distinct state (e.g. a single grey check
-that never progresses) instead of a plain "sent":
+#### Sending to someone who blocked you
 
-```dart
-final result = await chat.client.contacts.sendDirectMessage(userId, text: 'hi');
-final message = result.dataOrNull;
-if (message != null && message.silentlyDropped) {
-  // Accepted by the server but never delivered — recipient has blocked us.
-}
-```
+A block is invisible to the blocked sender, WhatsApp-style: they must not be
+able to tell a rejected send from an ordinary one. The library owns that, and
+the host must not undo it by painting a state of its own.
+
+Every send path through the UI layer — `messages.send`, the first message of
+a draft DM (both when creating the 1:1 room is refused and when the
+contact-addressed fallback is), `messages.retrySend`, `sendAttachment`,
+`sendVoice` and `forward` — swallows the server's `403 blocked` and returns
+**success**. The row keeps `ReceiptStatus.sent`, no `OperationError` is
+emitted, and the message is written to the local cache so it is still there
+after a cold start. It is also pinned: no delivery cursor, fan-out or
+per-user ack can ever advance it to ✓✓, because nobody received it.
+
+Such a row carries `ChatMessage.silentlyDropped == true`. That flag is for
+the library's own bookkeeping (and for hosts that need to reason about local
+history) — **do not render a distinct state from it**. Showing "not
+delivered", a warning icon or a retry affordance on those bubbles tells the
+sender exactly what the product decided they must not learn.
+
+The same applies one level down: `contacts.sendDirectMessage()` answers
+`204 No Content` when the recipient blocks the sender, and the SDK
+synthesizes a local `ChatMessage` with `ReceiptStatus.sent` and
+`silentlyDropped: true` so the composer clears normally.
 
 DM typing indicators (`contacts.sendTyping()`) always travel over REST
 (`POST /contacts/{id}/activity`), regardless of the realtime connection
@@ -2467,6 +2478,71 @@ RoomListView(
 )
 ```
 
+A string returned by `lastMessagePreviewBuilder` is taken as a finished
+sentence: it is painted as-is, with no `"Alice: "` / `"You: "` sender prefix
+in front of it. Name the actor inside your own text when the event calls for
+it, and return `null` whenever you want the default WhatsApp-style preview
+(prefix included) back.
+
+### RoomTile swipe actions
+
+Dragging a row sideways reveals a strip of buttons — a second, visible way
+into the conversation actions, next to the long press (which keeps working
+exactly as before). `RoomListView` builds the strip per row:
+
+```dart
+RoomListView(
+  controller: controller,
+  swipeActionsBuilder: (context, room) => [
+    RoomSwipeAction(
+      icon: room.muted
+          ? Icons.notifications_active_outlined
+          : Icons.notifications_off_outlined,
+      label: room.muted ? 'Unmute' : 'Mute',
+      identifier: 'chat_row_swipe_mute',
+      onPressed: () => toggleMute(room),
+    ),
+    RoomSwipeAction(
+      icon: Icons.archive_outlined,
+      label: 'Archive',
+      backgroundColor: Colors.indigo,
+      foregroundColor: Colors.white,
+      onPressed: () => archive(room),
+    ),
+  ],
+)
+```
+
+A bare `RoomTile` takes the same list directly as `swipeActions:`, so a host
+that builds its own rows does not need `RoomListView` to get the gesture.
+
+What the widget guarantees:
+
+- **The swipe reveals, it never fires.** No action runs until its button is
+  tapped — muting or archiving a conversation by brushing past it would be
+  the wrong trade. The row closes on its own before `onPressed` runs, so the
+  callback is free to push a route or open a sheet.
+- **No actions, no change.** `swipeActionsBuilder` returning `null` or an
+  empty list (and `RoomTile` built without `swipeActions`) yields the widget
+  tree the row had before this existed: no gesture recognizer, no extra
+  layer, no hit-test difference.
+- **`side` defaults to `RoomSwipeSide.end`** — the trailing edge. `start` and
+  `end` resolve against the ambient `Directionality`, so both sides mirror
+  in RTL.
+- **Leading-edge guard.** A drag born within 24 logical pixels of the
+  leading edge — the left edge in LTR, the right one in RTL, which is where
+  the platform back gesture lives — never pulls that side's actions into
+  view. It can still close an open row and still open the other side. This
+  is the reason the default side is the trailing one.
+- **`identifier`** sets the button's semantics identifier, so integration
+  drivers address it by name instead of by coordinates. It survives a host
+  that wraps the tile in `MergeSemantics`.
+
+`backgroundColor`/`foregroundColor` fall back to the ambient
+`ColorScheme.secondaryContainer`/`onSecondaryContainer`. Each button is 76
+logical pixels wide and its label is a single ellipsized line: pass a short
+caption (`'Unmute'`, not `'Turn notifications back on'`).
+
 ### AttachmentPickerSheet — extra slots
 
 Add custom options to the attachment picker:
@@ -2521,6 +2597,14 @@ ChatRoomOption.muteRoom(
   onUnmute: () => adapter.rooms.unmute(roomId),
 );
 ```
+
+Once the mute is on, the expiry is read out, not just implied by the bell
+icon: `RoomTile` adds a **"Muted until 01/01 18:30"** line under the preview
+and `ChatRoomAppBar` appends it to its subtitle, both driven by
+`RoomListItem.muteUntil` and localized through
+`ChatUiLocalizations.mutedUntilTemplate` (`'Muted until {date}'`). A permanent
+mute carries no expiry and renders the icon alone, as before. The deadline
+travels in UTC and is printed in the device's zone.
 
 `ChatRoomOption.archiveChat` / `unarchiveChat` map to `adapter.rooms.hide` /
 `unhide`; archived rooms surface in the collapsible **Archived** section that

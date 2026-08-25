@@ -209,18 +209,42 @@ void main() {
     expect(received, 'maintenance');
   });
 
-  test(
-    'ErrorEvent invokes onError callback and flips state to error',
-    () async {
-      ChatEvent? captured;
-      adapter.onError = (e) => captured = e;
+  test('ErrorEvent invokes onError callback without touching the connection '
+      'state, which only the transport owns', () async {
+    ChatEvent? captured;
+    adapter.onError = (e) => captured = e;
+    client.emitConnectionState(ChatConnectionState.connected);
+    await drain();
 
-      client.emitEvent(const ErrorEvent(exception: ChatNetworkException()));
-      await drain();
-      expect(captured, isA<ErrorEvent>());
-      expect(adapter.connectionStateNotifier.value, ChatConnectionState.error);
-    },
-  );
+    // The SSE fallback rejecting /v1/eventsource while the WS primary
+    // carries the session: an operational failure, not a dead link.
+    client.emitEvent(
+      const ErrorEvent(
+        exception: ChatNetworkException(
+          'DioException [bad response]: This exception was thrown because '
+          'the response has a status code of 404 and RequestOptions.'
+          'validateStatus was configured to throw for this status code.',
+        ),
+      ),
+    );
+    await drain();
+
+    expect(captured, isA<ErrorEvent>());
+    expect(
+      adapter.connectionStateNotifier.value,
+      ChatConnectionState.connected,
+    );
+  });
+
+  test('a transport-reported error state still raises the banner', () async {
+    client.emitConnectionState(ChatConnectionState.connected);
+    await drain();
+
+    client.emitConnectionState(ChatConnectionState.error);
+    await drain();
+
+    expect(adapter.connectionStateNotifier.value, ChatConnectionState.error);
+  });
 
   test('UserJoinedEvent + UserLeftEvent affect the controller', () async {
     final controller = adapter.getChatController('r1');
