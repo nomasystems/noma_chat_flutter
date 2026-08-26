@@ -575,6 +575,14 @@ class _CameraCapturePageState extends State<CameraCapturePage>
             right: 16,
             bottom: _shutterSize + 66,
           ),
+          // `SnackBar` defaults `persist` to `action != null`, and a persisting
+          // bar makes `Scaffold` skip its own timeout: offering the settings
+          // shortcut would otherwise leave the warning on screen until the user
+          // took it down by hand, over the camera and over every screen they
+          // moved to afterwards. The shortcut gets longer — it has to be read
+          // *and* tapped — but it still goes.
+          persist: false,
+          duration: Duration(seconds: permanentlyBlocked ? 8 : 4),
           action: permanentlyBlocked
               ? SnackBarAction(
                   label: l10n.openSettings,
