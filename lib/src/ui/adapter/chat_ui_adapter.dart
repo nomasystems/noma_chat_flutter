@@ -101,8 +101,7 @@ typedef IsDmRoomPredicate = bool Function(RoomDetail detail);
 /// same everywhere: a host whose backend posts its own membership
 /// message into group rooms wants the SDK quiet there and still wants
 /// the banner in a one-to-one room, where nothing else announces it.
-typedef MembershipBannerFilter =
-    bool Function(String roomId, String eventType);
+typedef MembershipBannerFilter = bool Function(String roomId, String eventType);
 
 /// Context handed to a [RoomTitleResolver] when the adapter (re)computes the
 /// effective title for a room. [detail] and [otherMembers] may be empty/null

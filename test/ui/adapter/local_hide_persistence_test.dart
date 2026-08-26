@@ -125,33 +125,31 @@ void main() {
       expect(hidden, contains('m-gone'));
     });
 
-    test(
-      'the tombstone stays gone when the room is reopened '
-      '(was: back on every fetch, the marker was never persisted)',
-      () async {
-        await client.connect();
-        final adapter = bareAdapter();
-        final controller = adapter.getChatController('r1');
-        await adapter.messages.load('r1');
-        expect(controller.messages.map((m) => m.id), [
-          'm-keep',
-          'm-gone',
-        ], reason: 'both rows come down from the server to begin with');
+    test('the tombstone stays gone when the room is reopened '
+        '(was: back on every fetch, the marker was never persisted)', () async {
+      await client.connect();
+      final adapter = bareAdapter();
+      final controller = adapter.getChatController('r1');
+      await adapter.messages.load('r1');
+      expect(
+        controller.messages.map((m) => m.id),
+        ['m-keep', 'm-gone'],
+        reason: 'both rows come down from the server to begin with',
+      );
 
-        await adapter.deleteMessageLocally('r1', 'm-gone');
-        await Future<void>.delayed(const Duration(milliseconds: 20));
-        expect(controller.messages.map((m) => m.id), ['m-keep']);
+      await adapter.deleteMessageLocally('r1', 'm-gone');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(controller.messages.map((m) => m.id), ['m-keep']);
 
-        // Reopen from scratch: only what the client-level datasource holds
-        // survives. The server still serves the tombstone on every fetch.
-        final reopened = bareAdapter();
-        final fresh = reopened.getChatController('r1');
-        final load = await reopened.messages.load('r1');
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+      // Reopen from scratch: only what the client-level datasource holds
+      // survives. The server still serves the tombstone on every fetch.
+      final reopened = bareAdapter();
+      final fresh = reopened.getChatController('r1');
+      final load = await reopened.messages.load('r1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-        expect(load.isSuccess, isTrue);
-        expect(fresh.messages.map((m) => m.id), ['m-keep']);
-      },
-    );
+      expect(load.isSuccess, isTrue);
+      expect(fresh.messages.map((m) => m.id), ['m-keep']);
+    });
   });
 }

@@ -245,10 +245,7 @@ void _failOpenGroup() {
       adapter.roomListController.allRooms.map((r) => r.id),
       contains(roomId),
     );
-    expect(
-      adapter.roomListController.deletedRoomIds,
-      isNot(contains(roomId)),
-    );
+    expect(adapter.roomListController.deletedRoomIds, isNot(contains(roomId)));
   });
 
   test('delete reports failure and leaves the row on screen when the '

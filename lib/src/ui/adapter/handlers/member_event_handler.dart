@@ -110,8 +110,7 @@ class MemberEventHandler {
   ///
   /// `null` (the default) keeps every banner, which is the behaviour of
   /// a host that does not pass one.
-  final bool Function(String roomId, String eventType)?
-  membershipBannerFilter;
+  final bool Function(String roomId, String eventType)? membershipBannerFilter;
 
   final void Function(String level, String message)? logger;
 
