@@ -214,6 +214,16 @@ class _SendFailableMessagesApi implements ChatMessagesApi {
     String roomId,
     DateTime clearedAt,
   ) => _delegate.setLocalClearedAt(roomId, clearedAt);
+
+  @override
+  Future<ChatResult<void>> saveLocalMessage(
+    String roomId,
+    ChatMessage message,
+  ) => _delegate.saveLocalMessage(roomId, message);
+
+  @override
+  Future<ChatResult<void>> hideLocalMessage(String roomId, String messageId) =>
+      _delegate.hideLocalMessage(roomId, messageId);
 }
 
 class _SendFailableChatClient implements ChatClient {

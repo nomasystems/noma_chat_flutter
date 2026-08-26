@@ -166,27 +166,46 @@ interface class ChatRoomsController {
   /// (e.g. WB, which only wires `ChatConfig.localDatasource` at the client
   /// level). The adapter-level cache, when present, is written to as well
   /// as a backstop for hosts that relied on it directly.
+  ///
+  /// Returns a failure when the durable deleted marker could not be
+  /// written, and leaves the row on screen in that case: a row dropped
+  /// without its marker reappears on the next room-list build with its
+  /// old preview intact, which is worse than a delete that visibly did
+  /// nothing. A host that shows a confirmation should key it off this
+  /// result.
   Future<ChatResult<void>> delete(String roomId) async {
     final cache = _a._cache;
     final now = DateTime.now().toUtc();
-    await _a.client.messages
+    final clearedResult = await _a.client.messages
         .setLocalClearedAt(roomId, now)
         .catchError(_swallowCacheThrow);
-    await _a.client.rooms
+    final markedResult = await _a.client.rooms
         .markRoomDeleted(roomId)
         .catchError(_swallowCacheThrow);
+    var markerPersisted = markedResult.isSuccess;
     // Persist the cutoff so any prior history stays hidden if the room is
     // re-fetched later (twin of the never-evictable deleted marker).
     if (cache != null) {
       await cache.setClearedAt(roomId, now).catchError(_swallowCacheThrow);
       await cache.clearMessages(roomId).catchError(_swallowCacheThrow);
       await cache.clearPendingMessages(roomId).catchError(_swallowCacheThrow);
-      await cache.addDeletedRoom(roomId).catchError(_swallowCacheThrow);
+      final adapterMarked = await cache
+          .addDeletedRoom(roomId)
+          .catchError(_swallowCacheThrow);
+      markerPersisted = markerPersisted || adapterMarked.isSuccess;
     }
     // Also clear the open controller's in-memory history so re-opening the
     // chat right after deleting shows it empty (mirrors clearChat).
     _a._chatControllers[roomId]?.clearMessages();
+    // Dropping the row while the durable marker failed to land is what
+    // makes the chat come back — the next room-list build has nothing to
+    // filter on and repaints it with its old preview. Surface the failure
+    // and leave the row visible instead of faking the delete.
+    if (!markerPersisted) return markedResult;
     _a.roomListController.markDeleted(roomId);
+    // The row is gone either way; a lost cutoff only means prior history
+    // could resurface, so it is reported rather than acted on.
+    if (clearedResult.isFailure) return clearedResult;
     return const ChatSuccess<void>(null);
   }
 

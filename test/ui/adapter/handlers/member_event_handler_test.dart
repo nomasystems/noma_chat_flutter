@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
+import 'package:noma_chat/src/_internal/cache/memory_datasource.dart';
 import 'package:noma_chat/src/ui/adapter/handlers/member_event_handler.dart';
 import 'package:noma_chat/src/ui/adapter/services/chat_controller_registry.dart';
 import 'package:noma_chat/src/ui/adapter/services/user_cache_service.dart';
@@ -288,6 +289,122 @@ void main() {
       handler.addSystemMessage('r1', 'user_left', alice.id);
       final ids = controller.messages.map((m) => m.id).toList();
       expect(ids.toSet().length, ids.length);
+    });
+  });
+
+  group('membershipBannerFilter', () {
+    late MemoryChatLocalDatasource cache;
+    late ChatController controller;
+    late List<List<String>> asked;
+
+    MemberEventHandler handlerWithFilter(
+      bool Function(String roomId, String eventType)? filter,
+    ) => MemberEventHandler(
+      client: client,
+      chatControllers: registry,
+      cache: cache,
+      roomListController: roomList,
+      userCacheService: userCache,
+      l10n: () => ChatUiLocalizations.en,
+      currentUser: () => me,
+      displayNameFor: (userId) {
+        if (userId == me.id) return me.displayName ?? userId;
+        return userCache.find(userId)?.displayName ?? userId;
+      },
+      ensureUserCached: (userId) async {
+        await userCache.ensureCached(userId);
+      },
+      addRoomFromDetail: (roomId, {lastMessage}) {
+        addedFromDetail.add(roomId);
+      },
+      removeChatController: registry.remove,
+      notifyRoomMembersChanged: membersChanged.add,
+      isDisposed: () => false,
+      swallowCacheThrow: swallow,
+      membershipBannerFilter: filter == null
+          ? null
+          : (roomId, eventType) {
+              asked.add([roomId, eventType]);
+              return filter(roomId, eventType);
+            },
+    );
+
+    setUp(() {
+      cache = MemoryChatLocalDatasource();
+      controller = ChatController(initialMessages: const [], currentUser: me);
+      registry['r1'] = controller;
+      userCache.insert(alice);
+      asked = [];
+    });
+
+    test('a filter that vetoes drops the banner and the cache row', () async {
+      final filtered = handlerWithFilter((_, _) => false);
+
+      await filtered.addSystemMessage('r1', 'user_joined', alice.id);
+
+      expect(controller.messages, isEmpty);
+      final cached = await cache.getMessages('r1');
+      expect(cached.dataOrNull, isEmpty);
+    });
+
+    test('the veto covers leaves and role changes too', () async {
+      final filtered = handlerWithFilter((_, _) => false);
+
+      await filtered.addSystemMessage('r1', 'user_left', alice.id);
+      await filtered.addSystemMessage('r1', 'user_role_changed', alice.id);
+
+      expect(controller.messages, isEmpty);
+      expect(asked, [
+        ['r1', 'user_left'],
+        ['r1', 'user_role_changed'],
+      ]);
+    });
+
+    test('a filter that allows keeps the banner and caches it', () async {
+      final filtered = handlerWithFilter((_, _) => true);
+
+      await filtered.addSystemMessage('r1', 'user_joined', alice.id);
+
+      expect(controller.messages.single.text, 'Alice joined');
+      final cached = await cache.getMessages('r1');
+      expect(cached.dataOrNull?.single.isSystem, isTrue);
+    });
+
+    test('the decision is taken per room and per event', () async {
+      final filtered = handlerWithFilter(
+        (roomId, eventType) => roomId == 'r1' && eventType == 'user_joined',
+      );
+
+      await filtered.addSystemMessage('r1', 'user_joined', alice.id);
+      await filtered.addSystemMessage('r1', 'user_left', alice.id);
+
+      expect(controller.messages.map((m) => m.text), ['Alice joined']);
+    });
+
+    test('no filter keeps the banner, as before the hook existed', () async {
+      final plain = handlerWithFilter(null);
+
+      await plain.addSystemMessage('r1', 'user_joined', alice.id);
+
+      expect(controller.messages.single.text, 'Alice joined');
+      expect(asked, isEmpty);
+    });
+
+    test('a vetoed banner still registers an unknown room', () async {
+      final filtered = handlerWithFilter((_, _) => false);
+
+      await filtered.addSystemMessage('r2', 'user_joined', alice.id);
+
+      expect(addedFromDetail, ['r2']);
+    });
+
+    test('a vetoed banner leaves a known room alone', () async {
+      roomList.addRoom(const RoomListItem(id: 'r1', name: 'Room'));
+      final filtered = handlerWithFilter((_, _) => false);
+
+      await filtered.addSystemMessage('r1', 'user_joined', alice.id);
+
+      expect(addedFromDetail, isEmpty);
     });
   });
 

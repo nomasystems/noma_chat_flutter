@@ -318,10 +318,19 @@ class OptimisticHandler {
   /// delivered or read by a later cursor: nobody received it. The flag is
   /// persisted, so the freeze survives a cold start as well.
   ///
-  /// It is also written to the message cache rather than only to the room
+  /// It is also written to the message store rather than only to the room
   /// preview. The server has no record of it, so nothing would ever bring
   /// it back: without this the sender reopens the room and finds the
   /// message gone from the thread while the chat list still previews it.
+  /// That write goes through the CLIENT surface
+  /// (`client.messages.saveLocalMessage`) — the same reason
+  /// `ChatRoomsController.delete` writes its markers there — so it lands
+  /// even when this adapter was built without its own `cache:` argument
+  /// (e.g. WB, which only wires `ChatConfig.localDatasource` at the client
+  /// level). The adapter-level cache is written to as well as a backstop
+  /// for hosts that wired one directly. The room preview already had this
+  /// treatment (`RoomListMutator._applyLastMessage`), which is why the
+  /// list row survived a reopen while the thread did not.
   ///
   /// Every REST send path routes its blocked rejection here — plain send,
   /// draft DM, manual retry, attachment, voice and forward — so the
@@ -339,6 +348,11 @@ class OptimisticHandler {
               ?.deletePendingMessage(roomId, tempId)
               .catchError(_swallowCacheThrow) ??
           Future.value(),
+    );
+    unawaited(
+      client.messages
+          .saveLocalMessage(roomId, sent)
+          .catchError(_swallowCacheThrow),
     );
     unawaited(
       cache?.saveMessages(roomId, [sent]).catchError(_swallowCacheThrow) ??
@@ -650,9 +664,21 @@ class OptimisticHandler {
     // this the next Phase 2 network fetch in `messages.load` would
     // bring the tombstone back (the backend has no per-user hide
     // state). The cached layer's `list` filter consumes this set so
-    // the row stays gone across chat re-open and app restart. Safe to
-    // call when `cache` is null — that just means the consumer opted
-    // out of persistence and accepts the row reappearing on restart.
+    // the row stays gone across chat re-open and app restart. The
+    // marker goes through the CLIENT surface, like the swallowed-send
+    // row in [swallowBlockedAsSent], so it lands for a host that wired
+    // its datasource at the client level and built this adapter without
+    // a `cache:` argument; the adapter cache is written as a backstop
+    // for hosts that wired one directly.
+    unawaited(
+      client.messages
+          .hideLocalMessage(roomId, messageId)
+          .catchError(
+            (_) => const ChatFailureResult<void>(
+              UnexpectedFailure('hideLocalMessage failed'),
+            ),
+          ),
+    );
     unawaited(
       (cache?.hideMessageLocally(roomId, messageId) ??
               Future.value(const ChatSuccess<void>(null)))

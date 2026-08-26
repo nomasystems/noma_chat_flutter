@@ -6,6 +6,105 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.29.0 - 2026-08-26
+
+Minor bump. Two of the fixes change what an existing call site *answers*
+without changing what it compiles to, so read *Breaking (behaviour)* before
+upgrading: deleting a chat now reports a failed write instead of swallowing
+it, and the three deleted-room markers propagate their datasource's result
+rather than collapsing it to success. Everything else is additive — two
+local-write methods on the client surface, a veto over the membership
+banners, and a subtitle slot on `RoomTile` that composes instead of
+replacing.
+
+The two headline fixes share a shape worth naming, because it is the one
+that made both defects invisible: **a local write that failed was reported
+as if it had landed**. A message the server refused was shown as sent and
+then vanished on reopen; a chat the user deleted came straight back with
+its old preview. In both cases the row on screen and the row in the store
+disagreed, and the code had no way to notice.
+
+### Added
+
+- **`ChatClient.saveLocalMessage(roomId, message)`** — writes a message into
+  the local store with no server round-trip. The pure-local twin of
+  `setLocalClearedAt`, for the rows the server will never hand back. It sits
+  on the client surface, not on the adapter cache, for the same reason
+  `markRoomDeleted` does: the row has to survive a `ChatUiAdapter` built
+  without its own `cache:` argument, which is how WB builds it. A no-op that
+  never throws when the client has no local datasource.
+
+- **`ChatClient.hideLocalMessage(roomId, messageId)`** — records a message as
+  hidden for this user ("delete for me"). The backend keeps no per-user hide
+  state, so without a durable marker the row — usually a tombstone — comes
+  straight back on the next list fetch.
+
+- **`MembershipBannerFilter`, on `ChatUiAdapter` and on the facade** — a host
+  veto over the SDK's own membership banners, asked per room *and* per event
+  flavour (`user_joined`, `user_left`, `user_role_changed`) just before the
+  banner is composed. Return `false` and the row is neither shown nor
+  cached, so it does not reappear on the next open. The per-room argument is
+  the point: a host whose own backend posts a membership message into group
+  rooms wants the SDK quiet there and still wants the banner in a
+  one-to-one room, where nothing else announces it. `null` — the default —
+  keeps every banner, which is what every consumer had before this existed.
+
+- **`RoomTile.subtitleHeaderBuilder`** — a slot *above* the preview line
+  instead of in place of it. `subtitleBuilder` was the only way in, and it
+  replaced the whole subtitle, so a host that wanted one extra line lost
+  typing, the sender prefix and its system-notice guard, the delivery
+  receipt and the blocked-sender pruning, and had to rebuild all four by
+  hand. This one composes: the host adds its line and keeps the tile's.
+
+### Fixed
+
+- **A message the server rejected with 403 no longer disappears from the
+  thread.** Sending to someone who blocked you is meant to look like it
+  worked, and it did — until you left the room and came back, at which point
+  the message was gone from the thread while the chat list still previewed
+  it. Nothing persisted it: every read path that could restore a message is
+  fed by the server, and the server had refused this one. It is now written
+  through `saveLocalMessage` at the moment it is pinned as sent.
+
+- **"Delete chat" persists.** The conversation came back on the next list
+  build with its last message intact. The durable marker was written through
+  a path that swallowed its own failure, and the empty set returned by a
+  *failed* read is indistinguishable from "this user never deleted
+  anything" — so the room-list build had nothing to filter on and repainted
+  the row. Both halves now fail closed, in all three layers that touched
+  them, and the read-modify-write on the deleted-id set is serialized.
+
+- **An identity swap on the same adapter no longer leaks deleted-room ids.**
+  Now that a list build merges the mirror instead of replacing it wholesale,
+  the outgoing user's ids would have kept hiding rooms for the incoming one.
+  `signOut` and `dispose` clear it; a `disconnect` deliberately does not.
+
+- **A participant's arrival is no longer announced twice** in hosts that post
+  their own membership message — see `MembershipBannerFilter` above. The
+  guard sits on `addSystemMessage`, the single chokepoint the router reaches
+  for all three event flavours, so it covers a kick as well (it travels as
+  `user_left` with an actor).
+
+- **A system notice in the chat list no longer gets a sender put in front of
+  it** in the composed subtitle, closing the other half of the fix 0.28.0
+  started in `RoomTile`.
+
+### Breaking (behaviour)
+
+- **`ChatRoomsController.delete` now returns a failure when the durable
+  deleted marker could not be written, and leaves the row on screen.** It
+  used to drop the row and answer success regardless. A row dropped without
+  its marker reappears on the next build with its old preview, which is
+  worse than a delete that visibly did nothing. A host that shows a
+  confirmation should key it off this result. A lost *cutoff* is reported
+  but not acted on: the row is gone either way, and only prior history could
+  resurface.
+
+- **`markRoomDeleted`, `clearRoomDeleted` and `getDeletedRoomIds` propagate
+  the datasource's `ChatResult`** instead of collapsing it into success or
+  into the empty set. Direct callers that treated these as infallible will
+  now see failures they were previously blind to.
+
 ## 0.28.0 - 2026-08-25
 
 Minor bump, but read *Changed* before upgrading: part of it breaks a build,

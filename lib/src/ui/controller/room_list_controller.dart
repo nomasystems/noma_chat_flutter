@@ -387,9 +387,29 @@ class RoomListController extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Replaces the in-memory deleted set wholesale — used by the room
-  /// enricher to seed it from the persistent cache on a cold load so
-  /// the getters keep a deleted room hidden until a peer writes again.
+  /// Folds a room-list pass's persistent deleted set into the in-memory
+  /// mirror: [add] is unioned in, and only the ids in [remove] can leave
+  /// it. Unlike [setDeletedRoomIds] a pass can never drop an id merely by
+  /// not reporting it, so a cache read that came back short does not put
+  /// every deleted chat back on screen. Legitimate un-marking is explicit
+  /// — the resurrection sweep names the room it revived, and a live
+  /// `new_message` goes through [clearDeleted].
+  void mergeDeletedRoomIds(Set<String> add, {Set<String> remove = const {}}) {
+    var changed = false;
+    for (final id in add) {
+      if (_deletedRoomIds.add(id)) changed = true;
+    }
+    for (final id in remove) {
+      if (_deletedRoomIds.remove(id)) changed = true;
+    }
+    if (!changed) return;
+    _invalidateFilterCache();
+    notifyListeners();
+  }
+
+  /// Replaces the in-memory deleted set wholesale. Prefer
+  /// [mergeDeletedRoomIds]: seeding with this from a cache read makes an
+  /// unreadable cache indistinguishable from an empty one.
   void setDeletedRoomIds(Set<String> ids) {
     if (_setEquals(_deletedRoomIds, ids)) return;
     _deletedRoomIds

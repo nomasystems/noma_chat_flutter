@@ -678,22 +678,32 @@ class RoomsApi implements ChatRoomsApi {
     }
   }
 
+  // The three deleted-room markers propagate the datasource's own
+  // [ChatResult] instead of collapsing it. Losing a write here, or
+  // answering a failed read with the empty set, is indistinguishable from
+  // "this user never deleted anything" — and the caller's reaction to that
+  // is to put the deleted chat back on the list with its old preview.
   @override
-  Future<ChatResult<void>> markRoomDeleted(String roomId) =>
-      safeVoidCall(() async {
-        await _cache?.addDeletedRoom(roomId);
-      });
-
-  @override
-  Future<ChatResult<void>> clearRoomDeleted(String roomId) =>
-      safeVoidCall(() async {
-        await _cache?.clearDeletedRoom(roomId);
-      });
-
-  @override
-  Future<ChatResult<Set<String>>> getDeletedRoomIds() => safeApiCall(() async {
+  Future<ChatResult<void>> markRoomDeleted(String roomId) async {
     final cache = _cache;
-    if (cache == null) return const <String>{};
-    return (await cache.getDeletedRoomIds()).dataOrNull ?? const <String>{};
-  });
+    if (cache == null) return const ChatSuccess<void>(null);
+    final call = await safeApiCall(() => cache.addDeletedRoom(roomId));
+    return call.isFailure ? call.castFailure<void>() : call.dataOrThrow;
+  }
+
+  @override
+  Future<ChatResult<void>> clearRoomDeleted(String roomId) async {
+    final cache = _cache;
+    if (cache == null) return const ChatSuccess<void>(null);
+    final call = await safeApiCall(() => cache.clearDeletedRoom(roomId));
+    return call.isFailure ? call.castFailure<void>() : call.dataOrThrow;
+  }
+
+  @override
+  Future<ChatResult<Set<String>>> getDeletedRoomIds() async {
+    final cache = _cache;
+    if (cache == null) return const ChatSuccess(<String>{});
+    final call = await safeApiCall(() => cache.getDeletedRoomIds());
+    return call.isFailure ? call.castFailure<Set<String>>() : call.dataOrThrow;
+  }
 }

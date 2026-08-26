@@ -2408,6 +2408,40 @@ isDmRoom: (RoomDetail detail) =>
 
 Omit to use the default: any `RoomType.oneToOne` room is a DM.
 
+### membershipBannerFilter
+
+Vetoes the SDK's own membership banners — "Alice joined", "Alice left",
+"Alice is now an admin" — per room and per event:
+
+```dart
+membershipBannerFilter: (roomId, eventType) => isDirectMessage(roomId),
+```
+
+The predicate runs when a `user_joined` / `user_left` / `user_role_changed`
+event arrives, just before the banner is composed. Returning `false` drops
+that banner completely: it is not shown and, unlike a `systemMessageBuilder`
+that renders nothing, it is not written to the local cache either, so it does
+not reappear the next time the room is opened.
+
+Omit it to keep every banner — that is what every consumer got before this
+hook existed.
+
+**When you need it.** Some backends post their own membership message into
+the room, as a real message from the server. Those hosts render two rows for
+one event: the server's and the SDK's. The filter turns the SDK's off exactly
+where the server speaks, which is why it takes the room id: the same app
+usually wants the banner kept in a one-to-one room, where nothing else
+announces the change.
+
+**Already-written rows stay.** The filter only decides what is minted from
+now on. Banners cached before you turned it on are still in the local
+database and still render; to see the effect, use a room the device has not
+cached yet or clear the cache.
+
+**What it does not switch off.** Suppressing the banner does not skip the
+rest of the membership handling — the roster still refreshes and a room the
+list did not know about is still added.
+
 ### RoomTitleResolver
 
 Controls what title is displayed in `RoomTile`, `ChatRoomAppBar` and anywhere

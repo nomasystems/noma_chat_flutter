@@ -630,8 +630,21 @@ class MockRoomsApi implements ChatRoomsApi {
 
   final Set<String> _deletedRoomIds = {};
 
+  /// When `true`, [getDeletedRoomIds] fails instead of answering. Lets a
+  /// test drive the case a real store hits when its box is closed or
+  /// broken: the set is unreadable, which is NOT the same as empty, and
+  /// treating it as empty puts every deleted chat back on the list.
+  bool failDeletedRoomIdsRead = false;
+
+  /// When `true`, [markRoomDeleted] fails and records nothing. Twin of
+  /// [failDeletedRoomIdsRead] for the write half.
+  bool failMarkRoomDeleted = false;
+
   @override
   Future<ChatResult<void>> markRoomDeleted(String roomId) async {
+    if (failMarkRoomDeleted) {
+      return const ChatFailureResult(UnexpectedFailure('store write failed'));
+    }
     _deletedRoomIds.add(roomId);
     return const ChatSuccess(null);
   }
@@ -644,7 +657,9 @@ class MockRoomsApi implements ChatRoomsApi {
 
   @override
   Future<ChatResult<Set<String>>> getDeletedRoomIds() async =>
-      ChatSuccess(Set.of(_deletedRoomIds));
+      failDeletedRoomIdsRead
+      ? const ChatFailureResult(UnexpectedFailure('store read failed'))
+      : ChatSuccess(Set.of(_deletedRoomIds));
 }
 
 class MockMembersApi implements ChatMembersApi {
@@ -1118,6 +1133,12 @@ class MockMessagesApi implements ChatMessagesApi {
 
   final Map<String, DateTime> _clearedAt = {};
 
+  /// When `true`, [getClearedAt] fails instead of answering. Twin of
+  /// [MockRoomsApi.failDeletedRoomIdsRead] for the clear cutoff: an
+  /// unreadable cutoff is NOT the same as "never cleared", and treating it
+  /// as such repaints every cleared row with its old preview and badge.
+  bool failClearedAtRead = false;
+
   @override
   Future<ChatResult<void>> clearChat(String roomId) async {
     _clearedAt[roomId] = DateTime.now().toUtc();
@@ -1126,7 +1147,9 @@ class MockMessagesApi implements ChatMessagesApi {
 
   @override
   Future<ChatResult<DateTime?>> getClearedAt(String roomId) async =>
-      ChatSuccess(_clearedAt[roomId]);
+      failClearedAtRead
+      ? const ChatFailureResult(UnexpectedFailure('store read failed'))
+      : ChatSuccess(_clearedAt[roomId]);
 
   @override
   Future<ChatResult<void>> setLocalClearedAt(
@@ -1134,6 +1157,30 @@ class MockMessagesApi implements ChatMessagesApi {
     DateTime clearedAt,
   ) async {
     _clearedAt[roomId] = clearedAt;
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<void>> saveLocalMessage(
+    String roomId,
+    ChatMessage message,
+  ) async {
+    final messages = _client._messages.putIfAbsent(roomId, () => []);
+    final existing = messages.indexWhere((m) => m.id == message.id);
+    if (existing >= 0) {
+      messages[existing] = message;
+    } else {
+      messages.insert(0, message);
+    }
+    return const ChatSuccess(null);
+  }
+
+  @override
+  Future<ChatResult<void>> hideLocalMessage(
+    String roomId,
+    String messageId,
+  ) async {
+    _client._messages[roomId]?.removeWhere((m) => m.id == messageId);
     return const ChatSuccess(null);
   }
 }

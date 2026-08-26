@@ -707,4 +707,17 @@ class RestMessagesApi implements ChatMessagesApi {
     String roomId,
     DateTime clearedAt,
   ) => Future.value(const ChatSuccess<void>(null));
+
+  /// No-op from the REST layer, same reason as [setLocalClearedAt]: there
+  /// is nowhere to persist a row without a local datasource. The cache
+  /// decorator overrides this to actually store it.
+  @override
+  Future<ChatResult<void>> saveLocalMessage(
+    String roomId,
+    ChatMessage message,
+  ) => Future.value(const ChatSuccess<void>(null));
+
+  @override
+  Future<ChatResult<void>> hideLocalMessage(String roomId, String messageId) =>
+      Future.value(const ChatSuccess<void>(null));
 }
