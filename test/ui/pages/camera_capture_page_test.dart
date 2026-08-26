@@ -516,6 +516,40 @@ void main() {
   );
 
   testWidgets(
+    'the microphone warning goes away on its own even when it offers the '
+    'settings shortcut',
+    (tester) async {
+      microphoneStatus = _denied;
+      microphoneRequestResult = _permanentlyDenied;
+      await pumpPage(tester);
+
+      final gesture = await holdShutter(tester);
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+
+      expect(find.text(_microphoneDeniedMessage), findsOneWidget);
+      expect(
+        find.text(_openSettingsLabel),
+        findsOneWidget,
+        reason: 'a permanent refusal must offer the way out',
+      );
+
+      await gesture.up();
+      // A `SnackBar` with an action defaults `persist` to true, and `Scaffold`
+      // arms its timeout a frame after the entry animation ends: jumping the
+      // whole wait in one pump lands before the timer exists and would pass
+      // over a bar that never expires.
+      for (var i = 0; i < 12; i++) {
+        await tester.pump(const Duration(seconds: 1));
+      }
+
+      expect(find.text(_microphoneDeniedMessage), findsNothing);
+      expect(find.text(_openSettingsLabel), findsNothing);
+    },
+  );
+
+  testWidgets(
     'granting the microphone mid-hold rebinds the preview with audio, and the '
     'press the dialog cancelled does not start a recording nobody is holding',
     (tester) async {

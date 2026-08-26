@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.29.1 - 2026-08-26
+
+Patch. One fix, and a note on where it came from.
+
+### Fixed
+
+- **The camera page's permission warning goes away on its own again.**
+  `SnackBar` defaults `persist` to `action != null`, and a persisting bar
+  makes `Scaffold` skip its own timeout — so offering the "open settings"
+  shortcut had the side effect of leaving the warning on screen until the
+  user dismissed it by hand, over the camera and over every screen they
+  moved to afterwards. It now sets `persist: false` with an explicit
+  duration, longer when the permission is permanently blocked because that
+  wording has to be read *and* tapped.
+
+### Note on 0.29.0
+
+The archive published as `0.29.0` already contains this change, but the
+`v0.29.0` tag does not: the fix landed in the working tree after the release
+commit and `pub publish` packages the working tree rather than `HEAD`. This
+release exists so that what is on pub.dev corresponds to a reviewed commit.
+Prefer `0.29.1`.
+
 ## 0.29.0 - 2026-08-26
 
 Minor bump. Two of the fixes change what an existing call site *answers*
