@@ -1192,6 +1192,34 @@ abstract class ChatMessagesApi {
   /// connectivity (deleting a chat has no server-side counterpart at all).
   /// No-op (never throws) when no local datasource is configured.
   Future<ChatResult<void>> setLocalClearedAt(String roomId, DateTime clearedAt);
+
+  /// Writes [message] into the local message store for [roomId] with no
+  /// server round-trip. Pure-local twin of [setLocalClearedAt], for the
+  /// rows the server will never hand back: a message the backend rejected
+  /// while the sender was shown it as sent has no other way of surviving
+  /// a reopen, because every read path that could restore it is fed by
+  /// the server.
+  ///
+  /// Written through the client surface — the same reason
+  /// [markRoomDeleted] is — so the row persists for a `ChatUiAdapter`
+  /// built without its own `cache:` argument, as long as the client has a
+  /// local datasource. No-op (never throws) when it has none.
+  Future<ChatResult<void>> saveLocalMessage(
+    String roomId,
+    ChatMessage message,
+  ) => Future.value(const ChatSuccess<void>(null));
+
+  /// Records [messageId] as hidden for this user in [roomId] ("delete for
+  /// me") with no server round-trip. The backend has no per-user hide
+  /// state, so without a durable marker the row — typically a tombstone —
+  /// comes straight back on the next list fetch.
+  ///
+  /// Written through the client surface for the same reason as
+  /// [saveLocalMessage]: the marker has to outlive a `ChatUiAdapter` built
+  /// without its own `cache:` argument. No-op (never throws) when the
+  /// client has no local datasource.
+  Future<ChatResult<void>> hideLocalMessage(String roomId, String messageId) =>
+      Future.value(const ChatSuccess<void>(null));
 }
 
 /// Contact list, direct messaging, typing indicators, and blocking.

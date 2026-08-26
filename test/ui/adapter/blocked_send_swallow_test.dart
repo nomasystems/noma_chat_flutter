@@ -183,6 +183,39 @@ void main() {
       },
     );
 
+    test(
+      'the row survives for a host that wired no adapter cache, and a '
+      'reopen still shows it (was: gone from the thread, kept in the list)',
+      () async {
+        // WB's exact setup: no `cache:` on the adapter, persistence wired
+        // only at the client level (`ChatConfig.localDatasource`). Every
+        // `cache?.…` write in the adapter is a silent no-op there, so a
+        // row that only went through one was lost on reopen while the
+        // room preview — which already wrote through the client — kept it.
+        final bare = ChatUiAdapter(client: client, currentUser: me);
+        bare.start();
+        addTearDown(bare.dispose);
+        await client.connect();
+
+        onPost = (path, data) async => throw blocked;
+        await bare.messages.send('r1', text: 'ping');
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        final cached = (await store.getMessages('r1')).dataOrNull ?? const [];
+        expect(cached.map((m) => m.text), ['ping']);
+        expect(cached.single.silentlyDropped, isTrue);
+        expect(cached.single.receipt, ReceiptStatus.sent);
+
+        // Reopening the room re-runs the local hide/clearedAt filter over
+        // the loaded snapshot, which is the one thing that could take the
+        // row back off the thread after it was restored from the store.
+        final reopened = bare.getChatController('r1');
+        final load = await bare.messages.load('r1');
+        expect(load.isSuccess, isTrue);
+        expect(reopened.messages.map((m) => m.text), contains('ping'));
+      },
+    );
+
     test('a manual retry of a failed row is swallowed too', () async {
       await client.connect();
       final controller = adapter.getChatController('r1');

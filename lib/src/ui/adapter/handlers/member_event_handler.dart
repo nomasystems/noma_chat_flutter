@@ -30,8 +30,9 @@ import '../services/user_cache_service.dart';
 ///
 /// `addSystemMessage` posts the i18n banner ("Alice joined", "You
 /// removed Bob", etc.) into the open [ChatController] when one exists and
-/// always persists it to the cache so participants whose room is closed
-/// still see the banner on next open. Synthetic message ids are minted
+/// persists it to the cache so participants whose room is closed still
+/// see the banner on next open — unless [membershipBannerFilter] vetoes
+/// that room/event pair, in which case neither happens. Synthetic message ids are minted
 /// from the room/event/user tuple plus a microsecond timestamp.
 ///
 /// The banner is composed with [l10n] — the adapter's current language,
@@ -64,6 +65,7 @@ class MemberEventHandler {
     required void Function(String roomId) notifyRoomMembersChanged,
     required bool Function() isDisposed,
     required ChatResult<void> Function(Object _) swallowCacheThrow,
+    this.membershipBannerFilter,
     this.logger,
   }) : _l10n = l10n,
        _currentUser = currentUser,
@@ -95,6 +97,21 @@ class MemberEventHandler {
   final void Function(String roomId) _notifyRoomMembersChanged;
   final bool Function() _isDisposed;
   final ChatResult<void> Function(Object _) _swallowCacheThrow;
+
+  /// Opt-in veto over the membership banners minted here.
+  ///
+  /// Called with the room and the event flavour (`user_joined`,
+  /// `user_left`, `user_role_changed`) right before the banner is
+  /// composed. Returning `false` drops that banner entirely: it is
+  /// neither posted to the open controller nor written to the cache, so
+  /// it does not come back on the next open either. Hosts that render
+  /// their own membership notices from server-side sentinels use it to
+  /// keep the two from showing up side by side.
+  ///
+  /// `null` (the default) keeps every banner, which is the behaviour of
+  /// a host that does not pass one.
+  final bool Function(String roomId, String eventType)?
+  membershipBannerFilter;
 
   final void Function(String level, String message)? logger;
 
@@ -187,6 +204,12 @@ class MemberEventHandler {
     String userId, {
     String? actorUserId,
   }) async {
+    if (membershipBannerFilter?.call(roomId, eventType) == false) {
+      // The banner is vetoed, but the membership event still told us
+      // about a room the list may not carry yet.
+      _ensureRoomIsListed(roomId);
+      return;
+    }
     var me = _currentUser();
     final pending = <String>[
       if (_needsNameResolution(userId, me)) userId,
@@ -229,6 +252,10 @@ class MemberEventHandler {
         c.saveMessages(roomId, [systemMsg]).catchError(_swallowCacheThrow),
       );
     }
+    _ensureRoomIsListed(roomId);
+  }
+
+  void _ensureRoomIsListed(String roomId) {
     if (roomListController.getRoomById(roomId) == null) {
       _addRoomFromDetail(roomId);
     }

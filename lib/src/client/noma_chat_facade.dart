@@ -156,6 +156,7 @@ class NomaChat {
     // UI
     ChatUiLocalizations l10n = ChatUiLocalizations.en,
     IsDmRoomPredicate? isDmRoom,
+    MembershipBannerFilter? membershipBannerFilter,
     RoomTitleResolver? roomTitleResolver,
     bool autoMarkAsRead = true,
     // Lifecycle
@@ -234,6 +235,7 @@ class NomaChat {
       // not created in that path), so adapter and client never diverge.
       cache: config != null ? config.localDatasource : effectiveDatasource,
       isDmRoom: isDmRoom,
+      membershipBannerFilter: membershipBannerFilter,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,
       manageAppLifecycle: manageAppLifecycle,
@@ -296,6 +298,7 @@ class NomaChat {
     // UI
     ChatUiLocalizations l10n = ChatUiLocalizations.en,
     IsDmRoomPredicate? isDmRoom,
+    MembershipBannerFilter? membershipBannerFilter,
     RoomTitleResolver? roomTitleResolver,
     bool autoMarkAsRead = true,
     // Lifecycle
@@ -320,6 +323,7 @@ class NomaChat {
       // null) — the caller owns the lifecycle of `config.localDatasource`.
       cache: config.localDatasource,
       isDmRoom: isDmRoom,
+      membershipBannerFilter: membershipBannerFilter,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,
       manageAppLifecycle: manageAppLifecycle,
@@ -359,6 +363,12 @@ class NomaChat {
   /// [isDmRoom] — predicate used by the adapter to classify rooms as DMs.
   /// When `null`, the UI cannot distinguish DMs from group rooms.
   ///
+  /// [membershipBannerFilter] — veto over the SDK's own "Alice joined" /
+  /// "Alice left" / role-change banners, per room and per event. Return
+  /// `false` to drop one: hosts that already render their own membership
+  /// notice for a room use it so the two do not show up side by side.
+  /// When `null` (default) every banner is kept.
+  ///
   /// [autoMarkAsRead] — when `true` (default) the adapter automatically
   /// marks rooms as read when the user opens them.
   ///
@@ -383,6 +393,7 @@ class NomaChat {
     ChatUiLocalizations l10n = ChatUiLocalizations.en,
     ChatLocalDatasource? cache,
     IsDmRoomPredicate? isDmRoom,
+    MembershipBannerFilter? membershipBannerFilter,
     RoomTitleResolver? roomTitleResolver,
     bool autoMarkAsRead = true,
     bool manageAppLifecycle = true,
@@ -401,6 +412,7 @@ class NomaChat {
       l10n: l10n,
       cache: cache,
       isDmRoom: isDmRoom,
+      membershipBannerFilter: membershipBannerFilter,
       roomTitleResolver: roomTitleResolver,
       autoMarkAsRead: autoMarkAsRead,
       manageAppLifecycle: manageAppLifecycle,

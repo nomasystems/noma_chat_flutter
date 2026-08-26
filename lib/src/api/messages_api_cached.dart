@@ -444,15 +444,48 @@ class CachedMessagesApi extends RestMessagesApi {
     return markRoomAsRead(roomId);
   }
 
+  // Both cutoff accessors propagate the datasource's own [ChatResult].
+  // Collapsing a failed read to `null` reads as "never cleared" and
+  // collapsing a failed write to success reads as "cutoff stored": the
+  // room-list build and `ChatRoomsController.delete` respectively act on
+  // those answers by showing history the user asked to be rid of.
   @override
-  Future<ChatResult<DateTime?>> getClearedAt(String roomId) =>
-      safeApiCall(() async => (await _cache.getClearedAt(roomId)).dataOrNull);
+  Future<ChatResult<DateTime?>> getClearedAt(String roomId) async {
+    final call = await safeApiCall(() => _cache.getClearedAt(roomId));
+    return call.isFailure ? call.castFailure<DateTime?>() : call.dataOrThrow;
+  }
 
   @override
   Future<ChatResult<void>> setLocalClearedAt(
     String roomId,
     DateTime clearedAt,
+  ) async {
+    final call = await safeApiCall(
+      () => _cache.setClearedAt(roomId, clearedAt),
+    );
+    return call.isFailure ? call.castFailure<void>() : call.dataOrThrow;
+  }
+
+  @override
+  Future<ChatResult<void>> saveLocalMessage(
+    String roomId,
+    ChatMessage message,
   ) => safeVoidCall(() async {
-    await _cache.setClearedAt(roomId, clearedAt);
+    // Invalidate BEFORE writing, same ordering rationale as `send`: a
+    // concurrent cacheFirst reader must never see a still-fresh TTL next
+    // to a write that has not landed.
+    _cacheManager.invalidatePrefix('messages:$roomId');
+    await _cache.saveMessages(roomId, [message]);
   });
+
+  @override
+  Future<ChatResult<void>> hideLocalMessage(String roomId, String messageId) =>
+      safeVoidCall(() async {
+        _cacheManager.invalidatePrefix('messages:$roomId');
+        // The id set is what `list` consumes (`_stripHidden`), on both the
+        // cache and the network branch; dropping the stored row as well
+        // keeps direct `getMessages` readers in step.
+        await _cache.hideMessageLocally(roomId, messageId);
+        await _cache.deleteMessage(roomId, messageId);
+      });
 }

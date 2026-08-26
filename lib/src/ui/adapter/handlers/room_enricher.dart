@@ -349,6 +349,12 @@ class RoomEnricher {
     _hydratedThisSession = false;
     _hydrationInFlight = null;
     _refreshQueuedRooms.clear();
+    // The deleted-room mirror is per-user and a list build no longer
+    // replaces it wholesale, so an identity swap on the same adapter has
+    // to drop it here or the outgoing user's ids would keep hiding rooms
+    // for the incoming one. Only [signOut] and [dispose] reach this — a
+    // [disconnect] must leave the set alone.
+    roomList.setDeletedRoomIds(const {});
   }
 
   /// Paints the room list from the local cache. Never touches the network.
@@ -646,14 +652,25 @@ class RoomEnricher {
     // adapter itself was built without a `cache:` arg (e.g. WB). The
     // adapter-level `cache` is consulted too as a backstop for hosts that
     // wired one directly before this client-level surface existed.
+    // Both readers answer with a [ChatResult]: a failed read must not be
+    // taken for "nothing was deleted", because the only consequence of
+    // that answer is destructive — every chat the user deleted comes back
+    // with its old preview. When neither reader could answer, this pass
+    // carries the controller's own set forward instead of inventing one.
     final localCacheForDeleted = cache;
-    final clientDeletedIds =
-        (await client.rooms.getDeletedRoomIds()).dataOrNull ?? const <String>{};
-    final adapterDeletedIds = localCacheForDeleted == null
-        ? const <String>{}
-        : (await localCacheForDeleted.getDeletedRoomIds()).dataOrNull ??
-              const <String>{};
-    final deletedRoomIds = {...clientDeletedIds, ...adapterDeletedIds};
+    final clientDeleted = await client.rooms.getDeletedRoomIds();
+    final adapterDeleted = localCacheForDeleted == null
+        ? null
+        : await localCacheForDeleted.getDeletedRoomIds();
+    final deletedReadFailed =
+        clientDeleted.isFailure &&
+        (adapterDeleted == null || adapterDeleted.isFailure);
+    final deletedRoomIds = deletedReadFailed
+        ? {...roomList.deletedRoomIds}
+        : {...?clientDeleted.dataOrNull, ...?adapterDeleted?.dataOrNull};
+    // Ids this pass proved a peer wrote to after the delete cutoff. Only
+    // these may leave the controller's set.
+    final resurrectedRoomIds = <String>{};
 
     final items = <RoomListItem>[];
     for (var i = 0; i < userRooms.rooms.length; i++) {
@@ -662,21 +679,32 @@ class RoomEnricher {
 
       final clearedAtResult = await client.messages.getClearedAt(unread.roomId);
       final clearedAt = clearedAtResult.dataOrNull;
+      // Same rule as the deleted set above, for the same reason: a cutoff
+      // this pass could not read is not proof the chat was never cleared,
+      // and the only consequence of that answer is destructive — the row
+      // repaints with the preview and the unread badge the user just
+      // cleared. An unreadable pass paints the row without a preview
+      // instead; the next readable pass restores whatever is really there.
       final isCleared =
-          clearedAt != null &&
-          unread.lastMessageTime != null &&
-          !unread.lastMessageTime!.isAfter(clearedAt);
+          clearedAtResult.isFailure ||
+          (clearedAt != null &&
+              unread.lastMessageTime != null &&
+              !unread.lastMessageTime!.isAfter(clearedAt));
 
       if (deletedRoomIds.contains(unread.roomId)) {
         // Resurrect only when the backend reports a message strictly newer
         // than the delete cutoff (a peer wrote again). Otherwise the chat
-        // stays deleted — drop it from this list build.
+        // stays deleted — drop it from this list build. A cutoff this pass
+        // could not read is not proof of anything, so it never resurrects:
+        // the marker outlives one unreadable pass.
         final resurrected =
+            clearedAtResult.isSuccess &&
             clearedAt != null &&
             unread.lastMessageTime != null &&
             unread.lastMessageTime!.isAfter(clearedAt);
         if (resurrected) {
           deletedRoomIds.remove(unread.roomId);
+          resurrectedRoomIds.add(unread.roomId);
           // Gated on the epoch for the same reason the paint below is: a
           // pass that started under the outgoing identity would otherwise
           // still be writing to the store after `signOut()` cleared it,
@@ -929,8 +957,9 @@ class RoomEnricher {
     // Seed the controller's in-memory deleted set so its synchronous
     // getters keep excluding any deleted room that some other path (a
     // late `addFromDetail`, a polling re-add) might re-insert before the
-    // next live resurrection event clears it.
-    roomList.setDeletedRoomIds(deletedRoomIds);
+    // next live resurrection event clears it. Merged, not replaced: an id
+    // leaves the set only when this pass proved the room was resurrected.
+    roomList.mergeDeletedRoomIds(deletedRoomIds, remove: resurrectedRoomIds);
 
     // Resolve DM contacts. The network pass awaits them so the room list
     // is internally consistent before `loadRooms` resolves: every DM has

@@ -25,6 +25,7 @@ class RoomTile extends StatelessWidget {
     this.leadingBuilder,
     this.trailingBuilder,
     this.subtitleBuilder,
+    this.subtitleHeaderBuilder,
     this.lastMessagePreviewBuilder,
     this.typingUserNameResolver,
     this.onAcceptInvitation,
@@ -44,7 +45,25 @@ class RoomTile extends StatelessWidget {
   final ChatTheme theme;
   final Widget Function(BuildContext, RoomListItem)? leadingBuilder;
   final Widget Function(BuildContext, RoomListItem)? trailingBuilder;
+
+  /// Replaces the whole subtitle slot: typing indicator, sender prefix,
+  /// preview, receipt tick and blocked-content pruning are all the
+  /// consumer's problem from here on. Use [subtitleHeaderBuilder] instead
+  /// when the row only needs an extra line of its own on top of the
+  /// preview the tile already knows how to paint.
   final Widget Function(BuildContext, RoomListItem)? subtitleBuilder;
+
+  /// An extra line rendered directly above the subtitle, for rows that
+  /// carry domain context of their own (a plan date, a deadline).
+  ///
+  /// Additive, unlike [subtitleBuilder]: whatever the subtitle slot
+  /// resolves to still renders underneath, so the row keeps the typing
+  /// indicator, the sender prefix and its
+  /// [RoomListItem.lastMessageIsSystem] guard, the receipt tick and the
+  /// [blockedSenderIds] pruning without the host reimplementing any of it.
+  /// Returning `null` — or leaving this unwired — renders the row exactly
+  /// as it did before this slot existed.
+  final Widget? Function(BuildContext, RoomListItem)? subtitleHeaderBuilder;
 
   /// Optional override for the last-message preview text. When this builder
   /// returns a non-null string, it is used verbatim as the subtitle: the
@@ -203,6 +222,8 @@ class RoomTile extends StatelessWidget {
     final subtitle =
         subtitleBuilder?.call(context, room) ?? _buildDefaultSubtitle(context);
 
+    final subtitleHeader = subtitleHeaderBuilder?.call(context, room);
+
     final mutedUntil = _buildMutedUntil(context);
 
     final tileColor = isSelected
@@ -252,6 +273,10 @@ class RoomTile extends StatelessWidget {
                                         : null,
                                   ),
                         ),
+                        if (subtitleHeader != null) ...[
+                          const SizedBox(height: 2),
+                          subtitleHeader,
+                        ],
                         if (subtitle != null) ...[
                           const SizedBox(height: 2),
                           subtitle,

@@ -1186,6 +1186,17 @@ class HiveChatDatasource implements ChatLocalDatasource {
     } catch (_) {
       return {};
     }
+    return _parseIdSet(data);
+  }
+
+  /// Same shape as [_readIdSet], but a box-level failure propagates to the
+  /// enclosing [_wrap] instead of degrading to the empty set. Use for keys
+  /// whose "nothing recorded here" fallback is destructive: an unreadable
+  /// box must be distinguishable from an empty one. Malformed stored data
+  /// still degrades, as there is nothing to recover from it.
+  Set<String> _readIdSetStrict(String key) => _parseIdSet(_metaBox.get(key));
+
+  static Set<String> _parseIdSet(Map<dynamic, dynamic>? data) {
     final ids = data?['ids'];
     if (ids is! List) return {};
     return ids.whereType<String>().toSet();
@@ -1266,6 +1277,26 @@ class HiveChatDatasource implements ChatLocalDatasource {
     } catch (e) {
       onWarning?.call('Hive write failed ($operation): $e');
     }
+  }
+
+  Future<void> _metaKeyMutations = Future<void>.value();
+
+  /// Serialises read-modify-write sequences that share a single `_metaBox`
+  /// key. Two interleaved sequences both read the pre-existing set and the
+  /// later write wins wholesale, dropping whatever the other one added —
+  /// a lost update. The deleted-rooms marker is written by an explicit
+  /// user delete and cleared fire-and-forget by the resurrection sweep, so
+  /// the two do interleave in practice.
+  Future<T> _serialized<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _metaKeyMutations = _metaKeyMutations.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
   }
 
   Future<void> _safeCascade(
@@ -2111,37 +2142,39 @@ class HiveChatDatasource implements ChatLocalDatasource {
   // (peer writes again / unarchive) or a full `clear()` (logout).
   static const _deletedRoomIdsKey = 'deletedRoomIds';
 
-  Set<String> _readDeletedRoomIds() => _readIdSet(_deletedRoomIdsKey);
+  // Read and written strictly: this marker is the only thing keeping a
+  // deleted chat off the room list, so a swallowed read error or a
+  // swallowed write error both surface to the caller as "nothing was
+  // deleted" and put the chat back on screen.
+  Set<String> _readDeletedRoomIds() => _readIdSetStrict(_deletedRoomIdsKey);
 
   @override
   Future<ChatResult<void>> addDeletedRoom(String roomId) {
     _checkNotDisposed();
-    return _wrap(() async {
-      final ids = _readDeletedRoomIds()..add(roomId);
-      await _safeWrite(
-        'addDeletedRoom',
-        () => _metaBox.put(_deletedRoomIdsKey, {'ids': ids.toList()}),
-      );
-    });
+    return _wrap(
+      () => _serialized(() async {
+        final ids = _readDeletedRoomIds()..add(roomId);
+        await _metaBox.put(_deletedRoomIdsKey, {'ids': ids.toList()});
+      }),
+    );
   }
 
   @override
   Future<ChatResult<void>> clearDeletedRoom(String roomId) {
     _checkNotDisposed();
-    return _wrap(() async {
-      final ids = _readDeletedRoomIds();
-      if (!ids.remove(roomId)) return;
-      await _safeWrite(
-        'clearDeletedRoom',
-        () => _metaBox.put(_deletedRoomIdsKey, {'ids': ids.toList()}),
-      );
-    });
+    return _wrap(
+      () => _serialized(() async {
+        final ids = _readDeletedRoomIds();
+        if (!ids.remove(roomId)) return;
+        await _metaBox.put(_deletedRoomIdsKey, {'ids': ids.toList()});
+      }),
+    );
   }
 
   @override
   Future<ChatResult<Set<String>>> getDeletedRoomIds() {
     _checkNotDisposed();
-    return _wrap(() async => _readDeletedRoomIds());
+    return _wrap(() => _serialized(() async => _readDeletedRoomIds()));
   }
 
   // Reactions

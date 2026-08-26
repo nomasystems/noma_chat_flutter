@@ -89,6 +89,21 @@ ChatResult<void> _swallowCacheThrow(Object _) =>
 /// `detail.type == RoomType.oneToOne`.
 typedef IsDmRoomPredicate = bool Function(RoomDetail detail);
 
+/// Host veto over the SDK's own membership banners ("Alice joined",
+/// "You removed Bob", "Alice is now an admin").
+///
+/// Called with the room id and the event flavour — `user_joined`,
+/// `user_left` or `user_role_changed` — just before the banner is
+/// composed. Return `false` to drop it: the row is not shown and not
+/// cached, so it does not reappear on the next open.
+///
+/// The point of the per-room argument is that the answer is rarely the
+/// same everywhere: a host whose backend posts its own membership
+/// message into group rooms wants the SDK quiet there and still wants
+/// the banner in a one-to-one room, where nothing else announces it.
+typedef MembershipBannerFilter =
+    bool Function(String roomId, String eventType);
+
 /// Context handed to a [RoomTitleResolver] when the adapter (re)computes the
 /// effective title for a room. [detail] and [otherMembers] may be empty/null
 /// during incremental enrichments (e.g. before the DM contact has been
@@ -117,6 +132,7 @@ class ChatUiAdapter {
     ChatUiLocalizations l10n = ChatUiLocalizations.en,
     this.onRoomsLoaded,
     this.isDmRoom,
+    this.membershipBannerFilter,
     this.roomTitleResolver,
     this.autoMarkAsRead = true,
     this.autoConfirmDelivery = true,
@@ -311,6 +327,12 @@ class ChatUiAdapter {
   ChatUiLocalizations _l10n;
   bool _l10nPinnedByHost;
   final IsDmRoomPredicate? isDmRoom;
+
+  /// Host veto over the SDK's membership banners. `null` (the default)
+  /// keeps every banner, which is what every consumer got before this
+  /// hook existed.
+  final MembershipBannerFilter? membershipBannerFilter;
+
   final RoomTitleResolver? roomTitleResolver;
   final ChatLocalDatasource? _cache;
 
@@ -745,6 +767,7 @@ class ChatUiAdapter {
     notifyRoomMembersChanged: notifyRoomMembersChanged,
     isDisposed: () => _disposed,
     swallowCacheThrow: _swallowCacheThrow,
+    membershipBannerFilter: membershipBannerFilter,
     logger: logger,
   );
 

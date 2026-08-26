@@ -207,4 +207,90 @@ void main() {
       expect(find.text('Pablo E2E: voy llegando'), findsOneWidget);
     });
   });
+
+  group('the additive subtitle header', () {
+    /// The row WB paints for a plan: an extra line of its own on top of
+    /// the preview. Going through [RoomTile.subtitleBuilder] for this
+    /// replaces the whole slot, and with it the guard the group above
+    /// proves works — which is how "Tú: plan_reminder_24h" reached the
+    /// list. The header slot keeps both.
+    Widget planRow({
+      required Widget? Function(BuildContext, RoomListItem)? header,
+      Widget Function(BuildContext, RoomListItem)? replacement,
+      bool hostPreview = true,
+    }) {
+      final row = rowOf(RoomMapper.unreadRoomFromJson(reminder24h));
+      return wrap(
+        RoomTile(
+          room: row,
+          currentUserId: owner,
+          subtitleBuilder: replacement,
+          subtitleHeaderBuilder: header,
+          lastMessagePreviewBuilder: hostPreview
+              ? (_, __) => 'El plan empieza en 24 horas'
+              : null,
+          theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+        ),
+      );
+    }
+
+    testWidgets('the host line and the tile preview both render', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        planRow(header: (_, __) => const Text('Mañana, 20:00')),
+      );
+      expect(find.text('Mañana, 20:00'), findsOneWidget);
+      expect(find.text('El plan empieza en 24 horas'), findsOneWidget);
+    });
+
+    testWidgets('the system notice guard still runs underneath it', (
+      tester,
+    ) async {
+      // No host preview here on purpose: with one, the prefix is already
+      // dropped because the sentence is the host's, and the case would
+      // pass with the guard gone. Falling back to the tile's own preview
+      // is the only way the guard is what keeps "Tú: " off the row.
+      await tester.pumpWidget(
+        planRow(
+          header: (_, __) => const Text('Mañana, 20:00'),
+          hostPreview: false,
+        ),
+      );
+      expect(find.text('plan_reminder_24h'), findsOneWidget);
+      expect(find.textContaining('Tú: '), findsNothing);
+    });
+
+    testWidgets('the header sits above the preview', (tester) async {
+      await tester.pumpWidget(
+        planRow(header: (_, __) => const Text('Mañana, 20:00')),
+      );
+      final headerY = tester.getTopLeft(find.text('Mañana, 20:00')).dy;
+      final previewY = tester
+          .getTopLeft(find.text('El plan empieza en 24 horas'))
+          .dy;
+      expect(headerY, lessThan(previewY));
+    });
+
+    testWidgets('a row that declines the header renders as it always did', (
+      tester,
+    ) async {
+      await tester.pumpWidget(planRow(header: (_, __) => null));
+      expect(find.text('El plan empieza en 24 horas'), findsOneWidget);
+      expect(find.textContaining('Tú: '), findsNothing);
+    });
+
+    testWidgets('replacing the slot instead drops the tile preview', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        planRow(
+          header: null,
+          replacement: (_, __) => const Text('Mañana, 20:00'),
+        ),
+      );
+      expect(find.text('Mañana, 20:00'), findsOneWidget);
+      expect(find.text('El plan empieza en 24 horas'), findsNothing);
+    });
+  });
 }
