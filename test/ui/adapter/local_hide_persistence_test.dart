@@ -125,8 +125,8 @@ void main() {
       expect(hidden, contains('m-gone'));
     });
 
-    test('the tombstone stays gone when the room is reopened '
-        '(was: back on every fetch, the marker was never persisted)', () async {
+    // Was: back on every fetch, because the marker was never persisted.
+    test('the tombstone stays gone when the room is reopened', () async {
       await client.connect();
       final adapter = bareAdapter();
       final controller = adapter.getChatController('r1');
