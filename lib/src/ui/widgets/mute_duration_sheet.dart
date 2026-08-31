@@ -42,9 +42,11 @@ class MuteDurationSheet {
     required ChatUiLocalizations l10n,
     ChatTheme theme = ChatTheme.defaults,
   }) {
-    return showModalBottomSheet<MuteDuration>(
-      context: context,
+    return theme.showSheet<MuteDuration>(
+      context,
       showDragHandle: true,
+      isScrollControlled: false,
+      useRootNavigator: false,
       builder: (sheetContext) => SafeArea(
         child: Column(
           mainAxisSize: MainAxisSize.min,

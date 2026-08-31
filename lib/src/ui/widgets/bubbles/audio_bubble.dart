@@ -87,14 +87,17 @@ class AudioBubble extends StatefulWidget {
   final String? senderDisplayName;
 
   /// Whether to paint the sender's portrait in the lateral slot before
-  /// playback starts. Group-incoming messages already show the sender
-  /// avatar in the leading slot to the LEFT of the bubble (added by
-  /// `MessageBubble._wrapWithLeadingAvatar`), so painting it again inside
-  /// the bubble produced a duplicate portrait. Callers pass `false` for
-  /// group-incoming audio: the slot is then omitted entirely until the
-  /// first play, after which the speed pill takes its place. DM/outgoing
-  /// audio keep it `true` (no leading avatar there → the in-bubble
-  /// portrait is the only one).
+  /// playback starts. `false` omits the slot until the first play, after
+  /// which the speed pill takes its place.
+  ///
+  /// Every caller in the SDK passes `true`, including group-incoming
+  /// audio — which therefore shows two portraits of the same person, the
+  /// 28pt leading avatar to the left of the bubble and this 48pt one
+  /// inside it. That is measured, not inferred, and it is deliberate:
+  /// WhatsApp shows both in a group too, and U90's matiz makes WhatsApp
+  /// the baseline, so the duplicate is not a defect to remove. The
+  /// parameter stays as the lever a host needs to disagree; what it must
+  /// not do is claim a suppression that is not wired.
   final bool showSenderPortrait;
 
   /// Playback speed (1.0 / 1.5 / 2.0) this bubble starts at. Defaults to
@@ -485,9 +488,11 @@ class _AudioBubbleState extends State<AudioBubble> {
     // right-hand pill is gone — there's only ONE control for speed
     // now and it lives where the avatar was).
     final lateralSlot = _buildAvatarOrSpeedSlot();
-    // Group-incoming audio suppresses the in-bubble portrait (the leading
-    // avatar already identifies the sender). The slot still appears once
-    // playback starts, because that's where the speed pill lives.
+    // The slot is on whenever the host asks for the portrait, and always
+    // once playback starts — that is where the speed pill lives. No caller
+    // in the SDK asks for it off, group-incoming included: WhatsApp paints
+    // the portrait inside the voice bubble there too, alongside the 28pt
+    // leading avatar, and the matiz on U90 makes WhatsApp the baseline.
     final showLateralSlot = _hasStartedPlaying || widget.showSenderPortrait;
 
     return Column(

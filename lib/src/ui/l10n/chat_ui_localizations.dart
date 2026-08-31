@@ -203,6 +203,8 @@ class ChatUiLocalizations {
     this.repliesTemplate = '{count} replies',
     this.replySingleTemplate = '{count} reply',
     this.replyInThread = 'Reply in thread',
+    this.replyQuoteSemanticsTemplate = 'Replying to {sender}: {quote}',
+    this.replyQuoteSemanticsNoSenderTemplate = 'Replying to: {quote}',
     this.searchMessages = 'Search messages',
     this.noResults = 'No results',
     this.accept = 'Accept',
@@ -340,6 +342,9 @@ class ChatUiLocalizations {
     this.readBy = 'Read by',
     this.deliveredTo = 'Delivered to',
     this.noReceiptsYet = 'No read or delivery info yet',
+    this.messageSentAtTemplate = 'Sent \u00b7 {time}',
+    this.messageSentNoReceiptsTemplate =
+        'Sent at {time}. Nobody has received it yet.',
     // Opening prompt and result count of `MessageSearchView`.
     this.searchPromptEmpty = 'Search for text inside this conversation',
     this.searchResultCountSingularTemplate = '{count} result',
@@ -692,6 +697,19 @@ class ChatUiLocalizations {
   final String repliesTemplate;
   final String replySingleTemplate;
   final String replyInThread;
+
+  /// Screen-reader description of the quote a reply bubble carries.
+  ///
+  /// The quote is painted inside a subtree the bubble excludes from the
+  /// semantics tree, so without this the relation ("this answers that") was
+  /// lost to a screen reader entirely. `{sender}` is the quoted author,
+  /// `{quote}` its first line or media description. Read through
+  /// [replyQuoteSemantics].
+  final String replyQuoteSemanticsTemplate;
+
+  /// Same as [replyQuoteSemanticsTemplate] for a quoted author nobody can
+  /// name (an unresolved id, or a blocked sender whose name is withheld).
+  final String replyQuoteSemanticsNoSenderTemplate;
   final String searchMessages;
   final String noResults;
   final String accept;
@@ -872,6 +890,17 @@ class ChatUiLocalizations {
   /// delivered cursor covering the message yet.
   final String noReceiptsYet;
 
+  /// The send line [MessageInfoSheet] prints above the receipt sections.
+  /// `{time}` is the message's own timestamp — the hour the bubble already
+  /// shows two centimetres higher up, which the sheet dedicated to that
+  /// message used not to say at all.
+  final String messageSentAtTemplate;
+
+  /// The whole of [MessageInfoSheet] when nobody has received the message
+  /// yet: it replaces [noReceiptsYet], which stated only what was missing.
+  /// `{time}` is the message's own timestamp.
+  final String messageSentNoReceiptsTemplate;
+
   /// Opening copy of `MessageSearchView`, rendered before anything has
   /// been typed into the query field.
   final String searchPromptEmpty;
@@ -1045,6 +1074,21 @@ class ChatUiLocalizations {
     one: replySingleTemplate,
     other: repliesTemplate,
   ).replaceAll('{count}', count.toString());
+
+  /// Builds the reply-quote description a screen reader reads before the
+  /// body of the answer. Pass `sender: null` when the quoted author cannot
+  /// be named.
+  String messageSentAt(String time) =>
+      messageSentAtTemplate.replaceAll('{time}', time);
+  String messageSentNoReceipts(String time) =>
+      messageSentNoReceiptsTemplate.replaceAll('{time}', time);
+
+  String replyQuoteSemantics({String? sender, required String quote}) =>
+      (sender == null || sender.isEmpty)
+      ? replyQuoteSemanticsNoSenderTemplate.replaceAll('{quote}', quote)
+      : replyQuoteSemanticsTemplate
+            .replaceAll('{sender}', sender)
+            .replaceAll('{quote}', quote);
 
   String userJoined(String userId) =>
       userJoinedTemplate.replaceAll('{user}', userId);
@@ -1278,6 +1322,8 @@ class ChatUiLocalizations {
     String? repliesTemplate,
     String? replySingleTemplate,
     String? replyInThread,
+    String? replyQuoteSemanticsTemplate,
+    String? replyQuoteSemanticsNoSenderTemplate,
     String? searchMessages,
     String? noResults,
     String? accept,
@@ -1367,6 +1413,8 @@ class ChatUiLocalizations {
     String? readBy,
     String? deliveredTo,
     String? noReceiptsYet,
+    String? messageSentAtTemplate,
+    String? messageSentNoReceiptsTemplate,
     String? searchPromptEmpty,
     String? searchResultCountSingularTemplate,
     String? searchResultCountPluralTemplate,
@@ -1576,6 +1624,11 @@ class ChatUiLocalizations {
       repliesTemplate: repliesTemplate ?? this.repliesTemplate,
       replySingleTemplate: replySingleTemplate ?? this.replySingleTemplate,
       replyInThread: replyInThread ?? this.replyInThread,
+      replyQuoteSemanticsTemplate:
+          replyQuoteSemanticsTemplate ?? this.replyQuoteSemanticsTemplate,
+      replyQuoteSemanticsNoSenderTemplate:
+          replyQuoteSemanticsNoSenderTemplate ??
+          this.replyQuoteSemanticsNoSenderTemplate,
       searchMessages: searchMessages ?? this.searchMessages,
       noResults: noResults ?? this.noResults,
       accept: accept ?? this.accept,
@@ -1728,6 +1781,10 @@ class ChatUiLocalizations {
       readBy: readBy ?? this.readBy,
       deliveredTo: deliveredTo ?? this.deliveredTo,
       noReceiptsYet: noReceiptsYet ?? this.noReceiptsYet,
+      messageSentAtTemplate:
+          messageSentAtTemplate ?? this.messageSentAtTemplate,
+      messageSentNoReceiptsTemplate:
+          messageSentNoReceiptsTemplate ?? this.messageSentNoReceiptsTemplate,
       searchPromptEmpty: searchPromptEmpty ?? this.searchPromptEmpty,
       searchResultCountSingularTemplate:
           searchResultCountSingularTemplate ??
@@ -2011,6 +2068,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} respuestas',
     replySingleTemplate: '{count} respuesta',
     replyInThread: 'Responder en hilo',
+    replyQuoteSemanticsTemplate: 'Respondiendo a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Respondiendo a: {quote}',
     searchMessages: 'Buscar mensajes',
     noResults: 'Sin resultados',
     accept: 'Aceptar',
@@ -2135,6 +2194,9 @@ class ChatUiLocalizations {
     readBy: 'Leído por',
     deliveredTo: 'Entregado a',
     noReceiptsYet: 'Aún no hay información de entrega ni de lectura',
+    messageSentAtTemplate: 'Enviado \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Enviado a las {time}. Todavía no lo ha recibido nadie.',
     searchPromptEmpty: 'Busca por texto dentro de esta conversación',
     searchResultCountSingularTemplate: '{count} resultado',
     searchResultCountPluralTemplate: '{count} resultados',
@@ -2375,6 +2437,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} réponses',
     replySingleTemplate: '{count} réponse',
     replyInThread: 'Répondre dans le fil',
+    replyQuoteSemanticsTemplate: 'En réponse à {sender} : {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'En réponse à : {quote}',
     searchMessages: 'Rechercher des messages',
     noResults: 'Aucun résultat',
     accept: 'Accepter',
@@ -2460,6 +2524,9 @@ class ChatUiLocalizations {
     readBy: 'Lu par',
     deliveredTo: 'Remis à',
     noReceiptsYet: 'Aucune info de remise ou de lecture pour le moment',
+    messageSentAtTemplate: 'Envoyé \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        "Envoyé à {time}. Personne ne l'a encore reçu.",
     searchPromptEmpty: 'Rechercher du texte dans cette conversation',
     searchResultCountSingularTemplate: '{count} résultat',
     searchResultCountPluralTemplate: '{count} résultats',
@@ -2703,6 +2770,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} Antworten',
     replySingleTemplate: '{count} Antwort',
     replyInThread: 'Im Thread antworten',
+    replyQuoteSemanticsTemplate: 'Antwort an {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Antwort auf: {quote}',
     searchMessages: 'Nachrichten suchen',
     noResults: 'Keine Ergebnisse',
     accept: 'Annehmen',
@@ -2787,6 +2856,9 @@ class ChatUiLocalizations {
     readBy: 'Gelesen von',
     deliveredTo: 'Zugestellt an',
     noReceiptsYet: 'Noch keine Zustell- oder Leseinfo',
+    messageSentAtTemplate: 'Gesendet \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Um {time} gesendet. Noch niemand hat sie erhalten.',
     searchPromptEmpty: 'Text in dieser Unterhaltung suchen',
     searchResultCountSingularTemplate: '{count} Ergebnis',
     searchResultCountPluralTemplate: '{count} Ergebnisse',
@@ -3026,6 +3098,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} risposte',
     replySingleTemplate: '{count} risposta',
     replyInThread: 'Rispondi nel thread',
+    replyQuoteSemanticsTemplate: 'In risposta a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'In risposta a: {quote}',
     searchMessages: 'Cerca messaggi',
     noResults: 'Nessun risultato',
     accept: 'Accetta',
@@ -3110,6 +3184,9 @@ class ChatUiLocalizations {
     readBy: 'Letto da',
     deliveredTo: 'Consegnato a',
     noReceiptsYet: 'Ancora nessuna info di consegna o lettura',
+    messageSentAtTemplate: 'Inviato \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Inviato alle {time}. Nessuno lo ha ancora ricevuto.',
     searchPromptEmpty: 'Cerca testo in questa conversazione',
     searchResultCountSingularTemplate: '{count} risultato',
     searchResultCountPluralTemplate: '{count} risultati',
@@ -3348,6 +3425,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} respostas',
     replySingleTemplate: '{count} resposta',
     replyInThread: 'Responder no tópico',
+    replyQuoteSemanticsTemplate: 'Em resposta a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Em resposta a: {quote}',
     searchMessages: 'Pesquisar mensagens',
     noResults: 'Sem resultados',
     accept: 'Aceitar',
@@ -3432,6 +3511,9 @@ class ChatUiLocalizations {
     readBy: 'Lida por',
     deliveredTo: 'Entregue a',
     noReceiptsYet: 'Ainda sem info de entrega ou leitura',
+    messageSentAtTemplate: 'Enviada \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Enviada às {time}. Ainda ninguém a recebeu.',
     searchPromptEmpty: 'Procurar texto nesta conversa',
     searchResultCountSingularTemplate: '{count} resultado',
     searchResultCountPluralTemplate: '{count} resultados',
@@ -3666,6 +3748,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} respostes',
     replySingleTemplate: '{count} resposta',
     replyInThread: 'Respondre al fil',
+    replyQuoteSemanticsTemplate: 'Responent a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Responent a: {quote}',
     searchMessages: 'Cercar missatges',
     noResults: 'Sense resultats',
     accept: 'Acceptar',
@@ -3750,6 +3834,9 @@ class ChatUiLocalizations {
     readBy: 'Llegit per',
     deliveredTo: 'Lliurat a',
     noReceiptsYet: 'Encara no hi ha info de lliurament ni de lectura',
+    messageSentAtTemplate: 'Enviat \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Enviat a les {time}. Encara no l\'ha rebut ningú.',
     searchPromptEmpty: 'Cerca text dins d’aquesta conversa',
     searchResultCountSingularTemplate: '{count} resultat',
     searchResultCountPluralTemplate: '{count} resultats',
@@ -3921,6 +4008,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'medlemmar',
     thread: 'Tråd',
+    replyQuoteSemanticsTemplate: 'Svar till {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Svar på: {quote}',
     searchMessages: 'Sök meddelanden',
     noResults: 'Inga resultat',
     accept: 'Acceptera',
@@ -3980,6 +4069,9 @@ class ChatUiLocalizations {
     messageInfo: 'Meddelandeinfo',
     readBy: 'Läst av',
     deliveredTo: 'Levererat till',
+    messageSentAtTemplate: 'Skickat \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Skickat kl. {time}. Ingen har tagit emot det än.',
     exportChat: 'Exportera chatt',
     star: 'Stjärnmärk',
     unstar: 'Ta bort stjärnmärkning',
@@ -4117,6 +4209,8 @@ class ChatUiLocalizations {
     online: 'pålogget',
     members: 'medlemmer',
     thread: 'Tråd',
+    replyQuoteSemanticsTemplate: 'Svar til {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Svar på: {quote}',
     searchMessages: 'Søk i meldinger',
     noResults: 'Ingen resultater',
     accept: 'Godta',
@@ -4176,6 +4270,9 @@ class ChatUiLocalizations {
     messageInfo: 'Meldingsinfo',
     readBy: 'Lest av',
     deliveredTo: 'Levert til',
+    messageSentAtTemplate: 'Sendt \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Sendt kl. {time}. Ingen har mottatt den ennå.',
     exportChat: 'Eksporter chat',
     star: 'Stjernemerk',
     unstar: 'Fjern stjernemerking',
@@ -4313,6 +4410,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'medlemmer',
     thread: 'Tråd',
+    replyQuoteSemanticsTemplate: 'Svar til {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Svar på: {quote}',
     searchMessages: 'Søg i beskeder',
     noResults: 'Ingen resultater',
     accept: 'Accepter',
@@ -4372,6 +4471,9 @@ class ChatUiLocalizations {
     messageInfo: 'Beskedoplysninger',
     readBy: 'Læst af',
     deliveredTo: 'Leveret til',
+    messageSentAtTemplate: 'Sendt \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Sendt kl. {time}. Ingen har modtaget den endnu.',
     exportChat: 'Eksporter chat',
     star: 'Stjernemarkér',
     unstar: 'Fjern stjernemarkering',
@@ -4509,6 +4611,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'członkowie',
     thread: 'Wątek',
+    replyQuoteSemanticsTemplate: 'Odpowiedź do {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Odpowiedź na: {quote}',
     searchMessages: 'Szukaj wiadomości',
     noResults: 'Brak wyników',
     accept: 'Akceptuj',
@@ -4568,6 +4672,9 @@ class ChatUiLocalizations {
     messageInfo: 'Informacje o wiadomości',
     readBy: 'Przeczytane przez',
     deliveredTo: 'Dostarczono do',
+    messageSentAtTemplate: 'Wysłano \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Wysłano o {time}. Nikt jeszcze nie odebrał tej wiadomości.',
     exportChat: 'Eksportuj czat',
     star: 'Oznacz gwiazdką',
     unstar: 'Usuń oznaczenie gwiazdką',
@@ -4705,6 +4812,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'členové',
     thread: 'Vlákno',
+    replyQuoteSemanticsTemplate: 'Odpověď pro {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Odpověď na: {quote}',
     searchMessages: 'Hledat zprávy',
     noResults: 'Žádné výsledky',
     accept: 'Přijmout',
@@ -4764,6 +4873,9 @@ class ChatUiLocalizations {
     messageInfo: 'Informace o zprávě',
     readBy: 'Přečteno od',
     deliveredTo: 'Doručeno komu',
+    messageSentAtTemplate: 'Odesláno \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Odesláno v {time}. Zatím to nikdo neobdržel.',
     exportChat: 'Exportovat chat',
     star: 'Označit hvězdičkou',
     unstar: 'Zrušit označení hvězdičkou',
@@ -5089,6 +5201,8 @@ class ChatUiLocalizations {
     String? repliesTemplate,
     String? replySingleTemplate,
     String? replyInThread,
+    String? replyQuoteSemanticsTemplate,
+    String? replyQuoteSemanticsNoSenderTemplate,
     String? searchMessages,
     String? noResults,
     String? accept,
@@ -5207,6 +5321,8 @@ class ChatUiLocalizations {
     String? readBy,
     String? deliveredTo,
     String? noReceiptsYet,
+    String? messageSentAtTemplate,
+    String? messageSentNoReceiptsTemplate,
     String? searchPromptEmpty,
     String? searchResultCountSingularTemplate,
     String? searchResultCountPluralTemplate,
@@ -5399,6 +5515,9 @@ class ChatUiLocalizations {
         repliesTemplate: repliesTemplate,
         replySingleTemplate: replySingleTemplate,
         replyInThread: replyInThread,
+        replyQuoteSemanticsTemplate: replyQuoteSemanticsTemplate,
+        replyQuoteSemanticsNoSenderTemplate:
+            replyQuoteSemanticsNoSenderTemplate,
         searchMessages: searchMessages,
         noResults: noResults,
         accept: accept,
@@ -5517,6 +5636,8 @@ class ChatUiLocalizations {
         readBy: readBy,
         deliveredTo: deliveredTo,
         noReceiptsYet: noReceiptsYet,
+        messageSentAtTemplate: messageSentAtTemplate,
+        messageSentNoReceiptsTemplate: messageSentNoReceiptsTemplate,
         searchPromptEmpty: searchPromptEmpty,
         searchResultCountSingularTemplate: searchResultCountSingularTemplate,
         searchResultCountPluralTemplate: searchResultCountPluralTemplate,

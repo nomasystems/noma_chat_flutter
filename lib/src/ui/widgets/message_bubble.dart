@@ -5,10 +5,12 @@ import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
+import '../l10n/chat_ui_localizations.dart';
 import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '../utils/emoji_only.dart';
 import '../utils/last_message_preview.dart' show mediaSemanticLabel;
 import '../utils/url_detector.dart';
 import 'bubbles/_attachment_upload_overlay.dart' show paintsAttachmentFailure;
@@ -289,6 +291,43 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isForwarded => message.isForwarded;
 
+  /// Whether this message is the "just an emoji" case a chat paints large
+  /// and with no bubble behind it: a text body of at most three emoji, in a
+  /// bubble that has nothing else to hold.
+  ///
+  /// The first exclusions mirror [_buildBubbleContent] branch for branch —
+  /// an attachment, a voice note, a location or a reaction never reaches
+  /// [TextBubble] at all, and a caption of "🍺" under a photo is not this
+  /// case. The last three are the surfaces the enlarged glyph cannot share
+  /// a bubble with: a quoted reply, a link preview card and a forward
+  /// header each need the background to stand on.
+  bool get _isEmojiOnlyBody {
+    if (_isSystem || _isForwarded) return false;
+    final type = message.messageType;
+    if (type == MessageType.reaction ||
+        type == MessageType.reply ||
+        type == MessageType.location) {
+      return false;
+    }
+    if ((type == MessageType.audio || type == MessageType.attachment) &&
+        message.attachmentUrl != null) {
+      return false;
+    }
+    if (_hasLinkPreviewCard) return false;
+    return isEmojiOnlyText(message.text ?? '');
+  }
+
+  /// The same condition [_buildBubbleContent] uses to decide whether a
+  /// [LinkPreviewBubble] goes under the text.
+  bool get _hasLinkPreviewCard {
+    final meta = message.metadata;
+    if (meta == null) return false;
+    if (!meta.containsKey('linkUrl') && !meta.containsKey('linkTitle')) {
+      return false;
+    }
+    return UrlDetector.hasUrl(message.text ?? '');
+  }
+
   /// Parses `metadata['sourceTimestamp']` when present — an ISO-8601
   /// string, if the backend/consumer stamps the original send time onto
   /// the forwarded copy. `null` when absent or unparsable so
@@ -489,11 +528,11 @@ class MessageBubble extends StatelessWidget {
       final waveform = _extractWaveform();
       // Audio carries the sender's portrait INSIDE the bubble — the large
       // tappable slot on the far edge (left for outgoing, right for
-      // incoming) that morphs into the speed pill on play. So it skips the
-      // group leading-avatar wrapper: otherwise the sender showed twice (a
-      // small leading avatar on the near edge + the big portrait), and with
-      // the portrait suppressed it looked off-balance. One portrait, on the
-      // far edge, symmetric with outgoing.
+      // incoming) that morphs into the speed pill on play. WhatsApp does
+      // the same, on one's own notes and in a 1:1 too, which is why the
+      // slot stays there rather than leaving the space to the waveform.
+      // Note the leading group avatar is NOT skipped for audio rows, so a
+      // group-incoming note does show the sender twice.
       return AudioBubble(
         audioUrl: message.attachmentUrl!,
         timestamp: message.timestamp,
@@ -519,8 +558,8 @@ class MessageBubble extends StatelessWidget {
       if (mimeType.startsWith('audio/')) {
         final waveform = _extractWaveform();
         // Same as the audio MessageType branch above: the in-bubble
-        // portrait (far edge → speed pill) replaces the group leading
-        // avatar, keeping incoming symmetric with outgoing.
+        // portrait (far edge → speed pill), kept on outgoing and 1:1
+        // notes because that is what WhatsApp shows.
         return AudioBubble(
           audioUrl: message.attachmentUrl!,
           timestamp: message.timestamp,
@@ -659,6 +698,7 @@ class MessageBubble extends StatelessWidget {
       replyPreview: replyWidget,
       linkPreview: linkPreview,
       enableSelection: onSwipeToReply == null,
+      emojiOnly: _isEmojiOnlyBody,
       onTapLink: onTapLink,
       onTapMention: onTapMention,
       statusWidget: outgoingStatusWidget,
@@ -775,12 +815,24 @@ class MessageBubble extends StatelessWidget {
               : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
         : defaultRadius;
 
+    // A message that is nothing but emoji drops the bubble entirely: the
+    // glyph lands on the chat background, WhatsApp-style. Enlarging the
+    // text inside the rectangle would only produce a taller rectangle.
+    // A highlighted row keeps its background — the highlight IS the
+    // background, and losing it would lose the "this is the message you
+    // jumped to" signal.
+    final emojiOnly = _isEmojiOnlyBody && !isHighlighted;
+
     return Container(
       constraints: BoxConstraints(
         maxWidth: maxBubbleWidth ?? MediaQuery.sizeOf(context).width * 0.75,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
+      padding: emojiOnly
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: emojiOnly
+          ? null
+          : BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -1069,15 +1121,28 @@ class MessageBubble extends StatelessWidget {
 
   String _buildSemanticLabel(BuildContext context) {
     final l10n = theme.l10nOf(context);
-    final semanticSender = senderName ?? (isOutgoing ? l10n.you : '');
+    // The tombstone reads exactly what the bubble paints. It used to read the
+    // sender-agnostic `messageDeleted` while the screen said "You deleted this
+    // message"; and because the outgoing wording already names the actor, the
+    // "You:" prefix is dropped there so it is not said twice.
+    final deletedLabel = message.isDeleted
+        ? _deletedBubbleLabel(
+            l10n,
+            isOutgoing: isOutgoing,
+            adminDeleted: _adminDeleted,
+          )
+        : null;
+    final semanticSender = deletedLabel != null && isOutgoing
+        ? ''
+        : (senderName ?? (isOutgoing ? l10n.you : ''));
     // A photo, a map card or a voice note carries no text, and reading the
     // empty string out is how the conversation became "You: , Sent" under
     // VoiceOver. Anything that is not plain text describes itself through
     // the same words the chat list uses, with its caption appended; a text
     // message gets read verbatim, as it always was.
-    final semanticBody = message.isDeleted
-        ? l10n.messageDeleted
-        : (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
+    final semanticBody =
+        deletedLabel ??
+        (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
     final announceSending = isOutgoing && !message.isDeleted && isPending;
     final statusForSemantics =
         isOutgoing && !message.isDeleted && !isPending && !isFailed
@@ -1097,9 +1162,39 @@ class MessageBubble extends StatelessWidget {
             ReceiptStatus.read => l10n.statusRead,
           }}';
     final semanticBodyWithStatus = '$semanticBody$statusSuffix';
+    // The quote strip is built inside the subtree `excludeSemantics: true`
+    // erases, so a screen reader was given the answer with no trace of what
+    // it answers — the one thing a reply is about. Announced BEFORE the
+    // body, the order in which the bubble paints it.
+    final quoted = referencedMessage;
+    final quotedDescription =
+        (quoted != null &&
+            !message.isDeleted &&
+            message.messageType == MessageType.reply)
+        ? l10n.replyQuoteSemantics(
+            sender: referencedSenderName,
+            quote: _quotedSemanticText(quoted, l10n),
+          )
+        : null;
+    final withQuote = quotedDescription == null
+        ? semanticBodyWithStatus
+        : '$quotedDescription. $semanticBodyWithStatus';
     return semanticSender.isNotEmpty
-        ? '$semanticSender: $semanticBodyWithStatus'
-        : semanticBodyWithStatus;
+        ? '$semanticSender: $withQuote'
+        : withQuote;
+  }
+
+  /// What the quoted message reads as inside the reply's own label: its
+  /// first line, or the same words the chat list uses for a photo / voice
+  /// note / map card, capped so a long quote does not bury the answer.
+  String _quotedSemanticText(ChatMessage quoted, ChatUiLocalizations l10n) {
+    if (quoted.isDeleted) return l10n.messageDeleted;
+    final raw = (mediaSemanticLabel(quoted, l10n) ?? quoted.text ?? '').trim();
+    if (raw.isEmpty) return '';
+    final firstLine = raw.split('\n').first.trim();
+    return firstLine.length <= 80
+        ? firstLine
+        : '${firstLine.substring(0, 80)}…';
   }
 
   /// The row's long-press affordance, spanning avatar, side gap and the
@@ -1174,6 +1269,24 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+/// The tombstone wording for a deleted message. Single source for the
+/// painted placeholder ([_DeletedBubbleContent]) and for the bubble's
+/// accessibility label, which used to read the sender-agnostic
+/// `messageDeleted` while the screen said "You deleted this message".
+String _deletedBubbleLabel(
+  ChatUiLocalizations l10n, {
+  required bool isOutgoing,
+  required bool adminDeleted,
+}) => adminDeleted
+    ? l10n.messageDeletedByAdmin
+    : (isOutgoing
+          ? (l10n.previewDeletedByYou.isNotEmpty
+                ? l10n.previewDeletedByYou
+                : l10n.messageDeleted)
+          : (l10n.previewDeletedByOther.isNotEmpty
+                ? l10n.previewDeletedByOther
+                : l10n.messageDeleted));
+
 /// Renders the "this message was deleted" placeholder inside a bubble.
 /// Chooses between three labels depending on who deleted the message:
 ///
@@ -1205,15 +1318,11 @@ class _DeletedBubbleContent extends StatelessWidget {
         : theme.bubble.incomingTextStyle;
     final color = baseStyle?.color?.withValues(alpha: 0.7) ?? Colors.grey;
     final l10n = theme.l10nOf(context);
-    final deletedText = adminDeleted
-        ? l10n.messageDeletedByAdmin
-        : (isOutgoing
-              ? (l10n.previewDeletedByYou.isNotEmpty
-                    ? l10n.previewDeletedByYou
-                    : l10n.messageDeleted)
-              : (l10n.previewDeletedByOther.isNotEmpty
-                    ? l10n.previewDeletedByOther
-                    : l10n.messageDeleted));
+    final deletedText = _deletedBubbleLabel(
+      l10n,
+      isOutgoing: isOutgoing,
+      adminDeleted: adminDeleted,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

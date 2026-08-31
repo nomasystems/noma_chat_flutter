@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/message.dart';
@@ -13,11 +15,13 @@ import 'chat_view_config.dart';
 import 'connection_banner.dart';
 import 'empty_room_state.dart';
 import 'floating_reaction_picker.dart';
+import 'full_emoji_picker.dart';
 import 'message_context_menu.dart';
 import 'message_input.dart';
 import 'message_list.dart';
 import 'not_participating_banner.dart';
 import 'reaction_detail_sheet.dart';
+import 'reaction_picker.dart';
 
 export 'chat_view_config.dart'
     show
@@ -74,6 +78,30 @@ class _ChatViewState extends State<ChatView> {
   /// up, so the picker that opens after that menu closes has to drive it.
   String? _reactionAnchorMessageId;
 
+  /// Height of the quick-reaction row and the air around it, reserved on
+  /// top of the sheet's own height so the row has somewhere to sit.
+  static const double _reactionRowHeight = 56;
+  static const double _reactionRowGap = 8;
+  static const double _reactionRowReserve =
+      _reactionRowHeight + _reactionRowGap * 2;
+
+  /// Space the message list reserves at its bottom while the long-press
+  /// sheet is up — see [_insetFor] for how much and why.
+  double _contextMenuInset = 0;
+
+  /// Where the bubble sat when the long press fired, i.e. before the sheet
+  /// (and the lift it causes) existed. [_insetFor] measures against this
+  /// and not against a live rect, which by then has already moved.
+  Rect? _menuAnchorRect;
+
+  /// The quick-reaction row, living in the ROOT overlay rather than in a
+  /// route of its own. See [_handleLongPress] for why.
+  OverlayEntry? _reactionRowEntry;
+
+  /// Context of the open sheet's own subtree, so the row can close exactly
+  /// that route and not whatever happens to be on top.
+  BuildContext? _menuSheetContext;
+
   @override
   void initState() {
     super.initState();
@@ -82,6 +110,8 @@ class _ChatViewState extends State<ChatView> {
 
   @override
   void dispose() {
+    _reactionRowEntry?.remove();
+    _reactionRowEntry = null;
     _audioCoordinator.stopAll();
     _audioCoordinator.dispose();
     super.dispose();
@@ -99,18 +129,18 @@ class _ChatViewState extends State<ChatView> {
       return;
     }
 
+    _menuAnchorRect = messageRect.isEmpty ? null : messageRect;
     final isOutgoing = message.from == widget.controller.currentUser.id;
-    final action = await MessageContextMenu.show(
+    final withReactionRow =
+        behaviors.availableReactions.isNotEmpty &&
+        !message.isDeleted &&
+        behaviors.contextMenuActions.contains(MessageAction.react);
+
+    final action = await _showContextMenu(
       context,
       message: message,
       isOutgoing: isOutgoing,
-      isPinned: widget.controller.isPinned(message.id),
-      isFailed: widget.controller.isFailed(message.id),
-      enabledActions: behaviors.contextMenuActions,
-      builder: widget.builders.contextMenuBuilder,
-      theme: widget.theme,
-      editWindow: behaviors.editWindow,
-      deleteWindow: behaviors.deleteWindow,
+      withReactionRow: withReactionRow,
     );
 
     if (action == null || !context.mounted) return;
@@ -135,6 +165,212 @@ class _ChatViewState extends State<ChatView> {
     }
 
     callbacks.onContextMenuAction?.call(message, action);
+  }
+
+  /// Opens the long-press action sheet and, at the same time, the row of
+  /// quick reactions floating over the bubble. Reacting costs two gestures
+  /// instead of three, and the row stays anchored to the message it will
+  /// react to — the reason it is not folded into the sheet's header.
+  ///
+  /// The row cannot be a second modal route. Two stacked routes means the
+  /// top one's barrier eats every tap meant for the other, and the row is
+  /// precisely what has to stay tappable while the sheet is up. It goes
+  /// into the ROOT overlay instead: above the sheet's route, hit-testable
+  /// on its own pixels only, so a tap that misses it still reaches the
+  /// sheet underneath.
+  ///
+  /// "React" leaves the sheet whenever the row is on screen: the row's own
+  /// "+" already opens the full picker, so the entry would be a second door
+  /// into the same room.
+  ///
+  /// The sheet also has to stop covering the message it acts on. Its height
+  /// is not known in advance — a host can replace the whole content through
+  /// `contextMenuBuilder` — so it is measured once laid out and the list
+  /// reserves that much space at its bottom, which lifts the row (and the
+  /// conversation with it) clear of the sheet.
+  Future<MessageAction?> _showContextMenu(
+    BuildContext context, {
+    required ChatMessage message,
+    required bool isOutgoing,
+    required bool withReactionRow,
+  }) async {
+    final behaviors = widget.behaviors;
+    final actions = withReactionRow
+        ? (behaviors.contextMenuActions.toSet()..remove(MessageAction.react))
+        : behaviors.contextMenuActions;
+    try {
+      return await MessageContextMenu.show(
+        context,
+        message: message,
+        isOutgoing: isOutgoing,
+        isPinned: widget.controller.isPinned(message.id),
+        isFailed: widget.controller.isFailed(message.id),
+        enabledActions: actions,
+        builder: withReactionRow
+            ? (sheetContext, msg, outgoing) =>
+                  _menuContentWithRow(sheetContext, msg, outgoing, actions)
+            : widget.builders.contextMenuBuilder,
+        theme: widget.theme,
+        editWindow: behaviors.editWindow,
+        deleteWindow: behaviors.deleteWindow,
+      );
+    } finally {
+      _dismissReactionRow();
+    }
+  }
+
+  /// The sheet's content, wrapped so its height reaches [_liftListAbove].
+  /// A host builder is wrapped as-is; without one the SDK's own menu is
+  /// built here rather than inside [MessageContextMenu.show], which is the
+  /// only way to get at the content from the outside.
+  Widget _menuContentWithRow(
+    BuildContext sheetContext,
+    ChatMessage message,
+    bool isOutgoing,
+    Set<MessageAction> actions,
+  ) {
+    _menuSheetContext = sheetContext;
+    final host = widget.builders.contextMenuBuilder;
+    final content = host != null
+        ? host(sheetContext, message, isOutgoing)
+        : MessageContextMenu(
+            message: message,
+            isOutgoing: isOutgoing,
+            isPinned: widget.controller.isPinned(message.id),
+            isFailed: widget.controller.isFailed(message.id),
+            enabledActions: actions,
+            theme: widget.theme,
+            editWindow: widget.behaviors.editWindow,
+            deleteWindow: widget.behaviors.deleteWindow,
+            onAction: (action) => Navigator.of(sheetContext).pop(action),
+          );
+    return _MenuHeightProbe(
+      onHeight: (height) => _liftListAbove(height, message),
+      child: content,
+    );
+  }
+
+  /// How far the conversation has to rise for a sheet [sheetHeight] tall
+  /// to stop covering the bubble it acts on.
+  ///
+  /// Not `sheetHeight + reserve`: that lifted every bubble by the full
+  /// height of the sheet whether it needed it or not, and a bubble that was
+  /// not already at the very bottom of the list went off the TOP of the
+  /// screen instead — the sheet stopped covering it by taking it away.
+  ///
+  /// The bubble has to end up inside the band between `safeTop +
+  /// [_reactionRowReserve]` (above it the quick-reaction row would not fit)
+  /// and the sheet's own top edge. So: lift by exactly what the sheet
+  /// covers, never by more than the headroom above the bubble, and — the
+  /// case the fixed padding never had — by NOTHING AT ALL when the bubble
+  /// already sits clear of the sheet.
+  double _insetFor(double sheetHeight) {
+    final rect = _menuAnchorRect;
+    if (rect == null || rect.isEmpty) {
+      return sheetHeight + _reactionRowReserve;
+    }
+    final sheetTop = MediaQuery.sizeOf(context).height - sheetHeight;
+    final covered = rect.bottom + _reactionRowGap - sheetTop;
+    if (covered <= 0) return 0;
+
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final headroom = rect.top - safeTop - _reactionRowReserve;
+    if (headroom <= 0) return 0;
+
+    return math.min(covered, headroom);
+  }
+
+  /// Reserves [_insetFor] at the bottom of the list, then places the row
+  /// over the message once the list has settled into its new position.
+  void _liftListAbove(double sheetHeight, ChatMessage message) {
+    if (!mounted) return;
+    final inset = _insetFor(sheetHeight);
+    if ((_contextMenuInset - inset).abs() > 0.5) {
+      setState(() => _contextMenuInset = inset);
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _menuSheetContext == null) return;
+      _placeReactionRow(message);
+    });
+  }
+
+  void _placeReactionRow(ChatMessage message) {
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
+    if (overlay == null) return;
+    final rect = _messageListKey.currentState?.rectForMessage(message.id);
+    if (rect == null || rect.isEmpty) return;
+
+    final reactions = widget.behaviors.availableReactions;
+    final screen = MediaQuery.sizeOf(context);
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final width = (reactions.length + 1) * 48.0 + 16;
+    final top = math.max(
+      safeTop + _reactionRowGap,
+      rect.top - _reactionRowHeight - _reactionRowGap,
+    );
+    final maxLeft = math.max(
+      _reactionRowGap,
+      screen.width - width - _reactionRowGap,
+    );
+    final left = (rect.center.dx - width / 2).clamp(_reactionRowGap, maxLeft);
+
+    _reactionRowEntry?.remove();
+    _reactionRowEntry = OverlayEntry(
+      builder: (_) => Positioned(
+        top: top,
+        left: left,
+        child: ReactionPicker(
+          reactions: reactions,
+          showExpandButton: true,
+          onReactionSelected: (emoji) => _pickReactionFromRow(message, emoji),
+          onExpandTap: () => _expandReactionRow(message),
+          theme: widget.theme,
+        ),
+      ),
+    );
+    overlay.insert(_reactionRowEntry!);
+    if (_reactionAnchorMessageId != message.id) {
+      setState(() => _reactionAnchorMessageId = message.id);
+    }
+  }
+
+  /// Tapping an emoji closes BOTH the row and the sheet, which is the
+  /// whole point of showing them together.
+  void _pickReactionFromRow(ChatMessage message, String emoji) {
+    _closeContextMenuSheet();
+    _dismissReactionRow();
+    widget.callbacks.onReactionSelected?.call(message, emoji);
+  }
+
+  Future<void> _expandReactionRow(ChatMessage message) async {
+    _closeContextMenuSheet();
+    _dismissReactionRow();
+    if (!mounted) return;
+    final emoji = await FullEmojiPicker.show(context, theme: widget.theme);
+    if (emoji != null && mounted) {
+      widget.callbacks.onReactionSelected?.call(message, emoji);
+    }
+  }
+
+  void _closeContextMenuSheet() {
+    final sheetContext = _menuSheetContext;
+    _menuSheetContext = null;
+    if (sheetContext == null || !sheetContext.mounted) return;
+    Navigator.of(sheetContext).pop();
+  }
+
+  void _dismissReactionRow() {
+    _reactionRowEntry?.remove();
+    _reactionRowEntry = null;
+    _menuSheetContext = null;
+    _menuAnchorRect = null;
+    if (!mounted) return;
+    if (_contextMenuInset != 0 || _reactionAnchorMessageId != null) {
+      setState(() {
+        _contextMenuInset = 0;
+        _reactionAnchorMessageId = null;
+      });
+    }
   }
 
   /// Opens the floating picker over [message], re-measuring the row first.
@@ -303,6 +539,7 @@ class _ChatViewState extends State<ChatView> {
       controller: widget.controller,
       theme: widget.theme,
       activeRowMessageId: _reactionAnchorMessageId,
+      viewportBottomInset: _contextMenuInset,
       blockedSenderIds: behaviors.blockedSenderIds,
       blockedContentPolicy: behaviors.blockedContentPolicy,
       blockedMessageBuilder: builders.blockedMessageBuilder,
@@ -467,6 +704,7 @@ class _ChatViewState extends State<ChatView> {
           ? widget.controller.otherUsers
           : const [],
       attachmentMediaLoader: builders.attachmentMediaLoader,
+      displayNameResolver: builders.displayNameResolver,
     );
   }
 
@@ -574,4 +812,37 @@ Future<void> _defaultOpenLocationInMaps(ChatMessage message) async {
   if (lat == null || lng == null) return;
   final uri = Uri.parse('https://maps.google.com/?q=$lat,$lng');
   await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
+
+/// Reports the laid-out height of the long-press sheet's content to
+/// [_ChatViewState._liftListAbove].
+///
+/// The sheet is content-sized and its content can be replaced wholesale by
+/// the host, so its height is only knowable after layout — and it is what
+/// tells the list how far to lift the conversation out from under it.
+class _MenuHeightProbe extends StatefulWidget {
+  const _MenuHeightProbe({required this.onHeight, required this.child});
+
+  final ValueChanged<double> onHeight;
+  final Widget child;
+
+  @override
+  State<_MenuHeightProbe> createState() => _MenuHeightProbeState();
+}
+
+class _MenuHeightProbeState extends State<_MenuHeightProbe> {
+  double? _reported;
+
+  @override
+  Widget build(BuildContext context) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final height = context.size?.height;
+      if (height == null || height <= 0) return;
+      if (_reported != null && (_reported! - height).abs() < 0.5) return;
+      _reported = height;
+      widget.onHeight(height);
+    });
+    return widget.child;
+  }
 }

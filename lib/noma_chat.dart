@@ -159,6 +159,7 @@ export 'src/ui/l10n/system_message_text.dart'
 // === UI: Utils ===
 export 'src/ui/utils/chat_notice.dart';
 export 'src/ui/utils/date_formatter.dart';
+export 'src/ui/utils/highlight_spans.dart';
 export 'src/ui/utils/initials.dart';
 export 'src/ui/utils/last_message_preview.dart';
 export 'src/ui/utils/url_detector.dart';

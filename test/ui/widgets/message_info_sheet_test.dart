@@ -42,6 +42,12 @@ void main() {
     expect(find.text('alice'), findsOneWidget);
     expect(find.text('Delivered to'), findsOneWidget);
     expect(find.text('bob'), findsOneWidget);
+    // U89: the send line rides above both sections, not only in the empty
+    // branch — the hour was missing from the full sheet too.
+    final sent = tester.widget<Text>(
+      find.byKey(const ValueKey('chat_message_info_sent')),
+    );
+    expect(sent.data, startsWith('Sent \u00b7 '));
   });
 
   testWidgets('shows empty state when no member has a covering cursor', (
@@ -59,7 +65,14 @@ void main() {
       ),
     );
 
-    expect(find.text('No read or delivery info yet'), findsOneWidget);
+    // U89: the empty branch states when the message WAS sent instead of
+    // only what is missing.
+    expect(find.text('No read or delivery info yet'), findsNothing);
+    final empty = tester.widget<Text>(
+      find.byKey(const ValueKey('chat_message_info_sent_empty')),
+    );
+    expect(empty.data, startsWith('Sent at '));
+    expect(empty.data, endsWith('Nobody has received it yet.'));
     expect(find.text('Read by'), findsNothing);
   });
 

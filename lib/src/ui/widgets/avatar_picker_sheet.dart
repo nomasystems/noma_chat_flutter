@@ -59,11 +59,10 @@ class AvatarPickerSheet {
     ChatTheme theme = ChatTheme.defaults,
     MetricCallback? onMetric,
   }) async {
-    final source = await showModalBottomSheet<_Source>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+    final source = await theme.showSheet<_Source>(
+      context,
+      isScrollControlled: false,
+      useRootNavigator: false,
       builder: (sheetCtx) {
         final errorColor = Theme.of(sheetCtx).colorScheme.error;
         return SafeArea(
