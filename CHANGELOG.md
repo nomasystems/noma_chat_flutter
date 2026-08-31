@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
-## Unreleased
+## 0.30.0 - 2026-08-31
 
 Round 5 of QA on the host app, chat side: `D61`, `D78`, `D79`, `D89`, `D90`,
 `D91`, `U88`, `U89`, `U90` and `U94`. Every one of them belonged in this
