@@ -215,11 +215,7 @@ class ChatEventRouter {
     String roomId,
     String messageId, {
     bool expectDeleted = false,
-  }) => _deps.refreshMessageFn(
-    roomId,
-    messageId,
-    expectDeleted: expectDeleted,
-  );
+  }) => _deps.refreshMessageFn(roomId, messageId, expectDeleted: expectDeleted);
   void _refreshReactionsFn(String roomId, String messageId) =>
       _deps.refreshReactionsFn(roomId, messageId);
   void _handleUserJoinedFn(String roomId, String userId) =>

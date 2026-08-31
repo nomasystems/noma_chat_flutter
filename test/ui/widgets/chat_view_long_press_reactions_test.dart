@@ -146,18 +146,19 @@ void main() {
     expect(tester.getRect(target).top, closeTo(before.top, 1));
   });
 
-  testWidgets('a tombstone gets the sheet with no emoji row: nothing to react to', (
-    tester,
-  ) async {
-    await pumpChat(tester, messages: [
-      ...history(6),
-      msg('gone', 'u1', 7, isDeleted: true),
-    ]);
+  testWidgets(
+    'a tombstone gets the sheet with no emoji row: nothing to react to',
+    (tester) async {
+      await pumpChat(
+        tester,
+        messages: [...history(6), msg('gone', 'u1', 7, isDeleted: true)],
+      );
 
-    await tester.longPress(rowOf('gone', isOutgoing: false));
-    await tester.pumpAndSettle();
+      await tester.longPress(rowOf('gone', isOutgoing: false));
+      await tester.pumpAndSettle();
 
-    expect(find.byType(BottomSheet), findsOneWidget);
-    expect(find.byType(ReactionPicker), findsNothing);
-  });
+      expect(find.byType(BottomSheet), findsOneWidget);
+      expect(find.byType(ReactionPicker), findsNothing);
+    },
+  );
 }

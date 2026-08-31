@@ -79,70 +79,64 @@ void main() {
     },
   );
 
-  test(
-    'MessageDeletedEvent: the defensive refresh does not resurrect the text '
-    'nor stamp "edited" when it reads back a still-live row',
-    () async {
-      final controller = adapter.getChatController('r1');
-      final msg = ChatMessage(
-        id: 'm-del-stale',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'bye',
-      );
-      controller.addMessage(msg);
-      // What `messages.get` resolves against — the id-indexed local cache in
-      // production — still holds the message ALIVE when the WS echo lands,
-      // because the DELETE response has not purged it yet.
-      client.addMessage('r1', msg);
+  test('MessageDeletedEvent: the defensive refresh does not resurrect the text '
+      'nor stamp "edited" when it reads back a still-live row', () async {
+    final controller = adapter.getChatController('r1');
+    final msg = ChatMessage(
+      id: 'm-del-stale',
+      from: 'u2',
+      timestamp: DateTime(2026, 1, 1),
+      text: 'bye',
+    );
+    controller.addMessage(msg);
+    // What `messages.get` resolves against — the id-indexed local cache in
+    // production — still holds the message ALIVE when the WS echo lands,
+    // because the DELETE response has not purged it yet.
+    client.addMessage('r1', msg);
 
-      client.emitEvent(
-        const MessageDeletedEvent(roomId: 'r1', messageId: 'm-del-stale'),
-      );
-      await drain();
+    client.emitEvent(
+      const MessageDeletedEvent(roomId: 'r1', messageId: 'm-del-stale'),
+    );
+    await drain();
 
-      final updated = controller.messages.firstWhere(
-        (m) => m.id == 'm-del-stale',
-      );
-      expect(updated.isDeleted, true);
-      expect(updated.text ?? '', isEmpty);
-      expect(updated.isEdited, false);
-    },
-  );
+    final updated = controller.messages.firstWhere(
+      (m) => m.id == 'm-del-stale',
+    );
+    expect(updated.isDeleted, true);
+    expect(updated.text ?? '', isEmpty);
+    expect(updated.isEdited, false);
+  });
 
-  test(
-    'MessageDeletedEvent: a refreshed row that CONFIRMS the delete is still '
-    'applied, so "deleted by admin" survives',
-    () async {
-      final controller = adapter.getChatController('r1');
-      final msg = ChatMessage(
-        id: 'm-del-admin',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'bye',
-      );
-      controller.addMessage(msg);
-      client.addMessage(
-        'r1',
-        msg.copyWith(
-          isDeleted: true,
-          text: '',
-          metadata: const {'adminDeleted': true},
-        ),
-      );
+  test('MessageDeletedEvent: a refreshed row that CONFIRMS the delete is still '
+      'applied, so "deleted by admin" survives', () async {
+    final controller = adapter.getChatController('r1');
+    final msg = ChatMessage(
+      id: 'm-del-admin',
+      from: 'u2',
+      timestamp: DateTime(2026, 1, 1),
+      text: 'bye',
+    );
+    controller.addMessage(msg);
+    client.addMessage(
+      'r1',
+      msg.copyWith(
+        isDeleted: true,
+        text: '',
+        metadata: const {'adminDeleted': true},
+      ),
+    );
 
-      client.emitEvent(
-        const MessageDeletedEvent(roomId: 'r1', messageId: 'm-del-admin'),
-      );
-      await drain();
+    client.emitEvent(
+      const MessageDeletedEvent(roomId: 'r1', messageId: 'm-del-admin'),
+    );
+    await drain();
 
-      final updated = controller.messages.firstWhere(
-        (m) => m.id == 'm-del-admin',
-      );
-      expect(updated.isDeleted, true);
-      expect(updated.metadata?['adminDeleted'], true);
-    },
-  );
+    final updated = controller.messages.firstWhere(
+      (m) => m.id == 'm-del-admin',
+    );
+    expect(updated.isDeleted, true);
+    expect(updated.metadata?['adminDeleted'], true);
+  });
 
   test(
     'MessageUpdatedEvent without an inline row does not stamp "edited" on an '

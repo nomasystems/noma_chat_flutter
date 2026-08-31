@@ -247,11 +247,7 @@ class MessageInfoSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
                 child: Row(
                   children: [
-                    Icon(
-                      Icons.check,
-                      size: 18,
-                      color: Colors.grey.shade600,
-                    ),
+                    Icon(Icons.check, size: 18, color: Colors.grey.shade600),
                     const SizedBox(width: 8),
                     Text(
                       l10n.messageSentAt(

@@ -5491,7 +5491,8 @@ class ChatUiLocalizations {
         replySingleTemplate: replySingleTemplate,
         replyInThread: replyInThread,
         replyQuoteSemanticsTemplate: replyQuoteSemanticsTemplate,
-        replyQuoteSemanticsNoSenderTemplate: replyQuoteSemanticsNoSenderTemplate,
+        replyQuoteSemanticsNoSenderTemplate:
+            replyQuoteSemanticsNoSenderTemplate,
         searchMessages: searchMessages,
         noResults: noResults,
         accept: accept,

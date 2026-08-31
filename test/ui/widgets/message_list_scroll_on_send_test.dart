@@ -44,27 +44,33 @@ void main() {
   );
 
   group('auto-scroll on own message', () {
-    testWidgets('sending from halfway up the history snaps back to the bottom', (
-      tester,
-    ) async {
-      final controller = longHistory();
-      controller.setOtherUsers([other]);
-      await tester.pumpWidget(wrap(controller));
-      await tester.pump();
+    testWidgets(
+      'sending from halfway up the history snaps back to the bottom',
+      (tester) async {
+        final controller = longHistory();
+        controller.setOtherUsers([other]);
+        await tester.pumpWidget(wrap(controller));
+        await tester.pump();
 
-      final sc = controller.scrollController;
-      sc.jumpTo(300);
-      await tester.pump();
-      expect(sc.offset, 300);
+        final sc = controller.scrollController;
+        sc.jumpTo(300);
+        await tester.pump();
+        expect(sc.offset, 300);
 
-      controller.addMessage(
-        msg('mine', from: 'u1', text: 'sent from up here', ts: DateTime(2026, 1, 5)),
-      );
-      await tester.pumpAndSettle();
+        controller.addMessage(
+          msg(
+            'mine',
+            from: 'u1',
+            text: 'sent from up here',
+            ts: DateTime(2026, 1, 5),
+          ),
+        );
+        await tester.pumpAndSettle();
 
-      expect(sc.offset, 0);
-      controller.dispose();
-    });
+        expect(sc.offset, 0);
+        controller.dispose();
+      },
+    );
 
     testWidgets('an incoming message does not steal the viewport', (
       tester,
@@ -100,7 +106,12 @@ void main() {
 
       controller.addMessages([
         for (var i = 0; i < 5; i++)
-          msg('old$i', from: 'u1', text: 'older $i', ts: DateTime(2025, 12, 31, i)),
+          msg(
+            'old$i',
+            from: 'u1',
+            text: 'older $i',
+            ts: DateTime(2025, 12, 31, i),
+          ),
       ]);
       await tester.pumpAndSettle();
 

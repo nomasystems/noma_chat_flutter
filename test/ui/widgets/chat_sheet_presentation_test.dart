@@ -14,10 +14,7 @@ void main() {
     timestamp: DateTime.utc(2026, 6, 15, 10, 0),
   );
 
-  Future<void> openInfoSheet(
-    WidgetTester tester, {
-    ThemeData? appTheme,
-  }) async {
+  Future<void> openInfoSheet(WidgetTester tester, {ThemeData? appTheme}) async {
     await tester.pumpWidget(
       MaterialApp(
         theme: appTheme,
@@ -104,10 +101,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
-          body: MessageInput(
-            controller: controller,
-            onPickGallery: () {},
-          ),
+          body: MessageInput(controller: controller, onPickGallery: () {}),
         ),
       ),
     );
