@@ -73,4 +73,63 @@ void main() {
       expect(webUrlOrNull('http:///path'), isNull);
     });
   });
+
+  group('launchableUrlOrNull adds mail and phone, and nothing else', () {
+    test('accepts a mailto: with a real address', () {
+      expect(
+        launchableUrlOrNull('mailto:chiara@example.com').toString(),
+        'mailto:chiara@example.com',
+      );
+    });
+
+    test('accepts a tel: with a real number', () {
+      expect(
+        launchableUrlOrNull('tel:+34655000011').toString(),
+        'tel:+34655000011',
+      );
+    });
+
+    test('still accepts everything webUrlOrNull accepts', () {
+      expect(
+        launchableUrlOrNull('https://example.com/a?b=1').toString(),
+        'https://example.com/a?b=1',
+      );
+      expect(
+        launchableUrlOrNull('example.com/path').toString(),
+        'https://example.com/path',
+      );
+    });
+
+    test('rejects a mailto: carrying anything but an address', () {
+      expect(launchableUrlOrNull('mailto:javascript:alert(1)'), isNull);
+      expect(launchableUrlOrNull('mailto:'), isNull);
+      expect(launchableUrlOrNull('mailto:not-an-address'), isNull);
+    });
+
+    test('rejects a tel: carrying anything but a number', () {
+      expect(launchableUrlOrNull('tel:;phone-context=evil'), isNull);
+      expect(launchableUrlOrNull('tel:'), isNull);
+      expect(launchableUrlOrNull('tel:drop table'), isNull);
+    });
+
+    test('rejects every scheme outside the allowlist, as before', () {
+      expect(launchableUrlOrNull('javascript:alert(1)'), isNull);
+      expect(launchableUrlOrNull('file:///etc/passwd'), isNull);
+      expect(
+        launchableUrlOrNull('intent://scan/#Intent;scheme=zxing;end'),
+        isNull,
+      );
+      expect(launchableUrlOrNull('wb://plan/1'), isNull);
+      expect(launchableUrlOrNull('data:text/plain,hello'), isNull);
+      expect(launchableUrlOrNull(null), isNull);
+      expect(launchableUrlOrNull('   '), isNull);
+    });
+
+    test('the preview card and the Links list keep the narrower rule', () {
+      // Only the tap handler in the message body grew: a link preview or a
+      // "Links" row for `mailto:` would be nonsense.
+      expect(webUrlOrNull('mailto:chiara@example.com'), isNull);
+      expect(webUrlOrNull('tel:+34655000011'), isNull);
+    });
+  });
 }

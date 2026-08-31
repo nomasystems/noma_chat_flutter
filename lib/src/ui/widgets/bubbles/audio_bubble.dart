@@ -87,14 +87,15 @@ class AudioBubble extends StatefulWidget {
   final String? senderDisplayName;
 
   /// Whether to paint the sender's portrait in the lateral slot before
-  /// playback starts. Group-incoming messages already show the sender
-  /// avatar in the leading slot to the LEFT of the bubble (added by
-  /// `MessageBubble._wrapWithLeadingAvatar`), so painting it again inside
-  /// the bubble produced a duplicate portrait. Callers pass `false` for
-  /// group-incoming audio: the slot is then omitted entirely until the
-  /// first play, after which the speed pill takes its place. DM/outgoing
-  /// audio keep it `true` (no leading avatar there → the in-bubble
-  /// portrait is the only one).
+  /// playback starts. `false` omits the slot until the first play, after
+  /// which the speed pill takes its place.
+  ///
+  /// Every caller in the SDK passes `true` today, including group-incoming
+  /// audio — which therefore shows two portraits of the same person, the
+  /// 28pt leading avatar to the left of the bubble and this 48pt one
+  /// inside it. That is measured, not inferred. The parameter is kept as
+  /// the lever a host (or a later decision about the group case) needs;
+  /// what it must not do is claim a suppression that is not wired.
   final bool showSenderPortrait;
 
   /// Playback speed (1.0 / 1.5 / 2.0) this bubble starts at. Defaults to

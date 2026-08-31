@@ -683,6 +683,27 @@ class MessageListState extends State<MessageList> {
       ? widget.theme.l10nOf(context).you
       : _senderName(userId);
 
+  /// Avatar URL of the local user, for the portrait inside their own voice
+  /// note.
+  ///
+  /// Goes through [MessageList.avatarUrlResolver] first, exactly like every
+  /// other sender, and only then falls back to the controller's own copy.
+  /// The order matters: `controller.currentUser` is the snapshot taken when
+  /// the room was opened and never changes again, while the resolver reads
+  /// a live cache the adapter refreshes whenever the profile does. A
+  /// picture set — or simply fetched — after that first open exists only in
+  /// the second, which is how one's own voice note ends up showing initials
+  /// for an account that plainly has a photo.
+  String? _selfAvatarUrl() {
+    final resolver = widget.avatarUrlResolver;
+    if (resolver != null) {
+      final url = resolver(widget.controller.currentUser.id)?.trim();
+      if (url != null && url.isNotEmpty) return url;
+    }
+    final own = widget.controller.currentUser.avatarUrl?.trim();
+    return (own == null || own.isEmpty) ? null : own;
+  }
+
   /// Returns the avatar URL of [userId]. Honours [MessageList.avatarUrlResolver]
   /// first (typically wired to `ChatUIAdapter.findCachedUser(id)?.avatarUrl`)
   /// and falls back to `controller.otherUsers`.
@@ -1142,7 +1163,7 @@ class MessageListState extends State<MessageList> {
     // branches into the bubble.
     final isSelf = msg.from == widget.controller.currentUser.id;
     final audioSenderAvatarUrl = isSelf
-        ? widget.controller.currentUser.avatarUrl
+        ? _selfAvatarUrl()
         : _senderAvatarUrl(msg.from);
     final audioSenderName = isSelf
         ? widget.controller.currentUser.displayName

@@ -763,6 +763,33 @@ extension ChatThemeL10n on ChatTheme {
       : l10n;
 }
 
+/// Font size of a message that is nothing but emoji.
+///
+/// A little over twice the 15pt body, which is where a lone `🍺` reads as a
+/// gesture rather than as a word — the WhatsApp baseline. Overridable per
+/// host through `ChatTheme.bubble.outgoing/incomingTextStyle`, whose own
+/// `fontSize` is deliberately *not* honoured here: a host that sets a 13pt
+/// body does not thereby ask for 13pt emoji.
+const double kChatEmojiOnlyFontSize = 34;
+
+/// How the bubble presents a message made only of emoji.
+///
+/// The pair moves together on purpose: enlarging the glyph inside the
+/// coloured rectangle just makes a taller rectangle, and the point of the
+/// baseline is that the emoji lands on the chat background with nothing
+/// around it.
+extension ChatEmojiOnlyPresentation on ChatTheme {
+  /// The body style for an emoji-only message: the ordinary bubble text
+  /// style, blown up to [kChatEmojiOnlyFontSize] and given a tight line
+  /// height so a row of three does not leave a gutter above and below.
+  TextStyle emojiOnlyTextStyle({required bool isOutgoing}) {
+    final base =
+        (isOutgoing ? bubble.outgoingTextStyle : bubble.incomingTextStyle) ??
+        const TextStyle(fontSize: 15);
+    return base.copyWith(fontSize: kChatEmojiOnlyFontSize, height: 1.15);
+  }
+}
+
 /// Corner radius of every bottom sheet the SDK puts up.
 ///
 /// 15, not the 16 the sheets used to hard-code each on their own. The chat

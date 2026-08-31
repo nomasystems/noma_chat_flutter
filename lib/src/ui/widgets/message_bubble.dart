@@ -10,6 +10,7 @@ import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '../utils/emoji_only.dart';
 import '../utils/last_message_preview.dart' show mediaSemanticLabel;
 import '../utils/url_detector.dart';
 import 'bubbles/_attachment_upload_overlay.dart' show paintsAttachmentFailure;
@@ -290,6 +291,43 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isForwarded => message.isForwarded;
 
+  /// Whether this message is the "just an emoji" case a chat paints large
+  /// and with no bubble behind it: a text body of at most three emoji, in a
+  /// bubble that has nothing else to hold.
+  ///
+  /// The first exclusions mirror [_buildBubbleContent] branch for branch —
+  /// an attachment, a voice note, a location or a reaction never reaches
+  /// [TextBubble] at all, and a caption of "🍺" under a photo is not this
+  /// case. The last three are the surfaces the enlarged glyph cannot share
+  /// a bubble with: a quoted reply, a link preview card and a forward
+  /// header each need the background to stand on.
+  bool get _isEmojiOnlyBody {
+    if (_isSystem || _isForwarded) return false;
+    final type = message.messageType;
+    if (type == MessageType.reaction ||
+        type == MessageType.reply ||
+        type == MessageType.location) {
+      return false;
+    }
+    if ((type == MessageType.audio || type == MessageType.attachment) &&
+        message.attachmentUrl != null) {
+      return false;
+    }
+    if (_hasLinkPreviewCard) return false;
+    return isEmojiOnlyText(message.text ?? '');
+  }
+
+  /// The same condition [_buildBubbleContent] uses to decide whether a
+  /// [LinkPreviewBubble] goes under the text.
+  bool get _hasLinkPreviewCard {
+    final meta = message.metadata;
+    if (meta == null) return false;
+    if (!meta.containsKey('linkUrl') && !meta.containsKey('linkTitle')) {
+      return false;
+    }
+    return UrlDetector.hasUrl(message.text ?? '');
+  }
+
   /// Parses `metadata['sourceTimestamp']` when present — an ISO-8601
   /// string, if the backend/consumer stamps the original send time onto
   /// the forwarded copy. `null` when absent or unparsable so
@@ -490,11 +528,11 @@ class MessageBubble extends StatelessWidget {
       final waveform = _extractWaveform();
       // Audio carries the sender's portrait INSIDE the bubble — the large
       // tappable slot on the far edge (left for outgoing, right for
-      // incoming) that morphs into the speed pill on play. So it skips the
-      // group leading-avatar wrapper: otherwise the sender showed twice (a
-      // small leading avatar on the near edge + the big portrait), and with
-      // the portrait suppressed it looked off-balance. One portrait, on the
-      // far edge, symmetric with outgoing.
+      // incoming) that morphs into the speed pill on play. WhatsApp does
+      // the same, on one's own notes and in a 1:1 too, which is why the
+      // slot stays there rather than leaving the space to the waveform.
+      // Note the leading group avatar is NOT skipped for audio rows, so a
+      // group-incoming note does show the sender twice.
       return AudioBubble(
         audioUrl: message.attachmentUrl!,
         timestamp: message.timestamp,
@@ -520,8 +558,8 @@ class MessageBubble extends StatelessWidget {
       if (mimeType.startsWith('audio/')) {
         final waveform = _extractWaveform();
         // Same as the audio MessageType branch above: the in-bubble
-        // portrait (far edge → speed pill) replaces the group leading
-        // avatar, keeping incoming symmetric with outgoing.
+        // portrait (far edge → speed pill), kept on outgoing and 1:1
+        // notes because that is what WhatsApp shows.
         return AudioBubble(
           audioUrl: message.attachmentUrl!,
           timestamp: message.timestamp,
@@ -660,6 +698,7 @@ class MessageBubble extends StatelessWidget {
       replyPreview: replyWidget,
       linkPreview: linkPreview,
       enableSelection: onSwipeToReply == null,
+      emojiOnly: _isEmojiOnlyBody,
       onTapLink: onTapLink,
       onTapMention: onTapMention,
       statusWidget: outgoingStatusWidget,
@@ -776,12 +815,24 @@ class MessageBubble extends StatelessWidget {
               : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
         : defaultRadius;
 
+    // A message that is nothing but emoji drops the bubble entirely: the
+    // glyph lands on the chat background, WhatsApp-style. Enlarging the
+    // text inside the rectangle would only produce a taller rectangle.
+    // A highlighted row keeps its background — the highlight IS the
+    // background, and losing it would lose the "this is the message you
+    // jumped to" signal.
+    final emojiOnly = _isEmojiOnlyBody && !isHighlighted;
+
     return Container(
       constraints: BoxConstraints(
         maxWidth: maxBubbleWidth ?? MediaQuery.sizeOf(context).width * 0.75,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
+      padding: emojiOnly
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: emojiOnly
+          ? null
+          : BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -1090,7 +1141,8 @@ class MessageBubble extends StatelessWidget {
     // the same words the chat list uses, with its caption appended; a text
     // message gets read verbatim, as it always was.
     final semanticBody =
-        deletedLabel ?? (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
+        deletedLabel ??
+        (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
     final announceSending = isOutgoing && !message.isDeleted && isPending;
     final statusForSemantics =
         isOutgoing && !message.isDeleted && !isPending && !isFailed

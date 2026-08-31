@@ -293,4 +293,107 @@ void main() {
       expect(find.text('El plan empieza en 24 horas'), findsNothing);
     });
   });
+
+  group('RoomTile receipt tick', () {
+    /// The tick slot, isolated from the default icon's internals: whatever
+    /// [RoomTile] decides to paint as a receipt lands here.
+    Widget tile({
+      required RoomListItem row,
+      String? Function(BuildContext, RoomListItem)? preview,
+    }) => wrap(
+      RoomTile(
+        room: row,
+        currentUserId: owner,
+        lastMessagePreviewBuilder: preview,
+        statusIconBuilder: (_, __) =>
+            const SizedBox(key: Key('receipt'), width: 12, height: 12),
+        theme: ChatTheme.defaults.copyWith(l10n: ChatUiLocalizations.es),
+      ),
+    );
+
+    RoomListItem systemRow() => rowOf(
+      RoomMapper.unreadRoomFromJson(reminder24h),
+    ).copyWith(lastMessageReceipt: ReceiptStatus.delivered);
+
+    testWidgets('a system notice of my own carries no delivery tick', (
+      tester,
+    ) async {
+      await tester.pumpWidget(tile(row: systemRow()));
+      expect(find.byKey(const Key('receipt')), findsNothing);
+    });
+
+    testWidgets(
+      'nor does it when the host composed the preview, which is how QA saw it',
+      (tester) async {
+        await tester.pumpWidget(
+          tile(row: systemRow(), preview: (_, __) => 'El plan ha empezado'),
+        );
+        expect(find.text('El plan ha empezado'), findsOneWidget);
+        expect(find.byKey(const Key('receipt')), findsNothing);
+      },
+    );
+
+    testWidgets('a reaction of my own carries no delivery tick', (
+      tester,
+    ) async {
+      final row = rowOf(RoomMapper.unreadRoomFromJson(reminder24h)).copyWith(
+        lastMessageIsSystem: false,
+        lastMessageType: MessageType.reaction,
+        lastMessageReactionEmoji: '👍',
+        lastMessageReceipt: ReceiptStatus.delivered,
+      );
+      await tester.pumpWidget(tile(row: row));
+      expect(find.byKey(const Key('receipt')), findsNothing);
+    });
+
+    testWidgets('a message of mine I deleted carries no delivery tick', (
+      tester,
+    ) async {
+      final row = rowOf(RoomMapper.unreadRoomFromJson(reminder24h)).copyWith(
+        lastMessageIsSystem: false,
+        lastMessageIsDeleted: true,
+        lastMessageReceipt: ReceiptStatus.delivered,
+      );
+      await tester.pumpWidget(tile(row: row));
+      expect(find.byKey(const Key('receipt')), findsNothing);
+    });
+
+    testWidgets('a message I did write keeps its tick', (tester) async {
+      final row = rowOf(
+        RoomMapper.unreadRoomFromJson(
+          listingRoom({
+            'messageId': 'aaaabbbb-cccc-4ddd-8eee-ffff00003333',
+            'from': owner,
+            'timestamp': '2026-08-24T16:46:00Z',
+            'body': 'voy llegando',
+            'messageType': 'regular',
+            'metadata': const <String, dynamic>{},
+          }),
+        ),
+      ).copyWith(lastMessageReceipt: ReceiptStatus.delivered);
+      await tester.pumpWidget(tile(row: row));
+      expect(find.byKey(const Key('receipt')), findsOneWidget);
+    });
+
+    testWidgets('and keeps it when the host composed its preview too', (
+      tester,
+    ) async {
+      final row = rowOf(
+        RoomMapper.unreadRoomFromJson(
+          listingRoom({
+            'messageId': 'aaaabbbb-cccc-4ddd-8eee-ffff00004444',
+            'from': owner,
+            'timestamp': '2026-08-24T16:47:00Z',
+            'body': 'voy llegando',
+            'messageType': 'regular',
+            'metadata': const <String, dynamic>{},
+          }),
+        ),
+      ).copyWith(lastMessageReceipt: ReceiptStatus.delivered);
+      await tester.pumpWidget(
+        tile(row: row, preview: (_, __) => 'Una previa del consumidor'),
+      );
+      expect(find.byKey(const Key('receipt')), findsOneWidget);
+    });
+  });
 }
