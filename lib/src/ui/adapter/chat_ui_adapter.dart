@@ -2617,7 +2617,23 @@ class ChatUiAdapter {
 
   void _enrichRoomFromDetail(String roomId) => _enricher.refreshRoom(roomId);
 
-  void _refreshMessage(String roomId, String messageId) {
+  /// Re-fetches a message after a realtime event that carried no row.
+  ///
+  /// There is no server-side unit GET, so `client.messages.get` resolves
+  /// against the id-indexed local cache first. That cache can still hold the
+  /// row as it was BEFORE the event this refresh is reacting to, and applying
+  /// such a row overwrites what the event just rendered.
+  ///
+  /// [expectDeleted] marks the `message_deleted` path: there a row that comes
+  /// back alive is stale by definition, so it is dropped instead of resurrect-
+  /// ing the text over the tombstone (and stamping "edited" on a message that
+  /// was never edited). Only a row confirming the deletion is applied — that
+  /// is the one carrying `adminDeleted`, which is why this refresh exists.
+  void _refreshMessage(
+    String roomId,
+    String messageId, {
+    bool expectDeleted = false,
+  }) {
     final controller = _chatControllers[roomId];
     if (controller == null) return;
     client.messages
@@ -2627,19 +2643,32 @@ class ChatUiAdapter {
           final active = _chatControllers[roomId];
           if (active == null) return;
           final updated = result.dataOrNull;
-          if (updated != null) {
-            // This helper is shared by the `message_updated` (edit) and
-            // `message_deleted` refresh paths. For an edit fallback the
-            // REST projection may omit `text_history`, dropping the
-            // "edited" marker; force it on so the tag survives — but only
-            // for a live (non-deleted) row, since a deleted message is
-            // never "edited" and the delete path must keep isEdited as-is.
-            final refreshed = updated.isDeleted
-                ? updated
-                : updated.copyWith(isEdited: true);
-            active.updateMessage(refreshed);
-            _cache?.updateMessage(roomId, refreshed);
+          if (updated == null) return;
+          if (expectDeleted) {
+            if (!updated.isDeleted) return;
+            active.updateMessage(updated);
+            _cache?.updateMessage(roomId, updated);
+            return;
           }
+          // Edit path. The REST projection may omit `text_history`, dropping
+          // the "edited" marker; force it on so the tag survives. But a row
+          // identical to the one already on screen is the same stale cache
+          // hit the delete path guards against — the edit has not landed
+          // locally yet — and forcing the marker on it would tag the
+          // PRE-edit text as edited.
+          final current = active.messages
+              .where((m) => m.id == messageId)
+              .firstOrNull;
+          if (current != null &&
+              current.text == updated.text &&
+              current.isDeleted == updated.isDeleted) {
+            return;
+          }
+          final refreshed = updated.isDeleted
+              ? updated
+              : updated.copyWith(isEdited: true);
+          active.updateMessage(refreshed);
+          _cache?.updateMessage(roomId, refreshed);
         })
         .catchError((Object e) {
           logger?.call('warn', 'Failed to refresh message $messageId: $e');

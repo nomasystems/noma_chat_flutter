@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
-/// The floating reaction picker is anchored to the row it will react to,
-/// measured when it opens rather than when the long press fired: the
-/// context menu opens and closes in between, and the list can move under
-/// it.
+/// The quick-reaction row is anchored to the message it will react to,
+/// measured when it opens rather than when the long press fired: the sheet
+/// lifts the conversation out from under itself in between, so the row has
+/// moved by the time the emoji have somewhere to sit.
 void main() {
   const me = ChatUser(id: 'me', displayName: 'Me');
   const alice = ChatUser(id: 'u1', displayName: 'Alice');
@@ -65,36 +65,29 @@ void main() {
       tester.getTopLeft(find.byType(ReactionPicker)).dy;
 
   testWidgets(
-    'the picker anchors to where the row is when it opens, not to where it '
-    'was when the long press fired',
+    'the row anchors to where the message sits once the sheet has lifted the '
+    'list, not to where it was when the long press fired',
     (tester) async {
-      final controller = await pumpChat(tester, messages: history(30));
+      await pumpChat(tester, messages: history(30));
 
-      // React to a message the user can see, exactly as they would.
       final target = rowOf('m28', isOutgoing: false);
       final rectAtLongPress = tester.getRect(target);
+
       await tester.longPress(target);
       await tester.pumpAndSettle();
-      expect(find.text('React'), findsOneWidget);
 
-      // The list moves while the context menu is up — a newly arrived
-      // message pushes the history, which is what the reversed list does
-      // on every incoming message.
-      controller.addMessage(msg('m30', 'u1', 30));
-      await tester.pumpAndSettle();
-      final rectAfterScroll = tester.getRect(target);
+      // Opening the sheet reserves room at the bottom of the list, which
+      // moves the message up and out from under it.
+      final rectUnderSheet = tester.getRect(target);
       expect(
-        rectAfterScroll.top,
+        rectUnderSheet.top,
         isNot(closeTo(rectAtLongPress.top, 1)),
         reason: 'the row has to actually move for this test to prove anything',
       );
 
-      await tester.tap(find.text('React'));
-      await tester.pumpAndSettle();
-
       expect(find.byType(ReactionPicker), findsOneWidget);
       final top = pickerTop(tester);
-      expect(top, closeTo(rectAfterScroll.top - pickerHeight - margin, 1));
+      expect(top, closeTo(rectUnderSheet.top - pickerHeight - margin, 1));
       expect(
         top,
         isNot(closeTo(rectAtLongPress.top - pickerHeight - margin, 1)),
@@ -105,7 +98,7 @@ void main() {
     },
   );
 
-  testWidgets('the reacted row stays tinted while the picker is open', (
+  testWidgets('the reacted row stays tinted while the emoji row is open', (
     tester,
   ) async {
     await pumpChat(tester, messages: history(6));
@@ -113,12 +106,10 @@ void main() {
     final target = rowOf('m4', isOutgoing: false);
     await tester.longPress(target);
     await tester.pumpAndSettle();
+
     expect(tintFinder, findsOneWidget);
-
-    await tester.tap(find.text('React'));
-    await tester.pumpAndSettle();
-
     expect(find.byType(ReactionPicker), findsOneWidget);
+
     for (var i = 0; i < 12; i++) {
       await tester.pump(const Duration(milliseconds: 100));
     }
@@ -128,7 +119,7 @@ void main() {
       reason: 'the user must keep seeing which message they are reacting to',
     );
 
-    await tester.tap(find.text('👍'));
+    await tester.tap(find.text('\u{1F44D}'));
     await tester.pumpAndSettle();
     await tester.pump(const Duration(milliseconds: 120));
     await tester.pump(const Duration(milliseconds: 120));

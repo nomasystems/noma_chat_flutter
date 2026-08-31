@@ -76,22 +76,59 @@ void main() {
       expect(findSemanticsWithLabel('Bob: qué tal'), findsOneWidget);
     });
 
-    testWidgets('deleted outgoing message omits status from semantic label', (
+    testWidgets(
+      'deleted outgoing message reads the same tombstone the bubble paints, '
+      'without status and without a duplicated "You"',
+      (tester) async {
+        final message = fixtureMessage(
+          text: 'oops',
+          from: fixtureUserMe.id,
+        ).copyWith(isDeleted: true, receipt: ReceiptStatus.read);
+
+        await tester.pumpWidget(
+          wrap(MessageBubble(message: message, isOutgoing: true)),
+        );
+
+        expect(
+          findSemanticsWithLabel('You deleted this message'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('deleted incoming message keeps the sender prefix', (
+      tester,
+    ) async {
+      final message = fixtureMessage(
+        text: 'oops',
+        from: fixtureUserOther.id,
+      ).copyWith(isDeleted: true);
+
+      await tester.pumpWidget(
+        wrap(
+          MessageBubble(message: message, isOutgoing: false, senderName: 'Bob'),
+        ),
+      );
+
+      expect(
+        findSemanticsWithLabel('Bob: This message was deleted'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a message deleted by an admin says so to a screen reader', (
       tester,
     ) async {
       final message = fixtureMessage(
         text: 'oops',
         from: fixtureUserMe.id,
-      ).copyWith(isDeleted: true, receipt: ReceiptStatus.read);
+      ).copyWith(isDeleted: true, metadata: const {'adminDeleted': true});
 
       await tester.pumpWidget(
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(
-        findSemanticsWithLabel('You: This message was deleted'),
-        findsOneWidget,
-      );
+      expect(findSemanticsWithLabel('Deleted by admin'), findsOneWidget);
     });
   });
 

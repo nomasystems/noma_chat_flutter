@@ -86,6 +86,7 @@ class MessageList extends StatefulWidget {
     this.activeRowColor,
     this.activeRowDecorationBuilder,
     this.highlightRowWhileContextMenuOpen = true,
+    this.viewportBottomInset = 0,
   });
 
   final ChatController controller;
@@ -119,6 +120,16 @@ class MessageList extends StatefulWidget {
   /// wiring anything. Set `false` to opt out entirely, or drive
   /// [activeRowMessageId] to take the decision over.
   final bool highlightRowWhileContextMenuOpen;
+
+  /// Extra space reserved at the bottom of the list, below the newest
+  /// message.
+  ///
+  /// The list is `reverse: true` and anchored at the bottom, so this space
+  /// LIFTS the conversation by that much instead of hiding under it.
+  /// [ChatView] sets it to the height of the long-press action sheet while
+  /// that sheet is open, which is what stops the sheet from covering the
+  /// very message it is acting on. Back to 0 when the sheet closes.
+  final double viewportBottomInset;
 
   /// Users the local user has blocked, as the same ids [ChatMessage.from]
   /// carries. Their rows are pruned according to [blockedContentPolicy] —
@@ -324,6 +335,13 @@ class MessageListState extends State<MessageList> {
   int? _lastSeenMessageCount;
   String _liveMessageAnnouncement = '';
 
+  // Id of the newest row at the previous `build()`, the baseline
+  // [_maybeAutoScrollOnOwnMessage] works from. It is deliberately an id and
+  // not a count: loading older history also grows the list, and only the id
+  // tells a genuinely new last message apart from a page prepended at the
+  // far end. `null` until the first build establishes the baseline.
+  String? _lastSeenNewestMessageId;
+
   // Row the list tinted on its own long-press, kept until the menu that
   // long-press opened goes away. The menu is a modal route pushed by
   // whoever owns `onMessageLongPress`, and that callback returns `void`,
@@ -376,6 +394,7 @@ class MessageListState extends State<MessageList> {
       // otherwise a room switch into a longer history reads its last
       // message as "new" the moment this build runs.
       _lastSeenMessageCount = null;
+      _lastSeenNewestMessageId = null;
       try {
         oldWidget.controller.scrollController.removeListener(_onScroll);
         if (_pendingScrollToId != null) {
@@ -502,10 +521,33 @@ class MessageListState extends State<MessageList> {
   /// hidden.
   static const double _scrollToBottomThresholdPx = 200;
 
+  /// Share of the scrollable extent that also counts as "scrolled up".
+  ///
+  /// The fixed threshold on its own made the button unreachable in short
+  /// rooms: a whole history measuring 192 px never crosses 200, so the
+  /// control could not appear at all there — which is how it came back
+  /// reported as missing. A relative threshold covers those rooms.
+  static const double _scrollToBottomThresholdFraction = 0.2;
+
+  /// Floor for the relative threshold. Below it the list is barely
+  /// scrollable and a stray drag would flash the button.
+  static const double _scrollToBottomMinOffsetPx = 48;
+
+  /// Whether the list counts as "scrolled up", i.e. far enough from the
+  /// newest message for the floating "back to the bottom" button to earn
+  /// its place. `offset` is distance from the bottom: the list is
+  /// `reverse: true`, so 0 is the newest row.
+  @visibleForTesting
+  static bool isScrolledUp(double offset, double maxScrollExtent) {
+    if (offset > _scrollToBottomThresholdPx) return true;
+    if (offset < _scrollToBottomMinOffsetPx) return false;
+    return offset > maxScrollExtent * _scrollToBottomThresholdFraction;
+  }
+
   void _onScroll() {
     final sc = widget.controller.scrollController;
     if (!sc.hasClients) return;
-    final shouldShow = sc.offset > _scrollToBottomThresholdPx;
+    final shouldShow = isScrolledUp(sc.offset, sc.position.maxScrollExtent);
     if (shouldShow != _showFab) {
       setState(() => _showFab = shouldShow);
     }
@@ -522,9 +564,22 @@ class MessageListState extends State<MessageList> {
     }
   }
 
+  /// Scrolls to [messageId] and highlights it.
+  ///
+  /// Three cases, and only the first one used to do anything. When the row
+  /// is built it is scrolled into view. When it is loaded but NOT built (it
+  /// sits outside the viewport and outside the cache), or not loaded at all,
+  /// the request is handed to the same machinery the anchored open uses: it
+  /// bumps `cacheExtent` so every loaded row gets built, paginates until the
+  /// target arrives, and retries. Before, both of those were a dead tap —
+  /// which is how tapping a quote came back reported as "not tappable".
+  ///
+  /// The highlight fires whenever the target exists, not only when the
+  /// scroll actually moved: with the row already on screen the list is
+  /// clamped and `ensureVisible` is a no-op, and without the tint the tap
+  /// looked like nothing had happened.
   void _scrollToMessage(String messageId) {
-    final key = _messageKeys[messageId];
-    final ctx = key?.currentContext;
+    final ctx = _messageKeys[messageId]?.currentContext;
     if (ctx != null) {
       Scrollable.ensureVisible(
         ctx,
@@ -533,7 +588,27 @@ class MessageListState extends State<MessageList> {
         curve: Curves.easeOut,
       );
       widget.controller.highlightMessage(messageId);
+      return;
     }
+    _requestPendingScrollTo(messageId);
+  }
+
+  /// Arms the retry/paginate path of [_tryScrollToPending] for [messageId].
+  void _requestPendingScrollTo(String messageId) {
+    if (_pendingScrollToId == messageId) return;
+    final alreadyListening = _pendingScrollToId != null;
+    setState(() => _pendingScrollToId = messageId);
+    _loadMoreRequested = false;
+    if (!alreadyListening) {
+      widget.controller.addListener(_tryScrollToPending);
+    }
+    // Signal the target now if we already hold it: the scroll may take a
+    // page load to resolve, and silence in the meantime is what the tap
+    // used to give.
+    if (widget.controller.messages.any((m) => m.id == messageId)) {
+      widget.controller.highlightMessage(messageId);
+    }
+    _tryScrollToPending();
   }
 
   /// Returns the formatted typing-row header label ("Alice", "Alice, Bob",
@@ -594,6 +669,20 @@ class MessageListState extends State<MessageList> {
     return null;
   }
 
+  /// Name for the author of a QUOTED message — the line the reply strip
+  /// paints above the quote.
+  ///
+  /// Deliberately NOT [_senderName]. That one returns null for the local
+  /// user on purpose, because your own bubble must not be labelled with
+  /// your name. A quote is the opposite case: "who am I answering" is the
+  /// whole point of the strip, and it is what WhatsApp writes there. A
+  /// sender the resolver cannot name still comes back null, so the strip
+  /// keeps its unnamed form instead of printing a raw id.
+  String? _quotedSenderName(BuildContext context, String userId) =>
+      userId == widget.controller.currentUser.id
+      ? widget.theme.l10nOf(context).you
+      : _senderName(userId);
+
   /// Returns the avatar URL of [userId]. Honours [MessageList.avatarUrlResolver]
   /// first (typically wired to `ChatUIAdapter.findCachedUser(id)?.avatarUrl`)
   /// and falls back to `controller.otherUsers`.
@@ -632,6 +721,38 @@ class MessageListState extends State<MessageList> {
     _liveMessageAnnouncement = (senderName != null && senderName.isNotEmpty)
         ? '$senderName: $preview'
         : preview;
+  }
+
+  /// Snaps the list back to the newest row when the local user's OWN new
+  /// message lands — WhatsApp behaviour: sending from halfway up the history
+  /// takes you to what you just sent. Sitting at the list level, it covers
+  /// every send path at once (text, attachment, camera photo, voice note,
+  /// location, forward), which putting it on the composer's send button
+  /// would not.
+  ///
+  /// Scoped hard to "the newest row is new AND mine":
+  /// - an INCOMING message must not steal the viewport from someone reading
+  ///   history — the floating button with its unread badge is that case's
+  ///   answer;
+  /// - loading older history only grows the far end, so the newest id is
+  ///   unchanged and nothing fires;
+  /// - an anchored open (`initialMessageId`, a search hit, a tapped quote)
+  ///   owns the scroll position while it resolves, so it is left alone.
+  void _maybeAutoScrollOnOwnMessage(List<ChatMessage> messages) {
+    final previousNewestId = _lastSeenNewestMessageId;
+    final newest = messages.isEmpty ? null : messages.last;
+    _lastSeenNewestMessageId = newest?.id;
+    if (newest == null) return;
+    // First build for this room: opening a chat lands where the caller
+    // asked, it does not scroll on its own.
+    if (previousNewestId == null || previousNewestId == newest.id) return;
+    if (_pendingScrollToId != null) return;
+    if (newest.from != widget.controller.currentUser.id) return;
+    if (newest.messageType == MessageType.reaction) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToBottom();
+    });
   }
 
   bool _shouldShowDateSeparator(List<ChatMessage> msgs, int index) =>
@@ -689,6 +810,7 @@ class MessageListState extends State<MessageList> {
           ]
         : allMessages;
     _maybeAnnounceNewMessage(messages);
+    _maybeAutoScrollOnOwnMessage(messages);
     final currentIds = {for (final m in messages) m.id};
     _messageKeys.removeWhere((id, _) => !currentIds.contains(id));
     final showTyping = widget.controller.typingUserIds.isNotEmpty;
@@ -726,7 +848,10 @@ class MessageListState extends State<MessageList> {
             controller: widget.controller.scrollController,
             reverse: true,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: EdgeInsets.only(
+              top: 8,
+              bottom: 8 + widget.viewportBottomInset,
+            ),
             // When the user taps a search result / pinned message and
             // we have a `_pendingScrollToId`, temporarily inflate the
             // cache so EVERY loaded row gets built (with its
@@ -765,6 +890,13 @@ class MessageListState extends State<MessageList> {
             child: ScrollToBottomButton(
               visible: _showFab,
               onPressed: _scrollToBottom,
+              // The button has always accepted an unread badge and never
+              // been given one, so the pill could not exist. Gated by the
+              // same snapshot the "{n} new messages" divider uses, so the
+              // two always agree on what is unread.
+              unreadCount: widget.unreadBoundaryMessageId == null
+                  ? 0
+                  : widget.unreadCount,
               theme: widget.theme,
             ),
           ),
@@ -996,7 +1128,7 @@ class MessageListState extends State<MessageList> {
         ? _redactQuotedMessage(context, quoted)
         : quoted;
     final refSenderName = (referenced != null && !quotedIsBlocked)
-        ? _senderName(referenced.from)
+        ? _quotedSenderName(context, referenced.from)
         : null;
     final isHighlighted = widget.controller.highlightedMessageId == msg.id;
 

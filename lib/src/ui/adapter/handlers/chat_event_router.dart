@@ -92,7 +92,8 @@ class ChatEventRouterDeps {
   markAsReadFn;
   final Future<ChatResult<void>> Function(String roomId, String messageId)
   confirmDeliveredFn;
-  final void Function(String roomId, String messageId) refreshMessageFn;
+  final void Function(String roomId, String messageId, {bool expectDeleted})
+  refreshMessageFn;
   final void Function(String roomId, String messageId) refreshReactionsFn;
   final void Function(String roomId, String userId) handleUserJoinedFn;
   final void Function(String roomId, String userId, {String? actorUserId})
@@ -210,8 +211,15 @@ class ChatEventRouter {
     String roomId,
     String messageId,
   ) => _deps.confirmDeliveredFn(roomId, messageId);
-  void _refreshMessageFn(String roomId, String messageId) =>
-      _deps.refreshMessageFn(roomId, messageId);
+  void _refreshMessageFn(
+    String roomId,
+    String messageId, {
+    bool expectDeleted = false,
+  }) => _deps.refreshMessageFn(
+    roomId,
+    messageId,
+    expectDeleted: expectDeleted,
+  );
   void _refreshReactionsFn(String roomId, String messageId) =>
       _deps.refreshReactionsFn(roomId, messageId);
   void _handleUserJoinedFn(String roomId, String userId) =>
@@ -793,8 +801,26 @@ class ChatEventRouter {
     // was deleted" instead of "Deleted by admin" — same data is
     // already on the server doc, just not in the local cache yet
     // because the WS event only carries (roomId, messageId).
-    _refreshMessageFn(roomId, messageId);
-    _cache?.deleteMessage(roomId, messageId);
+    //
+    // The cached row is purged FIRST. `messages.get` has no server-side unit
+    // endpoint and resolves against that same id-indexed cache, so refreshing
+    // before the purge reads back the row as it was BEFORE the delete and
+    // hands the live text to the refresh. `expectDeleted` makes the refresh
+    // itself immune to that read, so this ordering is the second lock on the
+    // same door, not the only one.
+    void refreshAfterPurge() =>
+        _refreshMessageFn(roomId, messageId, expectDeleted: true);
+    final purge = _cache?.deleteMessage(roomId, messageId);
+    if (purge == null) {
+      refreshAfterPurge();
+    } else {
+      unawaited(
+        purge.then<void>(
+          (_) => refreshAfterPurge(),
+          onError: (_) => refreshAfterPurge(),
+        ),
+      );
+    }
     final room = _roomList.getRoomById(roomId);
     if (room != null && room.lastMessageId == messageId) {
       _roomList.updateRoom(

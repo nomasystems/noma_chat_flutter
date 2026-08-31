@@ -155,14 +155,12 @@ class MessageInfoSheet extends StatelessWidget {
     MessageReceiptSubtitleBuilder? receiptSubtitleBuilder,
     bool showApproximateReceiptTimes = false,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      useRootNavigator: true,
-      isScrollControlled: true,
+    // Through the shared presenter, so this sheet wears the same chrome as
+    // the rest of the app instead of the hard-coded 16 radius and the cream
+    // Material derives when no background is named. See
+    // [ChatSheetPresentation].
+    return theme.showSheet<void>(
+      context,
       builder: (ctx) => FutureBuilder<List<ReadReceipt>>(
         future: loadReceipts(),
         builder: (ctx, snapshot) {
@@ -229,15 +227,46 @@ class MessageInfoSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
+            // The send time, always, in both branches. The one screen
+            // dedicated to a message used to be the only place that did not
+            // say when it was sent — the bubble says it two centimetres
+            // higher up.
             if (readers.isEmpty && delivered.isEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 child: Text(
-                  l10n.noReceiptsYet,
+                  l10n.messageSentNoReceipts(
+                    _formatTime(context, message.timestamp),
+                  ),
+                  key: const ValueKey('chat_message_info_sent_empty'),
                   style: TextStyle(color: Colors.grey.shade600),
                 ),
               )
             else ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.check,
+                      size: 18,
+                      color: Colors.grey.shade600,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      l10n.messageSentAt(
+                        _formatTime(context, message.timestamp),
+                      ),
+                      key: const ValueKey('chat_message_info_sent'),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               if (readers.isNotEmpty)
                 _section(
                   context,

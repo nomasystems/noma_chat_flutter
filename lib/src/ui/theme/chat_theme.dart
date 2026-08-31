@@ -762,3 +762,70 @@ extension ChatThemeL10n on ChatTheme {
       ? ChatUiLocalizations.of(context)
       : l10n;
 }
+
+/// Corner radius of every bottom sheet the SDK puts up.
+///
+/// 15, not the 16 the sheets used to hard-code each on their own. The chat
+/// lives inside a host app whose own sheets round at 15, and one point of
+/// difference is enough for the chat's sheet to read as a different
+/// component pasted into the app — which is exactly how it was reported.
+/// Overridable per host through `ThemeData.bottomSheetTheme.shape`.
+const double kChatBottomSheetCornerRadius = 15;
+
+/// The chrome every bottom sheet the SDK opens should wear.
+///
+/// Before this, each sheet called `showModalBottomSheet` with its own
+/// arguments: eleven hard-coded a 16 radius, four passed no shape at all,
+/// and exactly one set a background colour. With no background the sheet
+/// falls through to Material's `surfaceContainerLow`, which under a warm
+/// seed colour comes out cream — nothing writes that colour anywhere, it is
+/// simply what Material derives when nobody says otherwise.
+///
+/// Both values defer to the host's own `ThemeData.bottomSheetTheme` when it
+/// declares one, which is the standard Material lever and reaches every SDK
+/// sheet at once; the SDK's defaults only fill the silence.
+extension ChatSheetPresentation on ChatTheme {
+  /// Background of an SDK bottom sheet: the host's `bottomSheetTheme` if it
+  /// has one, else `colorScheme.surface` — the same resolution
+  /// `FullEmojiPicker` already used, now shared.
+  Color sheetBackgroundColor(BuildContext context) {
+    final ambient = Theme.of(context);
+    return ambient.bottomSheetTheme.backgroundColor ??
+        ambient.colorScheme.surface;
+  }
+
+  /// Shape of an SDK bottom sheet: the host's `bottomSheetTheme.shape` if it
+  /// has one, else [kChatBottomSheetCornerRadius] rounded on the top edge.
+  ShapeBorder sheetShape(BuildContext context) =>
+      Theme.of(context).bottomSheetTheme.shape ??
+      const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(kChatBottomSheetCornerRadius),
+        ),
+      );
+
+  /// Opens [builder] as a bottom sheet wearing [sheetBackgroundColor] and
+  /// [sheetShape]. The single door every SDK sheet should go through, so
+  /// "one bottom sheet for the whole app" stays true by construction
+  /// instead of by fifteen call sites agreeing.
+  Future<T?> showSheet<T>(
+    BuildContext context, {
+    required WidgetBuilder builder,
+    bool isScrollControlled = true,
+    bool useRootNavigator = true,
+    bool isDismissible = true,
+    bool enableDrag = true,
+    bool useSafeArea = false,
+  }) => showModalBottomSheet<T>(
+    context: context,
+    backgroundColor: sheetBackgroundColor(context),
+    shape: sheetShape(context),
+    clipBehavior: Clip.antiAlias,
+    isScrollControlled: isScrollControlled,
+    useRootNavigator: useRootNavigator,
+    isDismissible: isDismissible,
+    enableDrag: enableDrag,
+    useSafeArea: useSafeArea,
+    builder: builder,
+  );
+}

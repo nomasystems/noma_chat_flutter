@@ -51,6 +51,7 @@ class MessageInput extends StatefulWidget {
     this.enableMentions = false,
     this.mentionUsers = const [],
     this.attachmentMediaLoader,
+    this.displayNameResolver,
     @visibleForTesting this.voiceRecordingControllerFactory,
   });
 
@@ -156,6 +157,17 @@ class MessageInput extends StatefulWidget {
   /// token. Typically wired to `ChatUiAdapter.defaultAttachmentMediaLoader`.
   /// `null` (default) keeps the plain-URL thumbnail unchanged.
   final AttachmentMediaLoader? attachmentMediaLoader;
+
+  /// Resolves a user id to the name shown on the composer's reply strip —
+  /// the "who am I answering" line above the quote. Same contract and
+  /// same wiring as [MessageList.displayNameResolver]
+  /// (`ChatViewBuilders.displayNameResolver`): return `null` for an id you
+  /// cannot name and the strip keeps its unnamed form rather than printing
+  /// a raw id. When omitted, names come from `controller.otherUsers`.
+  ///
+  /// The local user is never asked of it: quoting yourself is labelled with
+  /// the localised "You" from [ChatTheme.l10nOf], as WhatsApp does.
+  final String? Function(String userId)? displayNameResolver;
 
   /// Replaces the [VoiceRecordingController] the composer builds for each
   /// capture. Test-only seam: it is what lets a widget test hold the
@@ -559,6 +571,31 @@ class _MessageInputState extends State<MessageInput> {
     if (replyTo != null) controller.setReplyTo(replyTo);
   }
 
+  /// Name for the author of the message being replied to, as shown on the
+  /// composer's reply strip.
+  ///
+  /// Answering yourself is labelled with the localised "You" — the strip
+  /// exists to say WHO you are answering, and leaving it blank for your own
+  /// messages (which is what the list's own sender resolver does, on
+  /// purpose, so a bubble is not labelled with its reader's name) left the
+  /// composer never naming anyone at all. An id nobody can name returns
+  /// null and the strip stays unnamed rather than printing a raw id.
+  String? _quotedSenderName(BuildContext context, String userId) {
+    if (userId == widget.controller.currentUser.id) {
+      return widget.theme.l10nOf(context).you;
+    }
+    final resolved = widget.displayNameResolver?.call(userId)?.trim();
+    if (resolved != null && resolved.isNotEmpty && resolved != userId) {
+      return resolved;
+    }
+    final name = widget.controller.otherUsers
+        .where((u) => u.id == userId)
+        .firstOrNull
+        ?.displayName
+        ?.trim();
+    return (name == null || name.isEmpty) ? null : name;
+  }
+
   /// Returns the userIds of every `mentionUsers` entry whose display
   /// name appears as a `@<token>` boundary in [text]. Case-insensitive,
   /// word-boundary aware, dedup'd. Empty list when nothing matches.
@@ -612,8 +649,11 @@ class _MessageInputState extends State<MessageInput> {
   }
 
   void _showAttachmentPicker() {
-    showModalBottomSheet<void>(
-      context: context,
+    // Through the shared presenter: this one used to pass no shape at all,
+    // so it rounded at Material's own radius while its siblings rounded at
+    // theirs. See [ChatSheetPresentation].
+    widget.theme.showSheet<void>(
+      context,
       builder: (_) => AttachmentPickerSheet(
         onPickCamera: widget.onPickCamera,
         onPickGallery: widget.onPickGallery,
@@ -883,6 +923,7 @@ class _MessageInputState extends State<MessageInput> {
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           child: ReplyPreview(
             message: replyingTo,
+            senderName: _quotedSenderName(context, replyingTo.from),
             theme: widget.theme,
             onDismiss: () => widget.controller.setReplyTo(null),
             mediaLoader: widget.attachmentMediaLoader,

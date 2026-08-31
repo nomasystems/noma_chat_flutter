@@ -5,6 +5,7 @@ import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
+import '../l10n/chat_ui_localizations.dart';
 import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
@@ -1069,15 +1070,27 @@ class MessageBubble extends StatelessWidget {
 
   String _buildSemanticLabel(BuildContext context) {
     final l10n = theme.l10nOf(context);
-    final semanticSender = senderName ?? (isOutgoing ? l10n.you : '');
+    // The tombstone reads exactly what the bubble paints. It used to read the
+    // sender-agnostic `messageDeleted` while the screen said "You deleted this
+    // message"; and because the outgoing wording already names the actor, the
+    // "You:" prefix is dropped there so it is not said twice.
+    final deletedLabel = message.isDeleted
+        ? _deletedBubbleLabel(
+            l10n,
+            isOutgoing: isOutgoing,
+            adminDeleted: _adminDeleted,
+          )
+        : null;
+    final semanticSender = deletedLabel != null && isOutgoing
+        ? ''
+        : (senderName ?? (isOutgoing ? l10n.you : ''));
     // A photo, a map card or a voice note carries no text, and reading the
     // empty string out is how the conversation became "You: , Sent" under
     // VoiceOver. Anything that is not plain text describes itself through
     // the same words the chat list uses, with its caption appended; a text
     // message gets read verbatim, as it always was.
-    final semanticBody = message.isDeleted
-        ? l10n.messageDeleted
-        : (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
+    final semanticBody =
+        deletedLabel ?? (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
     final announceSending = isOutgoing && !message.isDeleted && isPending;
     final statusForSemantics =
         isOutgoing && !message.isDeleted && !isPending && !isFailed
@@ -1097,9 +1110,39 @@ class MessageBubble extends StatelessWidget {
             ReceiptStatus.read => l10n.statusRead,
           }}';
     final semanticBodyWithStatus = '$semanticBody$statusSuffix';
+    // The quote strip is built inside the subtree `excludeSemantics: true`
+    // erases, so a screen reader was given the answer with no trace of what
+    // it answers — the one thing a reply is about. Announced BEFORE the
+    // body, the order in which the bubble paints it.
+    final quoted = referencedMessage;
+    final quotedDescription =
+        (quoted != null &&
+            !message.isDeleted &&
+            message.messageType == MessageType.reply)
+        ? l10n.replyQuoteSemantics(
+            sender: referencedSenderName,
+            quote: _quotedSemanticText(quoted, l10n),
+          )
+        : null;
+    final withQuote = quotedDescription == null
+        ? semanticBodyWithStatus
+        : '$quotedDescription. $semanticBodyWithStatus';
     return semanticSender.isNotEmpty
-        ? '$semanticSender: $semanticBodyWithStatus'
-        : semanticBodyWithStatus;
+        ? '$semanticSender: $withQuote'
+        : withQuote;
+  }
+
+  /// What the quoted message reads as inside the reply's own label: its
+  /// first line, or the same words the chat list uses for a photo / voice
+  /// note / map card, capped so a long quote does not bury the answer.
+  String _quotedSemanticText(ChatMessage quoted, ChatUiLocalizations l10n) {
+    if (quoted.isDeleted) return l10n.messageDeleted;
+    final raw = (mediaSemanticLabel(quoted, l10n) ?? quoted.text ?? '').trim();
+    if (raw.isEmpty) return '';
+    final firstLine = raw.split('\n').first.trim();
+    return firstLine.length <= 80
+        ? firstLine
+        : '${firstLine.substring(0, 80)}…';
   }
 
   /// The row's long-press affordance, spanning avatar, side gap and the
@@ -1174,6 +1217,24 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+/// The tombstone wording for a deleted message. Single source for the
+/// painted placeholder ([_DeletedBubbleContent]) and for the bubble's
+/// accessibility label, which used to read the sender-agnostic
+/// `messageDeleted` while the screen said "You deleted this message".
+String _deletedBubbleLabel(
+  ChatUiLocalizations l10n, {
+  required bool isOutgoing,
+  required bool adminDeleted,
+}) => adminDeleted
+    ? l10n.messageDeletedByAdmin
+    : (isOutgoing
+          ? (l10n.previewDeletedByYou.isNotEmpty
+                ? l10n.previewDeletedByYou
+                : l10n.messageDeleted)
+          : (l10n.previewDeletedByOther.isNotEmpty
+                ? l10n.previewDeletedByOther
+                : l10n.messageDeleted));
+
 /// Renders the "this message was deleted" placeholder inside a bubble.
 /// Chooses between three labels depending on who deleted the message:
 ///
@@ -1205,15 +1266,11 @@ class _DeletedBubbleContent extends StatelessWidget {
         : theme.bubble.incomingTextStyle;
     final color = baseStyle?.color?.withValues(alpha: 0.7) ?? Colors.grey;
     final l10n = theme.l10nOf(context);
-    final deletedText = adminDeleted
-        ? l10n.messageDeletedByAdmin
-        : (isOutgoing
-              ? (l10n.previewDeletedByYou.isNotEmpty
-                    ? l10n.previewDeletedByYou
-                    : l10n.messageDeleted)
-              : (l10n.previewDeletedByOther.isNotEmpty
-                    ? l10n.previewDeletedByOther
-                    : l10n.messageDeleted));
+    final deletedText = _deletedBubbleLabel(
+      l10n,
+      isOutgoing: isOutgoing,
+      adminDeleted: adminDeleted,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

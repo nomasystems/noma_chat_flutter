@@ -6,6 +6,118 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## Unreleased
+
+Round 5 of QA on the host app, chat side. Five defects, all of them in this
+package.
+
+### Fixed
+
+- **Deleting a message no longer un-deletes it half a second later** (`D78`).
+  The `message_deleted` event paints the tombstone and then re-fetches the
+  message so a moderator's `adminDeleted` flag can reach the client. There is
+  no server-side unit GET, so that fetch resolves against the id-indexed local
+  cache — which still held the message ALIVE, because the DELETE response had
+  not purged it yet. The live row was written back over the tombstone and
+  stamped "edited" on a message nobody had edited, and the same row went into
+  the cache, so it survived a re-open. The refresh now knows which event it is
+  reacting to: on the delete path a row that comes back alive is stale by
+  definition and is dropped, while a row confirming the deletion is still
+  applied (that is the one carrying `adminDeleted`). The cache purge also runs
+  before the refresh rather than after it. Every participant was affected, not
+  just the person who deleted.
+
+  The edit path shared the same helper and the same stale read: a
+  `message_updated` event without an inline row re-fetched the PRE-edit text
+  and tagged it "edited". A row identical to the one already on screen is now
+  dropped there too.
+
+  A deleted bubble also reads to a screen reader what it actually paints —
+  "You deleted this message", "Deleted by admin" — instead of the
+  sender-agnostic "This message was deleted".
+
+- **Sending from halfway up the history takes you back to your message**
+  (`D79`). Nothing in the send path scrolled the list, so a message sent while
+  reading older history landed out of sight. The list now returns to the
+  newest row when the local user's own message arrives — which covers text,
+  attachments, camera photos, voice notes, locations and forwards at once,
+  since they all land in the same list. An incoming message still does not
+  steal the viewport, loading older history does not move it, and an anchored
+  open (a search hit, a tapped quote) keeps the scroll position it asked for.
+
+- **The "back to the bottom" button can appear in short rooms** (`D79`). It
+  was gated on scrolling more than a fixed 200 px, so a room whose entire
+  history measured 192 px could never show it. The threshold is now the fixed
+  one OR a share of the scrollable extent, with a small floor so a stray drag
+  does not flash it. Its unread badge — a parameter the button has always
+  accepted and never been given — is finally wired.
+
+- **A reply's quote says who it quotes, and jumping to the original works**
+  (`D91`). The quote strip took its author name from the resolver that returns
+  null for the local user on purpose (your own bubble must not be labelled
+  with your name), so a reply to yourself was unattributed; the composer's
+  strip was never given a name at all, in any room or language. Both now name
+  the quoted author, with the localised "You" for your own messages and no
+  name for a blocked one. Tapping the quote used to do nothing when the target
+  sat outside the viewport, and nothing visible when it was already on screen;
+  it now reuses the same machinery as an anchored open (build the loaded rows,
+  paginate until the target arrives, retry) and always highlights the target.
+  The bubble's accessibility label announces the quote, which the semantics
+  exclusion around the strip had been erasing.
+
+- **Reacting costs two gestures instead of three** (`U88`). The row of quick
+  reactions used to live behind the sheet's "React" entry. It now comes up
+  WITH the sheet, still anchored over the bubble, in the root overlay rather
+  than a route of its own — two stacked modal routes means the top barrier
+  eats the taps meant for the other. "React" leaves the sheet, since the row's
+  own "+" already opens the full picker. Tapping an emoji closes both.
+
+- **The action sheet stops covering the message it is acting on** (`U88`). Its
+  height is measured once laid out — a host can replace the content wholesale
+  through `contextMenuBuilder` — and the list reserves that much space at its
+  bottom, which lifts the conversation clear of the sheet.
+
+- **"Message info" says when the message was sent** (`U89`). In both branches:
+  "Sent · 18:51" above the "Read by" / "Delivered to" sections, and "Sent at
+  18:53. Nobody has received it yet." in place of the bare "No read or
+  delivery info yet". The one screen dedicated to a message was the only place
+  that did not state its hour.
+
+- **The chat's bottom sheets look like the host app's** (`U89`). They passed
+  no background colour, so Material derived `surfaceContainerLow` — which
+  under a warm seed comes out cream — and they hard-coded a 16 corner radius
+  one call site at a time. See the new `ChatSheetPresentation` below.
+
+### Added
+
+- `ChatSheetPresentation`, an extension on `ChatTheme` carrying
+  `showSheet<T>()`, `sheetBackgroundColor(context)` and `sheetShape(context)`:
+  the single door an SDK bottom sheet should go through. Both values defer to
+  the host's own `ThemeData.bottomSheetTheme` when it declares one — the
+  standard Material lever, and the way to make every SDK sheet match an app's
+  design system in one place — and otherwise fall back to
+  `colorScheme.surface` and `kChatBottomSheetCornerRadius` (15, the radius
+  host design systems round at, against the 16 the sheets used to hard-code).
+  Adopted by `MessageInfoSheet` and the composer's attachment picker.
+
+- `MessageInput.displayNameResolver`, the resolver behind the "replying to X"
+  line of the composer's reply strip. Same contract as
+  `MessageList.displayNameResolver`; `ChatView` wires it from
+  `ChatViewBuilders.displayNameResolver`, so a host that already sets that one
+  gets it for free.
+
+- `MessageList.viewportBottomInset`, space reserved below the newest message.
+  The list is `reverse: true` and bottom-anchored, so it lifts the
+  conversation instead of hiding under it. `ChatView` uses it to keep the
+  long-press sheet off the message it is acting on.
+
+- New localised strings: `messageSentAtTemplate`,
+  `messageSentNoReceiptsTemplate`, `replyQuoteSemanticsTemplate` and
+  `replyQuoteSemanticsNoSenderTemplate`, with `messageSentAt`,
+  `messageSentNoReceipts` and `replyQuoteSemantics` to read them. Translated
+  into es, fr, de, it, pt and ca; the partial locales fall back to English as
+  they do for every other string.
+
 ## 0.29.1 - 2026-08-26
 
 Patch. One fix, and a note on where it came from.
