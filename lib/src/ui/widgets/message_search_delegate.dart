@@ -5,6 +5,7 @@ import '../../models/message.dart';
 import '../controller/message_search_controller.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
+import '../utils/highlight_spans.dart';
 
 /// Instrumentation id of the [MessageSearchView] row for the message with id
 /// [messageId].
@@ -428,7 +429,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                             ),
                             subtitle: Text.rich(
                               TextSpan(
-                                children: _highlightSpans(
+                                children: chatHighlightSpans(
                                   message.text ?? '',
                                   widget.controller.query,
                                   baseStyle: snippetStyle,
@@ -507,39 +508,6 @@ List<ChatMessage> _dedupeById(List<ChatMessage> results) {
     if (seen.add(message.id)) deduped.add(message);
   }
   return deduped;
-}
-
-List<TextSpan> _highlightSpans(
-  String text,
-  String query, {
-  required TextStyle baseStyle,
-  required TextStyle matchStyle,
-}) {
-  if (query.isEmpty || text.isEmpty) {
-    return [TextSpan(text: text, style: baseStyle)];
-  }
-  final spans = <TextSpan>[];
-  final lowerText = text.toLowerCase();
-  final lowerQuery = query.toLowerCase();
-  var cursor = 0;
-  while (cursor < text.length) {
-    final matchStart = lowerText.indexOf(lowerQuery, cursor);
-    if (matchStart == -1) {
-      spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
-      break;
-    }
-    if (matchStart > cursor) {
-      spans.add(
-        TextSpan(text: text.substring(cursor, matchStart), style: baseStyle),
-      );
-    }
-    final matchEnd = matchStart + query.length;
-    spans.add(
-      TextSpan(text: text.substring(matchStart, matchEnd), style: matchStyle),
-    );
-    cursor = matchEnd;
-  }
-  return spans;
 }
 
 const TextStyle _defaultCountStyle = TextStyle(
