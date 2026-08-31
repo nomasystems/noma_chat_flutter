@@ -44,10 +44,10 @@ class MemberPickerSheet {
     String? Function(String userId)? displayNameResolver,
     String? Function(String userId)? avatarUrlResolver,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
+    return theme.showSheet<void>(
+      context,
       showDragHandle: true,
+      useRootNavigator: false,
       builder: (sheetContext) => _MemberPickerBody(
         client: client,
         excludeIds: excludeIds,

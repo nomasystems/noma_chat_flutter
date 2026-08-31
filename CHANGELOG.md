@@ -8,8 +8,10 @@ onwards, breaking changes require a **major version bump**.
 
 ## Unreleased
 
-Round 5 of QA on the host app, chat side. Five defects, all of them in this
-package.
+Round 5 of QA on the host app, chat side: `D61`, `D78`, `D79`, `D89`, `D90`,
+`D91`, `U88`, `U89`, `U90` and `U94`. Every one of them belonged in this
+package rather than in the app around it, plus one thing the fixes turned up
+on the way.
 
 ### Fixed
 
@@ -37,20 +39,26 @@ package.
   sender-agnostic "This message was deleted".
 
 - **Sending from halfway up the history takes you back to your message**
-  (`D79`). Nothing in the send path scrolled the list, so a message sent while
-  reading older history landed out of sight. The list now returns to the
-  newest row when the local user's own message arrives — which covers text,
-  attachments, camera photos, voice notes, locations and forwards at once,
-  since they all land in the same list. An incoming message still does not
-  steal the viewport, loading older history does not move it, and an anchored
-  open (a search hit, a tapped quote) keeps the scroll position it asked for.
+  (`D79`). WhatsApp behaviour, and it sits at the list rather than on the
+  composer's send button, so it covers text, attachments, camera photos,
+  voice notes, locations and forwards at once, since they all land in the
+  same list. An incoming message still does not steal the viewport, loading
+  older history does not move it, and an anchored open (a search hit, a
+  tapped quote) keeps the scroll position it asked for.
 
-- **The "back to the bottom" button can appear in short rooms** (`D79`). It
-  was gated on scrolling more than a fixed 200 px, so a room whose entire
-  history measured 192 px could never show it. The threshold is now the fixed
-  one OR a share of the scrollable extent, with a small floor so a stray drag
-  does not flash it. Its unread badge — a parameter the button has always
-  accepted and never been given — is finally wired.
+- **The "back to the bottom" button can appear in short rooms, and its badge
+  counts** (`D79`). The button was gated on scrolling more than a fixed
+  200 px, so a room whose entire history measured 192 px could never show it;
+  the threshold is now the fixed one OR a share of the scrollable extent, with
+  a small floor so a stray drag does not flash it. Its unread badge — a
+  parameter the button has always accepted and never been given — is finally
+  wired, and wired to something that moves: the messages that have landed
+  BELOW the viewport since the user was last at the bottom, not the open-time
+  snapshot the "{n} new messages" divider freezes. That snapshot is 0 in
+  precisely the case the button exists for, someone reading history while the
+  conversation carries on underneath them. Reaching the newest row clears the
+  count and spends the open-time one, so scrolling back up does not resurrect
+  a number about messages already read.
 
 - **A reply's quote says who it quotes, and jumping to the original works**
   (`D91`). The quote strip took its author name from the resolver that returns
@@ -65,6 +73,45 @@ package.
   The bubble's accessibility label announces the quote, which the semantics
   exclusion around the strip had been erasing.
 
+- **A system notice in the room list carries no delivery tick** (`D61`). A
+  notice about a plan reaches the row with `from` set to the plan's owner,
+  which made "is this my last message?" true for a sentence nobody typed, and
+  the row painted a sent/delivered tick in front of "The plan has started".
+  The tick and the sender prefix are the same claim made twice — "you wrote
+  this" — so both now hang on one getter and cannot diverge again. System
+  notices, reactions and tombstones carry neither.
+
+- **Links are detected the way people write them** (`D89`). Only schemed URLs
+  were, so `www.example.com`, a bare `example.com/path`, an e-mail address and
+  a phone number all stayed dead text. All four are now found and tappable,
+  with the trailing punctuation of the sentence left out of the match, a
+  minimum length so a two-letter word before a two-letter "TLD" is not a link,
+  and an explicit guard so the two halves of `maria.jose@example.com` are not
+  mistaken for hosts of their own. Tapping a schemeless host opens it over
+  `https`.
+
+- **A message that is nothing but emoji is painted large** (`D90`). Up to
+  three glyphs, the WhatsApp baseline: past that the enlarged emoji stop being
+  a gesture and become a wall. They land on the chat background with no bubble
+  around them, because enlarging the glyph inside the coloured rectangle only
+  produces a taller rectangle. Family and flag sequences count as one emoji;
+  one letter, digit or punctuation mark anywhere and the message is ordinary
+  text again.
+
+- **Your own voice note shows your photo, not your initials** (`U90`). The
+  portrait inside your own bubble read `controller.currentUser`, the snapshot
+  taken when the room opened and never touched again, while every other
+  sender went through the live resolver — so a picture set (or simply
+  fetched) after that first open existed only in the second. Your own bubble
+  now takes the same route as everyone else's. And because a host that sets
+  the profile photo through its own backend never pushes it into
+  `currentUser` at all, opening a room now asks the chat backend for it once
+  when there is no photo to show; see `ensureCurrentUserAvatar` below.
+
+  The portrait stays where it is in every other respect, including alongside
+  the small leading avatar on a group's incoming voice note: WhatsApp shows
+  both there too, and WhatsApp is the baseline.
+
 - **Reacting costs two gestures instead of three** (`U88`). The row of quick
   reactions used to live behind the sheet's "React" entry. It now comes up
   WITH the sheet, still anchored over the bubble, in the root overlay rather
@@ -72,10 +119,18 @@ package.
   eats the taps meant for the other. "React" leaves the sheet, since the row's
   own "+" already opens the full picker. Tapping an emoji closes both.
 
-- **The action sheet stops covering the message it is acting on** (`U88`). Its
-  height is measured once laid out — a host can replace the content wholesale
-  through `contextMenuBuilder` — and the list reserves that much space at its
-  bottom, which lifts the conversation clear of the sheet.
+- **The action sheet stops covering the message it is acting on — without
+  taking it off the top of the screen** (`U88`). Its height is not knowable in
+  advance, since a host can replace the content wholesale through
+  `contextMenuBuilder`, so it is measured once laid out and the list reserves
+  room at its bottom, which lifts the conversation. What it reserves is now
+  measured against the bubble instead of being the sheet's whole height plus a
+  fixed margin: enough to clear the sheet, never more than the headroom the
+  quick-reaction row needs above the bubble, and nothing at all when the
+  bubble already sits clear. The fixed lift moved every bubble whether it
+  needed it or not, and one that was not already at the bottom of the list
+  left the screen through the top — the sheet stopped covering it by taking
+  it away.
 
 - **"Message info" says when the message was sent** (`U89`). In both branches:
   "Sent · 18:51" above the "Read by" / "Delivered to" sections, and "Sent at
@@ -83,22 +138,52 @@ package.
   delivery info yet". The one screen dedicated to a message was the only place
   that did not state its hour.
 
-- **The chat's bottom sheets look like the host app's** (`U89`). They passed
-  no background colour, so Material derived `surfaceContainerLow` — which
-  under a warm seed comes out cream — and they hard-coded a 16 corner radius
-  one call site at a time. See the new `ChatSheetPresentation` below.
+- **The chat's bottom sheets look like the host app's** (`U89`). Every one of
+  them. They passed no background colour, so Material derived
+  `surfaceContainerLow` — which under a warm seed comes out cream — and they
+  hard-coded a 16 corner radius one call site at a time, against the 15 host
+  design systems round at. All fifteen call sites now go through
+  `ChatSheetPresentation.showSheet` (below), so "one bottom sheet for the
+  whole app" holds by construction rather than by fifteen of them agreeing,
+  and a host that declares `ThemeData.bottomSheetTheme` reaches the lot at
+  once. The long-press menu, the room menu, the attachment picker, the forward
+  and member pickers, the reaction detail, the emoji picker, the mute-duration
+  and avatar pickers and the delivery-status legend all keep the drag handle,
+  scroll control and navigator they had.
+
+- **A room opened by id is not abandoned before the room list catches up.**
+  The view read "this room is not in the list" as "I have been removed from
+  it" and walked out — and the room list is notified by every avatar or
+  display name the SDK learns, so an unrelated cache write was enough to eject
+  a user who had arrived from a push notification or a deep link. Leaving now
+  requires the room to have been in the list at some point.
 
 ### Added
 
 - `ChatSheetPresentation`, an extension on `ChatTheme` carrying
   `showSheet<T>()`, `sheetBackgroundColor(context)` and `sheetShape(context)`:
-  the single door an SDK bottom sheet should go through. Both values defer to
+  the single door every SDK bottom sheet goes through. Both values defer to
   the host's own `ThemeData.bottomSheetTheme` when it declares one — the
   standard Material lever, and the way to make every SDK sheet match an app's
   design system in one place — and otherwise fall back to
   `colorScheme.surface` and `kChatBottomSheetCornerRadius` (15, the radius
   host design systems round at, against the 16 the sheets used to hard-code).
-  Adopted by `MessageInfoSheet` and the composer's attachment picker.
+  `showSheet` also takes `showDragHandle` and a `backgroundColor` override for
+  the one sheet that already exposed its own (`fullEmojiPickerBackgroundColor`).
+
+- `chatHighlightSpans(text, query, baseStyle:, matchStyle:)`, the highlight the
+  in-room message search has always painted its results with, now part of the
+  package's surface. A host building a row of its own — a chat list telling
+  the reader WHY a room matched — no longer needs a second copy of it to keep
+  in step with the theme. Matching is case-insensitive and literal, so a query
+  containing `.`, `(` or `*` highlights those characters instead of throwing.
+
+- `ChatUiAdapter.ensureCurrentUserAvatar()`, which fills in the local user's
+  own avatar from the backend when the snapshot the host handed over at
+  sign-in carries none. At most one request per adapter, and none at all once
+  there is a photo. `NomaChatView` calls it after the first frame of a room.
+  `refreshCurrentUser()` remains the unconditional version, for a host that
+  has just written the profile itself.
 
 - `MessageInput.displayNameResolver`, the resolver behind the "replying to X"
   line of the composer's reply strip. Same contract as
@@ -111,12 +196,20 @@ package.
   conversation instead of hiding under it. `ChatView` uses it to keep the
   long-press sheet off the message it is acting on.
 
+- `kChatEmojiOnlyFontSize` and `ChatEmojiOnlyPresentation.emojiOnlyTextStyle`,
+  the size and style an emoji-only message is painted at. A host that sets a
+  13pt body does not thereby ask for 13pt emoji, so the size is deliberately
+  not derived from the bubble text style's own `fontSize`.
+
+- `DetectedUrl` — the slice as the sender typed it, where it ends, and the
+  absolute form to hand a launcher — returned by the widened `UrlDetector`.
+
 - New localised strings: `messageSentAtTemplate`,
   `messageSentNoReceiptsTemplate`, `replyQuoteSemanticsTemplate` and
   `replyQuoteSemanticsNoSenderTemplate`, with `messageSentAt`,
   `messageSentNoReceipts` and `replyQuoteSemantics` to read them. Translated
-  into es, fr, de, it, pt and ca; the partial locales fall back to English as
-  they do for every other string.
+  into all twelve shipped locales — en, es, fr, de, it, pt, ca, sv, no, da, pl
+  and cs — rather than only the six that carry the full set.
 
 ## 0.29.1 - 2026-08-26
 

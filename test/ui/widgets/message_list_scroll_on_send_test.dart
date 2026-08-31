@@ -220,4 +220,162 @@ void main() {
       controller.dispose();
     });
   });
+
+  group(
+    'the badge counts what arrives while the room is open (D79 remate)',
+    () {
+      // The snapshot the divider uses is taken once, when the room opens, and
+      // never moves again — so it is 0 in exactly the case the button is for:
+      // reading history while the conversation carries on underneath you.
+      ScrollToBottomButton buttonOf(WidgetTester tester) => tester
+          .widget<ScrollToBottomButton>(find.byType(ScrollToBottomButton));
+
+      testWidgets('a message that lands below the viewport is counted', (
+        tester,
+      ) async {
+        final controller = longHistory();
+        controller.setOtherUsers([other]);
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(wrap(controller));
+        await tester.pump();
+
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 0);
+
+        controller.addMessage(
+          msg(
+            'n1',
+            text: 'while you were reading',
+            ts: DateTime(2026, 1, 3, 9),
+          ),
+        );
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 1);
+
+        controller.addMessage(
+          msg('n2', text: 'and another', ts: DateTime(2026, 1, 3, 10)),
+        );
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 2);
+      });
+
+      testWidgets('your own message is not unread, nor is a reaction', (
+        tester,
+      ) async {
+        final controller = longHistory();
+        controller.setOtherUsers([other]);
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(wrap(controller));
+        await tester.pump();
+
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+
+        controller.addMessage(
+          ChatMessage(
+            id: 'r1',
+            from: 'u2',
+            timestamp: DateTime(2026, 1, 3, 11),
+            messageType: MessageType.reaction,
+          ),
+        );
+        await tester.pump();
+        expect(
+          buttonOf(tester).unreadCount,
+          0,
+          reason: 'a reaction is not a message',
+        );
+
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+        controller.addMessage(
+          msg(
+            'mine',
+            from: 'u1',
+            text: 'sent by me',
+            ts: DateTime(2026, 1, 3, 12),
+          ),
+        );
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 0);
+      });
+
+      testWidgets('reaching the bottom clears it, and scrolling back up does '
+          'not resurrect it', (tester) async {
+        final controller = longHistory();
+        controller.setOtherUsers([other]);
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(wrap(controller));
+        await tester.pump();
+
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+        controller.addMessage(
+          msg(
+            'n1',
+            text: 'while you were reading',
+            ts: DateTime(2026, 1, 3, 9),
+          ),
+        );
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 1);
+
+        controller.scrollController.jumpTo(0);
+        await tester.pump();
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+
+        expect(buttonOf(tester).unreadCount, 0);
+      });
+
+      testWidgets('the open-time snapshot is spent once you reach the bottom', (
+        tester,
+      ) async {
+        final controller = longHistory();
+        controller.setOtherUsers([other]);
+        addTearDown(controller.dispose);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                height: 500,
+                width: 400,
+                child: ListenableBuilder(
+                  listenable: controller,
+                  builder: (_, _) => MessageList(
+                    controller: controller,
+                    unreadCount: 4,
+                    unreadBoundaryMessageId: 'm38',
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.pump();
+
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 4);
+
+        controller.scrollController.jumpTo(0);
+        await tester.pump();
+        controller.scrollController.jumpTo(300);
+        await tester.pump();
+
+        expect(
+          buttonOf(tester).unreadCount,
+          0,
+          reason: 'those four have been read; only new arrivals count now',
+        );
+
+        controller.addMessage(
+          msg('n1', text: 'a fresh one', ts: DateTime(2026, 1, 3, 9)),
+        );
+        await tester.pump();
+        expect(buttonOf(tester).unreadCount, 1);
+      });
+    },
+  );
 }

@@ -258,6 +258,7 @@ class _NomaChatViewState extends State<NomaChatView>
   void initState() {
     super.initState();
     _bind();
+    _probeOwnAvatar();
   }
 
   @override
@@ -321,6 +322,7 @@ class _NomaChatViewState extends State<NomaChatView>
     // Pin the group/1:1 decision before member hydration runs so receipt
     // aggregation never collapses a group to 1:1 while its member list loads.
     if (roomItem != null) {
+      _roomWasListed = true;
       controller.setIsGroup(roomItem.isGroup);
     }
     // A draft DM has no room-list entry yet, so `roomItem` is null and the
@@ -346,6 +348,23 @@ class _NomaChatViewState extends State<NomaChatView>
     if (widget.hydrateGroupMembers) {
       unawaited(_seedGroupMembers());
     }
+  }
+
+  /// The local user's own face is painted inside their own voice notes, and
+  /// nowhere else — so nothing else ever noticed that the snapshot the host
+  /// handed over at sign-in carries no avatarUrl when it sets the photo
+  /// through its own backend, and the note came out with initials for an
+  /// account that plainly has one.
+  ///
+  /// Asked for after the first frame, not during [_bind]: the answer lands
+  /// in the shared user cache, whose notification the room list forwards,
+  /// and nothing about painting a face should run before the room the user
+  /// asked for is on screen.
+  void _probeOwnAvatar() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(widget.adapter.ensureCurrentUserAvatar());
+    });
   }
 
   // Ceiling on the receipts round trip. The divider waits on it, so a call
@@ -410,15 +429,26 @@ class _NomaChatViewState extends State<NomaChatView>
     fallbackUnreadCount: _initialUnreadCount,
   );
 
+  /// Whether the room list has ever carried this room. See
+  /// [_onRoomListChanged].
+  bool _roomWasListed = false;
+
   void _onRoomListChanged() {
     if (!mounted) return;
     setState(() {});
     if (_autoLeft) return;
     final roomId = _controller?.roomId;
     if (roomId == null) return;
-    final stillExists =
-        widget.adapter.roomListController.getRoomById(roomId) != null;
-    if (stillExists) return;
+    if (widget.adapter.roomListController.getRoomById(roomId) != null) {
+      _roomWasListed = true;
+      return;
+    }
+    // A room the list has NEVER carried has not been removed — it has not
+    // arrived yet. Leaving on that threw the user straight back out of a
+    // room opened by id (a push notification, a deep link) whenever any
+    // unrelated write notified the list first: `cacheUsers` forwards every
+    // avatar or display name it learns through `notifyMembersChanged`.
+    if (!_roomWasListed) return;
     _leaveRoom();
   }
 

@@ -117,4 +117,107 @@ void main() {
       ),
     );
   });
+
+  group('every SDK sheet goes through the same door (U89 remate)', () {
+    // Ola 1 built `ChatTheme.showSheet` but only two of the fifteen call
+    // sites used it; thirteen kept a hard-coded 16 radius and no background
+    // at all, message_context_menu — the long-press sheet, the most visible
+    // one — among them.
+    final hostTheme = ThemeData(
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Color(0xFF102030),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
+      ),
+    );
+
+    Future<void> openVia(
+      WidgetTester tester,
+      void Function(BuildContext context) open, {
+      ThemeData? appTheme,
+    }) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: appTheme,
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => open(context),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
+
+    final openers = <String, void Function(BuildContext)>{
+      'message context menu': (context) =>
+          MessageContextMenu.show(context, message: msg(), isOutgoing: true),
+      'room context menu': (context) =>
+          RoomContextMenu.show(context, room: const RoomListItem(id: 'r1')),
+      'mute duration': (context) =>
+          MuteDurationSheet.show(context, l10n: ChatUiLocalizations.en),
+      'attachment picker': (context) =>
+          AttachmentPickerSheet.show(context, onPickGallery: () {}),
+      'delivery status legend': (context) =>
+          DeliveryStatusLegendSheet.show(context),
+      'reaction detail': (context) => ReactionDetailSheet.show(
+        context,
+        fetchReactions: () async => const <AggregatedReaction>[],
+        currentUserId: 'me',
+        userFetcher: (id) async => ReactionUser(id: id, displayName: id),
+        onRemoveReaction: (_) {},
+      ),
+      'chat room options': (context) => ChatRoomOptionsMenu.show(
+        context: context,
+        options: [
+          ChatRoomOption(
+            icon: const Icon(Icons.search),
+            label: 'Search',
+            onTap: () {},
+          ),
+        ],
+      ),
+      'avatar picker': (context) =>
+          AvatarPickerSheet.show(context: context, kind: AvatarKind.user),
+      'message forward': (context) => MessageForwardSheet.show(
+        context: context,
+        rooms: const [RoomListItem(id: 'r1', name: 'Room')],
+      ),
+    };
+
+    openers.forEach((name, open) {
+      testWidgets('$name rounds at the shared radius', (tester) async {
+        await openVia(tester, open);
+
+        final shape = sheetOf(tester).shape! as RoundedRectangleBorder;
+        expect(
+          shape.borderRadius,
+          const BorderRadius.vertical(
+            top: Radius.circular(kChatBottomSheetCornerRadius),
+          ),
+          reason: name,
+        );
+      });
+
+      testWidgets('$name lets the host bottomSheetTheme win', (tester) async {
+        await openVia(tester, open, appTheme: hostTheme);
+
+        expect(
+          sheetOf(tester).backgroundColor,
+          const Color(0xFF102030),
+          reason: name,
+        );
+        expect(
+          (sheetOf(tester).shape! as RoundedRectangleBorder).borderRadius,
+          const BorderRadius.vertical(top: Radius.circular(28)),
+          reason: name,
+        );
+      });
+    });
+  });
 }

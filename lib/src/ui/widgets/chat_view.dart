@@ -86,8 +86,13 @@ class _ChatViewState extends State<ChatView> {
       _reactionRowHeight + _reactionRowGap * 2;
 
   /// Space the message list reserves at its bottom while the long-press
-  /// sheet is up: the sheet's measured height plus [_reactionRowReserve].
+  /// sheet is up — see [_insetFor] for how much and why.
   double _contextMenuInset = 0;
+
+  /// Where the bubble sat when the long press fired, i.e. before the sheet
+  /// (and the lift it causes) existed. [_insetFor] measures against this
+  /// and not against a live rect, which by then has already moved.
+  Rect? _menuAnchorRect;
 
   /// The quick-reaction row, living in the ROOT overlay rather than in a
   /// route of its own. See [_handleLongPress] for why.
@@ -124,6 +129,7 @@ class _ChatViewState extends State<ChatView> {
       return;
     }
 
+    _menuAnchorRect = messageRect.isEmpty ? null : messageRect;
     final isOutgoing = message.from == widget.controller.currentUser.id;
     final withReactionRow =
         behaviors.availableReactions.isNotEmpty &&
@@ -244,12 +250,41 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
-  /// Reserves [sheetHeight] (plus room for the row) at the bottom of the
-  /// list, then places the row over the message once the list has settled
-  /// into its new position.
+  /// How far the conversation has to rise for a sheet [sheetHeight] tall
+  /// to stop covering the bubble it acts on.
+  ///
+  /// Not `sheetHeight + reserve`: that lifted every bubble by the full
+  /// height of the sheet whether it needed it or not, and a bubble that was
+  /// not already at the very bottom of the list went off the TOP of the
+  /// screen instead — the sheet stopped covering it by taking it away.
+  ///
+  /// The bubble has to end up inside the band between `safeTop +
+  /// [_reactionRowReserve]` (above it the quick-reaction row would not fit)
+  /// and the sheet's own top edge. So: lift by exactly what the sheet
+  /// covers, never by more than the headroom above the bubble, and — the
+  /// case the fixed padding never had — by NOTHING AT ALL when the bubble
+  /// already sits clear of the sheet.
+  double _insetFor(double sheetHeight) {
+    final rect = _menuAnchorRect;
+    if (rect == null || rect.isEmpty) {
+      return sheetHeight + _reactionRowReserve;
+    }
+    final sheetTop = MediaQuery.sizeOf(context).height - sheetHeight;
+    final covered = rect.bottom + _reactionRowGap - sheetTop;
+    if (covered <= 0) return 0;
+
+    final safeTop = MediaQuery.paddingOf(context).top;
+    final headroom = rect.top - safeTop - _reactionRowReserve;
+    if (headroom <= 0) return 0;
+
+    return math.min(covered, headroom);
+  }
+
+  /// Reserves [_insetFor] at the bottom of the list, then places the row
+  /// over the message once the list has settled into its new position.
   void _liftListAbove(double sheetHeight, ChatMessage message) {
     if (!mounted) return;
-    final inset = sheetHeight + _reactionRowReserve;
+    final inset = _insetFor(sheetHeight);
     if ((_contextMenuInset - inset).abs() > 0.5) {
       setState(() => _contextMenuInset = inset);
     }
@@ -328,6 +363,7 @@ class _ChatViewState extends State<ChatView> {
     _reactionRowEntry?.remove();
     _reactionRowEntry = null;
     _menuSheetContext = null;
+    _menuAnchorRect = null;
     if (!mounted) return;
     if (_contextMenuInset != 0 || _reactionAnchorMessageId != null) {
       setState(() {

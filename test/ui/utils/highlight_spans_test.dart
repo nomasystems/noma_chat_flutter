@@ -1,5 +1,8 @@
-import 'package:flutter/painting.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+// Deliberately the package's own entry point and nothing under `src/`: this
+// file is also the proof that a host outside the package can reach the
+// helper at all.
 import 'package:noma_chat/noma_chat.dart';
 
 /// The search highlight used to be private to `MessageSearchDelegate`, so a
@@ -102,5 +105,37 @@ void main() {
 
     expect(textsOf(spans), ['Giulia']);
     expect(markedIn(spans), isEmpty);
+  });
+
+  testWidgets('a host paints a row with it using nothing but the package '
+      'entry point', (tester) async {
+    // Exactly the shape a chat list row telling the reader WHY a room
+    // matched would take. If the export ever stops reaching the public
+    // surface, this file no longer compiles.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Text.rich(
+            TextSpan(
+              children: chatHighlightSpans(
+                'Matched in: Giulia E2E',
+                'giulia',
+                baseStyle: base,
+                matchStyle: match,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final painted = tester.widget<Text>(find.byType(Text)).textSpan!;
+    expect(painted.toPlainText(), 'Matched in: Giulia E2E');
+    final marked = <String?>[];
+    painted.visitChildren((span) {
+      if (span is TextSpan && span.style == match) marked.add(span.text);
+      return true;
+    });
+    expect(marked, ['Giulia']);
   });
 }

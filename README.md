@@ -219,7 +219,12 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Typing indicators
 - Forward to multiple rooms
 - Pinned messages banner
-- Message search
+- Message search — and the highlight it paints its results with is public,
+  `chatHighlightSpans(text, query, baseStyle:, matchStyle:)`, so a row of your
+  own (a chat list saying WHY a room matched, for one) marks the query the
+  same way the in-room search does instead of carrying a second copy of it.
+  Case-insensitive and literal, so a query with `.` or `(` in it highlights
+  those characters rather than throwing
 
 **UI components — rooms & people**
 - Room list with unread badges, mute, pin and hide

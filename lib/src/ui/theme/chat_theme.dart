@@ -835,9 +835,15 @@ extension ChatSheetPresentation on ChatTheme {
   /// [sheetShape]. The single door every SDK sheet should go through, so
   /// "one bottom sheet for the whole app" stays true by construction
   /// instead of by fifteen call sites agreeing.
+  ///
+  /// [backgroundColor] exists for the one sheet that already exposed a
+  /// dedicated host override ([ChatTheme.fullEmojiPickerBackgroundColor]);
+  /// leave it null everywhere else so the sheet inherits the shared chrome.
   Future<T?> showSheet<T>(
     BuildContext context, {
     required WidgetBuilder builder,
+    Color? backgroundColor,
+    bool? showDragHandle,
     bool isScrollControlled = true,
     bool useRootNavigator = true,
     bool isDismissible = true,
@@ -845,9 +851,10 @@ extension ChatSheetPresentation on ChatTheme {
     bool useSafeArea = false,
   }) => showModalBottomSheet<T>(
     context: context,
-    backgroundColor: sheetBackgroundColor(context),
+    backgroundColor: backgroundColor ?? sheetBackgroundColor(context),
     shape: sheetShape(context),
     clipBehavior: Clip.antiAlias,
+    showDragHandle: showDragHandle,
     isScrollControlled: isScrollControlled,
     useRootNavigator: useRootNavigator,
     isDismissible: isDismissible,

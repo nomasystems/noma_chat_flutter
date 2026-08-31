@@ -13,15 +13,10 @@ class FullEmojiPicker {
     BuildContext context, {
     ChatTheme theme = ChatTheme.defaults,
   }) {
-    return showModalBottomSheet<String>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor:
-          theme.fullEmojiPickerBackgroundColor ??
-          Theme.of(context).colorScheme.surface,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+    return theme.showSheet<String>(
+      context,
+      backgroundColor: theme.fullEmojiPickerBackgroundColor,
+      useRootNavigator: false,
       builder: (sheetContext) {
         return SizedBox(
           height: MediaQuery.sizeOf(context).height * 0.45,

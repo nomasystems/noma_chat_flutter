@@ -436,6 +436,61 @@ void main() {
       }
     });
 
+    test('every one of the twelve locales translates the message-info send '
+        'line and the reply-quote semantics label', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+        ChatUiLocalizations.sv,
+        ChatUiLocalizations.no,
+        ChatUiLocalizations.da,
+        ChatUiLocalizations.pl,
+        ChatUiLocalizations.cs,
+      ]) {
+        final reason = l10n.localeCode;
+        expect(
+          l10n.messageSentAtTemplate,
+          isNot(ChatUiLocalizations.en.messageSentAtTemplate),
+          reason: reason,
+        );
+        expect(l10n.messageSentAtTemplate, contains('{time}'), reason: reason);
+        expect(
+          l10n.messageSentNoReceiptsTemplate,
+          isNot(ChatUiLocalizations.en.messageSentNoReceiptsTemplate),
+          reason: reason,
+        );
+        expect(
+          l10n.messageSentNoReceiptsTemplate,
+          contains('{time}'),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsTemplate,
+          isNot(ChatUiLocalizations.en.replyQuoteSemanticsTemplate),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsTemplate,
+          allOf(contains('{sender}'), contains('{quote}')),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsNoSenderTemplate,
+          isNot(ChatUiLocalizations.en.replyQuoteSemanticsNoSenderTemplate),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsNoSenderTemplate,
+          contains('{quote}'),
+          reason: reason,
+        );
+      }
+    });
+
     test('fields outside the core set fall back to the English default', () {
       expect(ChatUiLocalizations.sv.unblockFailed, 'Unblock failed');
       expect(ChatUiLocalizations.no.unblockFailed, 'Unblock failed');

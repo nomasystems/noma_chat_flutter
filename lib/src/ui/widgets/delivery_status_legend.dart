@@ -108,14 +108,8 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
     DeliveryStatusLegendEntryBuilder? entryBuilder,
     String? title,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      useRootNavigator: true,
-      isScrollControlled: true,
+    return theme.showSheet<void>(
+      context,
       builder: (ctx) => DeliveryStatusLegendSheet(
         theme: theme,
         isGroup: isGroup,

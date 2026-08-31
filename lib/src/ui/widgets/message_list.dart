@@ -298,6 +298,33 @@ class MessageList extends StatefulWidget {
 
 class MessageListState extends State<MessageList> {
   bool _showFab = false;
+
+  /// Incoming messages that have landed BELOW the viewport since the user
+  /// was last at the bottom of the list.
+  ///
+  /// The badge on the "back to the bottom" button used to be the open-time
+  /// snapshot on its own, frozen for as long as the room stayed open — which
+  /// is 0 in precisely the case the button exists for: someone reading
+  /// history while the conversation carries on underneath them. Counted
+  /// here, at the list, because this is the only place that knows both that
+  /// a message arrived and where the viewport was when it did.
+  int _liveUnreadBelow = 0;
+
+  /// Whether the open-time snapshot has been spent, i.e. the user has
+  /// reached the bottom at least once since the room opened. Scrolling back
+  /// up afterwards must not resurrect a count about messages already read.
+  bool _openUnreadSpent = false;
+
+  /// What the button's badge says: what was unread when the room opened
+  /// (until the user reaches the bottom) plus everything that has arrived
+  /// below the viewport since.
+  int get _unreadBelowCount {
+    final atOpen = (_openUnreadSpent || widget.unreadBoundaryMessageId == null)
+        ? 0
+        : widget.unreadCount;
+    return atOpen + _liveUnreadBelow;
+  }
+
   final Map<String, GlobalKey> _messageKeys = {};
   String? _pendingScrollToId;
 
@@ -548,9 +575,18 @@ class MessageListState extends State<MessageList> {
     final sc = widget.controller.scrollController;
     if (!sc.hasClients) return;
     final shouldShow = isScrolledUp(sc.offset, sc.position.maxScrollExtent);
-    if (shouldShow != _showFab) {
-      setState(() => _showFab = shouldShow);
-    }
+    // Arriving at the newest row is what marks everything below as read:
+    // the button is gone and there is nothing left to count.
+    final reachedBottom =
+        !shouldShow && (_liveUnreadBelow > 0 || !_openUnreadSpent);
+    if (shouldShow == _showFab && !reachedBottom) return;
+    setState(() {
+      _showFab = shouldShow;
+      if (reachedBottom) {
+        _liveUnreadBelow = 0;
+        _openUnreadSpent = true;
+      }
+    });
   }
 
   void _scrollToBottom() {
@@ -768,8 +804,15 @@ class MessageListState extends State<MessageList> {
     // asked, it does not scroll on its own.
     if (previousNewestId == null || previousNewestId == newest.id) return;
     if (_pendingScrollToId != null) return;
-    if (newest.from != widget.controller.currentUser.id) return;
     if (newest.messageType == MessageType.reaction) return;
+    if (newest.from != widget.controller.currentUser.id) {
+      // Someone else's message, and the user is not looking at the bottom of
+      // the list: this is exactly what the button's badge is for. Mutated
+      // during build like `_liveMessageAnnouncement` above — the badge is
+      // read further down the same build.
+      if (_showFab) _liveUnreadBelow++;
+      return;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _scrollToBottom();
@@ -912,12 +955,10 @@ class MessageListState extends State<MessageList> {
               visible: _showFab,
               onPressed: _scrollToBottom,
               // The button has always accepted an unread badge and never
-              // been given one, so the pill could not exist. Gated by the
-              // same snapshot the "{n} new messages" divider uses, so the
-              // two always agree on what is unread.
-              unreadCount: widget.unreadBoundaryMessageId == null
-                  ? 0
-                  : widget.unreadCount,
+              // been given one, so the pill could not exist. It is not the
+              // divider's frozen open-time snapshot either: that one is 0
+              // in the case the button is for. See [_unreadBelowCount].
+              unreadCount: _unreadBelowCount,
               theme: widget.theme,
             ),
           ),

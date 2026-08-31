@@ -123,30 +123,18 @@ class MessageContextMenu extends StatelessWidget {
     Duration? editWindow,
     Duration? deleteWindow,
   }) async {
-    const shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    );
-
     if (builder != null) {
-      return showModalBottomSheet<MessageAction>(
-        context: context,
-        shape: shape,
-        clipBehavior: Clip.antiAlias,
-        useRootNavigator: true,
+      return theme.showSheet<MessageAction>(
+        context,
         // Long-press sheets need scrollControl so the
         // full list of actions (reply/copy/edit/forward/pin/react/
         // report/delete) can render without clipping at half-screen.
-        isScrollControlled: true,
         builder: (ctx) => builder(ctx, message, isOutgoing),
       );
     }
 
-    return showModalBottomSheet<MessageAction>(
-      context: context,
-      shape: shape,
-      clipBehavior: Clip.antiAlias,
-      useRootNavigator: true,
-      isScrollControlled: true,
+    return theme.showSheet<MessageAction>(
+      context,
       builder: (ctx) => MessageContextMenu(
         message: message,
         isOutgoing: isOutgoing,

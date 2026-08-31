@@ -175,13 +175,10 @@ class MessageForwardSheet extends StatefulWidget {
       }
       return null;
     }
-    return showModalBottomSheet<List<String>>(
-      context: context,
-      isScrollControlled: true,
+    return theme.showSheet<List<String>>(
+      context,
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      useRootNavigator: false,
       builder: (_) => MessageForwardSheet(
         rooms: rooms,
         initialSelectedIds: initialSelectedIds,

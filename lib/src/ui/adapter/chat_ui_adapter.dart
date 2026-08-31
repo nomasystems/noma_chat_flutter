@@ -2392,6 +2392,28 @@ class ChatUiAdapter {
     cacheUsers([fresh]);
   }
 
+  /// Fills in the local user's own avatar, once, when the snapshot the
+  /// host handed over at sign-in carries none.
+  ///
+  /// The local user's face is painted in one place the other members' is
+  /// not: inside their own voice note. A host that sets the profile photo
+  /// through its own backend never pushes it into `currentUser`, and
+  /// [refreshCurrentUser] — the lever for that — has no caller of its own,
+  /// so the bubble falls back to initials for an account that plainly has
+  /// a photo. [NomaChatView] calls this on every room open, which is why
+  /// it costs at most one request per adapter and none at all once a
+  /// photo is known. Use [refreshCurrentUser] for the unconditional
+  /// refetch after writing the profile.
+  Future<void> ensureCurrentUserAvatar() async {
+    if (_disposed || _currentUserAvatarProbed) return;
+    final own = _currentUser.avatarUrl?.trim();
+    if (own != null && own.isNotEmpty) return;
+    _currentUserAvatarProbed = true;
+    await refreshCurrentUser();
+  }
+
+  bool _currentUserAvatarProbed = false;
+
   /// Removes [userId] from [roomId] — used by admins to kick a member.
   /// The backend rejects the call (403) if the caller lacks the
   /// permission; the SDK surfaces the failure via [operationErrors] like
