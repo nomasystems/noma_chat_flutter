@@ -60,7 +60,12 @@ jobs:
       - name: Install dependencies
         run: flutter pub get
 
+      # Only on the pinned rows. The informational beta row runs a newer SDK,
+      # whose formatter disagrees with the pinned one in both directions, so
+      # this gate would fail there on every run and skip the analyze and test
+      # steps that are the whole reason that row exists.
       - name: Format check
+        if: matrix.experimental != true
         run: dart format --output=none --set-exit-if-changed .
 
       - name: Analyze
