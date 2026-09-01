@@ -580,11 +580,10 @@ void main() {
         await tester.pump();
       }
 
-      expect(
-        camera.createdWithAudio,
-        [false, true],
-        reason: 'granting the microphone must rebind the camera with audio',
-      );
+      expect(camera.createdWithAudio, [
+        false,
+        true,
+      ], reason: 'granting the microphone must rebind the camera with audio');
       expect(
         camera.startedRecordings,
         isEmpty,
