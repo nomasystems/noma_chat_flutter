@@ -12,11 +12,13 @@ concurrency:
   cancel-in-progress: true
 
 # Single source for the Flutter version across every job here and in
-# publish.yml / regen-goldens.yml. The matrix below still pins the same
-# value so its informational beta row can override it; the auxiliary jobs
-# read this so they never silently float onto a future major.
+# publish.yml / regen-goldens.yml. Pinned to the same minor the team runs
+# locally and that WB's own workflows pin: a floating `3.x` silently moves
+# onto a newer `dart format`, and the format gate below then fails on files
+# that are correctly formatted with the local SDK. The matrix repeats the
+# value so its informational beta row can override it.
 env:
-  FLUTTER_VERSION: "3.x"
+  FLUTTER_VERSION: "3.44.x"
 
 jobs:
   analyze-and-test:
@@ -32,7 +34,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        flutter: ["3.x"]
+        flutter: ["3.44.x"]
         channel: [stable]
         include:
           # Informational job: track the next release channel so we get

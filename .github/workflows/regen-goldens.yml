@@ -11,8 +11,8 @@ name: regen-goldens
 #   2. Download the `goldens` artifact from the run.
 #   3. Replace test/golden/goldens/ with its contents, commit, push.
 #
-# Uses `channel: stable` with no version pin to mirror `publish.yml` exactly,
-# so the regenerated baselines match the runner that gates publishing.
+# Uses the same pinned Flutter minor as `publish.yml` and `ci.yml`, so the
+# regenerated baselines match the runner that gates publishing.
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ on:
 # Same Flutter version as ci.yml / publish.yml so the regenerated
 # baselines match the runner that gates them.
 env:
-  FLUTTER_VERSION: "3.x"
+  FLUTTER_VERSION: "3.44.x"
 
 jobs:
   regen:
