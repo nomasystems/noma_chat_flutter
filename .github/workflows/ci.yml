@@ -29,7 +29,11 @@ jobs:
     # this, breakage in those plugins only surfaces when a real iOS dev
     # opens the example.
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # The macOS runner has been sitting at 21-25 minutes against a 25 minute
+    # ceiling, and this round's new gates grew the suite past it: the job was
+    # killed at exactly 25:00 with everything green behind it. Raised with
+    # enough room to still catch a genuine hang.
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
