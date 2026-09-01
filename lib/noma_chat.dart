@@ -207,6 +207,8 @@ export 'src/ui/widgets/bubbles/audio_bubble.dart';
 export 'src/ui/widgets/bubbles/video_bubble.dart';
 export 'src/ui/widgets/bubbles/file_bubble.dart';
 export 'src/ui/widgets/bubbles/location_bubble.dart';
+export 'src/ui/widgets/bubbles/_attachment_upload_overlay.dart'
+    show attachmentRetrySemanticsId, attachmentUploadCancelSemanticsId;
 export 'src/ui/models/link_preview_metadata.dart';
 export 'src/ui/adapter/services/failed_upload_registry.dart';
 export 'src/ui/services/link_preview_fetcher.dart';

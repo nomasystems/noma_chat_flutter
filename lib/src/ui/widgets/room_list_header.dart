@@ -60,10 +60,17 @@ class RoomListHeader extends StatelessWidget {
           if (trailing != null)
             trailing!
           else if (!isSelecting && onNewChat != null)
-            IconButton(
-              icon: const Icon(Icons.edit_square),
-              tooltip: theme.l10nOf(context).newGroup,
-              onPressed: onNewChat,
+            Semantics(
+              key: const ValueKey('chat_room_list_new_chat_button'),
+              identifier: 'chat_room_list_new_chat_button',
+
+              button: true,
+              label: theme.l10nOf(context).newGroup,
+              child: IconButton(
+                icon: const Icon(Icons.edit_square),
+                tooltip: theme.l10nOf(context).newGroup,
+                onPressed: onNewChat,
+              ),
             ),
         ],
       ),

@@ -722,6 +722,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   Widget build(BuildContext context) {
     final theme = widget.theme;
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor:
           theme.cameraCaptureBackgroundColor ??
           DefaultPalette.cameraCaptureBackground,

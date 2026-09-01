@@ -189,6 +189,7 @@ class MessageInfoSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = theme.l10nOf(context);
+    final colors = Theme.of(context).colorScheme;
     final readers = readersFor(
       message,
       receipts,
@@ -239,7 +240,7 @@ class MessageInfoSheet extends StatelessWidget {
                     _formatTime(context, message.timestamp),
                   ),
                   key: const ValueKey('chat_message_info_sent_empty'),
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: colors.onSurfaceVariant),
                 ),
               )
             else ...[
@@ -247,7 +248,7 @@ class MessageInfoSheet extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
                 child: Row(
                   children: [
-                    Icon(Icons.check, size: 18, color: Colors.grey.shade600),
+                    Icon(Icons.check, size: 18, color: colors.onSurfaceVariant),
                     const SizedBox(width: 8),
                     Text(
                       l10n.messageSentAt(
@@ -257,7 +258,7 @@ class MessageInfoSheet extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
-                        color: Colors.grey.shade700,
+                        color: colors.onSurface,
                       ),
                     ),
                   ],
@@ -350,6 +351,7 @@ class MessageInfoSheet extends StatelessWidget {
     List<MessageReceiptDetail> details,
   ) {
     final resolve = displayNameFor;
+    final colors = Theme.of(context).colorScheme;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -358,14 +360,14 @@ class MessageInfoSheet extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: Colors.grey.shade600),
+              Icon(icon, size: 18, color: colors.onSurfaceVariant),
               const SizedBox(width: 8),
               Text(
                 title,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
+                  color: colors.onSurface,
                 ),
               ),
             ],
@@ -385,7 +387,10 @@ class MessageInfoSheet extends StatelessWidget {
                   key: ValueKey(
                     'chat_message_info_time_${detail.kind.name}_${detail.userId}',
                   ),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
           ),
       ],

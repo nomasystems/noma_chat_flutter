@@ -855,6 +855,26 @@ class ChatUiAdapter {
   /// front and re-check it after every suspension point.
   bool _sessionEndedSince(int epoch) => _disposed || _sessionEpoch != epoch;
 
+  bool _clearingRooms = false;
+
+  /// `true` for the whole of a session teardown — every notification it
+  /// emits, not only the one that empties the room list — and from
+  /// [dispose] onwards.
+  ///
+  /// An emptied room list is indistinguishable, from a listener's side, from
+  /// "every room you were in has just been removed" — yet
+  /// `disconnect(clearRooms: true)`, [signOut] and [dispose] all empty it on
+  /// purpose. Anything that reacts to a room disappearing (leaving the room,
+  /// popping its route, telling the user the conversation is gone) has to
+  /// check this first and stay put while it is `true`: the room did not go
+  /// away, the session did. [NomaChatView] does exactly that before calling
+  /// `onRoomLeft`.
+  ///
+  /// Deliberately an explicit signal instead of an inference from the list
+  /// going empty: being removed from the only room you had empties it too,
+  /// and that one is a real removal the host still has to hear about.
+  bool get isTearingDown => _disposed || _clearingRooms;
+
   void Function(String message)? onBroadcast;
   void Function(ChatEvent event)? onError;
   void Function()? onReconnected;
@@ -1515,7 +1535,24 @@ class ChatUiAdapter {
       _chatControllers.disposeAll();
       _dmContacts.clear();
       _activeRoomId = null;
-      roomListController.setRooms([]);
+      // Raised only across the wipe itself: `setRooms([])` notifies
+      // synchronously, so every listener that has to tell this apart from a
+      // removal reads [isTearingDown] from inside that notification. The
+      // adapter stays reusable after a `disconnect` / `signOut`, so the flag
+      // must not outlive the call; [dispose] keeps it raised through
+      // [_disposed] instead.
+      //
+      // Restored to what it was rather than forced back down:
+      // [_resetSessionState] raises the same flag across a wider wipe that
+      // keeps notifying after this call returns, and lowering it here would
+      // cut that cover in half.
+      final wasClearing = _clearingRooms;
+      _clearingRooms = true;
+      try {
+        roomListController.setRooms([]);
+      } finally {
+        _clearingRooms = wasClearing;
+      }
     }
     _typingTimers.clearAll();
     _lastMembersChangedRoomId = null;
@@ -1530,25 +1567,37 @@ class ChatUiAdapter {
   /// state inventory: adding a new registry to the adapter means clearing it
   /// here once, and both teardown paths pick it up.
   void _resetSessionState() {
-    // Runs first: it cancels the upload tokens, so the progress notifiers
-    // let go of just below are released after their transfers were told to
-    // stop, not while one is still writing to them. (Nothing here disposes
-    // a notifier — they are published through the adapter's getters and a
-    // host may hold one; the registry only drops its references.)
-    _resetConnectionState();
-    _userCacheService.clear();
-    _blockedUsers.clear();
-    _presence.clear();
-    // The suppression map is keyed by room id alone, so a cursor confirmed
-    // for the outgoing identity would silently suppress the incoming one's
-    // first confirmation for the same room.
-    _deliveredCoord.reset();
-    _pendingReactionsRegistry.clear();
-    _voiceUploads.releaseAll();
-    // Raw media belonging to the account being torn down must not survive
-    // into the next one — same reasoning as flushing the offline queue.
-    _failedUploads.clear();
-    _enricher.resetSession();
+    // Raised across the WHOLE inventory, not just the `setRooms([])` inside
+    // [_resetConnectionState]: the wipe keeps notifying the room list after
+    // that call returns — `_enricher.resetSession()` drops the deleted-room
+    // mirror, and `setDeletedRoomIds` notifies too — and a listener reading
+    // [isTearingDown] to tell a teardown from a removal has to get the same
+    // answer on every notification the teardown emits. Without this,
+    // [signOut] told the truth on the first one and lied on the last.
+    _clearingRooms = true;
+    try {
+      // Runs first: it cancels the upload tokens, so the progress notifiers
+      // let go of just below are released after their transfers were told to
+      // stop, not while one is still writing to them. (Nothing here disposes
+      // a notifier — they are published through the adapter's getters and a
+      // host may hold one; the registry only drops its references.)
+      _resetConnectionState();
+      _userCacheService.clear();
+      _blockedUsers.clear();
+      _presence.clear();
+      // The suppression map is keyed by room id alone, so a cursor confirmed
+      // for the outgoing identity would silently suppress the incoming one's
+      // first confirmation for the same room.
+      _deliveredCoord.reset();
+      _pendingReactionsRegistry.clear();
+      _voiceUploads.releaseAll();
+      // Raw media belonging to the account being torn down must not survive
+      // into the next one — same reasoning as flushing the offline queue.
+      _failedUploads.clear();
+      _enricher.resetSession();
+    } finally {
+      _clearingRooms = false;
+    }
   }
 
   /// One-shot teardown for "logout" flows: disconnects, wipes every

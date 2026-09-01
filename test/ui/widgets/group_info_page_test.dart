@@ -174,4 +174,98 @@ void main() {
       expect(find.byType(TextField), findsNothing);
     });
   });
+
+  group('GroupInfoPage — edit controls survive their own press', () {
+    // Tree order is name row first, description row second, and inside
+    // each row the read-only line comes before the edit field. So index 0
+    // is the name control and index 1 the description one, whether or not
+    // the row is currently on screen.
+    Finder pencilAt(int index) =>
+        find.byIcon(Icons.edit_outlined, skipOffstage: false).at(index);
+
+    Finder saveAt(int index) =>
+        find.byIcon(Icons.check, skipOffstage: false).at(index);
+
+    Finder tooltipOf(Finder icon) => find.ancestor(
+      of: icon,
+      matching: find.byType(Tooltip, skipOffstage: false),
+    );
+
+    testWidgets('the name pencil and its save button are hidden, never '
+        'unmounted, when the row flips mode', (tester) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      final pencil = tester.state<TooltipState>(tooltipOf(pencilAt(0)));
+      final save = tester.state<TooltipState>(tooltipOf(saveAt(0)));
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      expect(
+        find.byIcon(Icons.edit_outlined, skipOffstage: false),
+        findsNWidgets(2),
+      );
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(pencilAt(0))), pencil),
+        isTrue,
+      );
+
+      // Committing an unchanged name leaves edit mode inside the press.
+      await tester.tap(find.byIcon(Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byIcon(Icons.check, skipOffstage: false), findsNWidgets(2));
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(saveAt(0))), save),
+        isTrue,
+      );
+    });
+
+    testWidgets('the description pencil and its save button are hidden, '
+        'never unmounted, when the row flips mode', (tester) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      final pencil = tester.state<TooltipState>(tooltipOf(pencilAt(1)));
+      final save = tester.state<TooltipState>(tooltipOf(saveAt(1)));
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).last);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      expect(
+        find.byIcon(Icons.edit_outlined, skipOffstage: false),
+        findsNWidgets(2),
+      );
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(pencilAt(1))), pencil),
+        isTrue,
+      );
+
+      await tester.tap(find.byIcon(Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byIcon(Icons.check, skipOffstage: false), findsNWidgets(2));
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(saveAt(1))), save),
+        isTrue,
+      );
+    });
+  });
 }

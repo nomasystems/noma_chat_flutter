@@ -68,4 +68,86 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text(l10n.noStarredMessages), findsOneWidget);
   });
+
+  testWidgets(
+    'unstarring a row hides it instead of tearing down the button that was '
+    'pressed',
+    (tester) async {
+      Finder unstarTooltipOf(String messageId) => find.descendant(
+        of: find.byKey(
+          ValueKey(starredUnstarSemanticsId(messageId)),
+          skipOffstage: false,
+        ),
+        matching: find.byType(Tooltip, skipOffstage: false),
+        skipOffstage: false,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: StarredMessagesView(
+              load: () async => [star('m1', 'r1'), star('m2', 'r2')],
+              roomTitleFor: (roomId) => 'Room $roomId',
+              onUnstar: (s) async {},
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final before = tester.state<TooltipState>(unstarTooltipOf('m1'));
+
+      await tester.tap(find.byTooltip(l10n.unstar).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.unstar).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Room r1'), findsNothing);
+      expect(find.text('Room r1', skipOffstage: false), findsOneWidget);
+      expect(
+        identical(tester.state<TooltipState>(unstarTooltipOf('m1')), before),
+        isTrue,
+      );
+    },
+  );
+
+  testWidgets('unstarring the last row keeps the pressed button mounted under '
+      'the empty state', (tester) async {
+    Finder unstarTooltipOf(String messageId) => find.descendant(
+      of: find.byKey(
+        ValueKey(starredUnstarSemanticsId(messageId)),
+        skipOffstage: false,
+      ),
+      matching: find.byType(Tooltip, skipOffstage: false),
+      skipOffstage: false,
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: StarredMessagesView(
+            load: () async => [star('m1', 'r1')],
+            roomTitleFor: (roomId) => 'Room $roomId',
+            onUnstar: (s) async {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final before = tester.state<TooltipState>(unstarTooltipOf('m1'));
+
+    await tester.tap(find.byTooltip(l10n.unstar));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.unstar).last);
+    await tester.pumpAndSettle();
+
+    expect(find.text(l10n.noStarredMessages), findsOneWidget);
+    expect(find.text('Room r1'), findsNothing);
+    expect(find.text('Room r1', skipOffstage: false), findsOneWidget);
+    expect(
+      identical(tester.state<TooltipState>(unstarTooltipOf('m1')), before),
+      isTrue,
+    );
+  });
 }

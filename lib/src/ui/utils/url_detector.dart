@@ -20,8 +20,9 @@ class UrlDetector {
 
   /// Matches either an explicitly-schemed URL (`https://…`, `http://…`) or a
   /// bare host that looks like a domain (`www.example.com`,
-  /// `example.com/path`). The bare-host branch requires at least one dot and a
-  /// 2+ letter TLD so plain prose like `end.Then` is not picked up.
+  /// `example.com/path`). This is only the shape gate: a bare host still has
+  /// to pass [_looksLikeHost] before it counts as a link, which is what keeps
+  /// `informe.pdf` out.
   static final RegExp urlPattern = RegExp(
     r'(?:https?://[^\s<>)\]}>]+'
     r'|(?:www\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]*[a-zA-Z0-9])?'
@@ -43,6 +44,50 @@ class UrlDetector {
   /// defence against a two-letter word followed by a two-letter "TLD".
   static bool _isLongEnough(String url) => url.length > 8;
 
+  /// Suffixes accepted as a top-level domain. Deliberately short: the common
+  /// generic ones plus the country codes of the locales the SDK ships, which
+  /// is what the messages in this product actually carry.
+  ///
+  /// A finite list is the whole point. The dotted-word shape is far more
+  /// common in prose (`informe.pdf`, `notas.txt`, a full stop typed without
+  /// the space after it) than a bare domain with an exotic suffix, and the
+  /// two escapes below cover the domains this list misses.
+  static final Set<String> _knownTlds =
+      'com net org edu gov int mil info biz name pro eu io ai app dev me tv '
+              'co cc gg xyz online site shop store blog cloud tech page link '
+              'live news email digital agency studio design media art '
+              'es cat gal eus fr de at ch it pt br uk us ca nl be ie se no dk '
+              'fi pl cz gr ro hu mx ar cl ru jp cn in au nz za tr il ma'
+          .split(' ')
+          .toSet();
+
+  /// Extra suffixes a host app wants treated as top-level domains, on top of
+  /// [_knownTlds] — `UrlDetector.extraTlds.add('barcelona')`.
+  ///
+  /// Reach for it when your users routinely write bare domains under a
+  /// suffix the list above does not carry. Entries are matched
+  /// case-insensitively, so `'Barcelona'` and `'barcelona'` behave alike.
+  static final Set<String> extraTlds = <String>{};
+
+  static final RegExp _pathStart = RegExp(r'[/?#]');
+
+  /// Whether a match is a link rather than a dotted word.
+  ///
+  /// A match with an explicit scheme always is. A bare one has to earn it:
+  /// it starts with `www.`, or it carries a path, query or fragment, or its
+  /// last label is a suffix [_knownTlds] or [extraTlds] recognises.
+  static bool _looksLikeHost(String url) {
+    if (_hasScheme.hasMatch(url)) return true;
+    final lower = url.toLowerCase();
+    if (lower.startsWith('www.')) return true;
+    if (lower.contains(_pathStart)) return true;
+    final lastDot = lower.lastIndexOf('.');
+    if (lastDot < 0) return false;
+    final tld = lower.substring(lastDot + 1);
+    return _knownTlds.contains(tld) ||
+        extraTlds.any((extra) => extra.toLowerCase() == tld);
+  }
+
   /// Whether a match at `[start, end)` of [text] is really a piece of an
   /// email address rather than a link of its own.
   ///
@@ -63,6 +108,7 @@ class UrlDetector {
       .where((m) => !_isEmailFragment(text, m.start, m.end))
       .map((m) => m.group(0)!.replaceAll(_trailingPunct, ''))
       .where(_isLongEnough)
+      .where(_looksLikeHost)
       .map(_normalize)
       .toList();
 
@@ -74,9 +120,9 @@ class UrlDetector {
   /// This is the hook a left-to-right parser needs, and it exists so that
   /// the message bubble, the link preview card and the room's "Links" list
   /// all answer "is this a link?" with one definition instead of three.
-  /// Trailing punctuation is trimmed and the same minimum length applies,
-  /// so a string is a link in the bubble exactly when it is a link in the
-  /// other two.
+  /// Trailing punctuation is trimmed and the same minimum length and
+  /// [_looksLikeHost] gate apply, so a string is a link in the bubble
+  /// exactly when it is a link in the other two.
   static DetectedUrl? matchAt(String text, int index) {
     final match = urlPattern.matchAsPrefix(text, index);
     if (match == null) return null;
@@ -84,6 +130,7 @@ class UrlDetector {
     final raw = match.group(0)!;
     final trimmed = raw.replaceAll(_trailingPunct, '');
     if (trimmed.isEmpty || !_isLongEnough(trimmed)) return null;
+    if (!_looksLikeHost(trimmed)) return null;
     return DetectedUrl(
       text: trimmed,
       url: _normalize(trimmed),

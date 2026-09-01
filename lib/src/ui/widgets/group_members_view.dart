@@ -98,6 +98,12 @@ class _GroupMembersViewState extends State<GroupMembersView>
   ChatTheme get noticeTheme => widget.theme;
 
   List<RoomUser>? _members;
+
+  /// Every member this view has rendered, each pinned to the slot it first
+  /// occupied. Rows dropped from the roster stay in place, hidden instead
+  /// of unmounted, so the overflow button is never torn down inside its
+  /// own press.
+  List<RoomUser> _renderedMembers = const [];
   bool _loading = false;
   bool _loadingMore = false;
   bool _hasMore = false;
@@ -204,6 +210,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
           _loading = false;
           _hasMore = paginated.hasMore;
           _members = _sort(paginated.items);
+          _renderedMembers = _pinHiddenRows(_members!);
         });
         // Only members the expansion did NOT cover still need a profile
         // fetch — typically none when the backend honours `?expand=users`.
@@ -246,6 +253,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
           _hasMore = paginated.hasMore;
           final merged = [...?_members, ...paginated.items];
           _members = _sort(merged);
+          _renderedMembers = _pinHiddenRows(_members!);
         });
         unawaited(_warmMissingUsers(paginated.items));
       },
@@ -303,7 +311,10 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (!mounted) return;
     setState(() {
       final current = _members;
-      if (current != null) _members = _sort(current);
+      if (current != null) {
+        _members = _sort(current);
+        _renderedMembers = _pinHiddenRows(_members!);
+      }
     });
   }
 
@@ -325,6 +336,28 @@ class _GroupMembersViewState extends State<GroupMembersView>
       if (byRank != 0) return byRank;
       return label(a).compareTo(label(b));
     });
+  }
+
+  /// Merges [live] into the rendered roster: members no longer in the
+  /// roster keep the index they had, and the live rows fill the slots that
+  /// are left, in the order [_sort] gave them.
+  List<RoomUser> _pinHiddenRows(List<RoomUser> live) {
+    final liveIds = {for (final m in live) m.userId};
+    final pinned = <int, RoomUser>{};
+    for (var i = 0; i < _renderedMembers.length; i++) {
+      final m = _renderedMembers[i];
+      if (!liveIds.contains(m.userId)) pinned[i] = m;
+    }
+    if (pinned.isEmpty) return live;
+    final rows = <RoomUser>[];
+    final queue = List<RoomUser>.of(live);
+    var slot = 0;
+    while (queue.isNotEmpty || pinned.containsKey(slot)) {
+      final hidden = pinned[slot];
+      rows.add(hidden ?? queue.removeAt(0));
+      slot++;
+    }
+    return rows;
   }
 
   Future<void> _openActions(RoomUser target) async {
@@ -425,6 +458,8 @@ class _GroupMembersViewState extends State<GroupMembersView>
       );
     }
     final members = _members ?? const <RoomUser>[];
+    final rows = _renderedMembers;
+    final liveIds = {for (final m in members) m.userId};
     final currentUserId = widget.adapter.currentUser.id;
     // `embedded` mode nests this list (shrinkWrap + non-scrolling physics)
     // inside a host-owned outer scrollable — this widget can't observe that
@@ -440,10 +475,10 @@ class _GroupMembersViewState extends State<GroupMembersView>
       physics: widget.embedded
           ? const NeverScrollableScrollPhysics()
           : const AlwaysScrollableScrollPhysics(),
-      itemCount: members.length + (showFooter ? 1 : 0),
+      itemCount: rows.length + (showFooter ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox.shrink(),
       itemBuilder: (context, index) {
-        if (index >= members.length) {
+        if (index >= rows.length) {
           if (showLoadMoreRow) {
             return ListTile(
               title: Center(
@@ -468,7 +503,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
             ),
           );
         }
-        final m = members[index];
+        final m = rows[index];
         final resolvedName = widget.displayNameResolver?.call(m.userId);
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
@@ -509,24 +544,28 @@ class _GroupMembersViewState extends State<GroupMembersView>
                   ],
                 ],
               );
-        return ListTile(
-          leading: UserAvatar(
-            imageUrl: avatarUrl,
-            displayName: displayName,
-            size: 40,
-            theme: widget.theme,
-            excludeSemantics: true,
+        return Visibility(
+          visible: liveIds.contains(m.userId),
+          maintainState: true,
+          child: ListTile(
+            leading: UserAvatar(
+              imageUrl: avatarUrl,
+              displayName: displayName,
+              size: 40,
+              theme: widget.theme,
+              excludeSemantics: true,
+            ),
+            title: Text(displayName),
+            // No `@<uuid>` subtitle. The id is an internal opaque
+            // value, not a mention handle — surfacing it here was
+            // misleading. Mentions resolve via displayName + the
+            // autocomplete overlay in the composer; the id never
+            // leaves the SDK.
+            subtitle: null,
+            trailing: trailing,
+            onTap: tap,
+            onLongPress: longPress,
           ),
-          title: Text(displayName),
-          // No `@<uuid>` subtitle. The id is an internal opaque
-          // value, not a mention handle — surfacing it here was
-          // misleading. Mentions resolve via displayName + the
-          // autocomplete overlay in the composer; the id never
-          // leaves the SDK.
-          subtitle: null,
-          trailing: trailing,
-          onTap: tap,
-          onLongPress: longPress,
         );
       },
     );

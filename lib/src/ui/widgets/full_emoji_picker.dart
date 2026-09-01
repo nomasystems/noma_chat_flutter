@@ -18,6 +18,10 @@ class FullEmojiPicker {
       backgroundColor: theme.fullEmojiPickerBackgroundColor,
       useRootNavigator: false,
       builder: (sheetContext) {
+        final colors = Theme.of(sheetContext).colorScheme;
+        final background =
+            theme.fullEmojiPickerBackgroundColor ??
+            theme.sheetBackgroundColor(sheetContext);
         return SizedBox(
           height: MediaQuery.sizeOf(context).height * 0.45,
           child: EmojiPicker(
@@ -30,7 +34,31 @@ class FullEmojiPicker {
               bottomActionBarConfig: const BottomActionBarConfig(
                 enabled: false,
               ),
+              emojiViewConfig: EmojiViewConfig(
+                backgroundColor: background,
+                noRecents: Text(
+                  theme.l10nOf(sheetContext).noRecentEmoji,
+                  style: TextStyle(
+                    fontSize: 20,
+                    color: colors.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+              categoryViewConfig: CategoryViewConfig(
+                backgroundColor: background,
+                iconColor: colors.onSurfaceVariant,
+                iconColorSelected: colors.primary,
+                indicatorColor: colors.primary,
+                backspaceColor: colors.primary,
+              ),
+              skinToneConfig: SkinToneConfig(
+                dialogBackgroundColor: background,
+                indicatorColor: colors.onSurfaceVariant,
+              ),
               searchViewConfig: SearchViewConfig(
+                backgroundColor: background,
+                buttonIconColor: colors.onSurfaceVariant,
                 hintText: theme.l10nOf(sheetContext).searchEmoji,
               ),
             ),

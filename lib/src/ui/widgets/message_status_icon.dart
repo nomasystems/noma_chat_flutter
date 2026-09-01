@@ -69,7 +69,8 @@ class MessageStatusIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final color = status == ReceiptStatus.read
         ? (theme.bubble.statusReadColor ?? Colors.blue)
-        : (theme.bubble.statusColor ?? Colors.grey);
+        : (theme.bubble.statusColor ??
+              Theme.of(context).colorScheme.onSurfaceVariant);
 
     final label = switch (status) {
       ReceiptStatus.sent => theme.l10nOf(context).statusSent,

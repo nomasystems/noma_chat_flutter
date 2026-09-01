@@ -161,4 +161,76 @@ void main() {
       expect(find.text('Alice'), findsOneWidget);
     });
   });
+
+  group('BlockedUsersView — controls survive their own press', () {
+    Finder unblockButtonOf(String name) => find.descendant(
+      of: find.ancestor(
+        of: find.text(name, skipOffstage: false),
+        matching: find.byType(ListTile, skipOffstage: false),
+      ),
+      matching: find.byType(TextButton, skipOffstage: false),
+      skipOffstage: false,
+    );
+
+    testWidgets('unblocking hides the row instead of tearing down the button '
+        'that was pressed', (tester) async {
+      final contacts = _FakeBlockedContacts(['u1', 'u2']);
+      final client = _FakeClient(contacts);
+
+      await tester.pumpWidget(
+        wrap(client, names: (id) => const {'u1': 'Alice', 'u2': 'Bob'}[id]),
+      );
+      await tester.pumpAndSettle();
+
+      final before = tester.state<State<ButtonStyleButton>>(
+        unblockButtonOf('Alice'),
+      );
+
+      await tester.tap(find.text(l10n.unblock).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.unblockUserName('Alice')));
+      await tester.pumpAndSettle();
+
+      expect(contacts.unblocked, ['u1']);
+      expect(find.text('Alice'), findsNothing);
+      expect(find.text('Alice', skipOffstage: false), findsOneWidget);
+      expect(find.text('Bob'), findsOneWidget);
+      expect(
+        identical(
+          tester.state<State<ButtonStyleButton>>(unblockButtonOf('Alice')),
+          before,
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('unblocking the last row keeps the pressed button mounted '
+        'under the empty state', (tester) async {
+      final contacts = _FakeBlockedContacts(['u1']);
+      final client = _FakeClient(contacts);
+
+      await tester.pumpWidget(wrap(client, names: (_) => 'Alice'));
+      await tester.pumpAndSettle();
+
+      final before = tester.state<State<ButtonStyleButton>>(
+        unblockButtonOf('Alice'),
+      );
+
+      await tester.tap(find.text(l10n.unblock));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.unblockUserName('Alice')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.blockedUsersEmpty), findsOneWidget);
+      expect(find.text('Alice'), findsNothing);
+      expect(find.text('Alice', skipOffstage: false), findsOneWidget);
+      expect(
+        identical(
+          tester.state<State<ButtonStyleButton>>(unblockButtonOf('Alice')),
+          before,
+        ),
+        isTrue,
+      );
+    });
+  });
 }

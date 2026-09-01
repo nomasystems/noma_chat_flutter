@@ -6,6 +6,115 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.31.0 - 2026-09-01
+
+Round 6 of QA on the host app, chat side. Nine defects landed here rather than
+in the app around them, plus two more whose report pointed at the app but whose
+root turned out to live in this package, plus the two UX changes that belonged
+to the chat surfaces. Two of the fixes in this round are for regressions that
+the round's own earlier fixes introduced; both are described below, because a
+consumer upgrading from `0.30.0` never saw them and should not have to wonder.
+
+### Fixed
+
+- **The reaction row can be used on a tall bubble** (`D99`). With a bubble of
+  roughly 376 pt or more the floating row was laid out inside the status bar,
+  where the system swallows every tap: all seven buttons were unreachable, so
+  reacting was impossible. The row is now placed against the safe area, and the
+  anchor test asserts a bubble top that fails if the inset is reverted — the
+  previous assertion passed with the broken value.
+- **The reaction row no longer lands on top of the long-press menu** (`D124`).
+  It shared the anchoring maths with `D99`, so both are fixed together, and the
+  row is re-placed when the viewport changes instead of once.
+- **Sending a message stops marking every own bubble as read** (`D125`). The
+  echo of the sender's own read cursor was applied to the whole room instead of
+  the message it names, so the room turned green on send and the conversation
+  list agreed with it. The self-conversation ("message yourself") keeps its own
+  double check, which is what the first version of this fix had broken.
+- **A 1:1 whose peer left is not mistaken for a self-conversation** (`D125`).
+  When a peer signs out or deletes their account the backend drops them from the
+  room lists, leaving `memberCount == 1`; the exemption above then read that as
+  the user's own room and stopped filtering the echo, which reproduced the very
+  symptom it was written to fix. The exemption now also requires the absence of
+  a remembered peer.
+- **A group the user is alone in is not mistaken for a self-conversation
+  either** (`D125`). Room facts are re-pinned when the detail arrives, but the
+  group-ness was not, so a freshly created plan room opened cold — by deep link
+  or push, before its detail landed — reported `isGroup: false` and took the
+  same wrong branch.
+- **Ordinary words are no longer painted as links** (`D115`). Any word with a
+  dot and more than eight characters was treated as a URL and opened the
+  browser. The detector now carries a table of cases that must and must not
+  match, with the reported ones inside it.
+- **A control no longer tears itself down under its own press** (`D132`). An
+  icon button with a tooltip that unmounts inside its own press notification
+  drags its `RawTooltipState` with it; that state registers a global pointer
+  route in `initState` and only removes it in `dispose`, so while the element is
+  deactivated-but-not-disposed **every pointer event in the whole app** enters
+  its handler and throws. The result was a hundred-line log and an unresponsive
+  bottom bar. Fixed in both search fields, in the group info and group creation
+  pages, in the member lists, in starred messages and in blocked contacts: the
+  rows hide instead of dropping.
+- **The full emoji picker uses the sheet surface** (`D138`) instead of a colour
+  of its own, in both brightnesses.
+- **Several surfaces are legible on a dark host** (`D144`). The message info
+  sheet, the "you blocked someone in this chat" strip (3.07:1 over the
+  background WB paints in dark, now 10.93:1), the shared-media, documents and
+  links tabs, the member role labels and the pinned-message bar all nailed their
+  colours to fixed greys. They now come from the ambient `ColorScheme`, and each
+  one has an assertion that fails if its line is reverted.
+- **The delivery legend agrees with the icon it documents** (`D144`). The legend
+  had been moved to theme colours and the bubble's own status icon had not, so
+  the two drifted apart.
+- **A session teardown is no longer read as an eviction** (`D119`). Tearing the
+  session down empties the room list, and the view took the room's
+  disappearance for "you were removed", firing the leave path and leaving an
+  orphan dialog over the login screen. The adapter now declares the teardown
+  explicitly — a signal, not a guess at cardinality, so being evicted from the
+  only room you had still behaves correctly — and the view stops rebuilding
+  against a disposed controller.
+
+### Added
+
+- **Semantic identifiers across the composer and the bubbles** (`D152`). The
+  camera and voice buttons of the composer had none, and neither did a dozen of
+  their siblings. Identifiers are published for the composer row, the voice
+  overlay, quick replies, reaction removal, the attachment upload controls and
+  the media bubbles, and they are documented under **Test identifiers**.
+- **Accessibility gates** under `test/a11y/`: an identifier sweep that fails on
+  an interactive control without one, an ambient-contrast sweep that fails on a
+  hard-coded text colour, and a navigation-surface sweep. They exist so the next
+  round finds the eighteenth site rather than the seventeenth.
+- **Clearer empty states in the chat surfaces** (`U152`, `U154`). Searching
+  inside a room with a single character now says so instead of reporting no
+  results, and the shared-files tabs explain what will appear there.
+- **The keyboard sits over the content screens** instead of shrinking them, on
+  the package screens with no field in the lower half. The chat room keeps its
+  current behaviour: its composer *is* a field in the lower half, and shrinking
+  is what keeps it visible. `doc/DEVELOPER_GUIDE.md` records which embeddable
+  views expect the host to own that decision.
+
+### Changed
+
+- **The member role badge follows the ambient theme.** Owner reads
+  `ColorScheme.tertiary` and admin `ColorScheme.primary`, where both were a
+  hard-coded orange and blue that belonged to nobody's palette. Visible change
+  for any consumer of `MemberListView`.
+- `MemberListView` becomes a `StatefulWidget` so it can keep the slot history
+  its rows need. Its constructor and parameters are unchanged.
+- `UrlDetector.extraTlds` matches case-insensitively, as its documentation
+  already claimed; `add('Barcelona')` used to fail silently.
+
+### Known issues
+
+- **The attach and send buttons of the composer have been reported as
+  unresponsive inside a room** (`D153`), and the mechanism is not demonstrated.
+  Nothing was changed on a guess: a plausible fix with no mechanism behind it is
+  worse than a known issue.
+- A read receipt that was granted under an exemption and then had the exemption
+  withdrawn keeps its tick until the controller is discarded. The window is
+  narrow and one of its two paths predates this round.
+
 ## 0.30.0 - 2026-08-31
 
 Round 5 of QA on the host app, chat side: `D61`, `D78`, `D79`, `D89`, `D90`,

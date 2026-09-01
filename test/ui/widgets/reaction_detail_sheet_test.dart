@@ -138,6 +138,55 @@ void main() {
       expect(find.byIcon(Icons.close), findsWidgets);
     });
 
+    testWidgets('each remove button publishes chat_reaction_remove_<emoji> on '
+        'both halves', (tester) async {
+      final handle = WidgetsBinding.instance.ensureSemantics();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userFetcher: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(
+        reactionRemoveSemanticsId('\u{1F44D}'),
+        'chat_reaction_remove_\u{1F44D}',
+      );
+      for (final emoji in ['\u{1F44D}', '\u2764\uFE0F']) {
+        final name = reactionRemoveSemanticsId(emoji);
+        expect(
+          find.semantics.byPredicate((node) => node.identifier == name),
+          findsOne,
+          reason: 'Semantics half missing for $name',
+        );
+        expect(
+          find.byKey(ValueKey(name)),
+          findsOneWidget,
+          reason: 'ValueKey half missing for $name',
+        );
+      }
+
+      handle.dispose();
+    });
+
     testWidgets('calls onRemoveReaction and closes sheet', (tester) async {
       String? removedEmoji;
       await tester.pumpWidget(

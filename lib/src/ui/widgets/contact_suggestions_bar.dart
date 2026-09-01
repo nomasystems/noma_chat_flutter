@@ -3,6 +3,14 @@ import '../models/suggested_contact.dart';
 import '../theme/chat_theme.dart';
 import 'user_avatar.dart';
 
+/// Name the chip for [contactId] answers to in [ContactSuggestionsBar], both
+/// as its `ValueKey` and as its `Semantics(identifier:)`.
+///
+/// Built on the contact id rather than on the position or the display name:
+/// the bar is consumer-driven and two suggestions can share a name.
+String contactSuggestionSemanticsId(String contactId) =>
+    'chat_contact_suggestion_$contactId';
+
 /// Horizontal strip of suggested contacts shown above the chat list as a
 /// shortcut to start a new conversation.
 class ContactSuggestionsBar extends StatelessWidget {
@@ -106,7 +114,10 @@ class _ContactItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final id = contactSuggestionSemanticsId(contact.id);
     return Semantics(
+      key: ValueKey(id),
+      identifier: id,
       label: contact.displayName,
       button: onTap != null,
       child: GestureDetector(

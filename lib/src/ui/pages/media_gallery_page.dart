@@ -303,6 +303,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     final theme = widget.theme;
     final l10n = theme.l10nOf(context);
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor:
           theme.galleryBackgroundColor ?? theme.galleryAppBarBackgroundColor,
       appBar: AppBar(
@@ -424,6 +425,7 @@ class _DocsTab extends StatelessWidget {
           key: const ValueKey('chat_gallery_docs_empty'),
           icon: Icons.insert_drive_file_outlined,
           title: theme.l10nOf(context).galleryNoDocs,
+          subtitle: theme.l10nOf(context).galleryNoDocsSubtitle,
           theme: theme,
         ),
       );
@@ -461,6 +463,7 @@ class _LinksTab extends StatelessWidget {
           key: const ValueKey('chat_gallery_links_empty'),
           icon: Icons.link_off,
           title: theme.l10nOf(context).galleryNoLinks,
+          subtitle: theme.l10nOf(context).galleryNoLinksSubtitle,
           theme: theme,
         ),
       );

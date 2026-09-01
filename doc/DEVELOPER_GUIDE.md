@@ -1694,7 +1694,25 @@ chat.client.events.listen((event) {
 > `MessageAckedEvent`), `message_delivered` (delivered cursor advanced →
 > `MessageDeliveredEvent`) and `receipt_updated` (`ReceiptUpdatedEvent`), and
 > the SDK parses and dispatches all three out of the box. No extra wiring is
-> needed to drive WhatsApp-style ticks.
+> needed to drive WhatsApp-style ticks. Frames attributed to the current user
+> — the echo of their own `markAsRead`, fanned out to every one of their
+> connections — never reach the tick: they say what *this* user read, not what
+> anyone received. Their only effect is clearing the room's unread badge, so a
+> read on one device converges on the others. The exception is a room with no
+> members besides the user — the "message yourself" conversation
+> (`ChatController.isSelfConversation`) — where they are the audience, so their
+> own read is what turns the tick blue. Recognising such a room takes positive
+> evidence that nobody else is in it — either a member list that was fetched and
+> came back empty, or a room row reporting a single member — *and* a row that
+> names no peer of its own: signing out or deleting an account drops that user
+> from the room's member lists, so an ordinary DM the other side walked out of
+> reports a single member too, and only the peer the row still remembers tells
+> the two apart. `NomaChatView` pins both facts on open so the exception also
+> holds for a host that opens rooms with `hydrateGroupMembers: false` and never
+> lists members at all. That
+> mark is rendered but never cached — it rests on the room being empty, and a
+> stored receipt can never be lowered — so re-opening the room re-derives it
+> from the user's own read cursor instead.
 
 ---
 
@@ -2017,6 +2035,38 @@ above) backfills anything missed. Pass `disconnect(clearRooms: true)` for
 the old eager-wipe behavior — `signOut()` / `dispose()` still always do the
 full wipe internally.
 
+#### `adapter.isTearingDown` — telling a wipe apart from a removal
+
+A room list that goes empty looks, to a listener, exactly like "every room
+you were in has just been removed". `adapter.isTearingDown` is the explicit
+signal that says which one it was: it is `true` for the whole of a
+`disconnect(clearRooms: true)` / `signOut()` / `dispose()` wipe — every
+notification the wipe emits, not only the one that empties the list, because
+a teardown keeps clearing (and notifying) after that — and `false` otherwise.
+
+Read it *inside* the notification. For `disconnect(clearRooms: true)` and
+`signOut()` the signal is only raised across the wipe itself and is `false`
+again by the time the call returns, because the adapter deliberately stays
+reusable — the next user can sign in on the same instance. `dispose()` is the
+exception: there it stays `true` for good.
+
+Anything that reacts to a room disappearing — leaving the room, popping its
+route, showing "this conversation is no longer available" — must check it
+first and stay put while it is `true`. `NomaChatView` already does, so
+`onRoomLeft` never fires for a logout; a host that watches
+`roomListController` itself has to do the same, or a sign-out will strand a
+dialog on top of whatever screen it navigated to.
+
+A view that was open when the wipe ran does not come back: the wipe disposes
+the `ChatController` behind it, so `NomaChatView` records the teardown and
+renders its neutral placeholder from then on rather than repainting against a
+dead controller. Hosts navigate away on logout anyway; one that keeps the
+route alive gets a spinner, not an exception.
+
+It is a declared signal rather than an inference from the list going empty
+on purpose: being removed from the only room you had empties the list too,
+and that one is a real removal the host still has to hear about.
+
 ---
 
 ## UI components — widgets
@@ -2047,7 +2097,7 @@ auto-mark read) and clears it on dispose.
 1. **History + pin load** — calls `messages.load` / `messages.loadPins` for the room.
 2. **Unread divider snapshot** — freezes the open-time unread boundary before mark-as-read clears it (WhatsApp parity; later arrivals don't move it).
 3. **Group member hydration** — fetches the member list and pushes real names/avatars into the controller so group sender labels and @mention autocomplete resolve. Best-effort; toggle with `hydrateGroupMembers: false`.
-4. **Blocked + room-removed reactions** — rebuilds when the blocked-user set changes and pops (or calls `onRoomLeft`) when the room is removed under it (local user left/blocked, or the peer deleted the room).
+4. **Blocked + room-removed reactions** — rebuilds when the blocked-user set changes and pops (or calls `onRoomLeft`) when the room is removed under it (local user left/blocked, or the peer deleted the room). A session teardown that empties the room list is not a removal and does not leave — see `adapter.isTearingDown`.
 5. **Role-aware context menu** — the bubble long-press menu hides `pin` when the current user lacks permission (owner/admin in any room; either member in a 2-person DM) so a tap never triggers a 403.
 6. **Report dialog** — long-press → Report opens the bundled `ReportMessageDialog` and posts `messages.report`. Customize the field placeholder with `reportReasonHint`, or replace the whole flow via `callbacks.onReportMessage`.
 7. **Reaction-detail user fetcher** — resolves reactor profiles (cache-first, then `users.get`) for the reaction-detail sheet.
@@ -2066,7 +2116,7 @@ pass wins, the rest keep the sensible behavior.
 | `appBarActions` | `List<Widget>?` | Trailing icons appended to the default app bar (e.g. refresh, overflow). Ignored when `appBarBuilder` is set. |
 | `appBarBuilder` | `ChatAppBarBuilder?` | Replace the entire app bar: `(context, room, controller) => PreferredSizeWidget`. |
 | `onAppBarTap` | `void Function(RoomListItem?)?` | Tap on the default app bar's title row (typically opens room/user info). Left unset, the row is not a tap target at all — no ripple, no swallowed tap. |
-| `onRoomLeft` | `VoidCallback?` | Invoked when the room is removed under the view. Defaults to `Navigator.maybePop`. |
+| `onRoomLeft` | `VoidCallback?` | Invoked when the room is removed under the view. Never fires for a session teardown — `disconnect(clearRooms: true)`, `signOut()`, `dispose()` — including a leave already scheduled when the teardown starts (see `adapter.isTearingDown`). Defaults to `Navigator.maybePop`. |
 | `contextMenuActionsResolver` | `ContextMenuActionsResolver?` | `(room, defaults) => Set<MessageAction>` — add/remove actions on top of the role-aware defaults. |
 | `hydrateGroupMembers` | `bool` | Fetch + hydrate group members (default `true`). |
 | `initialMessageId` | `String?` | Message to scroll to and highlight on mount (search / pinned-row target). |
@@ -2354,6 +2404,43 @@ MessageSearchView(
 );
 ```
 
+#### Empty states of the search screen
+
+`MessageSearchView` has three distinct empty states, each with its own
+instrumentation identifier so a host (or an E2E suite) can tell them apart:
+
+| Identifier | When | Copy |
+|---|---|---|
+| `chat_search_prompt` | Nothing typed yet | `ChatUiLocalizations.searchPromptEmpty`, or the `emptyPromptText` override |
+| `chat_search_too_short` | Something typed, but shorter than `minQueryLength` | `ChatUiLocalizations.searchPromptTooShort(minQueryLength)`, or the `tooShortPromptText` override |
+| `chat_search_empty` | A dispatched query returned nothing | `ChatUiLocalizations.noResults` |
+
+`searchPromptTooShort` takes the minimum as an argument and substitutes it
+into `searchPromptTooShortTemplate` (`'Type at least {count} characters'`),
+so a host that raises `minQueryLength` gets copy that matches — never
+hard-code the number into a translation. With `minQueryLength: 1` the
+too-short state is unreachable by construction and never renders.
+
+`GroupSetupPage` gates its member search the same way, on
+`minSearchQueryLength` (default `RoomDefaults.minSearchQueryLength`), and
+below that minimum it renders the same copy under the identifier
+`chat_group_search_too_short` instead of silently falling back to the
+contact suggestions.
+
+#### Empty states of "Shared in this chat"
+
+`MediaGalleryView`, `DocsListView` and `LinksListView` each render an
+`EmptyState` with a title *and* a second line naming what will eventually
+fill the tab — `noMediaSubtitle`, `galleryNoDocsSubtitle` and
+`galleryNoLinksSubtitle`. The subtitle is styled with
+`ChatTheme.emptyStateSubtitleStyle`; override any of the strings through
+`ChatUiLocalizations.copyWith` or `ChatUiLocalizations.override`.
+
+Translation coverage follows each title: `noMediaSubtitle` ships in all
+twelve bundled locales, the docs and links subtitles in the seven whose
+titles are translated (en/es/fr/de/it/pt/ca) — a translated subtitle under
+an English title would read worse than neither.
+
 ### Bubble types
 
 `MessageBubble` dispatches to the appropriate sub-widget based on `ChatMessage.type`:
@@ -2391,6 +2478,43 @@ MessageSearchView(
 | `DateSeparator` | Sticky date labels between message groups |
 | `MessageStatusIcon` | Sent / delivered / read ticks |
 | `UserAvatar` | Network image with fallback initials |
+
+### Keyboard behaviour
+
+The SDK's own pages split into two groups, and the split is fixed — there is
+no flag for it, because the two halves need opposite things:
+
+| Page | `resizeToAvoidBottomInset` | Why |
+|---|---|---|
+| `StarredMessagesPage` | `false` | Nothing to type on the page |
+| `MediaGalleryPage` | `false` | Nothing to type on the page |
+| `ImageViewer` | `false` | Nothing to type on the page |
+| `UserInfoPage` | `false` | Read-only profile |
+| `CameraCapturePage` | `false` | No field; a shrinking viewfinder is never wanted |
+| `GroupSetupPage` | default | Name / description / member search sit low in a scrollable form |
+| `ProfileSettingsPage` | default | Name / about / email sit low in a scrollable form |
+| `GroupInfoPage` | default | Inline name / description editing, at a scroll position the user chose |
+| `NomaChatView` (room) | default | The composer is anchored to the bottom edge |
+
+The first group draws the keyboard **on top**: the body keeps its full height,
+so the content the reader is looking at is covered rather than squeezed into a
+strip. The second keeps the Material default so the caret stays visible while
+typing.
+
+Hosts that embed the SDK's *views* (`ChatView`, `RoomListView`,
+`StarredMessagesView`, `MediaGalleryView`, `MessageSearchView`,
+`BlockedUsersView`) own the surrounding `Scaffold` and therefore own this
+choice themselves. The same rule of thumb applies: pass
+`resizeToAvoidBottomInset: false` unless the screen has a field below its
+midpoint. When one single element has to clear the keyboard on an otherwise
+fixed page, pad just that element — the pattern the SDK's own sheets use:
+
+```dart
+Padding(
+  padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+  child: confirmButton,
+)
+```
 
 ---
 

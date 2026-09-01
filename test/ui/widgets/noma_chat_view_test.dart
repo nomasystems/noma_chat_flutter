@@ -733,6 +733,456 @@ void main() {
       expect(left, isTrue);
     });
 
+    testWidgets('removing the only room left is still a removal, not a '
+        'teardown', (tester) async {
+      var left = false;
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            onRoomLeft: () => left = true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      adapter.roomListController.removeRoom('room1');
+      await tester.pump();
+
+      expect(adapter.roomListController.rooms, isEmpty);
+      expect(left, isTrue);
+    });
+
+    testWidgets('removing one room of several still leaves', (tester) async {
+      var left = false;
+      adapter.roomListController
+        ..addRoom(const RoomListItem(id: 'room1', name: 'Team', isGroup: true))
+        ..addRoom(
+          const RoomListItem(id: 'room2', name: 'Other', isGroup: true),
+        );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            onRoomLeft: () => left = true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      adapter.roomListController.removeRoom('room1');
+      await tester.pump();
+
+      expect(left, isTrue);
+    });
+
+    testWidgets('a session teardown emptying the room list does not leave', (
+      tester,
+    ) async {
+      var left = false;
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            onRoomLeft: () => left = true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await adapter.disconnect(clearRooms: true);
+      await tester.pump();
+
+      expect(adapter.roomListController.rooms, isEmpty);
+      expect(left, isFalse);
+      expect(adapter.isTearingDown, isFalse);
+    });
+
+    testWidgets('a logout does not hand the host a room leave', (tester) async {
+      var left = false;
+      adapter.roomListController
+        ..addRoom(const RoomListItem(id: 'room1', name: 'Team', isGroup: true))
+        // The last notification of the wipe comes from dropping this
+        // mirror, not from emptying the list.
+        ..setDeletedRoomIds({'gone1'});
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            onRoomLeft: () => left = true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await adapter.signOut();
+      await tester.pump();
+
+      expect(adapter.roomListController.rooms, isEmpty);
+      expect(left, isFalse);
+    });
+
+    testWidgets('a room removal arriving inside a wipe is not a leave once '
+        'the wipe is over', (tester) async {
+      var left = false;
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            onRoomLeft: () => left = true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // The removal callback and the list wipe reach the view in the same
+      // synchronous burst, the way a WS event dispatch delivers them.
+      var burst = false;
+      void onWipe() {
+        if (burst || !adapter.isTearingDown) return;
+        burst = true;
+        adapter.onRoomRemoved!('room1', 'deleted', null);
+      }
+
+      adapter.roomListController.addListener(onWipe);
+      await adapter.disconnect(clearRooms: true);
+      adapter.roomListController.removeListener(onWipe);
+      await tester.pump();
+
+      expect(burst, isTrue);
+      expect(adapter.isTearingDown, isFalse);
+      expect(left, isFalse);
+    });
+
+    testWidgets('a teardown starting after the removal still cancels the '
+        'leave', (tester) async {
+      var left = false;
+      final ownClient = MockChatClient(currentUserId: 'u1');
+      final own = ChatUiAdapter(client: ownClient, currentUser: currentUser);
+      own.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: own,
+            hydrateGroupMembers: false,
+            onRoomLeft: () => left = true,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      // Accepted as a real removal — nothing is being torn down yet — so the
+      // leave is scheduled for after the frame. The session goes away in the
+      // gap, which is what the post-frame re-check is for.
+      own.onRoomRemoved!('room1', 'deleted', null);
+      await own.dispose();
+      await tester.pump();
+
+      expect(left, isFalse);
+
+      await tester.pumpWidget(const SizedBox());
+      await ownClient.dispose();
+    });
+
+    testWidgets('a rebuild after a session teardown does not paint a '
+        'disposed controller', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Team', isGroup: true),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            title: 'Team',
+          ),
+        ),
+      );
+      await tester.pump();
+      expect(find.byType(ChatView), findsOneWidget);
+
+      await adapter.disconnect(clearRooms: true);
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            title: 'Team renamed',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ChatView), findsNothing);
+    });
+
+    testWidgets('a host that never lists members still recognises the room '
+        'with nobody else in it', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Notes', memberCount: 1),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      expect(controller.otherUsers, isEmpty);
+      expect(controller.isSelfConversation, isTrue);
+    });
+
+    testWidgets('a DM is not that room, however few members its row '
+        'counts', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Bob',
+          memberCount: 2,
+          otherUserId: 'bob',
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(adapter.getChatController('room1').isSelfConversation, isFalse);
+    });
+
+    testWidgets('a DM whose peer signed out drops to one member and is still '
+        'not that room', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Bob',
+          memberCount: 1,
+          otherUserId: 'bob',
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(adapter.getChatController('room1').isSelfConversation, isFalse);
+    });
+
+    testWidgets('a peer that only arrives with the room detail takes the '
+        'exemption away', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Bob', memberCount: 1),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      expect(controller.isSelfConversation, isTrue);
+
+      adapter.roomListController.updateRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Bob',
+          memberCount: 1,
+          otherUserId: 'bob',
+        ),
+      );
+      await tester.pump();
+
+      expect(controller.isSelfConversation, isFalse);
+    });
+
+    testWidgets('a group the user is alone in, opened before its detail, is '
+        'not that room either', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Plan'),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      controller.setMessages([
+        ChatMessage(id: 'm1', from: 'u1', timestamp: DateTime(2024, 1, 1)),
+      ]);
+
+      adapter.roomListController.updateRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Plan',
+          isGroup: true,
+          memberCount: 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(controller.isSelfConversation, isFalse);
+      controller.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(controller.receiptStatuses['m1'], isNull);
+    });
+
+    testWidgets('a later row without its detail does not take the group '
+        'away', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Plan',
+          isGroup: true,
+          memberCount: 1,
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      adapter.roomListController.updateRoom(
+        const RoomListItem(id: 'room1', name: 'Plan'),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      expect(controller.isGroup, isTrue);
+      expect(controller.isSelfConversation, isFalse);
+    });
+
+    testWidgets('the room facts are pinned before the open marks the room '
+        'read', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Notes', memberCount: 1),
+      );
+
+      // Registered before the view's own listener, so it reads the
+      // controller at the instant the open first notifies the list — the
+      // same instant the echo of the user's own read can land.
+      bool? atFirstNotification;
+      void probe() {
+        atFirstNotification ??= adapter
+            .getChatController('room1')
+            .isSelfConversation;
+      }
+
+      adapter.roomListController.addListener(probe);
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+      adapter.roomListController.removeListener(probe);
+
+      expect(atFirstNotification, isTrue);
+    });
+
+    testWidgets('a member count that only arrives with the room detail is '
+        'picked up too', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Notes'),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      expect(controller.isSelfConversation, isFalse);
+
+      adapter.roomListController.updateRoom(
+        const RoomListItem(id: 'room1', name: 'Notes', memberCount: 1),
+      );
+      await tester.pump();
+
+      expect(controller.isSelfConversation, isTrue);
+    });
+
     testWidgets('default onRoomLeft pops the route', (tester) async {
       adapter.roomListController.addRoom(
         const RoomListItem(id: 'room1', name: 'Team', isGroup: true),

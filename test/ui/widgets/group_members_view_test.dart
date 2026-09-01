@@ -135,8 +135,10 @@ class _PaginatingMembersApi implements ChatMembersApi {
   }) => _base.joinWithToken(roomId, token: token);
 
   @override
-  Future<ChatResult<void>> remove(String roomId, String userId) =>
-      _base.remove(roomId, userId);
+  Future<ChatResult<void>> remove(String roomId, String userId) async {
+    _allMemberIds.remove(userId);
+    return _base.remove(roomId, userId);
+  }
 
   @override
   Future<ChatResult<void>> leave(String roomId) => _base.leave(roomId);
@@ -377,6 +379,54 @@ void main() {
 
       expect(find.byType(RefreshIndicator), findsNothing);
       expect(find.byType(ListTile), findsNWidgets(2));
+    });
+  });
+
+  group('GroupMembersView — controls survive their own press', () {
+    testWidgets('removing a member hides its row instead of tearing down the '
+        'button that was pressed', (tester) async {
+      final ids = ['me', 'u1', 'u2'];
+      final base = MockChatClient(currentUserId: 'me');
+      base.seedRoom(ChatRoom(id: 'r1', name: 'G', members: ids));
+      final removing = _PaginatingChatClient(base, allMemberIds: ids);
+      final removingAdapter = ChatUiAdapter(client: removing, currentUser: me);
+      removingAdapter.start();
+      addTearDown(() async {
+        await removingAdapter.dispose();
+        await base.dispose();
+      });
+
+      await tester.pumpWidget(
+        wrap(
+          GroupMembersView(
+            adapter: removingAdapter,
+            roomId: 'r1',
+            currentUserRole: RoomRole.admin,
+            displayNameResolver: names,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final manageTooltip = find.ancestor(
+        of: find.byIcon(Icons.more_vert, skipOffstage: false).first,
+        matching: find.byType(Tooltip, skipOffstage: false),
+      );
+      final before = tester.state<TooltipState>(manageTooltip);
+
+      await tester.tap(find.byIcon(Icons.more_vert).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.removeMember));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.removeMember).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsNothing);
+      expect(find.text('Alice', skipOffstage: false), findsOneWidget);
+      expect(
+        identical(tester.state<TooltipState>(manageTooltip), before),
+        isTrue,
+      );
     });
   });
 

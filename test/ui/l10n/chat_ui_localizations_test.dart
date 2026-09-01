@@ -558,4 +558,116 @@ void main() {
       expect(ChatUiLocalizations.forLanguageCode('xx'), ChatUiLocalizations.en);
     });
   });
+
+  group('ChatUiLocalizations — empty-state copy', () {
+    test('searchPromptTooShort substitutes the minimum it is given', () {
+      expect(
+        ChatUiLocalizations.en.searchPromptTooShort(2),
+        'Type at least 2 characters',
+      );
+      expect(
+        ChatUiLocalizations.en.searchPromptTooShort(5),
+        'Type at least 5 characters',
+      );
+    });
+
+    test('every locale that translates the opening search prompt also '
+        'translates the too-short one', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(
+          l10n.searchPromptEmpty,
+          isNot(ChatUiLocalizations.en.searchPromptEmpty),
+        );
+        expect(
+          l10n.searchPromptTooShortTemplate,
+          isNot(ChatUiLocalizations.en.searchPromptTooShortTemplate),
+          reason: l10n.localeCode,
+        );
+        expect(l10n.searchPromptTooShort(3), contains('3'));
+      }
+    });
+
+    test('a gallery subtitle is translated exactly where its own title is', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(
+          l10n.noMediaSubtitle,
+          isNot(ChatUiLocalizations.en.noMediaSubtitle),
+        );
+        expect(
+          l10n.galleryNoDocsSubtitle,
+          isNot(ChatUiLocalizations.en.galleryNoDocsSubtitle),
+          reason: l10n.localeCode,
+        );
+        expect(
+          l10n.galleryNoLinksSubtitle,
+          isNot(ChatUiLocalizations.en.galleryNoLinksSubtitle),
+          reason: l10n.localeCode,
+        );
+      }
+
+      // The Nordic + Eastern-EU tier translates `noMedia` but not the docs /
+      // links titles, so its subtitles follow the same split: a translated
+      // subtitle under an English title would read worse than neither.
+      for (final l10n in [
+        ChatUiLocalizations.sv,
+        ChatUiLocalizations.no,
+        ChatUiLocalizations.da,
+        ChatUiLocalizations.pl,
+        ChatUiLocalizations.cs,
+      ]) {
+        expect(l10n.noMedia, isNot(ChatUiLocalizations.en.noMedia));
+        expect(
+          l10n.noMediaSubtitle,
+          isNot(ChatUiLocalizations.en.noMediaSubtitle),
+          reason: l10n.localeCode,
+        );
+        expect(l10n.galleryNoDocs, ChatUiLocalizations.en.galleryNoDocs);
+        expect(
+          l10n.galleryNoDocsSubtitle,
+          ChatUiLocalizations.en.galleryNoDocsSubtitle,
+          reason: l10n.localeCode,
+        );
+        expect(
+          l10n.galleryNoLinksSubtitle,
+          ChatUiLocalizations.en.galleryNoLinksSubtitle,
+          reason: l10n.localeCode,
+        );
+      }
+    });
+
+    test('the new keys are overridable through both plumbing paths', () {
+      final copy = ChatUiLocalizations.en.copyWith(
+        noMediaSubtitle: 'A',
+        galleryNoDocsSubtitle: 'B',
+        galleryNoLinksSubtitle: 'C',
+        searchPromptTooShortTemplate: 'D {count}',
+      );
+      expect(copy.noMediaSubtitle, 'A');
+      expect(copy.galleryNoDocsSubtitle, 'B');
+      expect(copy.galleryNoLinksSubtitle, 'C');
+      expect(copy.searchPromptTooShort(7), 'D 7');
+
+      final delegate = ChatUiLocalizations.override(
+        noMediaSubtitle: 'A',
+        galleryNoDocsSubtitle: 'B',
+        galleryNoLinksSubtitle: 'C',
+        searchPromptTooShortTemplate: 'D {count}',
+      );
+      expect(delegate, isNotNull);
+    });
+  });
 }

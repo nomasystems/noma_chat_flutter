@@ -36,6 +36,8 @@ class ScrollToBottomButton extends StatelessWidget {
             child: UnreadBadge(count: unreadCount, theme: theme),
           ),
         Semantics(
+          key: const ValueKey('chat_scroll_to_bottom_button'),
+          identifier: 'chat_scroll_to_bottom_button',
           label: semanticLabel ?? theme.l10nOf(context).scrollToBottom,
           button: true,
           child: FloatingActionButton.small(

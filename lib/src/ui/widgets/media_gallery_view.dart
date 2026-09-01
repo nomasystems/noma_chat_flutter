@@ -114,6 +114,7 @@ class MediaGalleryView extends StatelessWidget {
           key: const ValueKey('chat_gallery_media_empty'),
           icon: Icons.photo_library_outlined,
           title: theme.l10nOf(context).noMedia,
+          subtitle: theme.l10nOf(context).noMediaSubtitle,
           theme: theme,
         ),
       );
@@ -205,6 +206,7 @@ class _MediaCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
     if (item.type == MediaItemType.file) {
       return ClipRRect(
         borderRadius: BorderRadius.circular(4),
@@ -213,7 +215,7 @@ class _MediaCell extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             child: Container(
-              color: Colors.grey.shade100,
+              color: colors.surfaceContainerHighest,
               padding: const EdgeInsets.all(8),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -221,7 +223,7 @@ class _MediaCell extends StatelessWidget {
                   Icon(
                     _fileIcon(item.mimeType),
                     size: 32,
-                    color: Colors.grey.shade600,
+                    color: colors.onSurfaceVariant,
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -229,7 +231,10 @@ class _MediaCell extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colors.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/ui/widgets/bubbles/_attachment_upload_overlay.dart';
 
 import '../_helpers/fixtures.dart';
 
@@ -504,6 +505,407 @@ void main() {
       );
       expect(
         find.byKey(const ValueKey('chat_reaction_picker_more')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('composer chrome identifiers', () {
+    late ChatController controller;
+    late SemanticsHandle handle;
+
+    setUp(() {
+      handle = WidgetsBinding.instance.ensureSemantics();
+      controller = ChatController(
+        initialMessages: const [],
+        currentUser: fixtureUserMe,
+      );
+    });
+
+    tearDown(() {
+      controller.dispose();
+      handle.dispose();
+    });
+
+    testWidgets('chat_camera_button is exposed and keeps its Camera label', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+            onPickCamera: () {},
+          ),
+        ),
+      );
+
+      expect(identifier('chat_camera_button'), findsOne);
+      expect(find.byKey(const ValueKey('chat_camera_button')), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('chat_camera_button'))),
+        isSemantics(
+          identifier: 'chat_camera_button',
+          label: ChatUiLocalizations.en.camera,
+          isButton: true,
+        ),
+      );
+    });
+
+    testWidgets('chat_voice_button is exposed and keeps its record label', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
+        ),
+      );
+
+      expect(identifier('chat_voice_button'), findsOne);
+      expect(find.byKey(const ValueKey('chat_voice_button')), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byKey(const ValueKey('chat_voice_button'))),
+        isSemantics(
+          identifier: 'chat_voice_button',
+          label: ChatUiLocalizations.en.recordVoice,
+          isButton: true,
+        ),
+      );
+    });
+
+    testWidgets('the camera and voice buttons give way to chat_send_button '
+        'once there is text, and no name outlives its control', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+            onPickCamera: () {},
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'hola');
+      await tester.pump();
+
+      expect(identifier('chat_send_button'), findsOne);
+      expect(identifier('chat_camera_button'), findsNothing);
+      expect(identifier('chat_voice_button'), findsNothing);
+      expect(find.byKey(const ValueKey('chat_camera_button')), findsNothing);
+      expect(find.byKey(const ValueKey('chat_voice_button')), findsNothing);
+    });
+
+    testWidgets('chat_edit_cancel_button is exposed while editing', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          MessageInput(
+            controller: controller,
+            onSendMessageRequest: (_) => true,
+          ),
+        ),
+      );
+
+      expect(identifier('chat_edit_cancel_button'), findsNothing);
+
+      controller.setEditingMessage(fixtureMessage(id: 'm1', text: 'hola'));
+      await tester.pump();
+
+      expect(identifier('chat_edit_cancel_button'), findsOne);
+      expect(
+        tester.getSemantics(
+          find.byKey(const ValueKey('chat_edit_cancel_button')),
+        ),
+        isSemantics(
+          identifier: 'chat_edit_cancel_button',
+          label: ChatUiLocalizations.en.close,
+          isButton: true,
+        ),
+      );
+    });
+  });
+
+  group('room chrome identifiers', () {
+    late SemanticsHandle handle;
+
+    setUp(() => handle = WidgetsBinding.instance.ensureSemantics());
+    tearDown(() => handle.dispose());
+
+    testWidgets('chat_reply_close_button rides the dismiss target of the '
+        'quoted preview', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          ReplyPreview(
+            message: fixtureMessage(id: 'm1', text: 'hola'),
+            senderName: 'Bob',
+            onDismiss: () {},
+          ),
+        ),
+      );
+
+      expect(identifier('chat_reply_close_button'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_reply_close_button')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a reply preview with nothing to dismiss publishes no name', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          ReplyPreview(
+            message: fixtureMessage(id: 'm1', text: 'hola'),
+          ),
+        ),
+      );
+
+      expect(identifier('chat_reply_close_button'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('chat_reply_close_button')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('chat_pinned_close_button is exposed on the pinned banner', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          PinnedMessagesBanner(
+            pinnedMessage: MessagePin(
+              roomId: fixtureRoomId,
+              messageId: 'm42',
+              pinnedBy: fixtureUserMe.id,
+              pinnedAt: fixtureTimestamp,
+            ),
+            pinnedMessageText: 'pinned',
+            onClose: () {},
+          ),
+        ),
+      );
+
+      expect(identifier('chat_pinned_close_button'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_pinned_close_button')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('chat_blocked_banner_button names the unblock target without '
+        'displacing the banner text', (tester) async {
+      await tester.pumpWidget(wrap(BlockedChatBanner(onUnblock: () {})));
+
+      expect(identifier('chat_blocked_banner_button'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_blocked_banner_button')),
+        findsOneWidget,
+      );
+      final label = identifier(
+        'chat_blocked_banner_button',
+      ).evaluate().single.label;
+      expect(label, contains(ChatUiLocalizations.en.blockedContactBannerText));
+      expect(label, contains(ChatUiLocalizations.en.tapToUnblock));
+    });
+
+    testWidgets('chat_scroll_to_bottom_button is exposed while the button is '
+        'visible and disappears with it', (tester) async {
+      await tester.pumpWidget(
+        wrap(ScrollToBottomButton(visible: true, onPressed: () {})),
+      );
+
+      expect(identifier('chat_scroll_to_bottom_button'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_scroll_to_bottom_button')),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(
+        wrap(ScrollToBottomButton(visible: false, onPressed: () {})),
+      );
+
+      expect(identifier('chat_scroll_to_bottom_button'), findsNothing);
+    });
+
+    testWidgets('each quick reply chip publishes chat_quick_reply_<position>', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          QuickRepliesBar(
+            replies: const ['On my way', 'Running late'],
+            onReply: (_) {},
+          ),
+        ),
+      );
+
+      expect(quickReplySemanticsId(0), 'chat_quick_reply_0');
+      expect(identifier('chat_quick_reply_0'), findsOne);
+      expect(identifier('chat_quick_reply_1'), findsOne);
+      expect(find.byKey(const ValueKey('chat_quick_reply_0')), findsOneWidget);
+      expect(find.byKey(const ValueKey('chat_quick_reply_1')), findsOneWidget);
+      expect(
+        identifier('chat_quick_reply_1').evaluate().single.label,
+        'Running late',
+      );
+    });
+
+    testWidgets('chat_avatar_picker_button is exposed only when the field can '
+        'actually change the photo', (tester) async {
+      await tester.pumpWidget(
+        wrap(AvatarPickerField(kind: AvatarKind.user, onChanged: (_, __) {})),
+      );
+
+      expect(identifier('chat_avatar_picker_button'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_avatar_picker_button')),
+        findsOneWidget,
+      );
+
+      await tester.pumpWidget(
+        wrap(const AvatarPickerField(kind: AvatarKind.user)),
+      );
+
+      expect(identifier('chat_avatar_picker_button'), findsNothing);
+    });
+  });
+
+  group('bubble-scoped identifiers', () {
+    late SemanticsHandle handle;
+
+    setUp(() => handle = WidgetsBinding.instance.ensureSemantics());
+    tearDown(() => handle.dispose());
+
+    testWidgets('a voice bubble names its play control and its speed pill '
+        'after the message it carries', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const AudioBubble(
+            audioUrl: 'https://example.com/audio.m4a',
+            messageId: 'm42',
+          ),
+        ),
+      );
+      await tester.pump();
+
+      expect(audioPlaySemanticsId('m42'), 'chat_message_m42_audio_play');
+      expect(audioSpeedSemanticsId('m42'), 'chat_message_m42_audio_speed');
+      expect(identifier('chat_message_m42_audio_play'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_message_m42_audio_play')),
+        findsOneWidget,
+      );
+      expect(identifier('chat_message_m42_audio_speed'), findsNothing);
+
+      await tester.tap(find.byIcon(Icons.play_arrow));
+      await tester.pump();
+
+      expect(identifier('chat_message_m42_audio_speed'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_message_m42_audio_speed')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a voice bubble with no message behind it publishes no name', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(const AudioBubble(audioUrl: 'https://example.com/audio.m4a')),
+      );
+      await tester.pump();
+
+      expect(find.byType(AudioBubble), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('chat_message_m42_audio_play')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the cancel target of an upload in flight is named after its '
+        'message', (tester) async {
+      final progress = ValueNotifier<double>(0.4);
+      addTearDown(progress.dispose);
+
+      await tester.pumpWidget(
+        wrap(
+          AttachmentUploadRing(
+            progress: progress,
+            theme: ChatTheme.defaults,
+            onCancel: () {},
+            messageId: 'm42',
+          ),
+        ),
+      );
+
+      expect(
+        attachmentUploadCancelSemanticsId('m42'),
+        'chat_message_m42_upload_cancel',
+      );
+      expect(identifier('chat_message_m42_upload_cancel'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_message_m42_upload_cancel')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an upload ring with nothing to cancel publishes no name', (
+      tester,
+    ) async {
+      final progress = ValueNotifier<double>(0.4);
+      addTearDown(progress.dispose);
+
+      await tester.pumpWidget(
+        wrap(
+          AttachmentUploadRing(
+            progress: progress,
+            theme: ChatTheme.defaults,
+            messageId: 'm42',
+          ),
+        ),
+      );
+
+      expect(identifier('chat_message_m42_upload_cancel'), findsNothing);
+      expect(
+        find.byKey(const ValueKey('chat_message_m42_upload_cancel')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('the retry target of a failed upload is named after its '
+        'message, and the static error glyph is not', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const AttachmentRetryIcon(
+            theme: ChatTheme.defaults,
+            messageId: 'm42',
+          ),
+        ),
+      );
+
+      expect(
+        attachmentRetrySemanticsId('m42'),
+        'chat_message_m42_upload_retry',
+      );
+      expect(identifier('chat_message_m42_upload_retry'), findsNothing);
+
+      await tester.pumpWidget(
+        wrap(
+          AttachmentRetryIcon(
+            theme: ChatTheme.defaults,
+            onRetry: () {},
+            messageId: 'm42',
+          ),
+        ),
+      );
+
+      expect(identifier('chat_message_m42_upload_retry'), findsOne);
+      expect(
+        find.byKey(const ValueKey('chat_message_m42_upload_retry')),
         findsOneWidget,
       );
     });

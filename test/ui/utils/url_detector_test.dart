@@ -63,6 +63,64 @@ void main() {
     });
   });
 
+  group('a dotted word is not a link', () {
+    const linkified = <String, String>{
+      'https://example.com': 'https://example.com',
+      'http://example.com/a': 'http://example.com/a',
+      'https://informe.pdf': 'https://informe.pdf',
+      'www.google.it': 'https://www.google.it',
+      'www.informe.pdf': 'https://www.informe.pdf',
+      'example.com/informe.pdf': 'https://example.com/informe.pdf',
+      'example.com/path?q=1': 'https://example.com/path?q=1',
+      'noticias.es': 'https://noticias.es',
+      'EXAMPLE.COM': 'https://EXAMPLE.COM',
+      'museo.museum/entradas': 'https://museo.museum/entradas',
+    };
+
+    const notLinkified = <String>[
+      'informe.pdf',
+      'foto.jpeg',
+      'notas.txt',
+      'presentacion.pptx',
+      'mundo.esto',
+      'ci vediamo in piazza.Domani',
+      'museo.museum',
+      'ok.io',
+      '1.234,56',
+    ];
+
+    for (final entry in linkified.entries) {
+      test('"${entry.key}" is a link', () {
+        expect(UrlDetector.extractUrls('mira ${entry.key} y ya'), [
+          entry.value,
+        ]);
+      });
+    }
+
+    for (final candidate in notLinkified) {
+      test('"$candidate" is plain text', () {
+        expect(UrlDetector.extractUrls('mira $candidate y ya'), isEmpty);
+      });
+    }
+
+    test('the suffix a host adds is honoured', () {
+      expect(UrlDetector.extractUrls('mira museo.museum y ya'), isEmpty);
+      UrlDetector.extraTlds.add('museum');
+      addTearDown(() => UrlDetector.extraTlds.remove('museum'));
+      expect(UrlDetector.extractUrls('mira museo.museum y ya'), [
+        'https://museo.museum',
+      ]);
+    });
+
+    test('a suffix added in mixed case is honoured too', () {
+      UrlDetector.extraTlds.add('Museum');
+      addTearDown(() => UrlDetector.extraTlds.remove('Museum'));
+      expect(UrlDetector.extractUrls('mira museo.museum y ya'), [
+        'https://museo.museum',
+      ]);
+    });
+  });
+
   group('matchAt', () {
     test('answers only for a link that starts exactly there', () {
       const text = 'mira www.google.it hoy';
@@ -85,6 +143,8 @@ void main() {
         'www.google.it',
         'example.com/path',
         'ab.io',
+        'informe.pdf',
+        'noticias.es',
         'chiara@example.com',
         'no',
       ]) {

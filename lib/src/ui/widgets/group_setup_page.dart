@@ -41,6 +41,7 @@ class GroupSetupPage extends StatefulWidget {
     this.theme = ChatTheme.defaults,
     this.minNameLength = RoomDefaults.minGroupNameLength,
     this.minOtherUsers = RoomDefaults.minOtherUsersInGroup,
+    this.minSearchQueryLength = RoomDefaults.minSearchQueryLength,
     this.audience = RoomAudience.contacts,
     this.demoDisplayNames = const <String>[],
   });
@@ -50,6 +51,12 @@ class GroupSetupPage extends StatefulWidget {
   final ChatTheme theme;
   final int minNameLength;
   final int minOtherUsers;
+
+  /// Minimum length (after `trim()`) the member-search field must reach
+  /// before `users.search` is dispatched. Below it the picker says so
+  /// instead of silently falling back to the contact suggestions.
+  final int minSearchQueryLength;
+
   final RoomAudience audience;
 
   /// Extra usernames (same list used by `SuggestionBarController`) that
@@ -67,6 +74,7 @@ class GroupSetupPage extends StatefulWidget {
     ChatTheme theme = ChatTheme.defaults,
     int minNameLength = RoomDefaults.minGroupNameLength,
     int minOtherUsers = RoomDefaults.minOtherUsersInGroup,
+    int minSearchQueryLength = RoomDefaults.minSearchQueryLength,
     RoomAudience audience = RoomAudience.contacts,
     List<String> demoDisplayNames = const <String>[],
   }) {
@@ -78,6 +86,7 @@ class GroupSetupPage extends StatefulWidget {
           theme: theme,
           minNameLength: minNameLength,
           minOtherUsers: minOtherUsers,
+          minSearchQueryLength: minSearchQueryLength,
           audience: audience,
           demoDisplayNames: demoDisplayNames,
         ),
@@ -100,15 +109,23 @@ class _GroupSetupPageState extends State<GroupSetupPage>
   AvatarSnapshot? _pickedAvatar;
   bool _creating = false;
   late List<ChatUser> _members;
+
+  /// Every user that has been listed as a member during this page's life,
+  /// in the order they first appeared. Rows are rendered from here and
+  /// hidden (not unmounted) when the user drops them, so the remove
+  /// button is never torn down inside its own press.
+  late List<ChatUser> _renderedMembers;
   List<ChatUser> _suggestions = const [];
   List<ChatUser> _searchResults = const [];
   Timer? _searchDebounce;
   String _currentQuery = '';
+  bool _searchTooShort = false;
 
   @override
   void initState() {
     super.initState();
     _members = List<ChatUser>.from(widget.initialMembers);
+    _renderedMembers = List<ChatUser>.from(widget.initialMembers);
     _nameController.addListener(_rebuild);
     _searchController.addListener(_onSearchChanged);
     _loadSuggestions();
@@ -117,8 +134,8 @@ class _GroupSetupPageState extends State<GroupSetupPage>
   /// Pulls the user's contact roster + the optional `demoDisplayNames`
   /// (resolved via `users.search`) so the picker shows familiar faces
   /// by default — no typing required. The search field still overrides
-  /// this list with `users.search` results when the user types ≥ 2
-  /// chars. Without merging demo names, the picker would mismatch the
+  /// this list with `users.search` results once the user types at least
+  /// [GroupSetupPage.minSearchQueryLength] chars. Without merging demo names, the picker would mismatch the
   /// home suggestion bar: e.g. a "Newsroom" bot is visible in the home
   /// (via demoDisplayNames) but missing in the group picker because
   /// it's not a contact. This keeps both surfaces consistent.
@@ -194,15 +211,20 @@ class _GroupSetupPageState extends State<GroupSetupPage>
   void _onSearchChanged() {
     final q = _searchController.text.trim();
     _searchDebounce?.cancel();
-    if (q.length < 2) {
-      if (_searchResults.isNotEmpty || _currentQuery.isNotEmpty) {
+    if (q.length < widget.minSearchQueryLength) {
+      final tooShort = q.isNotEmpty;
+      if (_searchResults.isNotEmpty ||
+          _currentQuery.isNotEmpty ||
+          tooShort != _searchTooShort) {
         setState(() {
           _searchResults = const [];
           _currentQuery = '';
+          _searchTooShort = tooShort;
         });
       }
       return;
     }
+    if (_searchTooShort) setState(() => _searchTooShort = false);
     _searchDebounce = Timer(const Duration(milliseconds: 300), () {
       _runSearch(q);
     });
@@ -233,6 +255,9 @@ class _GroupSetupPageState extends State<GroupSetupPage>
     if (_members.any((u) => u.id == user.id)) return;
     setState(() {
       _members = [..._members, user];
+      if (!_renderedMembers.any((u) => u.id == user.id)) {
+        _renderedMembers = [..._renderedMembers, user];
+      }
       _searchResults = _searchResults
           .where((u) => u.id != user.id)
           .toList(growable: false);
@@ -273,6 +298,7 @@ class _GroupSetupPageState extends State<GroupSetupPage>
   @override
   Widget build(BuildContext context) {
     final l10n = widget.theme.l10nOf(context);
+    final memberIds = _members.map((u) => u.id).toSet();
     return Scaffold(
       appBar: AppBar(
         title: Text(l10n.newGroup),
@@ -290,13 +316,16 @@ class _GroupSetupPageState extends State<GroupSetupPage>
                   ),
                 ),
               ),
-            )
-          else
-            IconButton(
+            ),
+          Visibility(
+            visible: !_creating,
+            maintainState: true,
+            child: IconButton(
               icon: const Icon(Icons.check),
               tooltip: l10n.create,
               onPressed: _canCreate ? _onCreate : null,
             ),
+          ),
         ],
       ),
       body: ListView(
@@ -350,29 +379,40 @@ class _GroupSetupPageState extends State<GroupSetupPage>
             ),
           ),
           const SizedBox(height: 8),
-          if (_members.isEmpty)
-            Padding(
+          // A slot rather than an `if`: the member rows below must not
+          // shift index when the hint comes and goes, or they rebuild.
+          Visibility(
+            visible: _members.isEmpty,
+            child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Text(
                 l10n.minCharsTemplate.replaceAll(
                   '{n}',
                   '${widget.minOtherUsers}',
                 ),
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ),
-          for (final member in _members)
-            ListTile(
-              leading: UserAvatar(
-                imageUrl: member.avatarUrl,
-                displayName: member.displayName,
-                size: 40,
-              ),
-              title: Text(member.displayName ?? member.id),
-              trailing: IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: l10n.cancel,
-                onPressed: () => _removeMember(member.id),
+          ),
+          for (final member in _renderedMembers)
+            Visibility(
+              visible: memberIds.contains(member.id),
+              maintainState: true,
+              child: ListTile(
+                leading: UserAvatar(
+                  imageUrl: member.avatarUrl,
+                  displayName: member.displayName,
+                  size: 40,
+                ),
+                title: Text(member.displayName ?? member.id),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close),
+                  tooltip: l10n.cancel,
+                  onPressed: () => _removeMember(member.id),
+                ),
               ),
             ),
           const SizedBox(height: 16),
@@ -393,8 +433,22 @@ class _GroupSetupPageState extends State<GroupSetupPage>
           // your contacts are already here").
           Builder(
             builder: (context) {
-              final memberIds = _members.map((u) => u.id).toSet();
-              final candidates = _searchController.text.trim().length >= 2
+              if (_searchTooShort) {
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                  child: Semantics(
+                    identifier: 'chat_group_search_too_short',
+                    child: Text(
+                      l10n.searchPromptTooShort(widget.minSearchQueryLength),
+                      textAlign: TextAlign.center,
+                      style: widget.theme.emptyStateSubtitleStyle,
+                    ),
+                  ),
+                );
+              }
+              final candidates =
+                  _searchController.text.trim().length >=
+                      widget.minSearchQueryLength
                   ? _searchResults
                   : _suggestions
                         .where((u) => !memberIds.contains(u.id))

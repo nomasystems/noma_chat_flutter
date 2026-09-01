@@ -168,6 +168,8 @@ class _AvatarPickerFieldState extends State<AvatarPickerField> {
       return _buildAvatar();
     }
     return Semantics(
+      key: const ValueKey('chat_avatar_picker_button'),
+      identifier: 'chat_avatar_picker_button',
       button: true,
       label: widget.kind == AvatarKind.user
           ? widget.theme.l10nOf(context).profilePhoto

@@ -25,7 +25,7 @@ on:
 # regen-goldens.yml so a future major can't silently diverge the
 # release build from what CI validated.
 env:
-  FLUTTER_VERSION: "3.x"
+  FLUTTER_VERSION: "3.44.x"
 
 jobs:
   test:

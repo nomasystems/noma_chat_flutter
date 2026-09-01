@@ -49,6 +49,17 @@ class ChatController extends ChangeNotifier {
   // explicitly (via [setIsGroup]) pins the group/1:1 decision so the aggregate
   // never degrades during hydration.
   bool? _isGroup;
+  // Whether the room's membership has actually been reported (see
+  // [setOtherUsers]). An empty [_otherUsers] before that means "not known
+  // yet", not "nobody else is here".
+  bool _rosterHydrated = false;
+  // How many members the room has, current user included, as reported by
+  // the room row (see [setMemberCount]). `null` means "not told yet".
+  int? _memberCount;
+  // The peer the room row remembers, if any (see [setRememberedPeerId]).
+  // `null` means "no peer reported", which is the only state in which a
+  // room with a single member can be the user's own.
+  String? _rememberedPeerId;
   final Set<String> _typingUserIds = {};
   final Map<String, Timer> _typingTimers = {};
   String? _draft;
@@ -420,6 +431,34 @@ class ChatController extends ChangeNotifier {
   /// from the number of known other members.
   bool get isGroup => _isGroup ?? _otherUsers.length > 1;
 
+  /// Whether this room has no members besides the current user — the
+  /// "message yourself" conversation. There the user is not an echo of the
+  /// audience, they ARE the audience, so their own receipts are the only
+  /// ones a bubble can ever get and must count.
+  ///
+  /// Deliberately narrow: it takes positive evidence that nobody else is
+  /// here — either a roster that was actually reported ([setOtherUsers])
+  /// and came back empty, or a member count of exactly one
+  /// ([setMemberCount]) — plus no known peer, no peer the room row
+  /// remembers ([setRememberedPeerId]) and a room not known to be a group.
+  /// Silence reads as "unknown", so a DM whose peer is still hydrating is
+  /// never mistaken for this.
+  ///
+  /// The remembered peer is what separates a room the user is alone in from
+  /// a DM the other side walked out of: signing out or deleting an account
+  /// drops that user from the room's member lists, so a perfectly ordinary
+  /// 1:1 ends up reporting a single member while still naming its peer.
+  ///
+  /// Two sources rather than one because listing a room's members is
+  /// optional: a host that opens rooms with `hydrateGroupMembers: false`
+  /// never reports a roster at all, and the count its room row already
+  /// carries is then the only evidence there is.
+  bool get isSelfConversation =>
+      (_rosterHydrated || _memberCount == 1) &&
+      _otherUsers.isEmpty &&
+      _rememberedPeerId == null &&
+      _isGroup != true;
+
   /// Pins whether this conversation is a group, independent of how many
   /// members have been hydrated yet. The adapter sets this from the room's
   /// type (`RoomListItem.isGroup`) as soon as the chat opens, so receipt
@@ -432,7 +471,35 @@ class ChatController extends ChangeNotifier {
     if (_recomputeAllReceipts()) notifyListeners();
   }
 
+  /// Reports how many members the room has, the current user included, as
+  /// the room row carries it. Feeds [isSelfConversation] so a room the
+  /// backend counts a single member into is recognised as one without its
+  /// member list ever being listed.
+  ///
+  /// A `null` count is "not reported" and leaves the last known one in
+  /// place: a row that arrives before its detail must not erase what a
+  /// previous one already established.
+  void setMemberCount(int? value) {
+    if (value == null || _memberCount == value) return;
+    _memberCount = value;
+  }
+
+  /// Reports the peer the room row remembers (`RoomListItem.otherUserId`),
+  /// the same evidence the room enricher guards its self-chat title with.
+  /// A room that names somebody else is a DM, however few members the
+  /// backend still counts into it, so this takes the [isSelfConversation]
+  /// exemption away.
+  ///
+  /// The current user's own id is not a peer, and a `null` or empty id is
+  /// "not reported" and leaves the last known peer in place — a row rebuilt
+  /// without its detail must not turn a DM into the user's own room.
+  void setRememberedPeerId(String? id) {
+    if (id == null || id.isEmpty || id == _currentUser.id) return;
+    _rememberedPeerId = id;
+  }
+
   void setOtherUsers(List<ChatUser> users) {
+    _rosterHydrated = true;
     final prevCount = _otherUsers.length;
     _otherUsers
       ..clear()
@@ -772,6 +839,12 @@ class ChatController extends ChangeNotifier {
     String fromUserId, {
     bool persistable = true,
   }) {
+    // A receipt attributed to the user themselves says nothing about the
+    // audience: own reads are echoed back over the wire and would otherwise
+    // land in [_readBy], where 1:1 aggregation reads "somebody read it".
+    // Unless the user is the whole audience — see [isSelfConversation].
+    final isOwnReceipt = fromUserId == currentUser.id;
+    if (isOwnReceipt && !isSelfConversation) return;
     // Keep the per-user breakdown clean too, not just the aggregate: an ack
     // recorded under a temporary id outlives the id itself, and would be
     // re-derived into a receipt by the next [_recomputeAllReceipts] — after
@@ -787,7 +860,13 @@ class ChatController extends ChangeNotifier {
     _setReceipt(
       messageId,
       _aggregateStatus(messageId),
-      persistable: persistable,
+      // An own receipt only counts because the room came back with nobody
+      // else in it, and that is the one piece of evidence that can turn
+      // out to have been a hydration miss. The cache merges receipts
+      // upward and can never lower a stored one, so this mark stays out of
+      // the write-back; the next room open re-derives it from the room's
+      // own read cursor, which carries the same exemption.
+      persistable: persistable && !isOwnReceipt,
     );
   }
 
@@ -813,6 +892,10 @@ class ChatController extends ChangeNotifier {
     required String messageId,
     int? seq,
   }) {
+    // The second writer of [_deliveredBy] and [_everAcknowledged]. Its
+    // callers filter the user's own echo before they get here; the guard
+    // makes that a property of the entry point rather than of who calls it.
+    if (userId == currentUser.id) return;
     final current = _deliveredCursors[userId];
     final currentSeq = current?.seq;
     if (currentSeq != null && seq != null && seq <= currentSeq) return;
