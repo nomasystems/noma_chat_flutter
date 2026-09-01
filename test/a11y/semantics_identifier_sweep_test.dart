@@ -69,24 +69,15 @@ void main() {
         if (_unnamedByDesign.containsKey(path)) continue;
         final exempt = _materialControlsNotYetNamed.containsKey(path);
         final source = _withoutComments(file.readAsStringSync());
-        final named = _namedSemanticsSpans(source);
-        for (final match in _materialButton.allMatches(source)) {
-          final args = _topLevelArguments(source, match.end - 1);
-          final callbacks = args
-              .where((arg) => _interactiveCallbacks.any(arg.startsWith))
-              .where((arg) => _argumentValue(arg) != 'null')
-              .map((arg) => arg.split(':').first)
-              .toList();
-          if (callbacks.isEmpty) continue;
-          if (named.any((span) => span.contains(match.start))) continue;
+        for (final button in _unnamedMaterialButtons(source)) {
           if (exempt) {
             deferred[path] = (deferred[path] ?? 0) + 1;
             continue;
           }
           final line =
-              '\n'.allMatches(source.substring(0, match.start)).length + 1;
+              '\n'.allMatches(source.substring(0, button.at)).length + 1;
           offenders.add(
-            '$path:$line ${match.group(1)} takes ${callbacks.join(', ')}',
+            '$path:$line ${button.widget} takes ${button.callbacks.join(', ')}',
           );
         }
       }
@@ -130,6 +121,40 @@ void main() {
     },
   );
 
+  test('an identifier speaks for one control, not for its whole subtree', () {
+    const named = '''
+Semantics(
+  identifier: unstarId,
+  child: IconButton(icon: Icon(Icons.star), onPressed: unstar),
+)''';
+    const row = '''
+Semantics(
+  identifier: rowId,
+  child: ListTile(
+    leading: IconButton(icon: Icon(Icons.close), onPressed: unstar),
+    trailing: Semantics(
+      identifier: unstarId,
+      child: Row(
+        children: [
+          IconButton(icon: Icon(Icons.star), onPressed: unstar),
+          IconButton(icon: Icon(Icons.close), onPressed: unstar),
+        ],
+      ),
+    ),
+  ),
+)''';
+
+    expect(_unnamedMaterialButtons(named), isEmpty);
+    expect(
+      _unnamedMaterialButtons(row).map((button) => button.at).toList(),
+      hasLength(2),
+      reason:
+          'A mute button under an identifier meant for another node — the '
+          'row, or the control the identifier already names — is unnamed to '
+          'a driver and has to be reported.',
+    );
+  });
+
   test('every exempted path still points at a real file', () {
     for (final path in [
       ..._unnamedByDesign.keys,
@@ -156,6 +181,11 @@ const Map<String, String> _unnamedByDesign = {};
 /// nameable. The count is exact in both directions: an eleventh button
 /// added to a file that defers ten fails the sweep, and so does a file whose
 /// buttons have since been named without lowering the number.
+///
+/// What it does not pin is WHICH buttons those are: naming one of a file's
+/// deferred buttons and adding a fresh mute one in the same change keeps the
+/// headcount, and the sweep stays green. The count catches growth, not
+/// substitution.
 const Map<String, _DeferredControls> _materialControlsNotYetNamed = {
   'lib/src/ui/widgets/blocked_users_view.dart': _DeferredControls(
     1,
@@ -228,8 +258,66 @@ const List<String> _interactiveCallbacks = [
   'onSelected:',
 ];
 
+/// Material buttons in [source] that take a callback and that no identifier
+/// speaks for, in source order.
+List<_UnnamedButton> _unnamedMaterialButtons(String source) {
+  final named = _namedSemanticsSpans(source);
+  final claimed = <int>{};
+  final unnamed = <_UnnamedButton>[];
+  for (final match in _materialButton.allMatches(source)) {
+    final args = _topLevelArguments(source, match.end - 1);
+    final callbacks = args
+        .where((arg) => _interactiveCallbacks.any(arg.startsWith))
+        .where((arg) => _argumentValue(arg) != 'null')
+        .map((arg) => arg.split(':').first)
+        .toList();
+    if (callbacks.isEmpty) continue;
+    final owner = _identifierOwnerOf(named, match.start);
+    if (owner >= 0 && claimed.add(owner)) continue;
+    unnamed.add(_UnnamedButton(match.start, match.group(1) ?? '', callbacks));
+  }
+  return unnamed;
+}
+
+/// One Material button the sweep found without an identifier.
+class _UnnamedButton {
+  const _UnnamedButton(this.at, this.widget, this.callbacks);
+
+  /// Character offset of the constructor in the source.
+  final int at;
+
+  /// Constructor name, e.g. `IconButton`.
+  final String widget;
+
+  /// Interactive callbacks it takes.
+  final List<String> callbacks;
+}
+
+/// Index in [named] of the identifier that speaks for the control at
+/// [offset], or -1 when no identifier does.
+///
+/// The owner is the innermost named span around the control, and only when
+/// that span wraps nothing else that publishes a name: an identifier on an
+/// outer node names that node (a row, a toolbar), not whichever mute button
+/// happens to sit under it. Callers claim the owner once, so a second
+/// control under the same identifier is reported instead of inheriting it.
+int _identifierOwnerOf(List<Range> named, int offset) {
+  var owner = -1;
+  for (var i = 0; i < named.length; i++) {
+    if (!named[i].contains(offset)) continue;
+    if (owner < 0 || named[i].start > named[owner].start) owner = i;
+  }
+  if (owner < 0) return -1;
+  final span = named[owner];
+  for (var i = 0; i < named.length; i++) {
+    if (i == owner) continue;
+    if (named[i].start > span.start && named[i].end <= span.end) return -1;
+  }
+  return owner;
+}
+
 /// Character ranges covered by a `Semantics(` call that already publishes an
-/// identifier, so a button nested inside one is not reported twice.
+/// identifier.
 List<Range> _namedSemanticsSpans(String source) {
   final spans = <Range>[];
   for (final match in _semanticsCall.allMatches(source)) {

@@ -329,8 +329,10 @@ class _NomaChatViewState extends State<NomaChatView>
       _roomWasListed = true;
       // Pin the group/1:1 decision before member hydration runs so receipt
       // aggregation never collapses a group to 1:1 while its member list
-      // loads. Pinned once, here: a row rebuilt without its detail reports
-      // `isGroup: false` for a group it simply has not learned about yet.
+      // loads. The negative answer is only pinned here, on bind, where it is
+      // the starting assumption: a row rebuilt without its detail reports
+      // `isGroup: false` for a group it simply has not learned about yet, so
+      // only [_pinRoomFacts]' positive re-affirmation may follow it.
       controller.setIsGroup(roomItem.isGroup);
       _pinRoomFacts(roomItem);
     }
@@ -359,8 +361,8 @@ class _NomaChatViewState extends State<NomaChatView>
     }
   }
 
-  /// Pins the room's reported member count and remembered peer onto the
-  /// controller.
+  /// Pins the room's group-ness, reported member count and remembered peer
+  /// onto the controller.
   ///
   /// Together they are what lets a room with nobody else in it be
   /// recognised as such ([ChatController.isSelfConversation]) on a host that
@@ -368,15 +370,24 @@ class _NomaChatViewState extends State<NomaChatView>
   /// roster is the one piece of evidence that never arrives. The count alone
   /// is not enough: a DM whose peer signed out or deleted their account is
   /// dropped from the room's member lists and reports a single member too,
-  /// and only the peer the row still names tells the two apart.
+  /// and only the peer the row still names tells the two apart. Neither term
+  /// covers a group the user is alone in, which reports one member and names
+  /// no peer because a group has none — only its group-ness separates it from
+  /// the user's own room.
   ///
   /// Re-applied on every room-list notification, not only on bind: a room
-  /// opened before its detail landed carries no count yet. A row with no
-  /// count and no peer leaves the last ones alone, so this can only ever add
-  /// evidence.
+  /// opened before its detail landed carries no count yet, and reports
+  /// `isGroup: false` for a group it has not learned about either. A row with
+  /// no count and no peer leaves the last ones alone, and group-ness is
+  /// re-affirmed in one direction only — `false` is absence of evidence, so a
+  /// later detail may add the group but a detail-less row may never take one
+  /// away. This can therefore only ever add evidence.
   void _pinRoomFacts(RoomListItem room) {
-    _controller
-      ?..setMemberCount(room.memberCount)
+    final controller = _controller;
+    if (controller == null) return;
+    if (room.isGroup) controller.setIsGroup(true);
+    controller
+      ..setMemberCount(room.memberCount)
       ..setRememberedPeerId(room.otherUserId);
   }
 

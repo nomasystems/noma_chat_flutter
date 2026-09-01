@@ -1053,6 +1053,75 @@ void main() {
       expect(controller.isSelfConversation, isFalse);
     });
 
+    testWidgets('a group the user is alone in, opened before its detail, is '
+        'not that room either', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(id: 'room1', name: 'Plan'),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      controller.setMessages([
+        ChatMessage(id: 'm1', from: 'u1', timestamp: DateTime(2024, 1, 1)),
+      ]);
+
+      adapter.roomListController.updateRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Plan',
+          isGroup: true,
+          memberCount: 1,
+        ),
+      );
+      await tester.pump();
+
+      expect(controller.isSelfConversation, isFalse);
+      controller.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      expect(controller.receiptStatuses['m1'], isNull);
+    });
+
+    testWidgets('a later row without its detail does not take the group '
+        'away', (tester) async {
+      adapter.roomListController.addRoom(
+        const RoomListItem(
+          id: 'room1',
+          name: 'Plan',
+          isGroup: true,
+          memberCount: 1,
+        ),
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          NomaChatView(
+            roomId: 'room1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+          ),
+        ),
+      );
+      await tester.pump();
+
+      adapter.roomListController.updateRoom(
+        const RoomListItem(id: 'room1', name: 'Plan'),
+      );
+      await tester.pump();
+
+      final controller = adapter.getChatController('room1');
+      expect(controller.isGroup, isTrue);
+      expect(controller.isSelfConversation, isFalse);
+    });
+
     testWidgets('the room facts are pinned before the open marks the room '
         'read', (tester) async {
       adapter.roomListController.addRoom(

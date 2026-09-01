@@ -47,6 +47,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
   ChatTheme get noticeTheme => widget.theme;
 
   List<String>? _blocked;
+  List<String> _rendered = const [];
   bool _loading = false;
   String? _error;
 
@@ -71,8 +72,30 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
       (paginated) => setState(() {
         _loading = false;
         _blocked = paginated.items;
+        _rendered = _pinHiddenRows(paginated.items);
       }),
     );
+  }
+
+  /// Merges [live] into the rendered list: ids no longer blocked keep the
+  /// slot they had, and the live ids fill the slots that are left.
+  List<String> _pinHiddenRows(List<String> live) {
+    final liveIds = live.toSet();
+    final pinned = <int, String>{};
+    for (var i = 0; i < _rendered.length; i++) {
+      final id = _rendered[i];
+      if (!liveIds.contains(id)) pinned[i] = id;
+    }
+    if (pinned.isEmpty) return live;
+    final rows = <String>[];
+    final queue = List<String>.of(live);
+    var slot = 0;
+    while (queue.isNotEmpty || pinned.containsKey(slot)) {
+      final hidden = pinned[slot];
+      rows.add(hidden ?? queue.removeAt(0));
+      slot++;
+    }
+    return rows;
   }
 
   Future<void> _confirmUnblock(String userId) async {
@@ -120,44 +143,55 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
       );
     }
     final blocked = _blocked ?? const <String>[];
-    if (blocked.isEmpty) {
+    if (_rendered.isEmpty) {
       return Center(child: Text(l10n.blockedUsersEmpty));
     }
+    final liveIds = blocked.toSet();
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.separated(
-        itemCount: blocked.length,
-        separatorBuilder: (_, _) => const Divider(height: 0),
-        itemBuilder: (context, index) {
-          final userId = blocked[index];
-          final resolvedName = widget.displayNameResolver?.call(userId);
-          final displayName =
-              (resolvedName != null && resolvedName.trim().isNotEmpty)
-              ? resolvedName.trim()
-              : userId;
-          final avatarUrl = widget.avatarUrlResolver?.call(userId);
-          return ListTile(
-            leading: UserAvatar(
-              imageUrl: avatarUrl,
-              displayName: displayName,
-              size: 40,
-              theme: widget.theme,
-              excludeSemantics: true,
-            ),
-            title: Text(displayName),
-            // Subtitle used to expose the raw UUID under the display
-            // name as "@<uuid>". The id is internal-by-design — surfacing
-            // it as a pseudo-handle is misleading (it's not a usable
-            // mention) and clutters the row. Drop it: when we have a
-            // friendly name we just show the name; when we don't, the
-            // title already renders the id alone.
-            subtitle: null,
-            trailing: TextButton(
-              onPressed: () => _confirmUnblock(userId),
-              child: Text(l10n.unblock),
-            ),
-          );
-        },
+      child: Stack(
+        children: [
+          ListView.separated(
+            itemCount: _rendered.length,
+            separatorBuilder: (_, _) => const Divider(height: 0),
+            itemBuilder: (context, index) {
+              final userId = _rendered[index];
+              final resolvedName = widget.displayNameResolver?.call(userId);
+              final displayName =
+                  (resolvedName != null && resolvedName.trim().isNotEmpty)
+                  ? resolvedName.trim()
+                  : userId;
+              final avatarUrl = widget.avatarUrlResolver?.call(userId);
+              return Visibility(
+                key: ValueKey(userId),
+                visible: liveIds.contains(userId),
+                maintainState: true,
+                child: ListTile(
+                  leading: UserAvatar(
+                    imageUrl: avatarUrl,
+                    displayName: displayName,
+                    size: 40,
+                    theme: widget.theme,
+                    excludeSemantics: true,
+                  ),
+                  title: Text(displayName),
+                  // Subtitle used to expose the raw UUID under the display
+                  // name as "@<uuid>". The id is internal-by-design —
+                  // surfacing it as a pseudo-handle is misleading (it's not
+                  // a usable mention) and clutters the row. Drop it: when we
+                  // have a friendly name we just show the name; when we
+                  // don't, the title already renders the id alone.
+                  subtitle: null,
+                  trailing: TextButton(
+                    onPressed: () => _confirmUnblock(userId),
+                    child: Text(l10n.unblock),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (blocked.isEmpty) Center(child: Text(l10n.blockedUsersEmpty)),
+        ],
       ),
     );
   }

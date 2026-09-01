@@ -148,8 +148,6 @@ class _StarredMessagesViewState extends State<StarredMessagesView> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = widget.theme.l10nOf(context);
-    final df = widget.dateFormat ?? DateFormat.yMMMd().add_jm();
     return FutureBuilder<List<StarredMessage>>(
       future: _future,
       builder: (context, snapshot) {
@@ -162,66 +160,91 @@ class _StarredMessagesViewState extends State<StarredMessagesView> {
             ),
           );
         }
-        final items = (snapshot.data ?? const <StarredMessage>[])
-            .where((s) => !_removed.contains(s.messageId))
-            .toList();
-        if (items.isEmpty) {
-          return widget.emptyBuilder?.call(context) ??
+        final all = snapshot.data ?? const <StarredMessage>[];
+        if (all.isEmpty) return _empty(context);
+        final hasVisibleRows = all.any((s) => !_removed.contains(s.messageId));
+        return Stack(
+          children: [
+            Visibility(
+              visible: hasVisibleRows,
+              maintainState: true,
+              child: _rows(context, all),
+            ),
+            if (!hasVisibleRows) _empty(context),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _empty(BuildContext context) =>
+      widget.emptyBuilder?.call(context) ??
+      Semantics(
+        identifier: 'chat_starred_empty',
+        child: Center(
+          key: const ValueKey('chat_starred_empty'),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Text(
+              widget.theme.l10nOf(context).noStarredMessages,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Theme.of(context).hintColor),
+            ),
+          ),
+        ),
+      );
+
+  Widget _rows(BuildContext context, List<StarredMessage> all) {
+    final l10n = widget.theme.l10nOf(context);
+    final df = widget.dateFormat ?? DateFormat.yMMMd().add_jm();
+    return ListView.builder(
+      itemCount: all.length,
+      itemBuilder: (context, index) {
+        final starred = all[index];
+        final rowId = starredRowSemanticsId(starred.messageId);
+        final unstarId = starredUnstarSemanticsId(starred.messageId);
+        final room =
+            widget.roomTitleFor?.call(starred.roomId) ?? starred.roomId;
+        final body = starred.preview ?? room;
+        final custom = widget.itemBuilder?.call(context, starred);
+        return Visibility(
+          key: ValueKey('${rowId}_slot'),
+          visible: !_removed.contains(starred.messageId),
+          maintainState: true,
+          child:
+              custom ??
               Semantics(
-                identifier: 'chat_starred_empty',
-                child: Center(
-                  key: const ValueKey('chat_starred_empty'),
-                  child: Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Text(
-                      l10n.noStarredMessages,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Theme.of(context).hintColor),
-                    ),
+                identifier: rowId,
+                child: ListTile(
+                  key: ValueKey(rowId),
+                  isThreeLine: false,
+                  title: Text(
+                    body,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              );
-        }
-        return ListView.builder(
-          itemCount: items.length,
-          itemBuilder: (context, index) {
-            final starred = items[index];
-            final custom = widget.itemBuilder?.call(context, starred);
-            if (custom != null) return custom;
-            final room =
-                widget.roomTitleFor?.call(starred.roomId) ?? starred.roomId;
-            final body = starred.preview ?? room;
-            final rowId = starredRowSemanticsId(starred.messageId);
-            final unstarId = starredUnstarSemanticsId(starred.messageId);
-            return Semantics(
-              identifier: rowId,
-              child: ListTile(
-                key: ValueKey(rowId),
-                isThreeLine: false,
-                title: Text(body, maxLines: 2, overflow: TextOverflow.ellipsis),
-                subtitle: Text(
-                  '$room  ·  ${df.format(starred.starredAt.toLocal())}',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: widget.onUnstar == null
-                    ? null
-                    : Semantics(
-                        identifier: unstarId,
-                        child: IconButton(
-                          key: ValueKey(unstarId),
-                          icon: const Icon(Icons.star),
-                          color: Colors.amber,
-                          tooltip: l10n.unstar,
-                          onPressed: () => _confirmUnstar(starred),
+                  subtitle: Text(
+                    '$room  ·  ${df.format(starred.starredAt.toLocal())}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  trailing: widget.onUnstar == null
+                      ? null
+                      : Semantics(
+                          identifier: unstarId,
+                          child: IconButton(
+                            key: ValueKey(unstarId),
+                            icon: const Icon(Icons.star),
+                            color: Colors.amber,
+                            tooltip: l10n.unstar,
+                            onPressed: () => _confirmUnstar(starred),
+                          ),
                         ),
-                      ),
-                onTap: widget.onOpen == null
-                    ? null
-                    : () => widget.onOpen!(starred),
+                  onTap: widget.onOpen == null
+                      ? null
+                      : () => widget.onOpen!(starred),
+                ),
               ),
-            );
-          },
         );
       },
     );
