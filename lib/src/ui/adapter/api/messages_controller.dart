@@ -65,7 +65,12 @@ interface class ChatMessagesController {
       final cachedReceipts = await _cachedRoomReceipts(roomId);
       final cursorTimestamps = cachedReceipts.isEmpty
           ? const <String, DateTime>{}
-          : await _cursorTimestamps(roomId, cachedReceipts, visible);
+          : await _cursorTimestamps(
+              roomId,
+              cachedReceipts,
+              visible,
+              includeOwnCursor: controller.isSelfConversation,
+            );
       if (_a._disposed) return const ChatSuccess(<ChatMessage>[]);
       controller.addMessages(visible);
       _a._loadReactionsFromMessages(controller, visible);
@@ -1860,6 +1865,7 @@ interface class ChatMessagesController {
       roomId,
       receipts,
       controller.messages,
+      includeOwnCursor: controller.isSelfConversation,
     );
     if (_a._disposed) return;
     _applyRoomReceipts(roomId, controller, receipts, cachedTimestamps);
@@ -1897,11 +1903,12 @@ interface class ChatMessagesController {
   Future<Map<String, DateTime>> _cursorTimestamps(
     String roomId,
     List<ReadReceipt> receipts,
-    List<ChatMessage> window,
-  ) async {
+    List<ChatMessage> window, {
+    bool includeOwnCursor = false,
+  }) async {
     final currentUserId = _a.currentUser.id;
     final needed = receipts.any((r) {
-      if (r.userId == currentUserId) return false;
+      if (r.userId == currentUserId && !includeOwnCursor) return false;
       final id = r.lastReadMessageId;
       return id != null && !window.any((m) => m.id == id);
     });
@@ -1919,8 +1926,15 @@ interface class ChatMessagesController {
     Map<String, DateTime> cachedTimestamps,
   ) {
     final currentUserId = _a.currentUser.id;
+    // The user's own cursor says what THIS user read, not what an audience
+    // received, so it is dropped — except in a room with nobody else in it,
+    // where the user IS the audience and their cursor is the only receipt
+    // those messages can ever get. Same exemption the live receipt frames
+    // carry, so reopening the room re-derives the mark the session that
+    // received the echo deliberately kept out of the cache.
+    final ownCursorCounts = controller.isSelfConversation;
     for (final r in receipts) {
-      if (r.userId == currentUserId) continue;
+      if (r.userId == currentUserId && !ownCursorCounts) continue;
       final lastDeliveredId = r.lastDeliveredMessageId;
       if (lastDeliveredId != null) {
         controller.applyDeliveryCursor(

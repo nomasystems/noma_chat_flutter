@@ -383,18 +383,33 @@ class ChatEventRouter {
         :final fromUserId,
       ):
         final receiptController = _controllers[roomId];
-        receiptController?.updateReceipt(
-          messageId,
-          status,
-          fromUserId: fromUserId,
-        );
-        _persistReceipts(roomId, receiptController);
-        if (receiptController == null) {
-          unawaited(
-            _persistClosedRoomCursor(roomId, fromUserId, messageId, status),
+        // The backend echoes the user's own `markAsRead` back to every one
+        // of their connections as this same frame. It is evidence about
+        // what THIS user read, never about a peer receiving anything, so
+        // it must not reach the bubble aggregation or the room-list tick:
+        // fed there it would report every own message in the room as read
+        // by someone the instant the user opens or writes in it.
+        final isSelfEcho = fromUserId == _currentUser().id;
+        // Except in a room with nobody else in it ("message yourself"),
+        // where the user is not echoing the audience, they ARE it: their own
+        // read is the only receipt that bubble can ever get. The controller
+        // holds such a mark back from the cache on its own.
+        final ownReadIsEvidence =
+            isSelfEcho && (receiptController?.isSelfConversation ?? false);
+        if (!isSelfEcho || ownReadIsEvidence) {
+          receiptController?.updateReceipt(
+            messageId,
+            status,
+            fromUserId: fromUserId,
           );
+          _persistReceipts(roomId, receiptController);
+          if (receiptController == null) {
+            unawaited(
+              _persistClosedRoomCursor(roomId, fromUserId, messageId, status),
+            );
+          }
+          _updateRoomListReceipt(roomId, messageId, status);
         }
-        _updateRoomListReceipt(roomId, messageId, status);
         // `markAsRead` on ANY of the user's own devices flags the whole
         // room read up to the latest message, and the backend echoes it
         // back as this same `receipt_updated` frame to every connection —
@@ -402,7 +417,7 @@ class ChatEventRouter {
         // second device (e.g. a tablet) never learns the room was read
         // elsewhere and keeps showing a stale badge. Mirrors the same
         // optimistic zero `setActiveRoom` applies on the reading device.
-        if (status == ReceiptStatus.read && fromUserId == _currentUser().id) {
+        if (status == ReceiptStatus.read && isSelfEcho) {
           _updateRoomUnread(roomId, 0);
         }
       case MessageDeliveredEvent():
@@ -523,6 +538,10 @@ class ChatEventRouter {
   /// through the confirmer's DM mapping; unresolvable events are
   /// dropped — the next room sync re-derives the listing tick anyway.
   void _onMessageDelivered(MessageDeliveredEvent event) {
+    // Delivery to the user's own devices is not a peer's evidence — the
+    // same rule [_persistClosedRoomCursor] already applies on the closed
+    // branch, kept here so the open room and the row cannot disagree.
+    if (event.userId == _currentUser().id) return;
     final resolvedRoomId = event.roomId ?? _dmContacts.roomIdFor(event.userId);
     if (resolvedRoomId == null) return;
     final controller = _controllers[resolvedRoomId];

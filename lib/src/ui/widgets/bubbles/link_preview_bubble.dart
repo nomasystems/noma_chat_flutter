@@ -4,6 +4,15 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../theme/chat_theme.dart';
 import '../../utils/safe_url.dart';
 
+/// Name the tap-to-open target of the link preview card for [messageId]
+/// answers to.
+///
+/// Lives inside a [MessageBubble], so the `ValueKey` half is the reachable
+/// one and the `identifier` half only reaches a native dump when the card is
+/// rendered standalone.
+String linkPreviewBubbleSemanticsId(String messageId) =>
+    'chat_message_${messageId}_link_preview';
+
 /// Bubble decoration that renders the OpenGraph-style preview of a link
 /// (image, title, description) above the underlying text bubble.
 ///
@@ -23,6 +32,7 @@ class LinkPreviewBubble extends StatelessWidget {
     this.imageUrl,
     this.isOutgoing = false,
     this.theme = ChatTheme.defaults,
+    this.messageId,
   });
 
   final String url;
@@ -32,12 +42,24 @@ class LinkPreviewBubble extends StatelessWidget {
   final bool isOutgoing;
   final ChatTheme theme;
 
+  /// Id of the message this card decorates. Names the tap-to-open target
+  /// ([linkPreviewBubbleSemanticsId]); `null` (default) leaves it unnamed
+  /// rather than publishing a name every preview in the room answers to —
+  /// which is what the composer's own preview does, since it decorates a
+  /// message that does not exist yet.
+  final String? messageId;
+
   @override
   Widget build(BuildContext context) {
     final uri = webUrlOrNull(url);
     if (uri == null) return const SizedBox.shrink();
     final domain = uri.host;
+    final id = messageId == null
+        ? null
+        : linkPreviewBubbleSemanticsId(messageId!);
     return Semantics(
+      key: id == null ? null : ValueKey(id),
+      identifier: id,
       link: true,
       label: title ?? domain,
       child: GestureDetector(

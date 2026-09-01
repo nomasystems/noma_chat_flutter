@@ -168,4 +168,195 @@ void main() {
       expect(result!.memberIds, contains('u1'));
     });
   });
+
+  group('GroupSetupPage — member search minimum', () {
+    testWidgets('one character says how many are needed instead of falling '
+        'back to the contact suggestions', (tester) async {
+      await client.contacts.add('u2');
+      adapter.cacheUsers(const [ChatUser(id: 'u2', displayName: 'Bob')]);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+      expect(find.text('Bob'), findsOneWidget);
+
+      await tester.enterText(find.byType(TextField).last, 'b');
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.searchPromptTooShort(2)), findsOneWidget);
+      expect(find.text('Bob'), findsNothing);
+    });
+
+    testWidgets('the copy names the configured minimum', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GroupSetupPage(adapter: adapter, minSearchQueryLength: 4),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).last, 'bob');
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.searchPromptTooShort(4)), findsOneWidget);
+    });
+
+    testWidgets('clearing the field brings the suggestions back', (
+      tester,
+    ) async {
+      await client.contacts.add('u2');
+      adapter.cacheUsers(const [ChatUser(id: 'u2', displayName: 'Bob')]);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).last, 'b');
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, '');
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.searchPromptTooShort(2)), findsNothing);
+      expect(find.text('Bob'), findsOneWidget);
+    });
+  });
+
+  group('GroupSetupPage — controls survive their own press', () {
+    Finder tooltipOf(Finder icon) => find.ancestor(
+      of: icon,
+      matching: find.byType(Tooltip, skipOffstage: false),
+    );
+
+    testWidgets('removing a member hides its row instead of tearing down the '
+        'button that was pressed', (tester) async {
+      await tester.pumpWidget(host(initialMembers: const [alice]));
+      await tester.pumpAndSettle();
+
+      final removeTooltip = tooltipOf(
+        find.byIcon(Icons.close, skipOffstage: false),
+      );
+      final before = tester.state<TooltipState>(removeTooltip);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsNothing);
+      expect(find.byIcon(Icons.close), findsNothing);
+      expect(find.byIcon(Icons.close, skipOffstage: false), findsOneWidget);
+      expect(
+        identical(tester.state<TooltipState>(removeTooltip), before),
+        isTrue,
+      );
+    });
+
+    testWidgets('the create button survives its own press while the request '
+        'is in flight', (tester) async {
+      final slowClient = _SlowRoomsClient(currentUserId: 'me');
+      final slowAdapter = ChatUiAdapter(client: slowClient, currentUser: me);
+      slowAdapter.start();
+      addTearDown(() async {
+        await slowAdapter.dispose();
+        await slowClient.dispose();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () => GroupSetupPage.show(
+                  context: context,
+                  adapter: slowAdapter,
+                  initialMembers: const [alice],
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'Team');
+      await tester.pump();
+
+      final createTooltip = tooltipOf(
+        find.byIcon(Icons.check, skipOffstage: false),
+      );
+      final before = tester.state<TooltipState>(createTooltip);
+
+      await tester.tap(find.byIcon(Icons.check));
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsNothing);
+      expect(find.byIcon(Icons.check, skipOffstage: false), findsOneWidget);
+      expect(
+        identical(tester.state<TooltipState>(createTooltip), before),
+        isTrue,
+      );
+
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('re-adding a dropped member reuses its hidden row', (
+      tester,
+    ) async {
+      await client.contacts.add('u1');
+      adapter.cacheUsers(const [alice]);
+
+      await tester.pumpWidget(host(initialMembers: const [alice]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(find.text('${l10n.groupMembers} (0)'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.add));
+      await tester.pumpAndSettle();
+
+      expect(find.text('${l10n.groupMembers} (1)'), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      expect(find.byIcon(Icons.close, skipOffstage: false), findsOneWidget);
+    });
+  });
+}
+
+/// A [MockRoomsApi] whose `create` only completes after a delay, so the
+/// page renders at least one frame in its in-flight state.
+class _SlowRoomsApi extends MockRoomsApi {
+  _SlowRoomsApi(super.client);
+
+  @override
+  Future<ChatResult<ChatRoom>> create({
+    required RoomAudience audience,
+    bool allowInvitations = false,
+    String? name,
+    String? subject,
+    List<String>? members,
+    String? avatarUrl,
+    Map<String, dynamic>? custom,
+    bool forceGroup = false,
+  }) async {
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    return super.create(
+      audience: audience,
+      allowInvitations: allowInvitations,
+      name: name,
+      subject: subject,
+      members: members,
+      avatarUrl: avatarUrl,
+      custom: custom,
+      forceGroup: forceGroup,
+    );
+  }
+}
+
+class _SlowRoomsClient extends MockChatClient {
+  _SlowRoomsClient({required super.currentUserId});
+
+  _SlowRoomsApi? _slowRooms;
+
+  @override
+  MockRoomsApi get rooms => _slowRooms ??= _SlowRoomsApi(this);
 }

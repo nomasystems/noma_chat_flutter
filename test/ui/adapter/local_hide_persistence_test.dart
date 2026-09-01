@@ -131,10 +131,11 @@ void main() {
       final adapter = bareAdapter();
       final controller = adapter.getChatController('r1');
       await adapter.messages.load('r1');
-      expect(controller.messages.map((m) => m.id), [
-        'm-keep',
-        'm-gone',
-      ], reason: 'both rows come down from the server to begin with');
+      expect(
+        controller.messages.map((m) => m.id),
+        ['m-keep', 'm-gone'],
+        reason: 'both rows come down from the server to begin with',
+      );
 
       await adapter.deleteMessageLocally('r1', 'm-gone');
       await Future<void>.delayed(const Duration(milliseconds: 20));

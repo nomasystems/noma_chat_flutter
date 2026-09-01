@@ -241,6 +241,12 @@ class _NomaChatViewState extends State<NomaChatView>
   String? _unreadBoundaryMessageId;
   String? _seededInitialMessageId;
   bool _autoLeft = false;
+  // Latched the first time a session teardown is observed. The controllers
+  // this view paints are disposed as part of that teardown and never come
+  // back, so the placeholder has to survive the wipe itself: a rebuild that
+  // arrives afterwards — a parent rebuilding, a changed title, a rotation —
+  // would otherwise hand `ChatView` a dead notifier to listen to.
+  bool _sessionTornDown = false;
 
   // The local user's own row in the room's receipt list — the read cursor
   // the divider is anchored on. `null` once resolved means the server had
@@ -319,11 +325,14 @@ class _NomaChatViewState extends State<NomaChatView>
 
     // Pre-fetch the DM peer so the app bar avatar resolves on first build.
     final roomItem = adapter.roomListController.getRoomById(widget.roomId);
-    // Pin the group/1:1 decision before member hydration runs so receipt
-    // aggregation never collapses a group to 1:1 while its member list loads.
     if (roomItem != null) {
       _roomWasListed = true;
+      // Pin the group/1:1 decision before member hydration runs so receipt
+      // aggregation never collapses a group to 1:1 while its member list
+      // loads. Pinned once, here: a row rebuilt without its detail reports
+      // `isGroup: false` for a group it simply has not learned about yet.
       controller.setIsGroup(roomItem.isGroup);
+      _pinRoomFacts(roomItem);
     }
     // A draft DM has no room-list entry yet, so `roomItem` is null and the
     // AppBar avatar renders as a "?" placeholder. Fall back to the draft
@@ -348,6 +357,27 @@ class _NomaChatViewState extends State<NomaChatView>
     if (widget.hydrateGroupMembers) {
       unawaited(_seedGroupMembers());
     }
+  }
+
+  /// Pins the room's reported member count and remembered peer onto the
+  /// controller.
+  ///
+  /// Together they are what lets a room with nobody else in it be
+  /// recognised as such ([ChatController.isSelfConversation]) on a host that
+  /// never lists members at all — `hydrateGroupMembers: false` — where the
+  /// roster is the one piece of evidence that never arrives. The count alone
+  /// is not enough: a DM whose peer signed out or deleted their account is
+  /// dropped from the room's member lists and reports a single member too,
+  /// and only the peer the row still names tells the two apart.
+  ///
+  /// Re-applied on every room-list notification, not only on bind: a room
+  /// opened before its detail landed carries no count yet. A row with no
+  /// count and no peer leaves the last ones alone, so this can only ever add
+  /// evidence.
+  void _pinRoomFacts(RoomListItem room) {
+    _controller
+      ?..setMemberCount(room.memberCount)
+      ..setRememberedPeerId(room.otherUserId);
   }
 
   /// The local user's own face is painted inside their own voice notes, and
@@ -435,12 +465,24 @@ class _NomaChatViewState extends State<NomaChatView>
 
   void _onRoomListChanged() {
     if (!mounted) return;
+    // A session teardown empties the list and disposes the controllers behind
+    // it in the same breath, so this notification is the last one that can
+    // still be trusted to describe rooms. Rebuilding on it paints the view
+    // against a ChatController that is already gone. Recorded, not just
+    // skipped: the flag outlives the wipe, which `disconnect` and [signOut]
+    // both lower again on their way out.
+    if (widget.adapter.isTearingDown) {
+      _sessionTornDown = true;
+      return;
+    }
     setState(() {});
     if (_autoLeft) return;
     final roomId = _controller?.roomId;
     if (roomId == null) return;
-    if (widget.adapter.roomListController.getRoomById(roomId) != null) {
+    final row = widget.adapter.roomListController.getRoomById(roomId);
+    if (row != null) {
       _roomWasListed = true;
+      _pinRoomFacts(row);
       return;
     }
     // A room the list has NEVER carried has not been removed — it has not
@@ -454,6 +496,12 @@ class _NomaChatViewState extends State<NomaChatView>
 
   void _leaveRoom() {
     if (_autoLeft || !mounted) return;
+    // A session teardown empties the room list too, and from here that looks
+    // exactly like the room being removed. Leaving on it fired the host's
+    // "this conversation is no longer available" flow *after* the logout had
+    // already navigated away, stranding a modal on top of the next screen —
+    // and left this view rebuilding against an adapter that was already gone.
+    if (widget.adapter.isTearingDown) return;
     // Mark immediately so re-entrant triggers (the room-list notify and the
     // onRoomRemoved callback fire back-to-back inside one WS event dispatch)
     // collapse to a single leave.
@@ -467,6 +515,10 @@ class _NomaChatViewState extends State<NomaChatView>
     // on a clean tree.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Re-checked after the frame: a teardown that starts between the
+      // removal and the callback would otherwise hand the host a leave for a
+      // session it has already torn down.
+      if (widget.adapter.isTearingDown) return;
       if (widget.onRoomLeft != null) {
         widget.onRoomLeft!();
       } else {
@@ -1149,7 +1201,13 @@ class _NomaChatViewState extends State<NomaChatView>
     // rebuild `ChatView` against a disposed ChatController — its
     // `ListenableBuilder` would re-subscribe to a dead notifier. Render the
     // neutral placeholder for the single frame until the deferred pop lands.
-    if (controller == null || _autoLeft) {
+    //
+    // A session teardown disposes the same controller without ever setting
+    // `_autoLeft` — the leave is suppressed precisely because the room did
+    // not go away — so it needs its own term here, or the first rebuild
+    // after a `disconnect(clearRooms: true)` / [ChatUiAdapter.signOut] throws
+    // "A ChatController was used after being disposed".
+    if (controller == null || _autoLeft || _sessionTornDown) {
       return _withOperationFeedback(
         context,
         Scaffold(

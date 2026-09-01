@@ -44,7 +44,12 @@ class NotParticipatingBanner extends StatelessWidget {
       child: Text(
         resolved,
         textAlign: TextAlign.center,
-        style: TextStyle(color: Colors.grey[600], fontSize: 13),
+        style: TextStyle(
+          color: theme.input.backgroundColor == null
+              ? DefaultPalette.mutedSurfaceText
+              : null,
+          fontSize: 13,
+        ),
       ),
     );
   }

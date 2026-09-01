@@ -4,6 +4,13 @@ import '../models/reaction_user.dart';
 import '../theme/chat_theme.dart';
 import 'user_avatar.dart';
 
+/// Name the "remove my reaction" control of one emoji answers to, both as its
+/// `ValueKey` and as its `Semantics(identifier:)`. Scoped by emoji, like
+/// `chat_reaction_<emoji>` and `chat_reaction_picker_<emoji>`: the sheet lists
+/// one row per reaction the current user left, so a single flat name would be
+/// published as many times as they reacted.
+String reactionRemoveSemanticsId(String emoji) => 'chat_reaction_remove_$emoji';
+
 /// Signature for a custom presenter of the reaction detail sheet. Receives the
 /// already-built content widget and is responsible for displaying it in the
 /// host app's preferred bottom sheet style. When `null`, [ReactionDetailSheet]
@@ -257,6 +264,8 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
               if (isCurrentUser) ...[
                 const SizedBox(width: 8),
                 Semantics(
+                  key: ValueKey(reactionRemoveSemanticsId(item.emoji)),
+                  identifier: reactionRemoveSemanticsId(item.emoji),
                   label: widget.theme.l10nOf(context).removeReaction,
                   button: true,
                   child: IconButton(

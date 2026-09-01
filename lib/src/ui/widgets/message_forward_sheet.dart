@@ -303,7 +303,11 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
                           child: Text(
                             l10n.noChatsToForward,
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600),
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         )
                   : ListView.builder(

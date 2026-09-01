@@ -27,6 +27,7 @@ class StarredMessagesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = theme.l10nOf(context);
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(title: Text(l10n.starredMessages)),
       body: StarredMessagesView.fromAdapter(
         adapter,

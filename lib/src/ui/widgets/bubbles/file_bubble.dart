@@ -6,6 +6,15 @@ import '../../utils/file_size_formatter.dart';
 import '_attachment_upload_overlay.dart';
 import '_bubble_metadata.dart';
 
+/// Name the tap-to-open target of the file row for [messageId] answers to.
+///
+/// Lives inside a [MessageBubble], so it carries the caveat of
+/// [attachmentUploadCancelSemanticsId]: the `ValueKey` half is the reachable
+/// one and the `identifier` half only reaches a native dump when the bubble
+/// is rendered standalone.
+String fileBubbleSemanticsId(String messageId) =>
+    'chat_message_${messageId}_file';
+
 /// Bubble for a generic file attachment: shows name + size + open action.
 class FileBubble extends StatelessWidget {
   const FileBubble({
@@ -22,6 +31,7 @@ class FileBubble extends StatelessWidget {
     this.onCancelUpload,
     this.isFailed = false,
     this.onRetry,
+    this.messageId,
   });
 
   final String fileName;
@@ -59,6 +69,12 @@ class FileBubble extends StatelessWidget {
   /// offer a button that does nothing.
   final VoidCallback? onRetry;
 
+  /// Id of the message this row renders. Names the in-flight cancel and the
+  /// failed-state retry targets ([attachmentUploadCancelSemanticsId] /
+  /// [attachmentRetrySemanticsId]); `null` (default) leaves both unnamed
+  /// rather than publishing a name two rows could answer to.
+  final String? messageId;
+
   IconData _iconForMimeType() {
     final mime = mimeType?.toLowerCase() ?? '';
     if (mime.contains('pdf')) return Icons.picture_as_pdf;
@@ -83,7 +99,10 @@ class FileBubble extends StatelessWidget {
       isFailed: isFailed,
       uploadProgress: progress,
     );
+    final id = messageId == null ? null : fileBubbleSemanticsId(messageId!);
     return Semantics(
+      key: id == null ? null : ValueKey(id),
+      identifier: id,
       label: fileName,
       button: onTap != null && progress == null && !showFailed,
       child: GestureDetector(
@@ -102,6 +121,7 @@ class FileBubble extends StatelessWidget {
                       theme: theme,
                       size: 36,
                       onCancel: onCancelUpload,
+                      messageId: messageId,
                     ),
                   )
                 : showFailed
@@ -112,6 +132,7 @@ class FileBubble extends StatelessWidget {
                       theme: theme,
                       size: 36,
                       onRetry: onRetry,
+                      messageId: messageId,
                     ),
                   )
                 : Icon(

@@ -363,6 +363,16 @@ void main() {
   }
 
   testWidgets(
+    'the viewfinder is never shrunk by the keyboard, which cannot reach it',
+    (tester) async {
+      await pumpPage(tester);
+
+      final scaffold = tester.widget<Scaffold>(find.byType(Scaffold));
+      expect(scaffold.resizeToAvoidBottomInset, isFalse);
+    },
+  );
+
+  testWidgets(
     'capture button exposes a semantic label so a screen reader user can '
     'trigger the shutter',
     (tester) async {
@@ -570,10 +580,11 @@ void main() {
         await tester.pump();
       }
 
-      expect(camera.createdWithAudio, [
-        false,
-        true,
-      ], reason: 'granting the microphone must rebind the camera with audio');
+      expect(
+        camera.createdWithAudio,
+        [false, true],
+        reason: 'granting the microphone must rebind the camera with audio',
+      );
       expect(
         camera.startedRecordings,
         isEmpty,

@@ -198,12 +198,21 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
   `activeRowDecorationBuilder` / `highlightRowWhileContextMenuOpen`, or
   drive it yourself with `activeRowMessageId`)
 - In-room search opens focused, explains what it searches before anything is
-  typed, labels the user's own hits "You" (`MessageSearchView.currentUserId`)
-  and heads the list with a count plus previous/next arrows
-  (`emptyPromptText`, `resultCountLabelBuilder`, `showResultNavigation`,
-  `autofocus`). Both strings are bundle keys — `searchPromptEmpty` and the
-  `searchResultCount*Template` pair — so every locale gets its own copy and
-  a host can restyle the wording with `ChatUiLocalizations.copyWith`
+  typed, says how many characters it still needs while the query is shorter
+  than `minQueryLength`, labels the user's own hits "You"
+  (`MessageSearchView.currentUserId`) and heads the list with a count plus
+  previous/next arrows (`emptyPromptText`, `tooShortPromptText`,
+  `resultCountLabelBuilder`, `showResultNavigation`, `autofocus`). Every
+  string is a bundle key — `searchPromptEmpty`,
+  `searchPromptTooShortTemplate` (which carries the minimum as `{count}`,
+  never a hard-coded 2) and the `searchResultCount*Template` pair — so every
+  locale gets its own copy and a host can restyle the wording with
+  `ChatUiLocalizations.copyWith`. `GroupSetupPage.minSearchQueryLength`
+  gates its member picker the same way, with the same copy
+- The three "Shared in this chat" tabs say what will fill them, not just
+  that they are empty: `noMediaSubtitle`, `galleryNoDocsSubtitle` and
+  `galleryNoLinksSubtitle` render as a second line under the title, styled
+  with `ChatTheme.emptyStateSubtitleStyle`
 - "Message info" dates a member's row only when it can prove the hour: the
   server keeps read / delivered **cursors**, so the time is that member's
   time for *this* message only when their cursor points at it. Everywhere
@@ -483,8 +492,46 @@ Names read `<area>_<element>_<kind>` in lower snake case under a `chat_` prefix
 templated ones, ask the SDK instead of re-deriving the format —
 `messageBubbleSemanticsId`, `messageStatusSemanticsId`, `attachmentSemanticsId`,
 `mediaCellSemanticsId`, `docRowSemanticsId`, `linkRowSemanticsId`,
-`searchResultSemanticsId`, `starredRowSemanticsId` and
-`starredUnstarSemanticsId` are exported.
+`searchResultSemanticsId`, `starredRowSemanticsId`,
+`starredUnstarSemanticsId`, `quickReplySemanticsId`,
+`reactionRemoveSemanticsId`, `audioPlaySemanticsId`, `audioSpeedSemanticsId`,
+`attachmentUploadCancelSemanticsId`, `attachmentRetrySemanticsId`,
+`contactSuggestionSemanticsId`, `videoBubbleSemanticsId`,
+`fileBubbleSemanticsId`, `locationBubbleSemanticsId`,
+`linkPreviewBubbleSemanticsId` and `roomTileSemanticsId` are exported.
+
+The composer names all four of its controls, not just the two it used to:
+`chat_attach_button`, `chat_message_input`, `chat_camera_button` and
+`chat_voice_button` — the last two swap for `chat_send_button` as soon as there
+is text. The rest of the room chrome is named the same way:
+`chat_reply_close_button` and `chat_edit_cancel_button` on the two composer
+banners, `chat_link_preview_close_button` on the fetched link preview,
+`chat_pinned_close_button`, `chat_blocked_banner_button`,
+`chat_scroll_to_bottom_button`, `chat_avatar_picker_button`, and
+`chat_voice_overlay_{delete,pause,resume,prelisten,send}_button` plus
+`chat_voice_overlay_prelisten_play_button` on the voice
+recorder's own panels — only one panel is settled at a time, so the locked and
+the pre-listen one share the delete and send names (see *Names during a
+transition* below for the 200 ms in which they do not). A quick-reply chip is
+named by its position in `QuickRepliesBar.replies`
+(`chat_quick_reply_<position>`), stable only while the list keeps its order,
+because its labels are host-supplied free text that can repeat.
+
+The screens the room sits between are named too: `chat_room_back_button` and
+`chat_room_title` on the room header — the title row opens whatever "room info"
+screen the host wires to `ChatRoomAppBar.onTap` —, `chat_thread_close_button` on
+the thread panel, and `chat_room_list_new_chat_button` on the room list header.
+A row of the room list answers to `chat_room_tile_<roomId>`, the room id rather
+than the position, because that list reorders on every incoming message.
+
+Not every tap target is a button. A suggestion chip in `ContactSuggestionsBar`
+answers to `chat_contact_suggestion_<contactId>` — the contact id, not the
+position or the display name, because that list is host-supplied and two
+people can share a name. A row of the reaction detail sheet that takes your
+own reaction back answers to `chat_reaction_remove_<emoji>`. And the bubbles
+whose whole surface is the tap target name it: `chat_message_<messageId>_video`,
+`chat_message_<messageId>_file`, `chat_message_<messageId>_location` and
+`chat_message_<messageId>_link_preview`.
 
 A message row states **who wrote it** in its own name: the bubble answers to
 `chat_message_<messageId>_outgoing` when the current user sent it and to
@@ -499,6 +546,42 @@ driver points at an option regardless of the locale its `label` renders in. A
 row in `extraOptions` that passes nothing falls back to
 `chat_attachment_option_extra_<position>`, stable only while the list keeps its
 order.
+
+Eight names live *inside* a bubble and therefore carry the delivery-tick caveat
+below in full, not just on iOS: `chat_message_<messageId>_audio_play` and
+`chat_message_<messageId>_audio_speed` on a voice bubble,
+`chat_message_<messageId>_upload_cancel` /
+`chat_message_<messageId>_upload_retry` on an attachment row, and
+`chat_message_<messageId>_video` / `_file` / `_location` / `_link_preview` on
+the tappable surface of the bubble itself. A bubble excludes its own subtree
+from the semantics tree, so for these eight the `ValueKey` half is the
+reachable one — widget tests, `integration_test`, the VM Service — while the
+`Semantics` half reaches a native dump only when the bubble (`AudioBubble`,
+`AttachmentUploadRing`, `AttachmentRetryIcon`, `VideoBubble`, `FileBubble`,
+`LocationBubble`, `LinkPreviewBubble`) is rendered standalone. All eight are
+named after the message they belong to, so pass `messageId` when you build one
+of those bubbles yourself; without it they publish no name rather than one two
+rows could answer to. `MessageBubble` hands the id down to every one of them.
+The composer's own link preview passes none on purpose: it decorates a message
+that does not exist yet.
+
+### Names during a transition
+
+A name is unique in a settled frame. Two of them are not while an animation
+runs, because the widget that is leaving stays mounted next to the widget that
+is arriving:
+
+* `chat_voice_overlay_delete_button` and `chat_voice_overlay_send_button` exist
+  twice for the 200 ms the recorder cross-fades between its locked and
+  pre-listen panels — both panels carry both controls, and the cross-fade holds
+  both subtrees.
+* `chat_reaction_remove_<emoji>` exists twice while the reaction detail sheet
+  slides between its "all" tab and an emoji tab: your own row is listed on both
+  pages, and the tab view keeps them both alive for the slide.
+
+Settle the frame before addressing either by id — `pumpAndSettle()` in a widget
+test, a short wait in an external driver. A `findsOneWidget` taken mid-slide is
+reporting the animation, not a duplicated name.
 
 Three caveats. Turning the semantics tree on is **your** call
 (`WidgetsBinding.instance.ensureSemantics()` under a test flavour, or the

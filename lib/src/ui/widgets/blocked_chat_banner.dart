@@ -48,6 +48,8 @@ class BlockedChatBanner extends StatelessWidget {
     return Material(
       color: theme.input.backgroundColor ?? DefaultPalette.mutedSurface,
       child: Semantics(
+        key: const ValueKey('chat_blocked_banner_button'),
+        identifier: 'chat_blocked_banner_button',
         label: resolvedLabel,
         button: true,
         child: InkWell(
@@ -71,7 +73,12 @@ class BlockedChatBanner extends StatelessWidget {
                 Text(
                   resolvedLabel,
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: theme.input.backgroundColor == null
+                        ? DefaultPalette.mutedSurfaceText
+                        : null,
+                  ),
                 ),
                 if (resolvedAction.isNotEmpty) ...[
                   const SizedBox(height: 2),

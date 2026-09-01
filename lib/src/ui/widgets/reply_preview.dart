@@ -229,6 +229,8 @@ class ReplyPreview extends StatelessWidget {
             ),
           if (onDismiss != null)
             Semantics(
+              key: const ValueKey('chat_reply_close_button'),
+              identifier: 'chat_reply_close_button',
               label: theme.l10nOf(context).close,
               button: true,
               child: GestureDetector(

@@ -15,6 +15,8 @@ class VoiceRecorderButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Semantics(
+      key: const ValueKey('chat_voice_button'),
+      identifier: 'chat_voice_button',
       label: theme.l10nOf(context).recordVoice,
       button: true,
       child: Container(

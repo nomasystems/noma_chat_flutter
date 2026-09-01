@@ -464,7 +464,7 @@ class MessageBubble extends StatelessWidget {
               color:
                   theme.bubble.statusPendingColor ??
                   theme.bubble.statusColor ??
-                  Colors.grey,
+                  Theme.of(context).colorScheme.onSurfaceVariant,
             ),
       MessageDeliveryState.sent ||
       MessageDeliveryState.delivered ||
@@ -595,6 +595,7 @@ class MessageBubble extends StatelessWidget {
           onCancelUpload: onCancelUpload,
           isFailed: isFailed,
           onRetry: _mediaRetry,
+          messageId: message.id,
         );
       }
       if (mimeType.startsWith('video/')) {
@@ -613,6 +614,7 @@ class MessageBubble extends StatelessWidget {
           onCancelUpload: onCancelUpload,
           isFailed: isFailed,
           onRetry: _mediaRetry,
+          messageId: message.id,
         );
       }
       return FileBubble(
@@ -629,6 +631,7 @@ class MessageBubble extends StatelessWidget {
         onCancelUpload: onCancelUpload,
         isFailed: isFailed,
         onRetry: _mediaRetry,
+        messageId: message.id,
       );
     }
 
@@ -638,6 +641,7 @@ class MessageBubble extends StatelessWidget {
       final lng = double.tryParse('${meta['lng'] ?? ''}');
       if (lat != null && lng != null) {
         return LocationBubble(
+          messageId: message.id,
           latitude: lat,
           longitude: lng,
           staticMapUrl: meta['staticMapUrl']?.toString(),
@@ -673,6 +677,7 @@ class MessageBubble extends StatelessWidget {
       final meta = message.metadata!;
       if (meta.containsKey('linkUrl') || meta.containsKey('linkTitle')) {
         linkPreview = LinkPreviewBubble(
+          messageId: message.id,
           url:
               meta['linkUrl'] as String? ??
               (UrlDetector.extractUrls(text).isNotEmpty
@@ -865,7 +870,11 @@ class MessageBubble extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
+        Icon(
+          Icons.push_pin,
+          size: 12,
+          color: theme.bubble.timestampStyle?.color ?? Colors.grey.shade600,
+        ),
         const SizedBox(width: 3),
         Text(
           theme.l10nOf(context).pinned.isNotEmpty
@@ -874,7 +883,7 @@ class MessageBubble extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             fontStyle: FontStyle.italic,
-            color: Colors.grey.shade600,
+            color: theme.bubble.timestampStyle?.color ?? Colors.grey.shade600,
           ),
         ),
       ],

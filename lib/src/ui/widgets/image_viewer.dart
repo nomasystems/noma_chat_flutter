@@ -71,6 +71,7 @@ class ImageViewer extends StatelessWidget {
     }
 
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor: theme.imageViewerBackgroundColor ?? Colors.black,
       appBar: AppBar(
         backgroundColor: Colors.transparent,

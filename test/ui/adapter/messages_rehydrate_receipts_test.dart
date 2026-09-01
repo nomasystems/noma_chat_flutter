@@ -578,4 +578,153 @@ void main() {
     expect(controller.receiptStatuses['m1'], ReceiptStatus.read);
     expect(controller.messages.single.receipt, ReceiptStatus.read);
   });
+
+  test('load() re-derives the self-chat mark from the user\'s own read '
+      'cursor, the one no session writes to the cache', () async {
+    final mockClient = MockChatClient(currentUserId: 'u1');
+    addTearDown(mockClient.dispose);
+    mockClient.seedRoom(
+      const ChatRoom(
+        id: 'r1',
+        name: 'Notes',
+        audience: RoomAudience.contacts,
+        members: ['u1'],
+      ),
+    );
+    mockClient.addMessage(
+      'r1',
+      ChatMessage(
+        id: 'm1',
+        from: 'u1',
+        timestamp: t0.add(const Duration(minutes: 1)),
+        text: 'm1',
+      ),
+    );
+
+    final client = _ReceiptsClient(mockClient, [
+      ReadReceipt(
+        userId: 'u1',
+        lastReadMessageId: 'm1',
+        lastReadAt: t0.add(const Duration(hours: 1)),
+      ),
+    ]);
+    final adapter = ChatUiAdapter(client: client, currentUser: currentUser);
+    addTearDown(adapter.dispose);
+    adapter.start();
+
+    final controller = adapter.getChatController('r1');
+    // What the room row reports; no member list is ever fetched, which is
+    // how a host with `hydrateGroupMembers: false` opens every room.
+    controller.setMemberCount(1);
+
+    expect((await adapter.messages.load('r1')).isSuccess, isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(controller.receiptStatuses['m1'], ReceiptStatus.read);
+  });
+
+  test('load() resolves an out-of-window self-chat cursor from the cache '
+      'and still writes nothing back', () async {
+    final mockClient = MockChatClient(currentUserId: 'u1');
+    addTearDown(mockClient.dispose);
+    mockClient.seedRoom(
+      const ChatRoom(
+        id: 'r1',
+        name: 'Notes',
+        audience: RoomAudience.contacts,
+        members: ['u1'],
+      ),
+    );
+    final all = [
+      for (var i = 1; i <= 5; i++)
+        ChatMessage(
+          id: 'm$i',
+          from: 'u1',
+          timestamp: t0.add(Duration(minutes: i)),
+          text: 'm$i',
+        ),
+    ];
+    for (final m in all.where((m) => m.id != 'm4')) {
+      mockClient.addMessage('r1', m);
+    }
+
+    final cache = MemoryChatLocalDatasource();
+    addTearDown(cache.dispose);
+    await cache.saveMessages('r1', all);
+
+    final client = _ReceiptsClient(mockClient, [
+      ReadReceipt(
+        userId: 'u1',
+        lastReadMessageId: 'm4',
+        lastReadAt: t0.add(const Duration(hours: 4)),
+      ),
+    ]);
+    final adapter = ChatUiAdapter(
+      client: client,
+      currentUser: currentUser,
+      cache: cache,
+    );
+    addTearDown(adapter.dispose);
+    adapter.start();
+
+    final controller = adapter.getChatController('r1');
+    controller.setMemberCount(1);
+
+    expect((await adapter.messages.load('r1')).isSuccess, isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(controller.receiptStatuses['m3'], ReceiptStatus.read);
+    expect(controller.receiptStatuses['m5'], isNull);
+
+    final stored = (await cache.getMessages('r1')).dataOrThrow;
+    expect(
+      stored.map((m) => m.receipt),
+      isNot(contains(ReceiptStatus.read)),
+      reason:
+          'the mark rests on an empty room, the one piece of evidence a '
+          'later hydration can contradict',
+    );
+  });
+
+  test('load() still drops the own read cursor in a room that has a '
+      'peer', () async {
+    final mockClient = MockChatClient(currentUserId: 'u1');
+    addTearDown(mockClient.dispose);
+    mockClient.seedRoom(
+      const ChatRoom(
+        id: 'r1',
+        name: 'Room1',
+        audience: RoomAudience.contacts,
+        members: ['u1', 'u2'],
+      ),
+    );
+    mockClient.addMessage(
+      'r1',
+      ChatMessage(
+        id: 'm1',
+        from: 'u1',
+        timestamp: t0.add(const Duration(minutes: 1)),
+        text: 'm1',
+      ),
+    );
+
+    final client = _ReceiptsClient(mockClient, [
+      ReadReceipt(
+        userId: 'u1',
+        lastReadMessageId: 'm1',
+        lastReadAt: t0.add(const Duration(hours: 1)),
+      ),
+    ]);
+    final adapter = ChatUiAdapter(client: client, currentUser: currentUser);
+    addTearDown(adapter.dispose);
+    adapter.start();
+
+    final controller = adapter.getChatController('r1');
+    controller.setMemberCount(2);
+
+    expect((await adapter.messages.load('r1')).isSuccess, isTrue);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    expect(controller.receiptStatuses['m1'], isNull);
+  });
 }

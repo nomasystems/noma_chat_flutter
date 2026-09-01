@@ -211,4 +211,227 @@ void main() {
     expect(find.text('2 results'), findsOneWidget);
     expect(find.byKey(const ValueKey('chat_search_next')), findsNothing);
   });
+
+  testWidgets('a query below the minimum says how many characters it needs, '
+      'not the opening prompt', (tester) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'a',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('chat_search_too_short')), findsOneWidget);
+    expect(find.byKey(const ValueKey('chat_search_prompt')), findsNothing);
+    expect(find.text('Type at least 2 characters'), findsOneWidget);
+  });
+
+  testWidgets('the too-short copy names the configured minimum, not a '
+      'hard-coded 2', (tester) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(
+        MessageSearchView(
+          controller: controller,
+          roomId: 'room1',
+          minQueryLength: 4,
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'abc',
+    );
+    await tester.pump();
+
+    expect(find.text('Type at least 4 characters'), findsOneWidget);
+  });
+
+  testWidgets('minQueryLength: 1 never shows the too-short state', (
+    tester,
+  ) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(
+        MessageSearchView(
+          controller: controller,
+          roomId: 'room1',
+          minQueryLength: 1,
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'a',
+    );
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('chat_search_too_short')), findsNothing);
+  });
+
+  testWidgets('clearing the field returns to the opening prompt', (
+    tester,
+  ) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'a',
+    );
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('chat_search_clear')));
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('chat_search_too_short')), findsNothing);
+    expect(find.byKey(const ValueKey('chat_search_prompt')), findsOneWidget);
+  });
+
+  testWidgets('tooShortPromptText overrides the localized copy while '
+      'emptyPromptText still owns the opening state', (tester) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(
+        MessageSearchView(
+          controller: controller,
+          roomId: 'room1',
+          emptyPromptText: 'Host opening copy',
+          tooShortPromptText: 'Host too-short copy',
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Host opening copy'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'a',
+    );
+    await tester.pump();
+    expect(find.text('Host too-short copy'), findsOneWidget);
+    expect(find.text('Host opening copy'), findsNothing);
+  });
+
+  testWidgets('the clear button is hidden rather than unmounted, so pressing '
+      'it never tears down its own tooltip', (tester) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(MessageSearchView(controller: controller, roomId: 'room1')),
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chat_search_clear')), findsNothing);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'hello',
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chat_search_clear')), findsOneWidget);
+
+    final tooltipFinder = find.byType(Tooltip, skipOffstage: false);
+    final before = tester.state<TooltipState>(tooltipFinder);
+
+    await tester.tap(find.byKey(const ValueKey('chat_search_clear')));
+    await tester.pump();
+
+    final field = tester.widget<TextField>(
+      find.byKey(const ValueKey('chat_search_input')),
+    );
+    expect(field.controller?.text, isEmpty);
+    expect(find.byKey(const ValueKey('chat_search_clear')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('chat_search_clear'), skipOffstage: false),
+      findsOneWidget,
+    );
+    expect(
+      identical(tester.state<TooltipState>(tooltipFinder), before),
+      isTrue,
+    );
+  });
+
+  testWidgets('typing straight after clearing is not reordered with the '
+      'clear', (tester) async {
+    final queries = <String>[];
+    final controller = MessageSearchController(
+      searchFn: (q, r, {pagination}) async {
+        queries.add(q);
+        return const ChatSuccess(
+          ChatPaginatedResponse(items: [], hasMore: false),
+        );
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      wrap(
+        MessageSearchView(
+          controller: controller,
+          roomId: 'room1',
+          debounceDuration: const Duration(milliseconds: 10),
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'hello',
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+    queries.clear();
+
+    await tester.tap(find.byKey(const ValueKey('chat_search_clear')));
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'world',
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+
+    expect(queries.last, 'world');
+    expect(controller.query, 'world');
+  });
+
+  testWidgets('a raised minQueryLength re-evaluates the too-short prompt on '
+      'the text already in the field', (tester) async {
+    final controller = controllerWith(const []);
+    addTearDown(controller.dispose);
+
+    Widget view(int minQueryLength) => wrap(
+      MessageSearchView(
+        controller: controller,
+        roomId: 'room1',
+        minQueryLength: minQueryLength,
+      ),
+    );
+
+    await tester.pumpWidget(view(2));
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_search_input')),
+      'ab',
+    );
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chat_search_too_short')), findsNothing);
+
+    await tester.pumpWidget(view(5));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chat_search_too_short')), findsOneWidget);
+
+    await tester.pumpWidget(view(2));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('chat_search_too_short')), findsNothing);
+  });
 }

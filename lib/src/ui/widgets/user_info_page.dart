@@ -94,6 +94,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
   Widget build(BuildContext context) {
     final l10n = widget.theme.l10nOf(context);
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(title: Text(l10n.profile)),
       body: ListenableBuilder(
         listenable: widget.adapter.userCacheListenable,

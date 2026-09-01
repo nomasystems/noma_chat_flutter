@@ -826,6 +826,8 @@ class _MessageInputState extends State<MessageInput> {
             ),
           ),
           Semantics(
+            key: const ValueKey('chat_link_preview_close_button'),
+            identifier: 'chat_link_preview_close_button',
             label: widget.theme.l10nOf(context).close,
             button: true,
             child: GestureDetector(
@@ -900,6 +902,8 @@ class _MessageInputState extends State<MessageInput> {
                   ),
                 ),
                 Semantics(
+                  key: const ValueKey('chat_edit_cancel_button'),
+                  identifier: 'chat_edit_cancel_button',
                   label: widget.theme.l10nOf(context).close,
                   button: true,
                   child: GestureDetector(
@@ -1120,6 +1124,8 @@ class _MessageInputState extends State<MessageInput> {
 
   Widget _buildCameraButton() {
     return Semantics(
+      key: const ValueKey('chat_camera_button'),
+      identifier: 'chat_camera_button',
       label: widget.theme.l10nOf(context).camera,
       button: true,
       child: GestureDetector(

@@ -10,6 +10,12 @@ import 'message_status_icon.dart';
 import 'unread_badge.dart';
 import 'user_avatar.dart';
 
+/// Name the row of the room list that opens [roomId].
+///
+/// One name per room, so opening a chat from a driver never depends on the
+/// row's position in a list that reorders on every incoming message.
+String roomTileSemanticsId(String roomId) => 'chat_room_tile_$roomId';
+
 /// A single row in the room list showing avatar, name, last message preview,
 /// timestamp, unread badge, and muted/pinned indicators.
 class RoomTile extends StatelessWidget {
@@ -234,6 +240,8 @@ class RoomTile extends StatelessWidget {
         : (theme.roomList.tileBackgroundColor ?? Colors.transparent);
 
     return Semantics(
+      key: ValueKey(roomTileSemanticsId(room.id)),
+      identifier: roomTileSemanticsId(room.id),
       label: room.displayName,
       container: true,
       child: _wrapWithSwipeActions(

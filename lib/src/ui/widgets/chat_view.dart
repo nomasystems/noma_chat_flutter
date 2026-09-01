@@ -89,9 +89,19 @@ class _ChatViewState extends State<ChatView> {
   /// sheet is up — see [_insetFor] for how much and why.
   double _contextMenuInset = 0;
 
-  /// Where the bubble sat when the long press fired, i.e. before the sheet
-  /// (and the lift it causes) existed. [_insetFor] measures against this
-  /// and not against a live rect, which by then has already moved.
+  /// Height of the sheet currently up, so the row can be kept off it even
+  /// when the bubble it belongs to ends up underneath.
+  double _menuSheetHeight = 0;
+
+  /// Message the open sheet acts on, kept for as long as it is up so the
+  /// reserve can be worked out again when the conversation moves on its
+  /// own — see [_onConversationResized].
+  ChatMessage? _menuMessage;
+
+  /// Where the bubble sits with no lift applied: where it was when the long
+  /// press fired, and afterwards wherever [_settleListUnder] finds it when
+  /// the list moves for reasons of its own. [_insetFor] measures against
+  /// this and not against a live rect, which already carries the lift.
   Rect? _menuAnchorRect;
 
   /// The quick-reaction row, living in the ROOT overlay rather than in a
@@ -250,6 +260,28 @@ class _ChatViewState extends State<ChatView> {
     );
   }
 
+  /// Insets of the space the quick-reaction row is placed in, which are
+  /// not the ones this view's own [MediaQuery] reports: [ChatView]
+  /// normally sits in a [Scaffold] body, whose [MediaQuery] has already
+  /// had the app bar's share of the top inset taken out of it, while the
+  /// row goes into the ROOT overlay, which spans the whole window.
+  /// Measured against the view's own padding the row lands on the status
+  /// bar, where the platform eats every tap meant for it.
+  ///
+  /// Taken from the overlay rather than straight from the window so a host
+  /// that mounts the chat under a [MediaQuery] of its own — a scaled
+  /// preview, a chat that only owns part of the screen — gets the padding
+  /// it declared. The window is the fallback for a chat with no overlay
+  /// over it, which is also a chat with nowhere to put the row.
+  EdgeInsets get _windowPadding {
+    final overlayContext = Overlay.maybeOf(context, rootOverlay: true)?.context;
+    final overlayPadding = overlayContext
+        ?.getInheritedWidgetOfExactType<MediaQuery>()
+        ?.data
+        .padding;
+    return overlayPadding ?? MediaQueryData.fromView(View.of(context)).padding;
+  }
+
   /// How far the conversation has to rise for a sheet [sheetHeight] tall
   /// to stop covering the bubble it acts on.
   ///
@@ -273,8 +305,7 @@ class _ChatViewState extends State<ChatView> {
     final covered = rect.bottom + _reactionRowGap - sheetTop;
     if (covered <= 0) return 0;
 
-    final safeTop = MediaQuery.paddingOf(context).top;
-    final headroom = rect.top - safeTop - _reactionRowReserve;
+    final headroom = rect.top - _windowPadding.top - _reactionRowReserve;
     if (headroom <= 0) return 0;
 
     return math.min(covered, headroom);
@@ -284,16 +315,95 @@ class _ChatViewState extends State<ChatView> {
   /// over the message once the list has settled into its new position.
   void _liftListAbove(double sheetHeight, ChatMessage message) {
     if (!mounted) return;
-    final inset = _insetFor(sheetHeight);
+    _menuSheetHeight = sheetHeight;
+    _menuMessage = message;
+    _startSettling(message);
+  }
+
+  /// Works the reserve out again when the conversation changes size with a
+  /// sheet already up.
+  ///
+  /// The sheet is measured from its own height, and a menu that keeps the
+  /// same shape reports that height exactly once — [_MenuHeightProbe] goes
+  /// quiet afterwards. What moves the bubbles from then on is the viewport:
+  /// the keyboard leaving as the sheet takes the focus, a banner arriving
+  /// or going. None of it reaches the sheet, so the conversation's own size
+  /// is what has to be watched. The reserve is padding inside the list, so
+  /// applying it cannot resize the conversation back and loop.
+  ///
+  /// The notification arrives during layout, when no state can be set.
+  bool _onConversationResized(SizeChangedLayoutNotification notification) {
+    final message = _menuMessage;
+    if (message != null && _menuSheetHeight > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _menuSheetContext == null) return;
+        if (_menuMessage?.id != message.id) return;
+        _startSettling(message);
+      });
+    }
+    return true;
+  }
+
+  /// How many times the reserve may be worked out again before the row is
+  /// placed regardless. The list normally lands exactly where the first
+  /// pass expected it to, and then no second pass happens at all.
+  static const int _settlePasses = 2;
+
+  /// The run of [_settleListUnder] passes currently entitled to move the
+  /// anchor. A pass un-lifts the rect it measures by the reserve in force
+  /// when the frame it measures was laid out, so two runs in flight at
+  /// once read each other's reserve and walk the anchor off the bubble.
+  /// Every new trigger takes the number with it and the older run stops
+  /// where it is.
+  int _settleRun = 0;
+
+  /// Starts working the reserve out for [message], cancelling whatever run
+  /// was in flight: the newest measurement is the one that knows where the
+  /// conversation has ended up.
+  void _startSettling(ChatMessage message) {
+    _settleListUnder(message, 0, ++_settleRun);
+  }
+
+  /// Reserves the room the sheet needs and, once the frame is out, checks
+  /// the bubble actually went where the reserve said it would.
+  ///
+  /// It does not always: a keyboard on its way out, a banner appearing or
+  /// leaving, anything that resizes the viewport moves the conversation
+  /// after the measurement and leaves the bubble behind the sheet — the
+  /// one thing the reserve exists to prevent. Measuring again from where
+  /// it really landed converges in one more pass; [_settlePasses] caps a
+  /// list that would rather not converge.
+  ///
+  /// The frame the check rides on is asked for rather than assumed: a resize
+  /// that lands in a single frame — an IME with no animation, a rotation, a
+  /// split view — leaves the reserve already correct, so nothing sets state
+  /// and nobody else schedules the frame the callback is waiting for.
+  void _settleListUnder(ChatMessage message, int pass, int run) {
+    if (run != _settleRun) return;
+    final inset = _insetFor(_menuSheetHeight);
     if ((_contextMenuInset - inset).abs() > 0.5) {
       setState(() => _contextMenuInset = inset);
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || _menuSheetContext == null) return;
+      if (!mounted || _menuSheetContext == null || run != _settleRun) return;
+      final rect = _messageListKey.currentState?.rectForMessage(message.id);
+      if (pass < _settlePasses && rect != null && !rect.isEmpty) {
+        final settled = rect.translate(0, _contextMenuInset);
+        final anchor = _menuAnchorRect;
+        if (anchor == null || (anchor.top - settled.top).abs() > 0.5) {
+          _menuAnchorRect = settled;
+          _settleListUnder(message, pass + 1, run);
+          return;
+        }
+      }
       _placeReactionRow(message);
     });
+    WidgetsBinding.instance.ensureVisualUpdate();
   }
 
+  /// Places the row over [message], inside the band between the status bar
+  /// and the top edge of the open sheet: above that band the platform eats
+  /// the taps, below it the row covers the very menu it sits beside.
   void _placeReactionRow(ChatMessage message) {
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
@@ -302,11 +412,19 @@ class _ChatViewState extends State<ChatView> {
 
     final reactions = widget.behaviors.availableReactions;
     final screen = MediaQuery.sizeOf(context);
-    final safeTop = MediaQuery.paddingOf(context).top;
+    final padding = _windowPadding;
     final width = (reactions.length + 1) * 48.0 + 16;
-    final top = math.max(
-      safeTop + _reactionRowGap,
-      rect.top - _reactionRowHeight - _reactionRowGap,
+    final minTop = padding.top + _reactionRowGap;
+    final sheetTop = _menuSheetHeight > 0
+        ? screen.height - _menuSheetHeight
+        : screen.height - padding.bottom;
+    final maxTop = math.max(
+      minTop,
+      sheetTop - _reactionRowHeight - _reactionRowGap,
+    );
+    final top = (rect.top - _reactionRowHeight - _reactionRowGap).clamp(
+      minTop,
+      maxTop,
     );
     final maxLeft = math.max(
       _reactionRowGap,
@@ -364,6 +482,9 @@ class _ChatViewState extends State<ChatView> {
     _reactionRowEntry = null;
     _menuSheetContext = null;
     _menuAnchorRect = null;
+    _menuSheetHeight = 0;
+    _menuMessage = null;
+    _settleRun++;
     if (!mounted) return;
     if (_contextMenuInset != 0 || _reactionAnchorMessageId != null) {
       setState(() {
@@ -534,56 +655,63 @@ class _ChatViewState extends State<ChatView> {
     final behaviors = widget.behaviors;
     final builders = widget.builders;
     final callbacks = widget.callbacks;
-    return MessageList(
-      key: _messageListKey,
-      controller: widget.controller,
-      theme: widget.theme,
-      activeRowMessageId: _reactionAnchorMessageId,
-      viewportBottomInset: _contextMenuInset,
-      blockedSenderIds: behaviors.blockedSenderIds,
-      blockedContentPolicy: behaviors.blockedContentPolicy,
-      blockedMessageBuilder: builders.blockedMessageBuilder,
-      audioCoordinator: _audioCoordinator,
-      audioUploadProgressFor: builders.audioUploadProgressFor,
-      attachmentUploadProgressFor: builders.attachmentUploadProgressFor,
-      attachmentUploadCancellableFor: builders.attachmentUploadCancellableFor,
-      initialMessageId: behaviors.initialMessageId,
-      unreadBoundaryMessageId: behaviors.unreadBoundaryMessageId,
-      unreadCount: behaviors.unreadCount,
-      roomReceipts: behaviors.roomReceipts,
-      roomMembers: behaviors.roomMembers,
-      showReadReceiptsInGroups: behaviors.showReadReceiptsInGroups,
-      onLoadMore: callbacks.onLoadMoreMessages,
-      onTapImage: callbacks.onTapImage,
-      onTapVideo: callbacks.onTapVideo,
-      onTapFile: callbacks.onTapFile,
-      onTapLocation: callbacks.onTapLocation ?? _defaultOpenLocationInMaps,
-      onTapLink: callbacks.onTapLink ?? openWebUrl,
-      onTapMention: callbacks.onTapMention,
-      onSwipeToReply: (msg) => widget.controller.setReplyTo(msg),
-      onMessageLongPress: (msg, rect) => _handleLongPress(context, msg, rect),
-      onReactionTap: callbacks.onReactionSelected,
-      onDeleteReaction: callbacks.onDeleteReaction,
-      userReactions: behaviors.userReactions,
-      messageReactions: behaviors.messageReactions,
-      messageStatuses: behaviors.messageStatuses,
-      referencedMessages: behaviors.referencedMessages,
-      availableReactions: behaviors.availableReactions,
-      forwardedSourceLabels: behaviors.forwardedSourceLabels,
-      onRetryMessage: callbacks.onRetryMessage,
-      onCancelAttachmentUpload: callbacks.onCancelAttachmentUpload,
-      onShowReactionDetail: _resolveShowReactionDetail(context),
-      avatarBuilder: builders.avatarBuilder,
-      systemMessageTextResolver: builders.systemMessageTextResolver,
-      systemMessageBuilder: builders.systemMessageBuilder,
-      displayNameResolver: builders.displayNameResolver,
-      avatarUrlResolver: builders.avatarUrlResolver,
-      isGroup: behaviors.isGroup,
-      avatarRebuildSignal: builders.avatarRebuildSignal,
-      statusIconBuilder: builders.statusIconBuilder,
-      attachmentUrlResolver: builders.attachmentUrlResolver,
-      attachmentMediaLoader: builders.attachmentMediaLoader,
-      onVoicePlayed: callbacks.onVoicePlayed,
+    return NotificationListener<SizeChangedLayoutNotification>(
+      onNotification: _onConversationResized,
+      child: SizeChangedLayoutNotifier(
+        child: MessageList(
+          key: _messageListKey,
+          controller: widget.controller,
+          theme: widget.theme,
+          activeRowMessageId: _reactionAnchorMessageId,
+          viewportBottomInset: _contextMenuInset,
+          blockedSenderIds: behaviors.blockedSenderIds,
+          blockedContentPolicy: behaviors.blockedContentPolicy,
+          blockedMessageBuilder: builders.blockedMessageBuilder,
+          audioCoordinator: _audioCoordinator,
+          audioUploadProgressFor: builders.audioUploadProgressFor,
+          attachmentUploadProgressFor: builders.attachmentUploadProgressFor,
+          attachmentUploadCancellableFor:
+              builders.attachmentUploadCancellableFor,
+          initialMessageId: behaviors.initialMessageId,
+          unreadBoundaryMessageId: behaviors.unreadBoundaryMessageId,
+          unreadCount: behaviors.unreadCount,
+          roomReceipts: behaviors.roomReceipts,
+          roomMembers: behaviors.roomMembers,
+          showReadReceiptsInGroups: behaviors.showReadReceiptsInGroups,
+          onLoadMore: callbacks.onLoadMoreMessages,
+          onTapImage: callbacks.onTapImage,
+          onTapVideo: callbacks.onTapVideo,
+          onTapFile: callbacks.onTapFile,
+          onTapLocation: callbacks.onTapLocation ?? _defaultOpenLocationInMaps,
+          onTapLink: callbacks.onTapLink ?? openWebUrl,
+          onTapMention: callbacks.onTapMention,
+          onSwipeToReply: (msg) => widget.controller.setReplyTo(msg),
+          onMessageLongPress: (msg, rect) =>
+              _handleLongPress(context, msg, rect),
+          onReactionTap: callbacks.onReactionSelected,
+          onDeleteReaction: callbacks.onDeleteReaction,
+          userReactions: behaviors.userReactions,
+          messageReactions: behaviors.messageReactions,
+          messageStatuses: behaviors.messageStatuses,
+          referencedMessages: behaviors.referencedMessages,
+          availableReactions: behaviors.availableReactions,
+          forwardedSourceLabels: behaviors.forwardedSourceLabels,
+          onRetryMessage: callbacks.onRetryMessage,
+          onCancelAttachmentUpload: callbacks.onCancelAttachmentUpload,
+          onShowReactionDetail: _resolveShowReactionDetail(context),
+          avatarBuilder: builders.avatarBuilder,
+          systemMessageTextResolver: builders.systemMessageTextResolver,
+          systemMessageBuilder: builders.systemMessageBuilder,
+          displayNameResolver: builders.displayNameResolver,
+          avatarUrlResolver: builders.avatarUrlResolver,
+          isGroup: behaviors.isGroup,
+          avatarRebuildSignal: builders.avatarRebuildSignal,
+          statusIconBuilder: builders.statusIconBuilder,
+          attachmentUrlResolver: builders.attachmentUrlResolver,
+          attachmentMediaLoader: builders.attachmentMediaLoader,
+          onVoicePlayed: callbacks.onVoicePlayed,
+        ),
+      ),
     );
   }
 
@@ -779,13 +907,24 @@ class _BlockedInRoomNotice extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.block, size: 14, color: Colors.grey[600]),
+            Icon(
+              Icons.block,
+              size: 14,
+              color: theme.input.backgroundColor == null
+                  ? DefaultPalette.mutedSurfaceText
+                  : null,
+            ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 label,
                 textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey[600], fontSize: 12),
+                style: TextStyle(
+                  color: theme.input.backgroundColor == null
+                      ? DefaultPalette.mutedSurfaceText
+                      : null,
+                  fontSize: 12,
+                ),
               ),
             ),
           ],

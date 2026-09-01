@@ -72,6 +72,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
 
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
+  late final FocusNode _nameFocusNode;
+  late final FocusNode _descriptionFocusNode;
   bool _editingName = false;
   bool _editingDescription = false;
 
@@ -80,6 +82,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     super.initState();
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
+    _nameFocusNode = FocusNode();
+    _descriptionFocusNode = FocusNode();
     _loadDetail();
   }
 
@@ -87,6 +91,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _nameFocusNode.dispose();
+    _descriptionFocusNode.dispose();
     super.dispose();
   }
 
@@ -119,6 +125,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Future<void> _commitDescription() async {
     final newDesc = _descriptionController.text.trim();
     if (newDesc == (_detail?.subject ?? '')) {
+      _descriptionFocusNode.unfocus();
       setState(() => _editingDescription = false);
       return;
     }
@@ -128,6 +135,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       subject: newDesc.isEmpty ? '' : newDesc,
     );
     if (!mounted) return;
+    _descriptionFocusNode.unfocus();
     setState(() {
       _saving = false;
       _editingDescription = false;
@@ -215,6 +223,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     final newName = _nameController.text.trim();
     if (newName.length < widget.minNameLength) return;
     if (newName == _detail?.name) {
+      _nameFocusNode.unfocus();
       setState(() => _editingName = false);
       return;
     }
@@ -224,6 +233,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       name: newName,
     );
     if (!mounted) return;
+    _nameFocusNode.unfocus();
     setState(() {
       _saving = false;
       _editingName = false;
@@ -237,6 +247,15 @@ class _GroupInfoPageState extends State<GroupInfoPage>
 
   String _failureMessage(ChatResult<void> r) =>
       r.failureOrNull?.message ?? noticeL10n.photoUploadFailed;
+
+  /// The edit fields stay mounted and are only hidden, so [Visibility]
+  /// keeps them out of the focus tree until the row is on screen again.
+  /// Claim the focus once that frame has been laid out.
+  void _focusOnNextFrame(FocusNode node) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) node.requestFocus();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -313,111 +332,139 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Widget _buildDescriptionRow() {
     final l10n = widget.theme.l10nOf(context);
     final raw = _detail?.subject?.trim() ?? '';
-    if (!_editingDescription) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.groupDescription,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black54,
-                      fontWeight: FontWeight.w500,
-                    ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Visibility(
+          visible: !_editingDescription,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.groupDescription,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        raw.isEmpty ? '—' : raw,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    raw.isEmpty ? '—' : raw,
-                    style: const TextStyle(fontSize: 16),
+                ),
+                if (_canManage)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: l10n.edit,
+                    onPressed: () {
+                      setState(() => _editingDescription = true);
+                      _focusOnNextFrame(_descriptionFocusNode);
+                    },
                   ),
-                ],
-              ),
+              ],
             ),
-            if (_canManage)
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: l10n.edit,
-                onPressed: () => setState(() => _editingDescription = true),
-              ),
-          ],
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: TextField(
-        controller: _descriptionController,
-        autofocus: true,
-        maxLines: 3,
-        decoration: InputDecoration(
-          labelText: l10n.groupDescription,
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: l10n.save,
-            onPressed: _saving ? null : _commitDescription,
           ),
         ),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _commitDescription(),
-      ),
+        Visibility(
+          visible: _editingDescription,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: TextField(
+              controller: _descriptionController,
+              focusNode: _descriptionFocusNode,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: l10n.groupDescription,
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.check),
+                  tooltip: l10n.save,
+                  onPressed: _saving ? null : _commitDescription,
+                ),
+              ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _commitDescription(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildNameRow() {
     final l10n = widget.theme.l10nOf(context);
-    if (!_editingName) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                _detail!.name?.isNotEmpty == true ? _detail!.name! : '',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Visibility(
+          visible: !_editingName,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _detail!.name?.isNotEmpty == true ? _detail!.name! : '',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-                textAlign: TextAlign.center,
-              ),
+                if (_canManage)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: l10n.edit,
+                    onPressed: () {
+                      setState(() => _editingName = true);
+                      _focusOnNextFrame(_nameFocusNode);
+                    },
+                  ),
+              ],
             ),
-            if (_canManage)
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: l10n.edit,
-                onPressed: () => setState(() => _editingName = true),
+          ),
+        ),
+        Visibility(
+          visible: _editingName,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: TextField(
+              controller: _nameController,
+              focusNode: _nameFocusNode,
+              decoration: InputDecoration(
+                labelText: l10n.groupName,
+                helperText: l10n.minCharsTemplate.replaceAll(
+                  '{n}',
+                  '${widget.minNameLength}',
+                ),
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.check),
+                  tooltip: l10n.save,
+                  onPressed: _saving ? null : _commitName,
+                ),
               ),
-          ],
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: TextField(
-        controller: _nameController,
-        autofocus: true,
-        decoration: InputDecoration(
-          labelText: l10n.groupName,
-          helperText: l10n.minCharsTemplate.replaceAll(
-            '{n}',
-            '${widget.minNameLength}',
-          ),
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: l10n.save,
-            onPressed: _saving ? null : _commitName,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _commitName(),
+            ),
           ),
         ),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _commitName(),
-      ),
+      ],
     );
   }
 }
