@@ -63,10 +63,17 @@ onwards, breaking changes require a **major version bump**.
   and mention badge for them, and `resolveUnreadBoundary` excludes them
   both when counting how many messages sit below the "N new messages"
   divider and when choosing where to anchor it — a room whose only unseen
-  activity is system messages now shows no divider at all. The Messaggi tab
-  badge and the row badge, both derived from the per-room counter, follow
-  automatically. This assumes the server-side unread count applies the same
-  exclusion; see the developer guide for the contract.
+  activity is system messages now shows no divider at all. `RoomEnricher`
+  applies the same rule the first time a device learns about a room from an
+  incoming message: a system message never seeds the fresh row with an
+  unread badge. The Messaggi tab badge and the row badge, both derived from
+  the per-room counter, follow automatically. This assumes the server-side
+  unread count applies the same exclusion; see the developer guide for the
+  contract. A server that now labels these messages with `messageType:
+  "system"` maps to `MessageType.regular` in `MessageMapper` — it no longer
+  logs a spurious "unknown messageType" warning for every one of them;
+  `ChatMessage.isSystem` (from `metadata.system`) remains the source of
+  truth for how a message renders.
 
 - **Every non-text send ignored the pending reply and left it in the
   composer.** Sending a photo, a video, a document, a location or a voice

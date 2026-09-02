@@ -2883,6 +2883,14 @@ messages" divider (`resolveUnreadBoundary`) applies the same exclusion
 independently, since it derives its own boundary from the loaded message
 list rather than from `unreadCount`.
 
+The very first event for a room the device doesn't know yet takes a
+different path: `RoomEnricher.addFromDetail` fetches the room detail and
+builds a brand-new `RoomListItem` around it, rather than updating an
+existing one. That fresh row applies the same exclusion when seeding its
+initial `unreadCount` — an unknown room's first message being a system
+notice does not seed the row with a badge that the next reconciliation
+would then have to clear.
+
 This is a two-sided contract: the backend's own `unreadMessages` /
 `UnreadUpdatedEvent.count` must already exclude system messages (messages
 carrying `metadata.system == true` / `type == "system"`) for the two halves
