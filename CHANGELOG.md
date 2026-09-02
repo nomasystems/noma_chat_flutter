@@ -51,6 +51,17 @@ onwards, breaking changes require a **major version bump**.
 
 ### Fixed
 
+- **System messages (plan lifecycle notices, membership changes, …) no
+  longer count as unread.** They still render in the room like any other
+  message, but `ChatEventRouter` stops bumping the per-room unread counter
+  and mention badge for them, and `resolveUnreadBoundary` excludes them
+  both when counting how many messages sit below the "N new messages"
+  divider and when choosing where to anchor it — a room whose only unseen
+  activity is system messages now shows no divider at all. The Messaggi tab
+  badge and the row badge, both derived from the per-room counter, follow
+  automatically. This assumes the server-side unread count applies the same
+  exclusion; see the developer guide for the contract.
+
 - **Every non-text send ignored the pending reply and left it in the
   composer.** Sending a photo, a video, a document, a location or a voice
   note while the reply preview was open published it with no quote and left

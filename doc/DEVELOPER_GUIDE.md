@@ -2861,6 +2861,29 @@ room titles from the room list and unstars through the adapter. Use the primary
 constructor (`load` / `onUnstar` / `onOpen` / `roomTitleFor` / `itemBuilder`) for
 full control. Each entry is a lightweight `StarredMessage` (ids + `starredAt`).
 
+### Unread counting excludes system messages
+
+`RoomListItem.unreadCount` is server-authoritative: `GET` rooms returns
+`unreadMessages` and the `UnreadUpdatedEvent` WS frame (`roomId`, `count`)
+carries live deltas, both reconciled into the room list as-is. The client
+only adds to that count locally, between reconciliations, when a `NewMessageEvent`
+arrives for a room the user isn't currently viewing — and it skips that
+local bump entirely for a message with `ChatMessage.isSystem == true`
+(plan lifecycle notices, membership changes, …), so a room whose only
+unseen activity is system messages never shows unread. The Messaggi-tab
+badge (`RoomListController.unreadRoomCount`) and the row badge both read
+`unreadCount`, so they inherit this for free. `NomaChatView`'s "N new
+messages" divider (`resolveUnreadBoundary`) applies the same exclusion
+independently, since it derives its own boundary from the loaded message
+list rather than from `unreadCount`.
+
+This is a two-sided contract: the backend's own `unreadMessages` /
+`UnreadUpdatedEvent.count` must already exclude system messages (messages
+carrying `metadata.system == true` / `type == "system"`) for the two halves
+to agree once `loadRooms` reconciles the server value. A backend that still
+counts system messages will show a badge that briefly clears (the client's
+local skip) and then reappears on the next room-list refresh.
+
 ### Mention badge & Archived chats
 
 `RoomTile` shows an "@" badge when `RoomListItem.unreadMentions > 0` (populated
