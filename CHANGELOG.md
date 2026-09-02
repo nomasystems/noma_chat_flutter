@@ -81,12 +81,12 @@ onwards, breaking changes require a **major version bump**.
   the preview standing, so the *next* text message went out quoting a
   message the user had already answered. The whole send path now carries
   the quote, and the composer's reply preview closes with the send it
-  belonged to. One limitation remains: an attachment replayed from the
-  offline queue after a connectivity failure is re-sent with its caption but
-  without its quote — the queued operation now has a `referencedMessageId`
-  field and the replay sends it when present, but nothing populates it yet
-  (see the developer guide). A manual `retrySend` on the failed bubble keeps
-  both.
+  belonged to. This also covers the offline-queue replay: an attachment or
+  voice note that fails to upload and is later replayed automatically on
+  reconnect now keeps its quote too — `ChatClient.enqueueOfflineAttachment`
+  takes `referencedMessageId` and the queued operation carries it through
+  the replay, the same as a manual `retrySend` on the failed bubble already
+  did.
 
 - **`uiDebugLog` and `ConsoleChatLogSink` printed to the release console**
   (`D167`). Both routed through `debugPrint`, which Flutter documents as

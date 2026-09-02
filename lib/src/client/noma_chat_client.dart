@@ -305,6 +305,7 @@ class NomaChatClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) {
     final queue = _offlineQueue;
     if (queue == null || !_isRetryableUploadFailure(causeFailure)) return;
@@ -321,6 +322,7 @@ class NomaChatClient implements ChatClient {
       metadata: metadata,
       tempId: tempId,
       clientMessageId: clientMessageId,
+      referencedMessageId: referencedMessageId,
     );
     // Above the configured cap, don't persist the raw bytes at all — surface
     // the drop through the same visible callback as `queue_full`/`ttl_expired`

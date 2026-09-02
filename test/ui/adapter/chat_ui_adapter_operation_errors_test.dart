@@ -75,6 +75,7 @@ class _PinFailingClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) => _delegate.enqueueOfflineAttachment(
     roomId: roomId,
     bytes: bytes,
@@ -86,6 +87,7 @@ class _PinFailingClient implements ChatClient {
     metadata: metadata,
     tempId: tempId,
     clientMessageId: clientMessageId,
+    referencedMessageId: referencedMessageId,
   );
 
   @override

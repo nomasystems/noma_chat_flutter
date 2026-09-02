@@ -368,6 +368,7 @@ class _TestClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) {}
 
   @override

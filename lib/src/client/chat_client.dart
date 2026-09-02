@@ -190,10 +190,12 @@ abstract class ChatClient {
   /// not). [tempId] should match the optimistic bubble's id: when the
   /// queued retry eventually succeeds, [onOfflineMessageSent] fires with
   /// it so the UI can reconcile the bubble exactly like a queued text
-  /// send. A no-op on clients without an offline queue configured
-  /// ([ChatConfig.cacheConfig] `null`) — the caller has already shown its
-  /// own failed/manual-retry state and there is nothing durable to fall
-  /// back to.
+  /// send. [referencedMessageId] carries the reply this attachment was
+  /// answering, if any, so the replay preserves the quote instead of
+  /// dropping it once the connection comes back. A no-op on clients
+  /// without an offline queue configured ([ChatConfig.cacheConfig]
+  /// `null`) — the caller has already shown its own failed/manual-retry
+  /// state and there is nothing durable to fall back to.
   void enqueueOfflineAttachment({
     required String roomId,
     required Uint8List bytes,
@@ -205,6 +207,7 @@ abstract class ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   });
 
   /// Drops whatever the offline queue is holding for the optimistic row

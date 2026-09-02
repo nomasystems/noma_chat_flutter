@@ -1265,16 +1265,24 @@ itself. A quoted attachment paints the same quote strip a text reply does,
 above the media; a voice note recorded with the reply preview open carries
 the quote through `VoiceMessageData.referencedMessageId`.
 
-One limitation to know about: an attachment that fails on a connectivity
-error and is replayed from the **offline queue** is re-sent with its
-caption but without its quote. `PendingSendAttachment` (the queued
-operation) does carry a `referencedMessageId` field, and the replay path
-sends it when present — but `NomaChatClient.enqueueOfflineAttachment`
-itself does not accept one yet, so nothing sets it today. Adding it would
-mean every hand-written `ChatClient` test double in this package's own
-suite gains a required override, which is out of scope here; the field is
-in place for whoever picks that up next. A manual `retrySend` on the
-failed bubble keeps both caption and quote in the meantime.
+An attachment that fails on a connectivity error and is replayed from the
+**offline queue** keeps its quote too, not just its caption:
+`ChatClient.enqueueOfflineAttachment` takes an optional
+`referencedMessageId`, `PendingSendAttachment` (the queued operation)
+carries it, and the replay path sends it when present — the same as a
+manual `retrySend` on the failed bubble already did. Call it right after
+the upload failure, passing the same `referencedMessageId` the failed
+`sendAttachment`/`sendVoice` call was given:
+
+```dart
+client.enqueueOfflineAttachment(
+  roomId: roomId,
+  bytes: bytes,
+  mimeType: mimeType,
+  causeFailure: uploadFailure,
+  referencedMessageId: replyTo,
+);
+```
 
 #### Reviewing before sending — `AttachmentReviewPage`
 

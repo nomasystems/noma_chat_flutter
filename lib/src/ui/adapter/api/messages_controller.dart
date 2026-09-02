@@ -662,6 +662,7 @@ interface class ChatMessagesController {
         metadata: optimisticMetadata,
         tempId: tempId,
         clientMessageId: tempId,
+        referencedMessageId: referencedMessageId,
       );
       return _a._emitFailure(
         uploadResult.castFailure<ChatMessage>(),
@@ -1186,6 +1187,7 @@ interface class ChatMessagesController {
         metadata: optimistic.metadata,
         tempId: tempId,
         clientMessageId: tempId,
+        referencedMessageId: referencedMessageId,
       );
       return _a._emitFailure(
         uploadResult.castFailure<ChatMessage>(),
