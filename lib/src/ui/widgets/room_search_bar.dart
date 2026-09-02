@@ -68,12 +68,15 @@ class _RoomSearchBarState extends State<RoomSearchBar> {
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: _controller,
             builder: (_, value, __) {
-              return Visibility(
-                visible: value.text.isNotEmpty,
-                maintainState: true,
+              if (value.text.isEmpty) return const SizedBox.shrink();
+              return Semantics(
+                identifier: 'room_search_clear',
+                label: widget.theme.l10nOf(context).clearText,
+                button: true,
                 child: IconButton(
+                  key: const ValueKey('room_search_clear'),
                   icon: const Icon(Icons.close, size: 18),
-                  tooltip: widget.theme.l10nOf(context).clearText,
+                  tooltip: null,
                   onPressed: _clear,
                 ),
               );

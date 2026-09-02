@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## Unreleased
+
+### Fixed
+
+- **The search clear button stays in the tree when the field is empty**
+  (`D132`). `MessageSearchView` and `RoomSearchBar` hid the clear `IconButton`
+  with `Visibility(maintainState: true)`, which keeps it mounted (offstage)
+  rather than removing it, so a driver's dump still lists `chat_search_clear`
+  / `room_search_clear` with an empty field. Both now build
+  `const SizedBox.shrink()` while the field is empty and only build the
+  `Semantics(identifier: ..., button: true, child: IconButton(...))` once
+  there is text to clear, so the control unmounts for real. The `Tooltip`
+  that used to carry the accessible label is gone with it -- the label now
+  lives on the `Semantics` node, which the a11y sweep already required -- so
+  there is no `TooltipState` left to dispose from inside its own
+  `onPressed`. The pattern (`isEmpty ? SizedBox.shrink() : Semantics(...)`) is
+  the one to repeat anywhere else in the host app that shows the same "X"
+  affordance.
+
 ## 0.31.0 - 2026-09-01
 
 Round 6 of QA on the host app, chat side. Nine defects landed here rather than
