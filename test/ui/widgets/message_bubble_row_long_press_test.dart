@@ -47,7 +47,7 @@ void main() {
       );
 
       final row = tester.getRect(find.byType(MessageBubble));
-      final bubble = tester.getRect(findBubble('Bob: hi'));
+      final bubble = tester.getRect(findBubble('Bob: hi, 12:00'));
       // A point on the row's own line, past the right edge of an incoming
       // bubble — dead space before this change.
       final outside = Offset(row.right - 4, bubble.center.dy);
@@ -77,7 +77,7 @@ void main() {
         ),
       );
 
-      final bubble = tester.getRect(findBubble('Bob: hi'));
+      final bubble = tester.getRect(findBubble('Bob: hi, 12:00'));
       await tester.longPressAt(bubble.bottomLeft + const Offset(3, -3));
       await tester.pump();
 
@@ -107,7 +107,7 @@ void main() {
         ),
       );
 
-      await tester.drag(findBubble('Bob: hi'), const Offset(90, 0));
+      await tester.drag(findBubble('Bob: hi, 12:00'), const Offset(90, 0));
       await tester.pumpAndSettle();
 
       expect(swiped, 1);
@@ -143,7 +143,7 @@ void main() {
       expect(find.semantics.byAction(SemanticsAction.longPress), findsOne);
       expect(
         find.semantics.byAction(SemanticsAction.longPress),
-        isSemantics(label: 'Bob: hola'),
+        isSemantics(label: 'Bob: hola, 12:00'),
       );
     });
 
@@ -165,7 +165,7 @@ void main() {
       );
 
       tester.semantics.performAction(
-        find.semantics.byLabel('Bob: hola'),
+        find.semantics.byLabel('Bob: hola, 12:00'),
         SemanticsAction.longPress,
       );
 
