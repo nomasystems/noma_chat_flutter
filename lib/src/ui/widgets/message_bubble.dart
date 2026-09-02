@@ -10,6 +10,7 @@ import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '../utils/date_formatter.dart';
 import '../utils/emoji_only.dart';
 import '../utils/last_message_preview.dart' show mediaSemanticLabel;
 import '../utils/url_detector.dart';
@@ -1195,8 +1196,10 @@ class MessageBubble extends StatelessWidget {
     final announceSending = isOutgoing && !message.isDeleted && isPending;
     final statusForSemantics =
         isOutgoing && !message.isDeleted && !isPending && !isFailed
-        ? _effectiveStatus
+        ? (_effectiveStatus ?? ReceiptStatus.sent)
         : null;
+    // Timestamp: included in semantics to match what the screen reads.
+    final timeSuffix = ', ${DateFormatter.formatTime(message.timestamp)}';
     // A failed send announced nothing at all: same silence as a message on
     // its way out, for the opposite situation.
     final statusSuffix = isFailed && isOutgoing && !message.isDeleted
@@ -1210,7 +1213,7 @@ class MessageBubble extends StatelessWidget {
             ReceiptStatus.delivered => l10n.statusDelivered,
             ReceiptStatus.read => l10n.statusRead,
           }}';
-    final semanticBodyWithStatus = '$semanticBody$statusSuffix';
+    final semanticBodyWithStatus = '$semanticBody$timeSuffix$statusSuffix';
     // The quote strip is built inside the subtree `excludeSemantics: true`
     // erases, so a screen reader was given the answer with no trace of what
     // it answers — the one thing a reply is about. Announced BEFORE the
