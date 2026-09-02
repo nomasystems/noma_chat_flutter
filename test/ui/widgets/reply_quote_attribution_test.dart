@@ -327,7 +327,8 @@ void main() {
 
       expect(
         semanticsWithLabel(
-          'You: Replying to Bob: where shall we meet?. at the square',
+          'You: Replying to Bob: where shall we meet?. at the square, '
+          '12:00, Sent',
         ),
         findsOneWidget,
       );
@@ -357,7 +358,8 @@ void main() {
 
       expect(
         semanticsWithLabel(
-          'You: Replying to: where shall we meet?. at the square',
+          'You: Replying to: where shall we meet?. at the square, '
+          '12:00, Sent',
         ),
         findsOneWidget,
       );
@@ -375,7 +377,7 @@ void main() {
         ),
       );
 
-      expect(semanticsWithLabel('You: hola'), findsOneWidget);
+      expect(semanticsWithLabel('You: hola, 12:00, Sent'), findsOneWidget);
     });
   });
 }

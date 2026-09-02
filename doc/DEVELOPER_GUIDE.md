@@ -1235,7 +1235,7 @@ await chat.client.attachments.deleteInRoom(roomId, messageId);
 #### Caption and reply — a photo answers like a text message does
 
 `sendAttachment` takes a `caption` (published as the message text, painted
-under the media by `ImageBubble` / `VideoBubble`) and a
+under the media by `ImageBubble` / `VideoBubble` / `FileBubble`) and a
 `referencedMessageId` (the message being answered). `sendVoice` takes the
 same `referencedMessageId`. Pass the composer's pending reply and close it
 once the send resolves — read it *before* opening the picker, so a picker
@@ -1267,8 +1267,14 @@ the quote through `VoiceMessageData.referencedMessageId`.
 
 One limitation to know about: an attachment that fails on a connectivity
 error and is replayed from the **offline queue** is re-sent with its
-caption but without its quote — the queued operation has no field for it.
-A manual `retrySend` on the failed bubble keeps both.
+caption but without its quote. `PendingSendAttachment` (the queued
+operation) does carry a `referencedMessageId` field, and the replay path
+sends it when present — but `NomaChatClient.enqueueOfflineAttachment`
+itself does not accept one yet, so nothing sets it today. Adding it would
+mean every hand-written `ChatClient` test double in this package's own
+suite gains a required override, which is out of scope here; the field is
+in place for whoever picks that up next. A manual `retrySend` on the
+failed bubble keeps both caption and quote in the meantime.
 
 #### Reviewing before sending — `AttachmentReviewPage`
 

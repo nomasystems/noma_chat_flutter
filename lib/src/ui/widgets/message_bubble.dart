@@ -661,6 +661,7 @@ class MessageBubble extends StatelessWidget {
       return FileBubble(
         fileName:
             message.fileName ?? message.text ?? theme.l10nOf(context).file,
+        caption: message.fileName != null ? message.text : null,
         fileSize: message.fileSize,
         mimeType: mimeType.isNotEmpty ? mimeType : null,
         timestamp: message.timestamp,
@@ -1199,7 +1200,9 @@ class MessageBubble extends StatelessWidget {
         ? (_effectiveStatus ?? ReceiptStatus.sent)
         : null;
     // Timestamp: included in semantics to match what the screen reads.
-    final timeSuffix = ', ${DateFormatter.formatTime(message.timestamp)}';
+    final timeSuffix = message.isDeleted
+        ? ''
+        : ', ${DateFormatter.formatTime(message.timestamp)}';
     // A failed send announced nothing at all: same silence as a message on
     // its way out, for the opposite situation.
     final statusSuffix = isFailed && isOutgoing && !message.isDeleted

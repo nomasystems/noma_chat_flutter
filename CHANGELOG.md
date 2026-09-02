@@ -12,6 +12,12 @@ onwards, breaking changes require a **major version bump**.
 
 - **Message bubble accessibility label now includes the timestamp and always announces the delivery state.** The semantic label, read by screen readers, now matches what the screen paints: `You: <text>, HH:mm, Sent|Delivered|Read`. For incoming messages, the sender prefix and timestamp are always present. Deleted messages announce no timestamp or state.
 
+- **`FileBubble` paints its caption.** A document sent with a caption
+  (`sendAttachment(caption: ...)`) already carried it as the message text,
+  but only `ImageBubble`/`VideoBubble` painted it — a captioned PDF or ZIP
+  showed the file name and nothing else. `FileBubble` gained the same
+  `caption` field, painted below the file name.
+
 - **An attachment can carry a caption and answer a message.**
   `ChatMessagesController.sendAttachment` takes `caption` (published as the
   message text, painted under the media by `ImageBubble` / `VideoBubble`)
@@ -70,8 +76,10 @@ onwards, breaking changes require a **major version bump**.
   the quote, and the composer's reply preview closes with the send it
   belonged to. One limitation remains: an attachment replayed from the
   offline queue after a connectivity failure is re-sent with its caption but
-  without its quote — the queued operation has no field for it. A manual
-  `retrySend` on the failed bubble keeps both.
+  without its quote — the queued operation now has a `referencedMessageId`
+  field and the replay sends it when present, but nothing populates it yet
+  (see the developer guide). A manual `retrySend` on the failed bubble keeps
+  both.
 
 - **`uiDebugLog` and `ConsoleChatLogSink` printed to the release console**
   (`D167`). Both routed through `debugPrint`, which Flutter documents as

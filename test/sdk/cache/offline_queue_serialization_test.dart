@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -69,6 +71,27 @@ void main() {
       expect(r.sourceRoomId, 'src');
       expect(r.metadata, {'k': 'v'});
       expect(r.tempId, 'tmp-1');
+    });
+
+    test('PendingSendAttachment carries its reply through the offline '
+        'queue', () async {
+      final op = PendingSendAttachment(
+        id: 'op-1b',
+        roomId: 'r1',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        mimeType: 'image/png',
+        fileName: 'photo.png',
+        text: 'a caption',
+        referencedMessageId: 'ref-1',
+        tempId: 'tmp-1b',
+      );
+      final r = await roundTrip<PendingSendAttachment>(op);
+      expect(r.roomId, 'r1');
+      expect(r.mimeType, 'image/png');
+      expect(r.fileName, 'photo.png');
+      expect(r.text, 'a caption');
+      expect(r.referencedMessageId, 'ref-1');
+      expect(r.tempId, 'tmp-1b');
     });
 
     test('PendingSendDirectMessage', () async {

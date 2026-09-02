@@ -493,6 +493,7 @@ class NomaChatClient implements ChatClient {
             ? queuedMessages.send(
                 op.roomId,
                 text: op.text ?? '',
+                referencedMessageId: op.referencedMessageId,
                 messageType: op.messageType,
                 attachmentUrl: url,
                 attachmentId: attachment.attachmentId,
@@ -504,6 +505,7 @@ class NomaChatClient implements ChatClient {
             : messages.send(
                 op.roomId,
                 text: op.text ?? '',
+                referencedMessageId: op.referencedMessageId,
                 messageType: op.messageType,
                 attachmentUrl: url,
                 attachmentId: attachment.attachmentId,
