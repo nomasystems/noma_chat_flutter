@@ -8,7 +8,66 @@ onwards, breaking changes require a **major version bump**.
 
 ## Unreleased
 
+### Added
+
+- **An attachment can carry a caption and answer a message.**
+  `ChatMessagesController.sendAttachment` takes `caption` (published as the
+  message text, painted under the media by `ImageBubble` / `VideoBubble`)
+  and `referencedMessageId`; `sendVoice` takes `referencedMessageId`.
+  `VoiceMessageData` carries the quote it was recorded under
+  (`referencedMessageId`, `asReplyTo`). A quoted attachment paints the same
+  quote strip a text reply does, above the media, and `MessageBubble`
+  announces it in the bubble's accessibility label. Thread replies (plain
+  text carrying `referencedMessageId`) and reactions are unaffected.
+
+- **`AttachmentReviewPage` — the step between the picker and the send.**
+  What was chosen at full size, a caption field under it, and two ways out:
+  back sends nothing, send returns every attachment with its own caption
+  (`ReviewedAttachment`). Multi-selection is paged, one caption per
+  attachment. `AttachmentCaptionField` is exported so a host can reuse the
+  same field. `CameraCaptureReview` gains that field too (`allowCaption`,
+  on by default). New localized string `attachmentCaptionHint` in the seven
+  bundled locales; new UI-test identifiers
+  `chat_attachment_review_media` / `_back` / `_caption` / `_send` /
+  `_thumb_<n>`.
+
+### Changed
+
+- **Breaking — `CameraCapturePage.show` resolves to a
+  `CameraCaptureSubmission`** (the `capture` plus the `caption` typed on the
+  review step) instead of a bare `CameraCaptureResult`, and
+  `CameraCaptureReview.onSend` is a `ValueChanged<String?>` instead of a
+  `VoidCallback`. Hosts that pushed the capture screen themselves read
+  `submission.capture` where they used to read the result.
+
+- **`NomaChatView` reviews before it sends.** Its gallery and file rows now
+  open `AttachmentReviewPage` between the picker and the upload, and every
+  non-text path it drives (gallery, file, camera, voice note) carries the
+  composer's pending reply and closes the reply preview once the send is
+  away — and only if the user has not started answering something else in
+  the meantime.
+
 ### Fixed
+
+- **Every non-text send ignored the pending reply and left it in the
+  composer.** Sending a photo, a video, a document, a location or a voice
+  note while the reply preview was open published it with no quote and left
+  the preview standing, so the *next* text message went out quoting a
+  message the user had already answered. The whole send path now carries
+  the quote, and the composer's reply preview closes with the send it
+  belonged to. One limitation remains: an attachment replayed from the
+  offline queue after a connectivity failure is re-sent with its caption but
+  without its quote — the queued operation has no field for it. A manual
+  `retrySend` on the failed bubble keeps both.
+
+- **`uiDebugLog` and `ConsoleChatLogSink` printed to the release console**
+  (`D167`). Both routed through `debugPrint`, which Flutter documents as
+  logging to console even in release builds — the opposite of what their
+  own docstrings claimed. Message metadata and attachment URLs from ~39
+  call sites across the UI layer were reaching the device's system log on
+  a release build. Both now gate the call behind `kDebugMode` themselves,
+  so nothing is printed outside a debug build; `ChatConfig`'s default sink
+  selection was already `kDebugMode`-gated and needed no change.
 
 - **The search clear button stays in the tree when the field is empty**
   (`D132`). `MessageSearchView` and `RoomSearchBar` hid the clear `IconButton`
