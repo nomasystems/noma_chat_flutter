@@ -25,7 +25,7 @@ Message bubbles expose semantic labels that screen readers announce. The label c
 
 - **Failed send:** `You: <text>, <timestamp>, Failed`
 
-- **Pending send:** `You: <text>, Sending` (no timestamp while awaiting acknowledgment).
+- **Pending send:** `You: <text>, <timestamp>, Sending`. The timestamp is the message's own send time, painted the same as on any other bubble, even while the send is still in flight.
 
 ### Implementation
 
