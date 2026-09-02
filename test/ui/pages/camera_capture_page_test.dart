@@ -196,7 +196,9 @@ class _CaptureHost {
   int returns = 0;
 
   /// What it resolved with. `null` for a discard or a cancellation.
-  CameraCaptureResult? result;
+  CameraCaptureSubmission? submission;
+
+  CameraCaptureResult? get result => submission?.capture;
 }
 
 void main() {
@@ -323,8 +325,8 @@ void main() {
               child: ElevatedButton(
                 onPressed: () async {
                   final popped = await Navigator.of(context)
-                      .push<CameraCaptureResult>(
-                        MaterialPageRoute<CameraCaptureResult>(
+                      .push<CameraCaptureSubmission>(
+                        MaterialPageRoute<CameraCaptureSubmission>(
                           builder: (_) => CameraCapturePage(
                             theme: theme,
                             videoPreviewBuilder: videoPreviewBuilder,
@@ -332,7 +334,7 @@ void main() {
                         ),
                       );
                   host.returns++;
-                  host.result = popped;
+                  host.submission = popped;
                 },
                 child: const Text('open camera'),
               ),

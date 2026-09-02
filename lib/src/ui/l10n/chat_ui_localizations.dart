@@ -326,6 +326,7 @@ class ChatUiLocalizations {
     this.cameraPermissionDenied = 'You need to allow camera access',
     this.cameraRetake = 'Retake',
     this.cameraDiscard = 'Discard',
+    this.attachmentCaptionHint = 'Add a caption',
     this.switchCamera = 'Switch camera',
     this.openSettings = 'Open settings',
     this.changesSaved = 'Changes saved',
@@ -880,6 +881,10 @@ class ChatUiLocalizations {
   /// Leaves the capture screen without sending anything, on the same
   /// review step.
   final String cameraDiscard;
+
+  /// Placeholder of the caption field on the attachment review step
+  /// (`AttachmentReviewPage`, `CameraCaptureReview`).
+  final String attachmentCaptionHint;
   final String switchCamera;
   final String openSettings;
   final String changesSaved;
@@ -1436,6 +1441,7 @@ class ChatUiLocalizations {
     String? cameraPermissionDenied,
     String? cameraRetake,
     String? cameraDiscard,
+    String? attachmentCaptionHint,
     String? switchCamera,
     String? openSettings,
     String? profile,
@@ -1761,6 +1767,8 @@ class ChatUiLocalizations {
           cameraPermissionDenied ?? this.cameraPermissionDenied,
       cameraRetake: cameraRetake ?? this.cameraRetake,
       cameraDiscard: cameraDiscard ?? this.cameraDiscard,
+      attachmentCaptionHint:
+          attachmentCaptionHint ?? this.attachmentCaptionHint,
       switchCamera: switchCamera ?? this.switchCamera,
       openSettings: openSettings ?? this.openSettings,
       profile: profile ?? this.profile,
@@ -2229,6 +2237,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: 'Necesitas permitir el acceso a la cámara',
     cameraRetake: 'Repetir',
     cameraDiscard: 'Descartar',
+    attachmentCaptionHint: 'Añade un pie de foto',
     switchCamera: 'Cambiar de cámara',
     openSettings: 'Abrir ajustes',
     changesSaved: 'Cambios guardados',
@@ -2568,6 +2577,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: "Tu dois autoriser l'accès à la caméra",
     cameraRetake: 'Reprendre',
     cameraDiscard: 'Supprimer',
+    attachmentCaptionHint: 'Ajouter une légende',
     switchCamera: 'Changer de caméra',
     openSettings: 'Ouvrir les réglages',
     changesSaved: 'Modifications enregistrées',
@@ -2908,6 +2918,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: 'Du musst den Zugriff auf die Kamera erlauben',
     cameraRetake: 'Neu aufnehmen',
     cameraDiscard: 'Verwerfen',
+    attachmentCaptionHint: 'Bildunterschrift hinzufügen',
     switchCamera: 'Kamera wechseln',
     openSettings: 'Einstellungen öffnen',
     changesSaved: 'Änderungen gespeichert',
@@ -3244,6 +3255,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: "Devi consentire l'accesso alla fotocamera",
     cameraRetake: 'Ripeti',
     cameraDiscard: 'Scarta',
+    attachmentCaptionHint: 'Aggiungi una didascalia',
     switchCamera: 'Cambia fotocamera',
     openSettings: 'Apri impostazioni',
     changesSaved: 'Modifiche salvate',
@@ -3579,6 +3591,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: 'Precisas de permitir o acesso à câmara',
     cameraRetake: 'Repetir',
     cameraDiscard: 'Descartar',
+    attachmentCaptionHint: 'Adicionar uma legenda',
     switchCamera: 'Mudar de câmara',
     openSettings: 'Abrir definições',
     changesSaved: 'Alterações guardadas',
@@ -3910,6 +3923,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: "Necessites permetre l'accés a la càmera",
     cameraRetake: 'Repeteix',
     cameraDiscard: 'Descarta',
+    attachmentCaptionHint: 'Afegeix un peu de foto',
     switchCamera: 'Canviar de càmera',
     openSettings: 'Obrir configuració',
     changesSaved: 'Canvis desats',
@@ -5414,6 +5428,7 @@ class ChatUiLocalizations {
     String? cameraPermissionDenied,
     String? cameraRetake,
     String? cameraDiscard,
+    String? attachmentCaptionHint,
     String? switchCamera,
     String? openSettings,
     String? changesSaved,
@@ -5734,6 +5749,7 @@ class ChatUiLocalizations {
         cameraPermissionDenied: cameraPermissionDenied,
         cameraRetake: cameraRetake,
         cameraDiscard: cameraDiscard,
+        attachmentCaptionHint: attachmentCaptionHint,
         switchCamera: switchCamera,
         openSettings: openSettings,
         changesSaved: changesSaved,

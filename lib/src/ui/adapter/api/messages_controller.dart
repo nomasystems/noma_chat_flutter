@@ -331,11 +331,19 @@ interface class ChatMessagesController {
   /// The optimistic row carries that same `clientMessageId`, so the
   /// authoritative `new_message` event replaces it rather than painting a
   /// second bubble when the send landed but its response did not.
+  /// [caption] travels as the message text, the way a photo sent with a
+  /// line under it does everywhere else — the bubble already paints
+  /// `message.text` beneath the media. [referencedMessageId] quotes the
+  /// message being answered, so an attachment can reply to a message
+  /// exactly like a text send: pass `ChatController.replyingTo?.id` and
+  /// clear the composer's reply once the send resolves.
   Future<ChatResult<ChatMessage>> sendAttachment(
     String roomIdOrDraftKey, {
     required Uint8List bytes,
     required String mimeType,
     String? fileName,
+    String? caption,
+    String? referencedMessageId,
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(int sent, int total)? onProgress,
   }) async {
@@ -377,6 +385,8 @@ interface class ChatMessagesController {
         bytes: bytes,
         mimeType: mimeType,
         fileName: fileName,
+        caption: caption,
+        referencedMessageId: referencedMessageId,
         onProgress: onProgress,
         controller: controller,
         tempId: tempId,
@@ -452,6 +462,8 @@ interface class ChatMessagesController {
     required Uint8List bytes,
     required String mimeType,
     required String? fileName,
+    required String? caption,
+    required String? referencedMessageId,
     required void Function(int sent, int total)? onProgress,
     required ChatController? controller,
     required String tempId,
@@ -471,6 +483,8 @@ interface class ChatMessagesController {
       timestamp: DateTime.now(),
       messageType: MessageType.attachment,
       clientMessageId: tempId,
+      text: caption,
+      referencedMessageId: referencedMessageId,
       attachmentUrl: '',
       mimeType: mimeType,
       fileName: fileName,
@@ -644,7 +658,7 @@ interface class ChatMessagesController {
         causeFailure: uploadResult.failureOrNull,
         fileName: fileName,
         messageType: MessageType.attachment,
-        text: '',
+        text: caption ?? '',
         metadata: optimisticMetadata,
         tempId: tempId,
         clientMessageId: tempId,
@@ -713,7 +727,8 @@ interface class ChatMessagesController {
 
     final sendResult = await _a.client.messages.send(
       roomId,
-      text: '',
+      text: caption ?? '',
+      referencedMessageId: referencedMessageId,
       messageType: MessageType.attachment,
       attachmentUrl: url,
       attachmentId: attachment.attachmentId,
@@ -948,12 +963,15 @@ interface class ChatMessagesController {
   /// token registered is one nothing can abort: the session teardown walks
   /// the registry, so a clip absent from it keeps going after the session
   /// that started it is gone, and lands with no message to reference it.
+  /// [referencedMessageId] quotes the message being answered, so a voice
+  /// note can reply to a message like a text send does.
   Future<ChatResult<ChatMessage>> sendVoice(
     String roomIdOrDraftKey, {
     required Uint8List audioBytes,
     required String mimeType,
     required Duration duration,
     required List<int> waveform,
+    String? referencedMessageId,
   }) async {
     final controller = _a._chatControllers[roomIdOrDraftKey];
     final tempId = _nextTempId();
@@ -967,6 +985,7 @@ interface class ChatMessagesController {
         mimeType: mimeType,
         duration: duration,
         waveform: waveform,
+        referencedMessageId: referencedMessageId,
         controller: controller,
         tempId: tempId,
         progress: progress,
@@ -984,6 +1003,7 @@ interface class ChatMessagesController {
     required String mimeType,
     required Duration duration,
     required List<int> waveform,
+    required String? referencedMessageId,
     required ChatController? controller,
     required String tempId,
     required ValueNotifier<double> progress,
@@ -997,6 +1017,7 @@ interface class ChatMessagesController {
       timestamp: DateTime.now(),
       messageType: MessageType.audio,
       clientMessageId: tempId,
+      referencedMessageId: referencedMessageId,
       attachmentUrl: '',
       mimeType: mimeType,
       metadata: {
@@ -1201,6 +1222,7 @@ interface class ChatMessagesController {
     final sendResult = await _a.client.messages.send(
       roomId,
       messageType: MessageType.audio,
+      referencedMessageId: referencedMessageId,
       attachmentUrl: url,
       attachmentId: attachment.attachmentId,
       metadata: metadata,
@@ -1590,8 +1612,10 @@ interface class ChatMessagesController {
     RetainedUpload retained,
   ) async {
     // Read off the old row before it goes: how long a voice note runs and
-    // the waveform drawn under it live on its metadata and nowhere else.
+    // the waveform drawn under it live on its metadata and nowhere else,
+    // and the caption and the quote were never handed to the registry.
     final recording = _retainedVoiceRecording(roomId, messageId);
+    final failedRow = _rowById(retained.roomId, messageId);
     // Released before the retry starts: a retry that fails again retains
     // its own bytes under the new id, and one that succeeds must not leave
     // a copy of the file behind.
@@ -1605,6 +1629,7 @@ interface class ChatMessagesController {
         mimeType: retained.mimeType,
         duration: recording.duration,
         waveform: recording.waveform,
+        referencedMessageId: failedRow?.referencedMessageId,
       );
     }
     return sendAttachment(
@@ -1612,7 +1637,19 @@ interface class ChatMessagesController {
       bytes: retained.bytes,
       mimeType: retained.mimeType,
       fileName: retained.fileName,
+      caption: failedRow?.text,
+      referencedMessageId: failedRow?.referencedMessageId,
     );
+  }
+
+  /// The row [messageId] still on screen in [roomId], or `null` when the
+  /// controller is gone (a retry from a chat that was closed in between).
+  ChatMessage? _rowById(String roomId, String messageId) {
+    final controller = _a._chatControllers[roomId];
+    for (final m in controller?.messages ?? const <ChatMessage>[]) {
+      if (m.id == messageId) return m;
+    }
+    return null;
   }
 
   /// What the failed voice row [messageId] was recorded as: its length and
@@ -1622,14 +1659,7 @@ interface class ChatMessagesController {
     String roomId,
     String messageId,
   ) {
-    final controller = _a._chatControllers[roomId];
-    ChatMessage? row;
-    for (final m in controller?.messages ?? const <ChatMessage>[]) {
-      if (m.id == messageId) {
-        row = m;
-        break;
-      }
-    }
+    final row = _rowById(roomId, messageId);
     final rawDuration = row?.metadata?['duration'];
     final ms = rawDuration is num ? rawDuration.toInt() : null;
     final rawWaveform = row?.metadata?['waveform'];

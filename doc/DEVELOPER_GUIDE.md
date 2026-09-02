@@ -1232,6 +1232,81 @@ final files = await chat.client.attachments.listInRoom(roomId);
 await chat.client.attachments.deleteInRoom(roomId, messageId);
 ```
 
+#### Caption and reply — a photo answers like a text message does
+
+`sendAttachment` takes a `caption` (published as the message text, painted
+under the media by `ImageBubble` / `VideoBubble`) and a
+`referencedMessageId` (the message being answered). `sendVoice` takes the
+same `referencedMessageId`. Pass the composer's pending reply and close it
+once the send resolves — read it *before* opening the picker, so a picker
+the user cancels leaves the reply preview where it was:
+
+```dart
+final chatController = chat.adapter.findChatController(roomId);
+final replyTo = chatController?.replyingTo?.id;
+
+final pick = await AttachmentPickers.pickImageFromGallery();
+if (pick == null) return; // the reply preview stays open
+
+final sent = await chat.adapter.messages.sendAttachment(
+  roomId,
+  bytes: pick.bytes,
+  mimeType: pick.mimeType,
+  fileName: pick.fileName,
+  caption: 'at the top of the hill',
+  referencedMessageId: replyTo,
+);
+if (sent.isSuccess) chatController?.setReplyTo(null);
+```
+
+`NomaChatView` already does all of this on its own gallery, file, camera
+and voice-note paths — the snippet is for a host that drives the pickers
+itself. A quoted attachment paints the same quote strip a text reply does,
+above the media; a voice note recorded with the reply preview open carries
+the quote through `VoiceMessageData.referencedMessageId`.
+
+One limitation to know about: an attachment that fails on a connectivity
+error and is replayed from the **offline queue** is re-sent with its
+caption but without its quote — the queued operation has no field for it.
+A manual `retrySend` on the failed bubble keeps both.
+
+#### Reviewing before sending — `AttachmentReviewPage`
+
+The system picker confirms a *selection*, not a publication. Between the
+picker and the send, `AttachmentReviewPage` shows what was chosen at full
+size with a caption field under it and two ways out: back, which sends
+nothing, and send, which returns every attachment with its own caption.
+Multi-selection is paged, one caption per attachment.
+
+```dart
+final picks = await AttachmentPickers.pickMultipleMedia();
+final reviewed = await AttachmentReviewPage.show(
+  context: context,
+  attachments: picks,
+  theme: chatTheme,
+);
+if (reviewed == null) return; // the user backed out
+
+for (final item in reviewed) {
+  await chat.adapter.messages.sendAttachment(
+    roomId,
+    bytes: item.attachment.bytes,
+    mimeType: item.attachment.mimeType,
+    fileName: item.attachment.fileName,
+    caption: item.caption,
+  );
+}
+```
+
+`NomaChatView` inserts this step by itself on the gallery and file rows.
+The in-app camera has its own review step, `CameraCaptureReview`, which now
+carries the same caption field (`allowCaption`, on by default):
+`CameraCapturePage.show` returns a `CameraCaptureSubmission` with the
+`capture` and the `caption`. The caption field's placeholder is the
+`attachmentCaptionHint` string of `ChatUiLocalizations`, and both review
+steps expose `chat_attachment_review_caption` /
+`chat_attachment_review_send` / `chat_attachment_review_back` for UI tests.
+
 #### `attachmentId` and re-minting an expired signed URL
 
 `ChatMessage.attachmentId` is the stable id an attachment was uploaded

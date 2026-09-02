@@ -72,6 +72,43 @@ void main() {
     },
   );
 
+  test('the caption and the quoted message reach the published attachment, '
+      'and the optimistic bubble already carries them', () async {
+    final controller = adapter.getChatController('r1');
+
+    final future = adapter.messages.sendAttachment(
+      'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      fileName: 'pic.png',
+      caption: 'a line under it',
+      referencedMessageId: 'm-quoted',
+    );
+
+    final optimistic = controller.messages.single;
+    expect(optimistic.text, 'a line under it');
+    expect(optimistic.referencedMessageId, 'm-quoted');
+
+    final result = await future;
+    expect(result.isSuccess, isTrue);
+    expect(result.dataOrThrow.text, 'a line under it');
+    expect(result.dataOrThrow.referencedMessageId, 'm-quoted');
+  });
+
+  test('an attachment with no caption is still published as a media message '
+      'with no text of its own', () async {
+    final result = await adapter.messages.sendAttachment(
+      'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      fileName: 'pic.png',
+    );
+
+    expect(result.isSuccess, isTrue);
+    expect(result.dataOrThrow.text, isEmpty);
+    expect(result.dataOrThrow.referencedMessageId, isNull);
+  });
+
   test('marks the optimistic bubble visibly failed (not silently dropped) '
       'when the upload fails', () async {
     client.attachments.failNextUpload = true;
