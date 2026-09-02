@@ -10,6 +10,8 @@ onwards, breaking changes require a **major version bump**.
 
 ### Added
 
+- **Message bubble accessibility label now includes the timestamp and always announces the delivery state.** The semantic label, read by screen readers, now matches what the screen paints: `You: <text>, HH:mm, Sent|Delivered|Read`. For incoming messages, the sender prefix and timestamp are always present. Deleted messages announce no timestamp or state.
+
 - **An attachment can carry a caption and answer a message.**
   `ChatMessagesController.sendAttachment` takes `caption` (published as the
   message text, painted under the media by `ImageBubble` / `VideoBubble`)
