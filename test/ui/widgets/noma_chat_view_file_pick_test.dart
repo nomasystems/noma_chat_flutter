@@ -71,7 +71,10 @@ void main() {
 
   /// Taps the File row's action and lets the real event loop turn — the
   /// pick goes through `ImageMetadataScrubber.scrub`, which hops to a
-  /// background isolate on every platform these tests run on.
+  /// background isolate on every platform these tests run on. An accepted
+  /// file lands on `AttachmentReviewPage` next, not on the wire: confirm
+  /// that step so the upload this test measures actually fires, exactly
+  /// like a real send.
   Future<void> pickFile(WidgetTester tester) async {
     tester.widget<ChatView>(find.byType(ChatView)).callbacks.onPickFile!();
     for (var round = 0; round < 6; round++) {
@@ -80,6 +83,14 @@ void main() {
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
       await tester.pump();
+    }
+    await tester.pumpAndSettle();
+    final sendButton = find.byKey(
+      const ValueKey('chat_attachment_review_send'),
+    );
+    if (sendButton.evaluate().isNotEmpty) {
+      await tester.tap(sendButton);
+      await tester.pumpAndSettle();
     }
   }
 
