@@ -6,7 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
-## Unreleased
+## 0.32.0 - 2026-09-03
+
+Attachments and voice notes gain a caption and can answer a message, with a
+new review step between the picker and the send. Message bubbles announce
+their timestamp and delivery state to screen readers. Unread counters no
+longer count system messages, and two logging/UI leaks that reached a
+release build are closed.
 
 ### Added
 
@@ -88,29 +94,29 @@ onwards, breaking changes require a **major version bump**.
   the replay, the same as a manual `retrySend` on the failed bubble already
   did.
 
-- **`uiDebugLog` and `ConsoleChatLogSink` printed to the release console**
-  (`D167`). Both routed through `debugPrint`, which Flutter documents as
-  logging to console even in release builds — the opposite of what their
-  own docstrings claimed. Message metadata and attachment URLs from ~39
-  call sites across the UI layer were reaching the device's system log on
-  a release build. Both now gate the call behind `kDebugMode` themselves,
-  so nothing is printed outside a debug build; `ChatConfig`'s default sink
+- **`uiDebugLog` and `ConsoleChatLogSink` printed to the release console.**
+  Both routed through `debugPrint`, which Flutter documents as logging to
+  console even in release builds — the opposite of what their own
+  docstrings claimed. Message metadata and attachment URLs from ~39 call
+  sites across the UI layer were reaching the device's system log on a
+  release build. Both now gate the call behind `kDebugMode` themselves, so
+  nothing is printed outside a debug build; `ChatConfig`'s default sink
   selection was already `kDebugMode`-gated and needed no change.
 
-- **The search clear button stays in the tree when the field is empty**
-  (`D132`). `MessageSearchView` and `RoomSearchBar` hid the clear `IconButton`
-  with `Visibility(maintainState: true)`, which keeps it mounted (offstage)
-  rather than removing it, so a driver's dump still lists `chat_search_clear`
-  / `room_search_clear` with an empty field. Both now build
-  `const SizedBox.shrink()` while the field is empty and only build the
-  `Semantics(identifier: ..., button: true, child: IconButton(...))` once
-  there is text to clear, so the control unmounts for real. The `Tooltip`
-  that used to carry the accessible label is gone with it -- the label now
-  lives on the `Semantics` node, which the a11y sweep already required -- so
-  there is no `TooltipState` left to dispose from inside its own
-  `onPressed`. The pattern (`isEmpty ? SizedBox.shrink() : Semantics(...)`) is
-  the one to repeat anywhere else in the host app that shows the same "X"
-  affordance.
+- **The search clear button stays in the tree when the field is empty.**
+  `MessageSearchView` and `RoomSearchBar` hid the clear `IconButton` with
+  `Visibility(maintainState: true)`, which keeps it mounted (offstage)
+  rather than removing it, so a driver's dump still lists
+  `chat_search_clear` / `room_search_clear` with an empty field. Both now
+  build `const SizedBox.shrink()` while the field is empty and only build
+  the `Semantics(identifier: ..., button: true, child: IconButton(...))`
+  once there is text to clear, so the control unmounts for real. The
+  `Tooltip` that used to carry the accessible label is gone with it — the
+  label now lives on the `Semantics` node, which the a11y sweep already
+  required — so there is no `TooltipState` left to dispose from inside its
+  own `onPressed`. The pattern (`isEmpty ? SizedBox.shrink() :
+  Semantics(...)`) is the one to repeat anywhere else in the host app that
+  shows the same "X" affordance.
 
 ## 0.31.0 - 2026-09-01
 
