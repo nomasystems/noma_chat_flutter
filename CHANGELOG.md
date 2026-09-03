@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.32.2 - 2026-09-03
+
+A WebSocket connection attempt is now bounded end to end, and tearing the
+transport down no longer waits on a handshake that will never answer.
+
+### Fixed
+
+- **`connect()` can no longer stall forever on a socket that never finishes opening.** `WsTransport` awaited `WebSocketChannel.ready` with no bound. A socket that opens at TCP level but never completes its upgrade — a captive portal, a proxy that blackholes the handshake — left that future pending indefinitely, and the transport latched at `connecting`, the one state where every later `connect()` is guarded out as a no-op. The wait is now bounded by `authTimeout`, so the attempt fails, surfaces a `ChatTimeoutException`, and the normal reconnect path takes over.
+- **`disconnect()` / `dispose()` abort the auth handshake in flight instead of leaving its timer armed.** Teardown cancelled the reconnect and ping timers but not the handshake's `authTimeout` timer, so a transport disposed mid-handshake kept a timer alive for up to ten seconds and only then resolved the pending `connect()`. Teardown now cancels that timer and unblocks the caller immediately, and the failure of the socket it abandoned is no longer reported as an application error — the caller already drove the transport to its final state.
+
+### Changed
+
+- **The test suite is bounded: no test may run longer than two minutes.** `dart_test.yaml` sets a global `timeout`, so a test waiting on something that never arrives fails on its own instead of stalling the run with no output. Alongside it, the WebSocket transport tests no longer depend on real-time waits: the fake channel used to hand `auth_ok` to a broadcast stream before the transport had subscribed, which dropped the frame and made every one of those tests sit out the full ten-second auth timeout. The fake now queues frames delivered before there is a listener, cutting that file from two and a half minutes to five seconds.
+
 ## 0.32.1 - 2026-09-03
 
 A chat room could stop answering gestures after a long press on a message.
