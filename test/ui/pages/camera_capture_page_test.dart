@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:camera/camera.dart' show CameraPreview;
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:image/image.dart' as img;
 import 'package:noma_chat/noma_chat.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
@@ -176,8 +178,23 @@ class _FakeCameraPlatform extends CameraPlatform {
     return XFile('/tmp/clip.mp4');
   }
 
+  /// Written to a real file when set, so the tests that care about the
+  /// pixels of a take can read back what the screen left on disk.
+  Uint8List? stillBytes;
+  Directory? stillDirectory;
+  int _stills = 0;
+
   @override
-  Future<XFile> takePicture(int cameraId) async => XFile('/tmp/shot.jpg');
+  Future<XFile> takePicture(int cameraId) async {
+    final bytes = stillBytes;
+    if (bytes == null) return XFile('/tmp/shot.jpg');
+    final directory = stillDirectory ??= Directory.systemTemp.createTempSync(
+      'noma_capture',
+    );
+    final file = File('${directory.path}/shot_${_stills++}.jpg')
+      ..writeAsBytesSync(bytes);
+    return XFile(file.path);
+  }
 
   @override
   Future<void> dispose(int cameraId) async {
@@ -1438,6 +1455,302 @@ void main() {
 
       expect(find.byType(CameraVideoPreview), findsOneWidget);
       expect(find.byType(CameraCaptureReview), findsOneWidget);
+    },
+  );
+
+  /// Pumps real frames until [done] holds, letting the isolate the capture
+  /// screen rebuilds a still on actually run.
+  Future<void> pumpUntil(
+    WidgetTester tester,
+    bool Function() done, {
+    Duration timeout = const Duration(seconds: 20),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (!done() && DateTime.now().isBefore(deadline)) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+  }
+
+  /// Four flat quadrants, which survive a JPEG round trip where an edge does
+  /// not: red top-left, blue top-right, green bottom-left, white bottom-right.
+  Uint8List quadrantJpeg({int? orientation}) {
+    final source = img.Image(width: 32, height: 16);
+    for (var y = 0; y < 16; y++) {
+      for (var x = 0; x < 32; x++) {
+        final left = x < 16;
+        final top = y < 8;
+        source.setPixelRgb(
+          x,
+          y,
+          top && left
+              ? 255
+              : top
+              ? 0
+              : left
+              ? 0
+              : 255,
+          top && left
+              ? 0
+              : top
+              ? 0
+              : left
+              ? 255
+              : 255,
+          top && left
+              ? 0
+              : top
+              ? 255
+              : left
+              ? 0
+              : 255,
+        );
+      }
+    }
+    if (orientation != null) {
+      source.exif.imageIfd.orientation = orientation;
+    }
+    return Uint8List.fromList(img.JpegEncoder(quality: 100).encode(source));
+  }
+
+  String quadrantAt(img.Image image, int x, int y) {
+    final pixel = image.getPixel(x, y);
+    final r = pixel.r > 128;
+    final g = pixel.g > 128;
+    final b = pixel.b > 128;
+    if (r && g && b) return 'white';
+    if (r && !g && !b) return 'red';
+    if (!r && g && !b) return 'green';
+    if (!r && !g && b) return 'blue';
+    return 'other(${pixel.r},${pixel.g},${pixel.b})';
+  }
+
+  /// Shoots a still and waits for the review step, which the screen only
+  /// reaches once the take has been rewritten on disk.
+  Future<void> shootStill(WidgetTester tester) async {
+    await tester.tap(find.byType(CameraCaptureButton));
+    await tester.pump();
+    await pumpUntil(
+      tester,
+      () => find.byType(CameraCaptureReview).evaluate().isNotEmpty,
+    );
+  }
+
+  testWidgets('a still shot on the front lens is flipped to match the mirrored '
+      'viewfinder, in the file the caller is handed', (tester) async {
+    camera.cameras = const <CameraDescription>[_frontCamera];
+    camera.stillBytes = quadrantJpeg();
+    final host = await pumpHostedPage(tester);
+    addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+    await shootStill(tester);
+    await tester.tap(find.byIcon(Icons.send));
+    await settle(tester, 8);
+    await tester.pumpAndSettle();
+
+    expect(host.result, isNotNull);
+    final sent = img.decodeJpg(File(host.result!.file.path).readAsBytesSync())!;
+    expect(sent.width, 32);
+    expect(sent.height, 16);
+    expect(quadrantAt(sent, 4, 4), 'blue');
+    expect(quadrantAt(sent, 27, 4), 'red');
+    expect(quadrantAt(sent, 4, 12), 'white');
+    expect(quadrantAt(sent, 27, 12), 'green');
+  });
+
+  testWidgets('a still shot on the back lens is left exactly as it came', (
+    tester,
+  ) async {
+    camera.stillBytes = quadrantJpeg();
+    final host = await pumpHostedPage(tester);
+    addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+    await shootStill(tester);
+    await tester.tap(find.byIcon(Icons.send));
+    await settle(tester, 8);
+    await tester.pumpAndSettle();
+
+    expect(
+      File(host.result!.file.path).readAsBytesSync(),
+      camera.stillBytes,
+      reason: 'only the mirrored lens is flipped, and never re-encoded twice',
+    );
+  });
+
+  testWidgets(
+    'the flip lands on the axis the picture is displayed along, not the one '
+    'it is stored along',
+    (tester) async {
+      camera.cameras = const <CameraDescription>[_frontCamera];
+      camera.stillBytes = quadrantJpeg(orientation: 6);
+      final host = await pumpHostedPage(tester);
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+      await shootStill(tester);
+      await tester.tap(find.byIcon(Icons.send));
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+
+      final sent = img.decodeJpg(
+        File(host.result!.file.path).readAsBytesSync(),
+      )!;
+      expect(sent.width, 16, reason: 'the rotation is baked into the pixels');
+      expect(sent.height, 32);
+      expect(sent.exif.imageIfd.orientation, anyOf(isNull, 1));
+      expect(quadrantAt(sent, 4, 4), 'red');
+      expect(quadrantAt(sent, 12, 4), 'green');
+      expect(quadrantAt(sent, 4, 27), 'blue');
+      expect(quadrantAt(sent, 12, 27), 'white');
+    },
+  );
+
+  testWidgets(
+    'a pinch still zooms while a clip is recording, with both fingers on the '
+    'preview',
+    (tester) async {
+      await pumpPage(tester);
+      final hold = await holdShutter(tester);
+      await settle(tester, 4);
+      expect(camera.startedRecordings, isNotEmpty);
+      camera.setZoomLevels.clear();
+
+      final center = tester.getCenter(find.byType(CameraPreview));
+      final first = await tester.startGesture(
+        center - const Offset(24, 0),
+        pointer: 7,
+      );
+      final second = await tester.startGesture(
+        center + const Offset(24, 0),
+        pointer: 8,
+      );
+      await tester.pump();
+      await first.moveTo(center - const Offset(80, 0));
+      await second.moveTo(center + const Offset(80, 0));
+      await tester.pump();
+      await first.up();
+      await second.up();
+      await settle(tester, 4);
+
+      expect(camera.setZoomLevels, isNotEmpty);
+      expect(camera.setZoomLevels.last, greaterThan(1.0));
+      await hold.up();
+      await settle(tester, 8);
+    },
+  );
+
+  testWidgets(
+    'the one finger left free while the shutter is held zooms by sliding on '
+    'the preview',
+    (tester) async {
+      await pumpPage(tester);
+      final hold = await holdShutter(tester);
+      await settle(tester, 4);
+      expect(camera.startedRecordings, isNotEmpty);
+      camera.setZoomLevels.clear();
+
+      final center = tester.getCenter(find.byType(CameraPreview));
+      final finger = await tester.startGesture(center, pointer: 7);
+      await tester.pump();
+      await finger.moveBy(const Offset(0, -110));
+      await tester.pump();
+      await finger.up();
+      await settle(tester, 4);
+
+      expect(
+        camera.setZoomLevels,
+        isNotEmpty,
+        reason: 'a single pointer carries no scale factor to pinch with',
+      );
+      expect(camera.setZoomLevels.last, closeTo(2.828, 0.01));
+      await hold.up();
+      await settle(tester, 8);
+    },
+  );
+
+  testWidgets('sliding the held shutter up zooms the lens it is recording on', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+    final hold = await holdShutter(tester);
+    await settle(tester, 4);
+    expect(camera.startedRecordings, isNotEmpty);
+    camera.setZoomLevels.clear();
+
+    await hold.moveBy(const Offset(0, -110));
+    await tester.pump();
+    await settle(tester, 4);
+
+    expect(camera.setZoomLevels, isNotEmpty);
+    expect(camera.setZoomLevels.last, closeTo(2.828, 0.01));
+    expect(
+      camera.stoppedRecordings,
+      isEmpty,
+      reason: 'sliding frames the clip, it does not end it',
+    );
+    await hold.up();
+    await settle(tester, 8);
+  });
+
+  testWidgets('a single finger on the preview does not zoom in photo mode', (
+    tester,
+  ) async {
+    await pumpPage(tester);
+
+    final center = tester.getCenter(find.byType(CameraPreview));
+    final finger = await tester.startGesture(center, pointer: 7);
+    await tester.pump();
+    await finger.moveBy(const Offset(0, -110));
+    await tester.pump();
+    await finger.up();
+    await settle(tester, 4);
+
+    expect(
+      camera.setZoomLevels,
+      isEmpty,
+      reason: 'nothing is framing a clip, so a drag is not a zoom',
+    );
+  });
+
+  testWidgets(
+    'the pinch survives the audio rebind whose zoom range will not read a '
+    'second time',
+    (tester) async {
+      microphoneStatus = _denied;
+      microphoneRequestResult = _granted;
+      await pumpPage(tester);
+      camera.failMaxZoom = true;
+
+      final hold = await holdShutter(tester);
+      await settle(tester, 8);
+      expect(camera.startedRecordings, isNotEmpty);
+      camera.setZoomLevels.clear();
+
+      final center = tester.getCenter(find.byType(CameraPreview));
+      final first = await tester.startGesture(
+        center - const Offset(24, 0),
+        pointer: 7,
+      );
+      final second = await tester.startGesture(
+        center + const Offset(24, 0),
+        pointer: 8,
+      );
+      await tester.pump();
+      await first.moveTo(center - const Offset(80, 0));
+      await second.moveTo(center + const Offset(80, 0));
+      await tester.pump();
+      await first.up();
+      await second.up();
+      await settle(tester, 4);
+
+      expect(
+        camera.setZoomLevels,
+        isNotEmpty,
+        reason: 'a range already known for this lens is not thrown away',
+      );
+      await hold.up();
+      await settle(tester, 8);
     },
   );
 }
