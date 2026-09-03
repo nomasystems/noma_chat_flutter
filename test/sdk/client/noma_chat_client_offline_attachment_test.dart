@@ -150,6 +150,66 @@ void main() {
     expect(queuedAfterDrain, isEmpty);
   });
 
+  test('enqueueOfflineAttachment carries the reply quote through the '
+      'persisted queue and into the replayed send', () async {
+    when(
+      () => rest.uploadBinary(
+        any(),
+        any(),
+        any(),
+        onProgress: any(named: 'onProgress'),
+      ),
+    ).thenAnswer(
+      (_) async => {'attachmentId': 'att-2', 'url': 'https://cdn/att-2'},
+    );
+    Map<String, dynamic>? postedBody;
+    when(() => rest.post(any(), data: any(named: 'data'))).thenAnswer((
+      invocation,
+    ) async {
+      postedBody = invocation.namedArguments[#data] as Map<String, dynamic>;
+      return {
+        'id': 'm-reply',
+        'from': 'u1',
+        'timestamp': '2025-01-01T00:00:00Z',
+        'messageType': 'attachment',
+        'attachmentUrl': 'https://cdn/att-2',
+        'attachmentId': 'att-2',
+        'referencedMessageId': postedBody!['referencedMessageId'],
+      };
+    });
+
+    final client = build();
+    ChatMessage? reconciledMessage;
+    client.onOfflineMessageSent = (roomId, tempId, message) {
+      reconciledMessage = message;
+    };
+    await client.connect();
+
+    client.enqueueOfflineAttachment(
+      roomId: 'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      causeFailure: const NetworkFailure(),
+      fileName: 'photo.png',
+      tempId: 'temp-reply',
+      clientMessageId: 'temp-reply',
+      referencedMessageId: 'm-quoted',
+    );
+
+    final queuedBeforeDrain =
+        (await store.getOfflineQueue()).dataOrNull ?? const [];
+    expect(queuedBeforeDrain, hasLength(1));
+    expect(queuedBeforeDrain.single['referencedMessageId'], 'm-quoted');
+
+    events.add(const ConnectedEvent());
+    events.add(const DisconnectedEvent());
+    events.add(const ConnectedEvent());
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+
+    expect(postedBody?['referencedMessageId'], 'm-quoted');
+    expect(reconciledMessage?.referencedMessageId, 'm-quoted');
+  });
+
   test('a permanent failure (ValidationFailure) during upload is NOT queued '
       '— there is nothing durable to retry (R2-16 gate)', () async {
     final client = build();

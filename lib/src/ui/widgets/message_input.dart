@@ -672,9 +672,12 @@ class _MessageInputState extends State<MessageInput> {
 
   Future<void> _sendVoiceMessage() async {
     final data = await _voice.confirmSend();
-    if (data != null) {
-      widget.onVoiceMessageReady?.call(data);
-    }
+    if (data == null) return;
+    final replyTo = widget.controller.replyingTo;
+    widget.onVoiceMessageReady?.call(
+      replyTo == null ? data : data.asReplyTo(replyTo.id),
+    );
+    if (replyTo != null) widget.controller.setReplyTo(null);
   }
 
   @override

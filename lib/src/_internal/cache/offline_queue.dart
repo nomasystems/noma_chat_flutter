@@ -181,6 +181,13 @@ final class PendingSendAttachment extends PendingOperation {
   final MessageType messageType;
   final String? text;
 
+  /// Id of the message this attachment answers, carried through so a
+  /// reconnect replay of the whole upload+send sequence still cites the
+  /// quoted message instead of landing bare — see
+  /// `MessagesController.sendAttachment`/`sendVoice`, the only callers of
+  /// `NomaChatClient.enqueueOfflineAttachment`.
+  final String? referencedMessageId;
+
   /// Extra fields folded into the eventual `send()` metadata alongside
   /// the post-upload `mimeType`/`attachmentUrl`/`fileName`/`fileSize` —
   /// e.g. `duration`/`waveform` for a queued voice message.
@@ -202,6 +209,7 @@ final class PendingSendAttachment extends PendingOperation {
     this.fileName,
     this.messageType = MessageType.attachment,
     this.text,
+    this.referencedMessageId,
     this.metadata,
     this.tempId,
     this.clientMessageId,
@@ -220,6 +228,7 @@ final class PendingSendAttachment extends PendingOperation {
     if (fileName != null) 'fileName': fileName,
     'messageType': messageType.name,
     if (text != null) 'text': text,
+    if (referencedMessageId != null) 'referencedMessageId': referencedMessageId,
     if (metadata != null) 'metadata': metadata,
     if (tempId != null) 'tempId': tempId,
     if (clientMessageId != null) 'clientMessageId': clientMessageId,
@@ -235,6 +244,7 @@ final class PendingSendAttachment extends PendingOperation {
         fileName: fileName,
         messageType: messageType,
         text: text,
+        referencedMessageId: referencedMessageId,
         metadata: metadata,
         tempId: tempId,
         clientMessageId: clientMessageId,
@@ -1058,6 +1068,7 @@ class OfflineQueue {
             fileName: map['fileName'] as String?,
             messageType: _parseMessageType(map['messageType'] as String?),
             text: map['text'] as String?,
+            referencedMessageId: map['referencedMessageId'] as String?,
             metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
             tempId: map['tempId'] as String?,
             clientMessageId: map['clientMessageId'] as String?,

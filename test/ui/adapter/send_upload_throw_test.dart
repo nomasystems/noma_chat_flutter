@@ -293,6 +293,7 @@ class _RecordingClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) {
     enqueued.add(
       _QueuedAttachment(

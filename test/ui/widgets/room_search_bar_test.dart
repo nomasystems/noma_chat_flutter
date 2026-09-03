@@ -33,8 +33,8 @@ void main() {
       expect(lastValue, 'test');
     });
 
-    testWidgets('the clear button is hidden rather than unmounted, so '
-        'pressing it never tears down its own tooltip', (tester) async {
+    testWidgets('the clear button is unmounted, not merely hidden, when '
+        'the field is empty', (tester) async {
       String? lastValue;
       await tester.pumpWidget(
         wrap(
@@ -46,24 +46,18 @@ void main() {
       );
 
       expect(find.byIcon(Icons.close), findsNothing);
+      expect(find.byIcon(Icons.close, skipOffstage: false), findsNothing);
 
       await tester.enterText(find.byType(TextField), 'test');
       await tester.pump();
       expect(find.byIcon(Icons.close), findsOneWidget);
-
-      final tooltipFinder = find.byType(Tooltip, skipOffstage: false);
-      final before = tester.state<TooltipState>(tooltipFinder);
 
       await tester.tap(find.byIcon(Icons.close));
       await tester.pump();
 
       expect(lastValue, '');
       expect(find.byIcon(Icons.close), findsNothing);
-      expect(find.byIcon(Icons.close, skipOffstage: false), findsOneWidget);
-      expect(
-        identical(tester.state<TooltipState>(tooltipFinder), before),
-        isTrue,
-      );
+      expect(find.byIcon(Icons.close, skipOffstage: false), findsNothing);
     });
   });
 }

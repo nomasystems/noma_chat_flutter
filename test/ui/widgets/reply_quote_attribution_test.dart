@@ -163,6 +163,71 @@ void main() {
     });
   });
 
+  group('a quote over media', () {
+    ChatMessage attachment(
+      String id, {
+      required String referencedMessageId,
+      MessageType type = MessageType.attachment,
+    }) => ChatMessage(
+      id: id,
+      from: 'u1',
+      text: 'the caption',
+      timestamp: DateTime(2026, 1, 1, 11),
+      messageType: type,
+      referencedMessageId: referencedMessageId,
+      attachmentUrl: 'https://example.test/contract.pdf',
+      mimeType: 'application/pdf',
+      fileName: 'contract.pdf',
+    );
+
+    testWidgets('a document answering a message carries the quote above it, '
+        'which a media bubble has no text column to host', (tester) async {
+      final controller = ChatController(
+        initialMessages: [
+          msg('a', text: 'the original', ts: DateTime(2026, 1, 1, 10)),
+          attachment('b', referencedMessageId: 'a'),
+        ],
+        currentUser: me,
+      );
+      controller.setOtherUsers([bob]);
+
+      await tester.pumpWidget(wrap(MessageList(controller: controller)));
+      await tester.pump();
+
+      expect(find.byType(ReplyPreview), findsOneWidget);
+      expect(
+        tester.widget<ReplyPreview>(find.byType(ReplyPreview)).senderName,
+        'Bob',
+      );
+      controller.dispose();
+    });
+
+    testWidgets('a thread reply is not a quote and gets no strip', (
+      tester,
+    ) async {
+      final controller = ChatController(
+        initialMessages: [
+          msg('a', text: 'the parent', ts: DateTime(2026, 1, 1, 10)),
+          msg(
+            'b',
+            from: 'u1',
+            text: 'inside the thread',
+            ts: DateTime(2026, 1, 1, 11),
+            referencedMessageId: 'a',
+          ),
+        ],
+        currentUser: me,
+      );
+      controller.setOtherUsers([bob]);
+
+      await tester.pumpWidget(wrap(MessageList(controller: controller)));
+      await tester.pump();
+
+      expect(find.byType(ReplyPreview), findsNothing);
+      controller.dispose();
+    });
+  });
+
   group('tapping the quote', () {
     testWidgets('highlights the target even when it is already on screen', (
       tester,
@@ -262,7 +327,8 @@ void main() {
 
       expect(
         semanticsWithLabel(
-          'You: Replying to Bob: where shall we meet?. at the square',
+          'You: Replying to Bob: where shall we meet?. at the square, '
+          '12:00, Sent',
         ),
         findsOneWidget,
       );
@@ -292,7 +358,8 @@ void main() {
 
       expect(
         semanticsWithLabel(
-          'You: Replying to: where shall we meet?. at the square',
+          'You: Replying to: where shall we meet?. at the square, '
+          '12:00, Sent',
         ),
         findsOneWidget,
       );
@@ -310,7 +377,7 @@ void main() {
         ),
       );
 
-      expect(semanticsWithLabel('You: hola'), findsOneWidget);
+      expect(semanticsWithLabel('You: hola, 12:00, Sent'), findsOneWidget);
     });
   });
 }

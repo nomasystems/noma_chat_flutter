@@ -10,6 +10,7 @@ import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '../utils/date_formatter.dart';
 import '../utils/emoji_only.dart';
 import '../utils/last_message_preview.dart' show mediaSemanticLabel;
 import '../utils/url_detector.dart';
@@ -479,10 +480,49 @@ class MessageBubble extends StatelessWidget {
     };
   }
 
+  /// Media types that can carry a quote of their own: a photo, a voice
+  /// note or a map card sent as the answer to a message. A thread reply is
+  /// plain text carrying [ChatMessage.referencedMessageId] and is not a
+  /// quote; a reaction is metadata on another message and never a bubble.
+  static const Set<MessageType> _quotableMediaTypes = {
+    MessageType.attachment,
+    MessageType.audio,
+    MessageType.location,
+  };
+
+  /// `true` when the quote strip belongs above the media rather than inside
+  /// the text column, which media bubbles do not have.
+  bool get _quotesReferencedMedia =>
+      !message.isDeleted &&
+      referencedMessage != null &&
+      message.referencedMessageId != null &&
+      _quotableMediaTypes.contains(message.messageType);
+
   Widget _buildBubbleContent(
     BuildContext context,
     VoidCallback? onCancelUpload,
   ) {
+    final content = _buildBubbleBody(context, onCancelUpload);
+    if (!_quotesReferencedMedia) return content;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        ReplyPreview(
+          message: referencedMessage!,
+          senderName: referencedSenderName,
+          onTap: onTapReply,
+          theme: theme,
+          mediaLoader: attachmentMediaLoader,
+          roomId: roomId,
+        ),
+        const SizedBox(height: 4),
+        content,
+      ],
+    );
+  }
+
+  Widget _buildBubbleBody(BuildContext context, VoidCallback? onCancelUpload) {
     if (message.isDeleted) {
       return _DeletedBubbleContent(
         isOutgoing: isOutgoing,
@@ -602,6 +642,7 @@ class MessageBubble extends StatelessWidget {
         return VideoBubble(
           videoUrl: message.attachmentUrl!,
           thumbnailUrl: message.thumbnailUrl,
+          caption: message.text,
           timestamp: message.timestamp,
           onTap: onTapVideo,
           isOutgoing: isOutgoing,
@@ -620,6 +661,7 @@ class MessageBubble extends StatelessWidget {
       return FileBubble(
         fileName:
             message.fileName ?? message.text ?? theme.l10nOf(context).file,
+        caption: message.fileName != null ? message.text : null,
         fileSize: message.fileSize,
         mimeType: mimeType.isNotEmpty ? mimeType : null,
         timestamp: message.timestamp,
@@ -1155,8 +1197,12 @@ class MessageBubble extends StatelessWidget {
     final announceSending = isOutgoing && !message.isDeleted && isPending;
     final statusForSemantics =
         isOutgoing && !message.isDeleted && !isPending && !isFailed
-        ? _effectiveStatus
+        ? (_effectiveStatus ?? ReceiptStatus.sent)
         : null;
+    // Timestamp: included in semantics to match what the screen reads.
+    final timeSuffix = message.isDeleted
+        ? ''
+        : ', ${DateFormatter.formatTime(message.timestamp)}';
     // A failed send announced nothing at all: same silence as a message on
     // its way out, for the opposite situation.
     final statusSuffix = isFailed && isOutgoing && !message.isDeleted
@@ -1170,7 +1216,7 @@ class MessageBubble extends StatelessWidget {
             ReceiptStatus.delivered => l10n.statusDelivered,
             ReceiptStatus.read => l10n.statusRead,
           }}';
-    final semanticBodyWithStatus = '$semanticBody$statusSuffix';
+    final semanticBodyWithStatus = '$semanticBody$timeSuffix$statusSuffix';
     // The quote strip is built inside the subtree `excludeSemantics: true`
     // erases, so a screen reader was given the answer with no trace of what
     // it answers — the one thing a reply is about. Announced BEFORE the
@@ -1179,7 +1225,8 @@ class MessageBubble extends StatelessWidget {
     final quotedDescription =
         (quoted != null &&
             !message.isDeleted &&
-            message.messageType == MessageType.reply)
+            (message.messageType == MessageType.reply ||
+                _quotesReferencedMedia))
         ? l10n.replyQuoteSemantics(
             sender: referencedSenderName,
             quote: _quotedSemanticText(quoted, l10n),

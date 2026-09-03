@@ -25,6 +25,7 @@ import '../models/attachment_rejection.dart';
 import '../models/camera_capture_result.dart';
 import '../models/reaction_user.dart';
 import '../models/room_list_item.dart';
+import '../pages/attachment_review_page.dart';
 import '../pages/camera_capture_page.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_url_resolver.dart';
@@ -929,6 +930,7 @@ class _NomaChatViewState extends State<NomaChatView>
             mimeType: data.mimeType,
             duration: data.duration,
             waveform: data.waveform,
+            referencedMessageId: data.referencedMessageId,
           ),
       onPickCamera:
           user.onPickCamera ??
@@ -1037,12 +1039,14 @@ class _NomaChatViewState extends State<NomaChatView>
   /// `video_player` out of its build — this is the only path that reaches
   /// the review step's clip preview.
   Future<void> _captureAndSend(String sendKey) async {
-    final shot = await CameraCapturePage.show(
+    final replyTo = _pendingReplyId();
+    final submission = await CameraCapturePage.show(
       context: context,
       theme: _theme,
       videoPreviewBuilder: widget.builders?.videoPreviewBuilder,
     );
-    if (shot == null) return;
+    if (submission == null) return;
+    final shot = submission.capture;
     try {
       if (!mounted) return;
       final policy = _attachmentPolicy;
@@ -1072,8 +1076,11 @@ class _NomaChatViewState extends State<NomaChatView>
         bytes: bytes,
         mimeType: shot.mimeType,
         fileName: shot.fileName,
+        caption: submission.caption,
+        referencedMessageId: replyTo,
         policy: policy,
       );
+      _clearPendingReply(replyTo);
     } finally {
       // The capture screen writes to the app cache and nothing else ever
       // collects it, so a rejected clip would sit there at full size forever.
@@ -1106,13 +1113,7 @@ class _NomaChatViewState extends State<NomaChatView>
             onMetric: widget.adapter.metricCallback,
           );
     if (pick == null || !mounted) return;
-    await widget.adapter.messages.sendAttachment(
-      sendKey,
-      bytes: pick.bytes,
-      mimeType: pick.mimeType,
-      fileName: pick.fileName,
-      policy: policy,
-    );
+    await _reviewAndSend(sendKey, [pick], policy);
   }
 
   Future<void> _pickAndSendFile(String sendKey) async {
@@ -1123,13 +1124,53 @@ class _NomaChatViewState extends State<NomaChatView>
       onMetric: widget.adapter.metricCallback,
     );
     if (pick == null || !mounted) return;
-    await widget.adapter.messages.sendAttachment(
-      sendKey,
-      bytes: pick.bytes,
-      mimeType: pick.mimeType,
-      fileName: pick.fileName,
-      policy: policy,
+    await _reviewAndSend(sendKey, [pick], policy);
+  }
+
+  /// The picker confirms a selection; this step confirms the send. What
+  /// comes back from [AttachmentReviewPage] carries the caption written
+  /// under each attachment, and the quote the composer was holding travels
+  /// with it so an attachment answers a message like a text send does.
+  Future<void> _reviewAndSend(
+    String sendKey,
+    List<AttachmentPickResult> picks,
+    AttachmentPolicy policy,
+  ) async {
+    final replyTo = _pendingReplyId();
+    final reviewed = await AttachmentReviewPage.show(
+      context: context,
+      attachments: picks,
+      theme: _theme,
     );
+    if (reviewed == null || !mounted) return;
+    for (final item in reviewed) {
+      await widget.adapter.messages.sendAttachment(
+        sendKey,
+        bytes: item.attachment.bytes,
+        mimeType: item.attachment.mimeType,
+        fileName: item.attachment.fileName,
+        caption: item.caption,
+        referencedMessageId: replyTo,
+        policy: policy,
+      );
+      if (!mounted) return;
+    }
+    _clearPendingReply(replyTo);
+  }
+
+  /// The message the composer is answering when a non-text send starts.
+  /// Read before the picker opens: a picker the user cancels must leave
+  /// the reply preview exactly where it was.
+  String? _pendingReplyId() => _controller?.replyingTo?.id;
+
+  /// Closes the composer's reply preview once the send it belonged to is
+  /// away — and only then, and only if the user has not started answering
+  /// something else in the meantime.
+  void _clearPendingReply(String? replyId) {
+    if (replyId == null) return;
+    final controller = _controller;
+    if (controller?.replyingTo?.id != replyId) return;
+    controller?.setReplyTo(null);
   }
 
   ChatViewBehaviors _resolveBehaviors({
@@ -1330,7 +1371,7 @@ class _NomaChatViewState extends State<NomaChatView>
 }) {
   final incoming = [
     for (final m in messages)
-      if (m.from != currentUserId) m,
+      if (m.from != currentUserId && !m.isSystem) m,
   ];
   if (incoming.isEmpty) return null;
 
@@ -1340,7 +1381,8 @@ class _NomaChatViewState extends State<NomaChatView>
     if (at != -1) {
       final after = [
         for (var i = at + 1; i < messages.length; i++)
-          if (messages[i].from != currentUserId) messages[i],
+          if (messages[i].from != currentUserId && !messages[i].isSystem)
+            messages[i],
       ];
       if (after.isNotEmpty) {
         return (messageId: after.first.id, count: after.length);

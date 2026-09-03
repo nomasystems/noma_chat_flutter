@@ -32,11 +32,17 @@ class FileBubble extends StatelessWidget {
     this.isFailed = false,
     this.onRetry,
     this.messageId,
+    this.caption,
   });
 
   final String fileName;
   final String? fileSize;
   final String? mimeType;
+
+  /// Text sent alongside the file, painted below the file name — the same
+  /// role `ImageBubble.caption`/`VideoBubble.caption` play for media.
+  /// `null` or empty paints nothing.
+  final String? caption;
   final DateTime? timestamp;
   final VoidCallback? onTap;
   final bool isOutgoing;
@@ -162,6 +168,15 @@ class FileBubble extends StatelessWidget {
                           fontWeight: FontWeight.w500,
                         ),
                   ),
+                  if (caption != null && caption!.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      caption!,
+                      style:
+                          theme.imageCaptionStyle ??
+                          const TextStyle(fontSize: 14),
+                    ),
+                  ],
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [

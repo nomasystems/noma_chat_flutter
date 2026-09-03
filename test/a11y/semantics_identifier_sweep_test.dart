@@ -223,10 +223,6 @@ const Map<String, _DeferredControls> _materialControlsNotYetNamed = {
     2,
     'Cancel and submit buttons of the report dialog.',
   ),
-  'lib/src/ui/widgets/room_search_bar.dart': _DeferredControls(
-    1,
-    'Clear button of the room list search field.',
-  ),
 };
 
 /// One entry of [_materialControlsNotYetNamed].

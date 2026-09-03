@@ -380,7 +380,7 @@ class MessageMapper {
       );
 
   static MessageType _parseMessageType(String? type) => switch (type) {
-    null || 'regular' => MessageType.regular,
+    null || 'regular' || 'system' => MessageType.regular,
     'attachment' => MessageType.attachment,
     'reaction' => MessageType.reaction,
     'reply' => MessageType.reply,

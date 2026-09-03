@@ -25,7 +25,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(findSemanticsWithLabel('You: hola, Read'), findsOneWidget);
+      expect(findSemanticsWithLabel('You: hola, 12:00, Read'), findsOneWidget);
     });
 
     testWidgets(
@@ -40,7 +40,10 @@ void main() {
           wrap(MessageBubble(message: message, isOutgoing: true)),
         );
 
-        expect(findSemanticsWithLabel('You: hello, Delivered'), findsOneWidget);
+        expect(
+          findSemanticsWithLabel('You: hello, 12:00, Delivered'),
+          findsOneWidget,
+        );
       },
     );
 
@@ -56,7 +59,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(findSemanticsWithLabel('You: ping, Sent'), findsOneWidget);
+      expect(findSemanticsWithLabel('You: ping, 12:00, Sent'), findsOneWidget);
     });
 
     testWidgets('incoming message uses sender name as prefix without status', (
@@ -73,7 +76,7 @@ void main() {
         ),
       );
 
-      expect(findSemanticsWithLabel('Bob: qué tal'), findsOneWidget);
+      expect(findSemanticsWithLabel('Bob: qué tal, 12:00'), findsOneWidget);
     });
 
     testWidgets(
@@ -163,7 +166,7 @@ void main() {
       );
 
       tester.semantics.performAction(
-        find.semantics.byLabel('Bob: hola'),
+        find.semantics.byLabel('Bob: hola, 12:00'),
         SemanticsAction.longPress,
       );
 
@@ -189,7 +192,7 @@ void main() {
 
       const retryAction = CustomSemanticsAction(label: 'Retry');
       tester.semantics.performAction(
-        find.semantics.byLabel('You: oops, Failed'),
+        find.semantics.byLabel('You: oops, 12:00, Failed'),
         SemanticsAction.customAction,
         args: CustomSemanticsAction.getIdentifier(retryAction),
       );
@@ -221,7 +224,7 @@ void main() {
         );
 
         tester.semantics.performAction(
-          find.semantics.byLabel('Bob: Photo'),
+          find.semantics.byLabel('Bob: Photo, 12:00'),
           SemanticsAction.tap,
         );
 

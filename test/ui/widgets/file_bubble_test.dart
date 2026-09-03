@@ -64,6 +64,22 @@ void main() {
       await tester.tap(find.text('report.pdf'));
       expect(tapped, isTrue);
     });
+
+    testWidgets('paints the caption below the file name', (tester) async {
+      await tester.pumpWidget(
+        wrap(
+          const FileBubble(fileName: 'report.pdf', caption: 'for the audit'),
+        ),
+      );
+      expect(find.text('for the audit'), findsOneWidget);
+    });
+
+    testWidgets('paints nothing for an empty caption', (tester) async {
+      await tester.pumpWidget(
+        wrap(const FileBubble(fileName: 'report.pdf', caption: '')),
+      );
+      expect(find.text('report.pdf'), findsOneWidget);
+    });
   });
 
   group('FileBubble — upload progress (R3a-6)', () {

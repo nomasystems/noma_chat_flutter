@@ -9,11 +9,12 @@ import 'package:flutter/foundation.dart';
 /// are pure leaves with no `ChatConfig` reference — passing the logger
 /// through every constructor would bloat the public API for what is
 /// strictly debug noise (image load failures, audio playback errors,
-/// …). [debugPrint] solves that: it's a no-op in release builds and
-/// console-only in debug.
+/// …). [debugPrint] is *not* a no-op in release builds, so this
+/// function gates every call behind [kDebugMode] itself.
 ///
 /// Always tag the source: `uiDebugLog('ImageBubble', 'load failed: …')`
 /// so logs are scannable across the example output.
 void uiDebugLog(String tag, String message) {
+  if (!kDebugMode) return;
   debugPrint('[noma_chat][$tag] $message');
 }

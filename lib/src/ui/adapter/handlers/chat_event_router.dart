@@ -761,17 +761,21 @@ class ChatEventRouter {
       // message as instantly read — mirrors WhatsApp's "you're in the
       // chat, you saw it the moment it landed" behaviour. The chat list
       // unread badge never blips up to 1 just to drop back to 0.
-      _updateRoomUnread(roomId, isActiveRoom ? 0 : existing.unreadCount + 1);
-      // Mention badge ("@"): bump the per-room mention counter when the
-      // incoming message tags the current user and the chat isn't already
-      // open. `_updateRoomUnread(…, 0)` clears it on read; the next
-      // `loadRooms` reconciles it against the authoritative server count.
-      if (!isActiveRoom && _messageMentionsMe(message)) {
-        final cur = _roomList.getRoomById(roomId);
-        if (cur != null) {
-          _roomList.updateRoom(
-            cur.copyWith(unreadMentions: cur.unreadMentions + 1),
-          );
+      if (message.isSystem) {
+        if (isActiveRoom) _updateRoomUnread(roomId, 0);
+      } else {
+        _updateRoomUnread(roomId, isActiveRoom ? 0 : existing.unreadCount + 1);
+        // Mention badge ("@"): bump the per-room mention counter when the
+        // incoming message tags the current user and the chat isn't already
+        // open. `_updateRoomUnread(…, 0)` clears it on read; the next
+        // `loadRooms` reconciles it against the authoritative server count.
+        if (!isActiveRoom && _messageMentionsMe(message)) {
+          final cur = _roomList.getRoomById(roomId);
+          if (cur != null) {
+            _roomList.updateRoom(
+              cur.copyWith(unreadMentions: cur.unreadMentions + 1),
+            );
+          }
         }
       }
     }

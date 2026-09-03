@@ -326,8 +326,8 @@ void main() {
     expect(find.text('Host opening copy'), findsNothing);
   });
 
-  testWidgets('the clear button is hidden rather than unmounted, so pressing '
-      'it never tears down its own tooltip', (tester) async {
+  testWidgets('the clear button is unmounted, not merely hidden, when the '
+      'field is empty', (tester) async {
     final controller = controllerWith(const []);
     addTearDown(controller.dispose);
 
@@ -336,6 +336,10 @@ void main() {
     );
     await tester.pump();
     expect(find.byKey(const ValueKey('chat_search_clear')), findsNothing);
+    expect(
+      find.byKey(const ValueKey('chat_search_clear'), skipOffstage: false),
+      findsNothing,
+    );
 
     await tester.enterText(
       find.byKey(const ValueKey('chat_search_input')),
@@ -343,9 +347,6 @@ void main() {
     );
     await tester.pump();
     expect(find.byKey(const ValueKey('chat_search_clear')), findsOneWidget);
-
-    final tooltipFinder = find.byType(Tooltip, skipOffstage: false);
-    final before = tester.state<TooltipState>(tooltipFinder);
 
     await tester.tap(find.byKey(const ValueKey('chat_search_clear')));
     await tester.pump();
@@ -357,11 +358,7 @@ void main() {
     expect(find.byKey(const ValueKey('chat_search_clear')), findsNothing);
     expect(
       find.byKey(const ValueKey('chat_search_clear'), skipOffstage: false),
-      findsOneWidget,
-    );
-    expect(
-      identical(tester.state<TooltipState>(tooltipFinder), before),
-      isTrue,
+      findsNothing,
     );
   });
 

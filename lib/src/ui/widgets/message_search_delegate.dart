@@ -316,20 +316,19 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                 suffixIcon: ValueListenableBuilder<TextEditingValue>(
                   valueListenable: _textController,
                   builder: (_, value, __) {
-                    return Visibility(
-                      visible: value.text.isNotEmpty,
-                      maintainState: true,
-                      child: Semantics(
-                        identifier: 'chat_search_clear',
-                        child: IconButton(
-                          key: const ValueKey('chat_search_clear'),
-                          icon: Icon(Icons.close, size: 18, color: iconColor),
-                          tooltip: theme.l10nOf(context).clearText,
-                          onPressed: () {
-                            _textController.clear();
-                            _onQueryChanged('');
-                          },
-                        ),
+                    if (value.text.isEmpty) return const SizedBox.shrink();
+                    return Semantics(
+                      identifier: 'chat_search_clear',
+                      label: theme.l10nOf(context).clearText,
+                      button: true,
+                      child: IconButton(
+                        key: const ValueKey('chat_search_clear'),
+                        icon: Icon(Icons.close, size: 18, color: iconColor),
+                        tooltip: null,
+                        onPressed: () {
+                          _textController.clear();
+                          _onQueryChanged('');
+                        },
                       ),
                     );
                   },

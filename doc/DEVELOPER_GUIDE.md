@@ -1232,6 +1232,95 @@ final files = await chat.client.attachments.listInRoom(roomId);
 await chat.client.attachments.deleteInRoom(roomId, messageId);
 ```
 
+#### Caption and reply — a photo answers like a text message does
+
+`sendAttachment` takes a `caption` (published as the message text, painted
+under the media by `ImageBubble` / `VideoBubble` / `FileBubble`) and a
+`referencedMessageId` (the message being answered). `sendVoice` takes the
+same `referencedMessageId`. Pass the composer's pending reply and close it
+once the send resolves — read it *before* opening the picker, so a picker
+the user cancels leaves the reply preview where it was:
+
+```dart
+final chatController = chat.adapter.findChatController(roomId);
+final replyTo = chatController?.replyingTo?.id;
+
+final pick = await AttachmentPickers.pickImageFromGallery();
+if (pick == null) return; // the reply preview stays open
+
+final sent = await chat.adapter.messages.sendAttachment(
+  roomId,
+  bytes: pick.bytes,
+  mimeType: pick.mimeType,
+  fileName: pick.fileName,
+  caption: 'at the top of the hill',
+  referencedMessageId: replyTo,
+);
+if (sent.isSuccess) chatController?.setReplyTo(null);
+```
+
+`NomaChatView` already does all of this on its own gallery, file, camera
+and voice-note paths — the snippet is for a host that drives the pickers
+itself. A quoted attachment paints the same quote strip a text reply does,
+above the media; a voice note recorded with the reply preview open carries
+the quote through `VoiceMessageData.referencedMessageId`.
+
+An attachment that fails on a connectivity error and is replayed from the
+**offline queue** keeps its quote too, not just its caption:
+`ChatClient.enqueueOfflineAttachment` takes an optional
+`referencedMessageId`, `PendingSendAttachment` (the queued operation)
+carries it, and the replay path sends it when present — the same as a
+manual `retrySend` on the failed bubble already did. Call it right after
+the upload failure, passing the same `referencedMessageId` the failed
+`sendAttachment`/`sendVoice` call was given:
+
+```dart
+client.enqueueOfflineAttachment(
+  roomId: roomId,
+  bytes: bytes,
+  mimeType: mimeType,
+  causeFailure: uploadFailure,
+  referencedMessageId: replyTo,
+);
+```
+
+#### Reviewing before sending — `AttachmentReviewPage`
+
+The system picker confirms a *selection*, not a publication. Between the
+picker and the send, `AttachmentReviewPage` shows what was chosen at full
+size with a caption field under it and two ways out: back, which sends
+nothing, and send, which returns every attachment with its own caption.
+Multi-selection is paged, one caption per attachment.
+
+```dart
+final picks = await AttachmentPickers.pickMultipleMedia();
+final reviewed = await AttachmentReviewPage.show(
+  context: context,
+  attachments: picks,
+  theme: chatTheme,
+);
+if (reviewed == null) return; // the user backed out
+
+for (final item in reviewed) {
+  await chat.adapter.messages.sendAttachment(
+    roomId,
+    bytes: item.attachment.bytes,
+    mimeType: item.attachment.mimeType,
+    fileName: item.attachment.fileName,
+    caption: item.caption,
+  );
+}
+```
+
+`NomaChatView` inserts this step by itself on the gallery and file rows.
+The in-app camera has its own review step, `CameraCaptureReview`, which now
+carries the same caption field (`allowCaption`, on by default):
+`CameraCapturePage.show` returns a `CameraCaptureSubmission` with the
+`capture` and the `caption`. The caption field's placeholder is the
+`attachmentCaptionHint` string of `ChatUiLocalizations`, and both review
+steps expose `chat_attachment_review_caption` /
+`chat_attachment_review_send` / `chat_attachment_review_back` for UI tests.
+
 #### `attachmentId` and re-minting an expired signed URL
 
 `ChatMessage.attachmentId` is the stable id an attachment was uploaded
@@ -2785,6 +2874,37 @@ The `.fromAdapter` constructor loads `adapter.messages.loadStarred()`, resolves
 room titles from the room list and unstars through the adapter. Use the primary
 constructor (`load` / `onUnstar` / `onOpen` / `roomTitleFor` / `itemBuilder`) for
 full control. Each entry is a lightweight `StarredMessage` (ids + `starredAt`).
+
+### Unread counting excludes system messages
+
+`RoomListItem.unreadCount` is server-authoritative: `GET` rooms returns
+`unreadMessages` and the `UnreadUpdatedEvent` WS frame (`roomId`, `count`)
+carries live deltas, both reconciled into the room list as-is. The client
+only adds to that count locally, between reconciliations, when a `NewMessageEvent`
+arrives for a room the user isn't currently viewing — and it skips that
+local bump entirely for a message with `ChatMessage.isSystem == true`
+(plan lifecycle notices, membership changes, …), so a room whose only
+unseen activity is system messages never shows unread. The Messaggi-tab
+badge (`RoomListController.unreadRoomCount`) and the row badge both read
+`unreadCount`, so they inherit this for free. `NomaChatView`'s "N new
+messages" divider (`resolveUnreadBoundary`) applies the same exclusion
+independently, since it derives its own boundary from the loaded message
+list rather than from `unreadCount`.
+
+The very first event for a room the device doesn't know yet takes a
+different path: `RoomEnricher.addFromDetail` fetches the room detail and
+builds a brand-new `RoomListItem` around it, rather than updating an
+existing one. That fresh row applies the same exclusion when seeding its
+initial `unreadCount` — an unknown room's first message being a system
+notice does not seed the row with a badge that the next reconciliation
+would then have to clear.
+
+This is a two-sided contract: the backend's own `unreadMessages` /
+`UnreadUpdatedEvent.count` must already exclude system messages (messages
+carrying `metadata.system == true` / `type == "system"`) for the two halves
+to agree once `loadRooms` reconciles the server value. A backend that still
+counts system messages will show a badge that briefly clears (the client's
+local skip) and then reappears on the next room-list refresh.
 
 ### Mention badge & Archived chats
 

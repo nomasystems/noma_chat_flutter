@@ -245,6 +245,7 @@ class MockChatClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) {}
 
   // Nothing queued, so nothing to cancel.

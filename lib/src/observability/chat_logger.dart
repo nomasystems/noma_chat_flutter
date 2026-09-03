@@ -24,7 +24,7 @@
 /// ```
 library;
 
-import 'package:flutter/foundation.dart' show debugPrint;
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 
 /// Severity of a [ChatLogRecord]. Ordered `debug < info < warn < error`;
 /// [ChatLogger] compares a record's level against its configured minimum
@@ -126,13 +126,14 @@ abstract class ChatLogSink {
   Future<void> close() async {}
 }
 
-/// Sink that prints each record via [debugPrint] — no-op in release builds
-/// (same tree-shaking as the rest of the SDK's debug-only logging).
+/// Sink that prints each record via [debugPrint], gated behind
+/// [kDebugMode] itself — [debugPrint] is *not* a no-op in release builds.
 class ConsoleChatLogSink implements ChatLogSink {
   const ConsoleChatLogSink();
 
   @override
   void add(ChatLogRecord record) {
+    if (!kDebugMode) return;
     debugPrint('[noma_chat] ${record.format()}');
   }
 

@@ -6,6 +6,118 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.32.0 - 2026-09-03
+
+Attachments and voice notes gain a caption and can answer a message, with a
+new review step between the picker and the send. Message bubbles announce
+their timestamp and delivery state to screen readers. Unread counters no
+longer count system messages, and two logging/UI leaks that reached a
+release build are closed.
+
+### Added
+
+- **Message bubble accessibility label now includes the timestamp and always announces the delivery state.** The semantic label, read by screen readers, now matches what the screen paints: `You: <text>, HH:mm, Sent|Delivered|Read`. For incoming messages, the sender prefix and timestamp are always present. Deleted messages announce no timestamp or state.
+
+- **`FileBubble` paints its caption.** A document sent with a caption
+  (`sendAttachment(caption: ...)`) already carried it as the message text,
+  but only `ImageBubble`/`VideoBubble` painted it — a captioned PDF or ZIP
+  showed the file name and nothing else. `FileBubble` gained the same
+  `caption` field, painted below the file name.
+
+- **An attachment can carry a caption and answer a message.**
+  `ChatMessagesController.sendAttachment` takes `caption` (published as the
+  message text, painted under the media by `ImageBubble` / `VideoBubble`)
+  and `referencedMessageId`; `sendVoice` takes `referencedMessageId`.
+  `VoiceMessageData` carries the quote it was recorded under
+  (`referencedMessageId`, `asReplyTo`). A quoted attachment paints the same
+  quote strip a text reply does, above the media, and `MessageBubble`
+  announces it in the bubble's accessibility label. Thread replies (plain
+  text carrying `referencedMessageId`) and reactions are unaffected.
+
+- **`AttachmentReviewPage` — the step between the picker and the send.**
+  What was chosen at full size, a caption field under it, and two ways out:
+  back sends nothing, send returns every attachment with its own caption
+  (`ReviewedAttachment`). Multi-selection is paged, one caption per
+  attachment. `AttachmentCaptionField` is exported so a host can reuse the
+  same field. `CameraCaptureReview` gains that field too (`allowCaption`,
+  on by default). New localized string `attachmentCaptionHint` in the seven
+  bundled locales; new UI-test identifiers
+  `chat_attachment_review_media` / `_back` / `_caption` / `_send` /
+  `_thumb_<n>`.
+
+### Changed
+
+- **Breaking — `CameraCapturePage.show` resolves to a
+  `CameraCaptureSubmission`** (the `capture` plus the `caption` typed on the
+  review step) instead of a bare `CameraCaptureResult`, and
+  `CameraCaptureReview.onSend` is a `ValueChanged<String?>` instead of a
+  `VoidCallback`. Hosts that pushed the capture screen themselves read
+  `submission.capture` where they used to read the result.
+
+- **`NomaChatView` reviews before it sends.** Its gallery and file rows now
+  open `AttachmentReviewPage` between the picker and the upload, and every
+  non-text path it drives (gallery, file, camera, voice note) carries the
+  composer's pending reply and closes the reply preview once the send is
+  away — and only if the user has not started answering something else in
+  the meantime.
+
+### Fixed
+
+- **System messages (plan lifecycle notices, membership changes, …) no
+  longer count as unread.** They still render in the room like any other
+  message, but `ChatEventRouter` stops bumping the per-room unread counter
+  and mention badge for them, and `resolveUnreadBoundary` excludes them
+  both when counting how many messages sit below the "N new messages"
+  divider and when choosing where to anchor it — a room whose only unseen
+  activity is system messages now shows no divider at all. `RoomEnricher`
+  applies the same rule the first time a device learns about a room from an
+  incoming message: a system message never seeds the fresh row with an
+  unread badge. The Messaggi tab badge and the row badge, both derived from
+  the per-room counter, follow automatically. This assumes the server-side
+  unread count applies the same exclusion; see the developer guide for the
+  contract. A server that now labels these messages with `messageType:
+  "system"` maps to `MessageType.regular` in `MessageMapper` — it no longer
+  logs a spurious "unknown messageType" warning for every one of them;
+  `ChatMessage.isSystem` (from `metadata.system`) remains the source of
+  truth for how a message renders.
+
+- **Every non-text send ignored the pending reply and left it in the
+  composer.** Sending a photo, a video, a document, a location or a voice
+  note while the reply preview was open published it with no quote and left
+  the preview standing, so the *next* text message went out quoting a
+  message the user had already answered. The whole send path now carries
+  the quote, and the composer's reply preview closes with the send it
+  belonged to. This also covers the offline-queue replay: an attachment or
+  voice note that fails to upload and is later replayed automatically on
+  reconnect now keeps its quote too — `ChatClient.enqueueOfflineAttachment`
+  takes `referencedMessageId` and the queued operation carries it through
+  the replay, the same as a manual `retrySend` on the failed bubble already
+  did.
+
+- **`uiDebugLog` and `ConsoleChatLogSink` printed to the release console.**
+  Both routed through `debugPrint`, which Flutter documents as logging to
+  console even in release builds — the opposite of what their own
+  docstrings claimed. Message metadata and attachment URLs from ~39 call
+  sites across the UI layer were reaching the device's system log on a
+  release build. Both now gate the call behind `kDebugMode` themselves, so
+  nothing is printed outside a debug build; `ChatConfig`'s default sink
+  selection was already `kDebugMode`-gated and needed no change.
+
+- **The search clear button stays in the tree when the field is empty.**
+  `MessageSearchView` and `RoomSearchBar` hid the clear `IconButton` with
+  `Visibility(maintainState: true)`, which keeps it mounted (offstage)
+  rather than removing it, so a driver's dump still lists
+  `chat_search_clear` / `room_search_clear` with an empty field. Both now
+  build `const SizedBox.shrink()` while the field is empty and only build
+  the `Semantics(identifier: ..., button: true, child: IconButton(...))`
+  once there is text to clear, so the control unmounts for real. The
+  `Tooltip` that used to carry the accessible label is gone with it — the
+  label now lives on the `Semantics` node, which the a11y sweep already
+  required — so there is no `TooltipState` left to dispose from inside its
+  own `onPressed`. The pattern (`isEmpty ? SizedBox.shrink() :
+  Semantics(...)`) is the one to repeat anywhere else in the host app that
+  shows the same "X" affordance.
+
 ## 0.31.0 - 2026-09-01
 
 Round 6 of QA on the host app, chat side. Nine defects landed here rather than

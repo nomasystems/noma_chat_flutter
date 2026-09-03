@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -441,7 +442,7 @@ void main() {
               file: XFile('/tmp/shot.jpg'),
               isVideo: false,
             ),
-            onSend: () {},
+            onSend: (_) {},
             onRetake: () {},
             onDiscard: () {},
           ),
@@ -458,6 +459,33 @@ void main() {
       handle.dispose();
     });
 
+    testWidgets('the attachment review step instruments its two exits and '
+        'its caption field', (tester) async {
+      final handle = tester.ensureSemantics();
+      await tester.pumpWidget(
+        wrap(
+          AttachmentReviewPage(
+            attachments: [
+              AttachmentPickResult(
+                bytes: Uint8List.fromList(const [1, 2, 3]),
+                mimeType: 'image/png',
+                fileName: 'pic.png',
+              ),
+            ],
+          ),
+        ),
+      );
+      for (var i = 0; i < 4; i++) {
+        await tester.pump();
+      }
+
+      expectBothHalves(tester, 'chat_attachment_review_media');
+      expectBothHalves(tester, 'chat_attachment_review_back');
+      expectBothHalves(tester, 'chat_attachment_review_caption');
+      expectBothHalves(tester, 'chat_attachment_review_send');
+      handle.dispose();
+    });
+
     testWidgets('the review send button keeps its screen-reader label', (
       tester,
     ) async {
@@ -469,7 +497,7 @@ void main() {
               file: XFile('/tmp/shot.jpg'),
               isVideo: false,
             ),
-            onSend: () {},
+            onSend: (_) {},
             onRetake: () {},
             onDiscard: () {},
           ),

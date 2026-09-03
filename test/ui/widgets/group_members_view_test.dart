@@ -71,6 +71,7 @@ class _PaginatingChatClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) => _base.enqueueOfflineAttachment(
     roomId: roomId,
     bytes: bytes,
@@ -82,6 +83,7 @@ class _PaginatingChatClient implements ChatClient {
     metadata: metadata,
     tempId: tempId,
     clientMessageId: clientMessageId,
+    referencedMessageId: referencedMessageId,
   );
 
   @override

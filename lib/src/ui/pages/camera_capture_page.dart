@@ -17,9 +17,21 @@ import '../utils/platform_support.dart';
 import 'camera_capture_review.dart';
 import 'camera_recording_gate.dart';
 
+/// What the capture screen hands back: the confirmed capture plus the
+/// caption written under it on the review step.
+@immutable
+class CameraCaptureSubmission {
+  const CameraCaptureSubmission({required this.capture, this.caption});
+
+  final CameraCaptureResult capture;
+
+  /// Caption typed on the review step, or `null` when it was left empty.
+  final String? caption;
+}
+
 /// Full-screen in-app camera: tap the shutter for a still, hold it to
-/// record a clip. Pops with a [CameraCaptureResult], or `null` when the
-/// user backs out.
+/// record a clip. Pops with a [CameraCaptureSubmission], or `null` when
+/// the user backs out.
 ///
 /// The shutter never sends. Whatever it produces lands on an in-flow
 /// review step ([CameraCaptureReview]) showing the still full-screen or
@@ -42,9 +54,14 @@ class CameraCapturePage extends StatefulWidget {
     super.key,
     this.theme = ChatTheme.defaults,
     this.videoPreviewBuilder,
+    this.allowCaption = true,
   });
 
   final ChatTheme theme;
+
+  /// Whether the review step offers a caption field. See
+  /// [CameraCaptureReview.allowCaption].
+  final bool allowCaption;
 
   /// Replaces the review step's clip preview. `null` plays the capture
   /// with `video_player` through [CameraVideoPreview]. Never consulted for
@@ -54,21 +71,23 @@ class CameraCapturePage extends StatefulWidget {
   /// Pushes the capture screen and returns what the user confirmed on the
   /// review step, or `null` when nothing was confirmed — a discard, a
   /// cancellation, or a platform without an in-app camera.
-  static Future<CameraCaptureResult?> show({
+  static Future<CameraCaptureSubmission?> show({
     required BuildContext context,
     ChatTheme theme = ChatTheme.defaults,
     bool fullscreenDialog = true,
     CameraVideoPreviewBuilder? videoPreviewBuilder,
+    bool allowCaption = true,
   }) {
     if (!PlatformSupport.supportsInAppCameraCapture) {
-      return Future<CameraCaptureResult?>.value();
+      return Future<CameraCaptureSubmission?>.value();
     }
-    return Navigator.of(context).push<CameraCaptureResult>(
-      MaterialPageRoute<CameraCaptureResult>(
+    return Navigator.of(context).push<CameraCaptureSubmission>(
+      MaterialPageRoute<CameraCaptureSubmission>(
         fullscreenDialog: fullscreenDialog,
         builder: (_) => CameraCapturePage(
           theme: theme,
           videoPreviewBuilder: videoPreviewBuilder,
+          allowCaption: allowCaption,
         ),
       ),
     );
@@ -666,11 +685,13 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   /// the review — not a viewfinder nobody asked for — is what stays on
   /// screen through the exit transition. [_captureConfirmed] is what stops
   /// [dispose] from deleting the file the caller now owns.
-  void _sendPendingCapture() {
+  void _sendPendingCapture(String? caption) {
     final capture = _pendingCapture;
     if (capture == null) return;
     _captureConfirmed = true;
-    Navigator.of(context).pop(capture);
+    Navigator.of(
+      context,
+    ).pop(CameraCaptureSubmission(capture: capture, caption: caption));
   }
 
   /// Throws the take away and goes back to the live preview. The one exit
@@ -746,6 +767,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
         result: _pendingCapture!,
         theme: widget.theme,
         videoPreviewBuilder: widget.videoPreviewBuilder,
+        allowCaption: widget.allowCaption,
         onSend: _sendPendingCapture,
         onRetake: _retakePendingCapture,
         onDiscard: _discardPendingCapture,
