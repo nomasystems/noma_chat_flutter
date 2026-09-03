@@ -574,6 +574,21 @@ class RestClient {
     if (statusCode == 409) {
       return ChatConflictException(_extractMessage(body) ?? 'Conflict', token);
     }
+    if (statusCode == 413) {
+      // The client-side `AttachmentPolicy` pre-flight check already screens
+      // uploads for size before they leave the device; a 413 here means the
+      // two disagreed (a HEIC that grows on its way to JPEG, a re-encode
+      // step, a cap the server enforces below the client's own). Mapped
+      // distinctly from the generic `ChatApiException` fallback below so
+      // `_sendUploadedAttachment`'s caller can show the identical "too
+      // large" message the pre-flight rejection uses instead of a generic
+      // upload failure.
+      return ChatAttachmentTooLargeException(
+        body: body,
+        message: _extractMessage(body) ?? 'Attachment is too large',
+        errorToken: token,
+      );
+    }
     if (statusCode == 429) {
       return ChatRateLimitException(
         retryAfter: _parseRetryAfterHeaders(e.response?.headers),
