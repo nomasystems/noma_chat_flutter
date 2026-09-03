@@ -1,3 +1,10 @@
+# Upper bound for every test. A test that waits on something that never
+# arrives fails here instead of stalling the whole run: without it a single
+# stuck future keeps the tester isolate alive with no output, and CI job
+# timeouts cannot tell that apart from a slow suite. Tests that legitimately
+# need longer carry their own `timeout:` argument.
+timeout: 2m
+
 # Tagged test groups. Filter with:
 #   flutter test -x slow      # skip slow tests (fast feedback loop)
 #   flutter test -t slow      # only slow tests (CI parallel job)
