@@ -146,9 +146,6 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // else — a discard, a host popping this route, a teardown — leaves a file
   // in the app cache that only [dispose] is left to collect.
   bool _captureConfirmed = false;
-  // Whether the file behind [_pendingCapture] has already been removed. A
-  // discard keeps the take on screen through the exit transition, so the
-  // result outlives the file it points at.
   bool _captureCollected = false;
 
   ChatUiLocalizations get _l10n => noticeL10n;
@@ -167,8 +164,6 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     final pending = _pendingCapture;
     _pendingCapture = null;
     if (pending != null && !_captureConfirmed && !_captureCollected) {
-      // The screen is leaving with a take nobody accepted — a host popping
-      // this route out from under the review, or a teardown.
       unawaited(_deleteCapture(pending));
     }
     final controller = _controller;
