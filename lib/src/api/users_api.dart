@@ -14,16 +14,19 @@ import '../client/chat_client.dart';
 /// REST implementation of [ChatUsersApi] with optional cache pass-through.
 class UsersApi implements ChatUsersApi {
   final RestClient _rest;
+  final String? _userId;
   final ChatLocalDatasource? _cache;
   final CacheManager? _cacheManager;
   final void Function(String level, String message)? _logger;
 
   UsersApi({
     required RestClient rest,
+    String? userId,
     ChatLocalDatasource? cache,
     CacheManager? cacheManager,
     void Function(String level, String message)? logger,
   }) : _rest = rest,
+       _userId = userId,
        _cache = cache,
        _cacheManager = cacheManager,
        _logger = logger;
@@ -106,21 +109,31 @@ class UsersApi implements ChatUsersApi {
     String? bio,
     String? email,
     Map<String, dynamic>? custom,
-  }) => safeApiCall(() async {
-    final json = await _rest.post(
-      '/users',
-      data: {
-        if (externalIds != null) 'externalIds': externalIds,
-        if (passwords != null) 'passwords': passwords,
-        if (displayName != null) 'displayName': displayName,
-        if (avatarUrl != null) 'avatarUrl': avatarUrl,
-        if (bio != null) 'bio': bio,
-        if (email != null) 'email': email,
-        if (custom != null) 'custom': custom,
-      },
-    );
-    return UserMapper.fromJson(_unwrapUser(json));
-  });
+  }) async {
+    final created = await safeApiCall(() async {
+      final json = await _rest.post(
+        '/users',
+        data: {
+          if (externalIds != null) 'externalIds': externalIds,
+          if (passwords != null) 'passwords': passwords,
+          if (displayName != null) 'displayName': displayName,
+          if (avatarUrl != null) 'avatarUrl': avatarUrl,
+          if (bio != null) 'bio': bio,
+          if (email != null) 'email': email,
+          if (custom != null) 'custom': custom,
+        },
+      );
+      return UserMapper.fromJson(_unwrapUser(json));
+    });
+    if (created.isSuccess) return created;
+    if (created.failureOrNull is! ConflictFailure) return created;
+    final userId = _userId;
+    if (userId == null || userId.isEmpty) return created;
+    return safeApiCall(() async {
+      final json = await _rest.get('/users/$userId');
+      return UserMapper.fromJson(_unwrapUser(json));
+    });
+  }
 
   @override
   Future<ChatResult<ChatUser>> update(

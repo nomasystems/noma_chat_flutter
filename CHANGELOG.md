@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.32.3 - 2026-09-03
+
+`users.create` now keeps the idempotence its own documentation promises.
+
+### Fixed
+
+- **A second `users.create()` for a principal that already has a record returns that record instead of a `ConflictFailure`.** The method is documented as safe to call on every cold start, but the implementation passed the backend's 409 `already exists` straight through, so a host calling it during startup saw a failure on every launch after the first and had to special-case the conflict itself — or, worse, treat it as a real error. `UsersApi` now takes the authenticated principal's id (already held by `ApiFactory`) and, on a `ConflictFailure` only, reads the existing record back with `GET /users/:userId`. Every other failure still reaches the caller untouched, and a client built without a known principal id returns the conflict as before.
+
 ## 0.32.2 - 2026-09-03
 
 A WebSocket connection attempt is now bounded end to end, and tearing the

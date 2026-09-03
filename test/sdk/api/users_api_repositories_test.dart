@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
 class MockRestClient extends Mock implements RestClient {}
@@ -159,5 +160,67 @@ void main() {
         expect(result.dataOrNull!.metadata, {'key': 'value'});
       },
     );
+  });
+
+  group('create() get-or-create', () {
+    test('returns the existing record when the backend answers 409', () async {
+      final api = UsersApi(rest: rest, userId: 'u-1');
+      when(() => rest.post('/users', data: any(named: 'data'))).thenThrow(
+        const ChatConflictException('already exists'),
+      );
+      when(() => rest.get('/users/u-1')).thenAnswer(
+        (_) async => {
+          'user': {'id': 'u-1', 'displayName': 'Sara'},
+        },
+      );
+
+      final result = await api.create();
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrNull!.id, 'u-1');
+      expect(result.dataOrNull!.displayName, 'Sara');
+      verify(() => rest.get('/users/u-1')).called(1);
+    });
+
+    test('does not read anything back when the create succeeds', () async {
+      final api = UsersApi(rest: rest, userId: 'u-1');
+      when(() => rest.post('/users', data: any(named: 'data'))).thenAnswer(
+        (_) async => {
+          'user': {'id': 'u-1', 'displayName': 'Sara'},
+        },
+      );
+
+      final result = await api.create(displayName: 'Sara');
+
+      expect(result.isSuccess, isTrue);
+      expect(result.dataOrNull!.id, 'u-1');
+      verifyNever(() => rest.get(any()));
+    });
+
+    test('passes a non-conflict failure through untouched', () async {
+      final api = UsersApi(rest: rest, userId: 'u-1');
+      when(
+        () => rest.post('/users', data: any(named: 'data')),
+      ).thenThrow(const ChatApiException(statusCode: 500, message: 'boom'));
+
+      final result = await api.create();
+
+      expect(result.isFailure, isTrue);
+      expect(result.failureOrNull, isA<ServerFailure>());
+      verifyNever(() => rest.get(any()));
+    });
+
+    test('keeps the conflict when the principal id is unknown', () async {
+      final api = UsersApi(rest: rest);
+      when(() => rest.post('/users', data: any(named: 'data'))).thenThrow(
+        const ChatConflictException('already exists'),
+      );
+
+      final result = await api.create();
+
+      expect(result.isFailure, isTrue);
+      expect(result.failureOrNull, isA<ConflictFailure>());
+      verifyNever(() => rest.get(any()));
+    });
   });
 }

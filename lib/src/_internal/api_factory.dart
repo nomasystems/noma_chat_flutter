@@ -54,6 +54,7 @@ class ApiFactory {
 
   UsersApi users() => UsersApi(
     rest: rest,
+    userId: userId,
     cache: cache,
     cacheManager: cacheManager,
     logger: logger,
