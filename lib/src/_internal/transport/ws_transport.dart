@@ -32,12 +32,6 @@ class WsTransport implements RealtimeTransport {
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
-  /// Teardown for the auth handshake currently in flight: cancels its
-  /// [ChatConfig.authTimeout] timer and its event subscription, and fails
-  /// the awaiting [_doConnect] straight away. `null` whenever no handshake
-  /// is pending. Without it a [disconnect]/[dispose] during the handshake
-  /// left the timeout armed for the full `authTimeout`, keeping the
-  /// transport (and, in tests, the isolate) alive long after teardown.
   void Function()? _abortAuth;
 
   /// Armed on every outbound ping when `wsPongWatchdogEnabled`; cancelled
@@ -188,11 +182,6 @@ class WsTransport implements RealtimeTransport {
         fields: {'uri': '$uri'},
       );
       _channel = _channelFactory(uri);
-      // Bounded: a socket that opens at TCP level but never completes its
-      // upgrade (captive portal, silently blackholed proxy) leaves `ready`
-      // pending forever, which would strand connect() and latch the state
-      // at `connecting` — where every later connect() is guarded out as a
-      // no-op and the transport never recovers.
       await _channel!.ready.timeout(
         _config.authTimeout,
         onTimeout: () =>
@@ -211,10 +200,6 @@ class WsTransport implements RealtimeTransport {
       await _authenticate();
     } catch (e) {
       if (_disposed || !_shouldReconnect) {
-        // Teardown raced this attempt: disconnect()/dispose() (or a terminal
-        // close code) already drove the transport to its final state and
-        // aborted the handshake. The failure of the abandoned socket is an
-        // artefact of that teardown, not an application-visible error.
         return;
       }
       _config.logs.ws(

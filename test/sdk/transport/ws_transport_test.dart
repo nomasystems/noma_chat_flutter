@@ -48,12 +48,6 @@ class _FakeWebSocketChannel implements WebSocketChannel {
 
   final _streamController = StreamController<dynamic>.broadcast();
 
-  /// Frames handed to the fake before anything subscribed. A broadcast
-  /// controller drops those on the floor, which silently swallowed the
-  /// `auth_ok` a test queued from inside its `channelFactory`: the transport
-  /// only subscribes after awaiting `ready`, one microtask later. Holding
-  /// them here and flushing on the first listener makes delivery independent
-  /// of that ordering — the way a real socket behaves.
   final _pending = <String>[];
 
   final _sinkController = StreamController<dynamic>(); // ignore: close_sinks
@@ -1423,8 +1417,6 @@ void main() {
           baseUrl: 'http://localhost:8077/v1',
           realtimeUrl: 'http://localhost:8077',
           tokenProvider: () async => 'test-token',
-          // Far longer than this test may take: the point is that teardown
-          // aborts the handshake rather than letting it run its course.
           authTimeout: const Duration(seconds: 30),
         );
 

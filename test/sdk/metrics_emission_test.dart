@@ -34,10 +34,6 @@ class _FakeWebSocketChannel implements WebSocketChannel {
 
   final _streamController = StreamController<dynamic>.broadcast();
 
-  /// Frames received before anything subscribed. A broadcast controller drops
-  /// those, which swallowed the `auth_ok` queued from inside `channelFactory`
-  /// — the transport only subscribes after awaiting `ready`, one microtask
-  /// later — and left the handshake to expire on its full timeout.
   final _pending = <String>[];
 
   // ignore: close_sinks
