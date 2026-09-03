@@ -2605,6 +2605,34 @@ Padding(
 )
 ```
 
+### Text selection & the iOS context menu
+
+Every editable `TextField` the SDK owns — the composer, the message search
+fields, the group/profile name and description fields, the report-message
+reason field, the attachment caption — and the selectable body of a text
+bubble render the Flutter-drawn `AdaptiveTextSelectionToolbar` for copy /
+cut / paste / select-all, not the platform's native `SystemContextMenu`.
+
+On iOS, `SystemContextMenu` can only be shown while the field's text input
+connection is live. A route pushed, or a sheet opened, over a focused field
+tears that connection down while the menu is still mounted, and the menu
+then asserts on every subsequent frame — the screen keeps painting but stops
+answering any gesture at all. Long-pressing a message while the composer
+below it is focused is the everyday way to trigger this. Because every SDK
+field sets its own `contextMenuBuilder` (see
+`lib/src/ui/utils/text_selection_menu.dart`), none of them can ever build
+`SystemContextMenu`, regardless of `MediaQuery.supportsShowingSystemContextMenu`.
+
+One consequence: on iOS 16+, Apple's native Writing Tools entry — which only
+ever appears inside `SystemContextMenu` — never shows up on an SDK field.
+Copy, cut, paste, select-all and look-up remain available through the
+Flutter toolbar.
+
+A host that fully replaces an SDK field (e.g. a custom composer passed to
+`ChatView`) is outside this guarantee and should apply the same
+`contextMenuBuilder` if it can be focused underneath a pushed route or a
+long-press sheet.
+
 ---
 
 ## Customization hooks

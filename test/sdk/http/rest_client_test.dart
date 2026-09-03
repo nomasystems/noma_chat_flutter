@@ -587,6 +587,13 @@ void main() {
       );
     });
 
+    test('413 → ChatAttachmentTooLargeException, not the generic '
+        'ChatApiException fallback', () async {
+      await expectMaps<ChatAttachmentTooLargeException>(
+        dioErr(statusCode: 413, body: {'detail': 'Payload too large.'}),
+      );
+    });
+
     test('429 → ChatRateLimitException with retryAfter', () async {
       when(
         () => dio.request(

@@ -10,6 +10,7 @@ import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
 import '../utils/initials.dart';
+import '../utils/text_selection_menu.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
 import 'group_members_view.dart';
@@ -384,6 +385,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
             child: TextField(
               controller: _descriptionController,
               focusNode: _descriptionFocusNode,
+              contextMenuBuilder: buildTextSelectionMenu,
               maxLines: 3,
               decoration: InputDecoration(
                 labelText: l10n.groupDescription,
@@ -446,6 +448,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
             child: TextField(
               controller: _nameController,
               focusNode: _nameFocusNode,
+              contextMenuBuilder: buildTextSelectionMenu,
               decoration: InputDecoration(
                 labelText: l10n.groupName,
                 helperText: l10n.minCharsTemplate.replaceAll(

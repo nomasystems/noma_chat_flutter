@@ -328,7 +328,7 @@ class NomaChatClient implements ChatClient {
     // the drop through the same visible callback as `queue_full`/`ttl_expired`
     // instead of discarding silently (see `onOperationDropped`).
     if (bytes.length > _offlineQueueMaxAttachmentBytes) {
-      onOperationDropped(op, 'attachment_too_large');
+      onOperationDropped(op, ChatErrorTokens.attachmentTooLarge);
       return;
     }
     queue.enqueue(op);

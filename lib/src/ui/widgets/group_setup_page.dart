@@ -9,6 +9,7 @@ import '../adapter/chat_ui_adapter.dart';
 import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
+import '../utils/text_selection_menu.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
 import 'user_avatar.dart';
@@ -346,6 +347,7 @@ class _GroupSetupPageState extends State<GroupSetupPage>
             child: TextField(
               controller: _nameController,
               autofocus: widget.initialMembers.isNotEmpty,
+              contextMenuBuilder: buildTextSelectionMenu,
               decoration: InputDecoration(
                 labelText: l10n.groupName,
                 helperText: l10n.minCharsTemplate.replaceAll(
@@ -362,6 +364,7 @@ class _GroupSetupPageState extends State<GroupSetupPage>
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: TextField(
               controller: _descriptionController,
+              contextMenuBuilder: buildTextSelectionMenu,
               decoration: InputDecoration(
                 labelText: l10n.groupDescription,
                 border: const OutlineInputBorder(),
@@ -420,6 +423,7 @@ class _GroupSetupPageState extends State<GroupSetupPage>
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: TextField(
               controller: _searchController,
+              contextMenuBuilder: buildTextSelectionMenu,
               decoration: InputDecoration(
                 labelText: l10n.search,
                 prefixIcon: const Icon(Icons.search),

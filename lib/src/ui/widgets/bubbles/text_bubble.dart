@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/chat_theme.dart';
 import '../../utils/date_formatter.dart';
+import '../../utils/text_selection_menu.dart';
 import '../../utils/markdown_parser.dart';
 import '_bubble_metadata.dart';
 
@@ -228,7 +229,12 @@ class TextBubble extends StatelessWidget {
     final selectable =
         enableSelection &&
         !spans.any((s) => s is TextSpan && s.recognizer != null);
-    return selectable ? SelectableText.rich(textSpan) : Text.rich(textSpan);
+    return selectable
+        ? SelectableText.rich(
+            textSpan,
+            contextMenuBuilder: buildTextSelectionMenu,
+          )
+        : Text.rich(textSpan);
   }
 
   Widget _buildTextWithMeta(

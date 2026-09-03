@@ -10,6 +10,7 @@ import '../models/voice_message_data.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/link_preview_fetcher.dart';
 import '../theme/chat_theme.dart';
+import '../utils/text_selection_menu.dart';
 import '../utils/url_detector.dart';
 import '_voice_recorder_gesture.dart';
 import 'attachment_picker_sheet.dart';
@@ -1006,6 +1007,7 @@ class _MessageInputState extends State<MessageInput> {
                 key: const ValueKey('chat_message_input'),
                 controller: _textController,
                 focusNode: _focusNode,
+                contextMenuBuilder: buildTextSelectionMenu,
                 maxLines: widget.maxLines,
                 minLines: 1,
                 textCapitalization: TextCapitalization.sentences,
