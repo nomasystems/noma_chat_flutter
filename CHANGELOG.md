@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.33.0 - 2026-09-03
+
+Camera improvements: front-lens stills now match the mirrored viewfinder, and
+pinch-zoom and single-finger zoom both work while recording.
+
+### Added
+
+- **`CameraCaptureButton` now fires `onRecordZoom` while the shutter is held.**
+  Single-finger zoom (the gesture available while hold-to-record keeps one hand
+  on the shutter) slides the held finger up and down to zoom the lens, in
+  addition to the existing two-finger pinch. The callback receives the vertical
+  distance (in logical pixels) from where the shutter was pressed.
+
+### Fixed
+
+- **Front-lens stills now come out matching the mirrored viewfinder.** On both
+  Android and iOS, the camera preview is horizontally flipped for front-facing
+  lenses so the user sees themselves as they appear to others (the platform
+  default). The still image file (`CameraCaptureResult.file`) now bakes that
+  same flip into the JPEG before it reaches the caller, so what was captured
+  matches what was seen. Metadata (EXIF orientation) is preserved; re-encoding
+  re-applies colour profile.
+- **Pinch-zoom now works while recording video.** The gesture recognizer was
+  already present and the zoom levels were already bound, but a change to
+  `CameraController`'s zoom level during video capture is now idempotent — it
+  no longer breaks the next recording of the same lens if the permission flow
+  had to reinitialize the controller.
+
 ## 0.32.2 - 2026-09-03
 
 A WebSocket connection attempt is now bounded end to end, and tearing the

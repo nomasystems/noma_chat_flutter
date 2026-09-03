@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../_internal/ui_debug_log.dart';
@@ -122,6 +125,10 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   double _maxZoom = 1.0;
   double _currentZoom = 1.0;
   double _baseZoom = 1.0;
+  double _dragZoomOrigin = 0;
+  int _zoomPointers = 0;
+  double _shutterZoomBase = 1.0;
+  final Map<int, ({double min, double max})> _zoomRanges = {};
   double? _requestedZoom;
   bool _applyingZoom = false;
   // Handed over by [dispose] when the screen goes away with a start still in
@@ -139,6 +146,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // else — a discard, a host popping this route, a teardown — leaves a file
   // in the app cache that only [dispose] is left to collect.
   bool _captureConfirmed = false;
+  bool _captureCollected = false;
 
   ChatUiLocalizations get _l10n => noticeL10n;
 
@@ -155,9 +163,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     _recordingTimer?.cancel();
     final pending = _pendingCapture;
     _pendingCapture = null;
-    if (pending != null && !_captureConfirmed) {
-      // The screen is leaving with a take nobody accepted — a discard, or a
-      // host popping this route out from under the review.
+    if (pending != null && !_captureConfirmed && !_captureCollected) {
       unawaited(_deleteCapture(pending));
     }
     final controller = _controller;
@@ -360,6 +366,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     // one), so it is re-read on every bind rather than cached across them.
     var minZoom = 1.0;
     var maxZoom = 1.0;
+    var reported = true;
     try {
       minZoom = await controller.getMinZoomLevel();
       maxZoom = await controller.getMaxZoomLevel();
@@ -368,12 +375,23 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       // A lens that rejects the query just keeps the pinch gesture inert.
       // Both ends go back to the seed together: a half-read range would leave
       // the minimum above the maximum and make the pinch clamp throw.
+      reported = false;
       minZoom = 1.0;
       maxZoom = 1.0;
     }
     if (maxZoom < minZoom) {
+      reported = false;
       minZoom = 1.0;
       maxZoom = 1.0;
+    }
+    if (reported) {
+      _zoomRanges[index] = (min: minZoom, max: maxZoom);
+    } else {
+      final known = _zoomRanges[index];
+      if (known != null) {
+        minZoom = known.min;
+        maxZoom = known.max;
+      }
     }
     if (!mounted) {
       await controller.dispose();
@@ -465,6 +483,9 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     if (controller.value.isTakingPicture) return;
     try {
       final file = await controller.takePicture();
+      if (controller.description.lensDirection == CameraLensDirection.front) {
+        await _matchViewfinderMirror(file);
+      }
       if (!mounted) return;
       _presentForReview(CameraCaptureResult(file: file, isVideo: false));
     } on Object catch (error, stack) {
@@ -477,8 +498,42 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     }
   }
 
+  /// Rewrites [file] so the still matches the viewfinder it was framed in.
+  ///
+  /// Front lenses preview mirrored on every platform the SDK builds for
+  /// (`camera_avfoundation` mirrors the video connection, `camera_android_
+  /// camerax` mirrors the preview widget) while the file the sensor writes
+  /// is not, so a selfie comes back reversed against the picture the user
+  /// was looking at. Flipping it here — at the source, before the review
+  /// step ever reads the path — is what makes the take, the file that gets
+  /// sent and the bubble's thumbnail agree.
+  ///
+  /// Never throws: a capture that cannot be decoded is worth sending as it
+  /// came, and this runs inside the shutter's own error handling.
+  Future<void> _matchViewfinderMirror(XFile file) async {
+    try {
+      final source = File(file.path);
+      final bytes = await source.readAsBytes();
+      final flipped = PlatformSupport.supportsBackgroundIsolates
+          ? await compute(
+              _flipStillHorizontally,
+              bytes,
+              debugLabel: 'noma_chat capture mirror',
+            )
+          : _flipStillHorizontally(bytes);
+      if (flipped == null) return;
+      await source.writeAsBytes(flipped, flush: true);
+    } on Object catch (error, stack) {
+      uiDebugLog(
+        'CameraCapturePage',
+        'could not match the viewfinder mirror: $error\n$stack',
+      );
+    }
+  }
+
   Future<void> _startRecording() async {
     _holdActive = true;
+    _shutterZoomBase = _currentZoom;
     var controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     if (!_microphoneGranted) {
@@ -675,6 +730,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void _presentForReview(CameraCaptureResult capture) {
     setState(() {
       _pendingCapture = capture;
+      _captureCollected = false;
       _interruptionNotice = null;
     });
   }
@@ -699,14 +755,22 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void _retakePendingCapture() {
     final capture = _pendingCapture;
     if (capture == null) return;
-    setState(() => _pendingCapture = null);
+    setState(() {
+      _pendingCapture = null;
+      _captureCollected = true;
+    });
     unawaited(_deleteCapture(capture));
   }
 
   /// Leaves the camera without sending, exactly like the viewfinder's own
-  /// close button. [dispose] collects the file on the way out.
+  /// close button. The take stays on screen through the exit transition, but
+  /// its file goes now: waiting for [dispose] would hold a full-size still in
+  /// the app cache for as long as the pop animation runs.
   void _discardPendingCapture() {
-    if (_pendingCapture == null) return;
+    final capture = _pendingCapture;
+    if (capture == null) return;
+    _captureCollected = true;
+    unawaited(_deleteCapture(capture));
     Navigator.of(context).pop();
   }
 
@@ -993,17 +1057,63 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   }
 
   void _handleScaleStart(ScaleStartDetails details) {
-    _baseZoom = _currentZoom;
+    _anchorZoomGesture(details.pointerCount, details.localFocalPoint.dy);
   }
 
-  /// Applies the pinch one call at a time, and only records the zoom the lens
-  /// actually took: committing it up front left `_currentZoom` — and with it
-  /// the next pinch's `_baseZoom` — describing a zoom the lens had refused,
-  /// and concurrent updates could resolve out of order.
+  /// Turns the gesture over the preview into a zoom.
+  ///
+  /// Two fingers pinch, in every mode. One finger zooms only while a clip is
+  /// recording, and by how far it slides rather than by a scale factor it
+  /// cannot carry: hold-to-record pins a finger to the shutter, so a pinch on
+  /// the preview is a gesture the user has no hand left to make.
   Future<void> _handleScaleUpdate(ScaleUpdateDetails details) async {
+    if (details.pointerCount != _zoomPointers) {
+      _anchorZoomGesture(details.pointerCount, details.localFocalPoint.dy);
+      return;
+    }
+    if (details.pointerCount > 1) {
+      await _applyZoom(_baseZoom * details.scale);
+      return;
+    }
+    if (!_recordingGate.isRecording) return;
+    await _applyZoom(
+      _zoomForTravel(_baseZoom, _dragZoomOrigin - details.localFocalPoint.dy),
+    );
+  }
+
+  void _anchorZoomGesture(int pointers, double focalY) {
+    _zoomPointers = pointers;
+    _baseZoom = _currentZoom;
+    _dragZoomOrigin = focalY;
+  }
+
+  /// Zooms while the shutter itself is held: [travel] is how far the finger
+  /// has slid up from where the press started, in logical pixels. The
+  /// standard way to frame a clip one-handed, and the only pointer the user
+  /// still has while hold-to-record keeps it down.
+  void _handleShutterZoom(double travel) {
+    if (!_recordingGate.isRecording) return;
+    unawaited(_applyZoom(_zoomForTravel(_shutterZoomBase, travel)));
+  }
+
+  /// The lens factor [travel] logical pixels of slide are worth, starting
+  /// from [base]. Geometric rather than linear: a lens that reports a maximum
+  /// of a hundred and something — most back cameras do — would otherwise put
+  /// its whole range inside the first twitch of the finger.
+  double _zoomForTravel(double base, double travel) {
+    final floor = _minZoom > 0 ? _minZoom : 1.0;
+    return math.max(base, floor) *
+        math.pow(_maxZoom / floor, travel / _dragZoomTravel);
+  }
+
+  /// Applies a zoom one call at a time, and only records the zoom the lens
+  /// actually took: committing it up front left `_currentZoom` — and with it
+  /// the next gesture's base — describing a zoom the lens had refused, and
+  /// concurrent updates could resolve out of order.
+  Future<void> _applyZoom(double target) async {
     if (_controller == null) return;
     if (_maxZoom <= _minZoom) return;
-    final zoom = (_baseZoom * details.scale).clamp(_minZoom, _maxZoom);
+    final zoom = target.clamp(_minZoom, _maxZoom);
     if (zoom == _currentZoom) return;
     _requestedZoom = zoom;
     if (_applyingZoom) return;
@@ -1053,6 +1163,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       onRecordStart: ready ? _startRecording : null,
       onRecordStop: ready ? _stopRecording : null,
       onRecordCancel: ready ? _cancelHold : null,
+      onRecordZoom: ready ? _handleShutterZoom : null,
     );
   }
 }
@@ -1071,6 +1182,7 @@ class CameraCaptureButton extends StatelessWidget {
     this.onRecordStart,
     this.onRecordStop,
     this.onRecordCancel,
+    this.onRecordZoom,
   });
 
   final bool ready;
@@ -1083,6 +1195,12 @@ class CameraCaptureButton extends StatelessWidget {
   /// Fired when the press is cancelled instead of released — a permission
   /// dialog stealing the touch, mostly. `onRecordStop` never fires for those.
   final VoidCallback? onRecordCancel;
+
+  /// Fired while the press is held and the finger slides, with how far it has
+  /// travelled up from where it started, in logical pixels (down is
+  /// negative). A host that drops this shutter into its own capture screen
+  /// can drive the lens zoom from it the way [CameraCapturePage] does.
+  final ValueChanged<double>? onRecordZoom;
 
   @override
   Widget build(BuildContext context) {
@@ -1114,6 +1232,9 @@ class CameraCaptureButton extends StatelessWidget {
               : (_) => onRecordStart!(),
           onLongPressEnd: onRecordStop == null ? null : (_) => onRecordStop!(),
           onLongPressCancel: onRecordCancel,
+          onLongPressMoveUpdate: onRecordZoom == null
+              ? null
+              : (details) => onRecordZoom!(-details.localOffsetFromOrigin.dy),
           child: Container(
             width: size,
             height: size,
@@ -1134,4 +1255,65 @@ class CameraCaptureButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The vertical travel, in logical pixels, that walks the lens across its
+/// whole zoom range while a clip is being recorded. Hold-to-record leaves a
+/// single finger free, and a one-finger gesture carries no scale factor to
+/// pinch with, so the distance it slides is what drives the zoom instead.
+const double _dragZoomTravel = 220;
+
+/// Above every still the SDK's own capture screen can produce, and below the
+/// dimensions a file crafted to exhaust memory declares. Read from the header
+/// before a single pixel is allocated.
+const int _maxStillPixels = 50000000;
+
+/// A still that keeps the format it arrived in, flipped along the axis it is
+/// displayed on, or `null` when the bytes are not one this can rebuild — in
+/// which case the capture is left exactly as the sensor wrote it.
+///
+/// Any EXIF orientation is baked into the pixels first: a horizontal flip of
+/// the stored buffer lands on the vertical axis once a viewer rotates the
+/// picture by its tag, which would leave the take upside down instead of
+/// unmirrored. The ICC profile the capture carries survives the rebuild, so
+/// a Display P3 photo still reads as one downstream.
+Uint8List? _flipStillHorizontally(Uint8List bytes) {
+  final decoder = _stillDecoder(bytes);
+  if (decoder == null) return null;
+  try {
+    final info = decoder.startDecode(bytes);
+    if (info == null || info.numFrames > 1) return null;
+    if (info.width * info.height > _maxStillPixels) return null;
+    final decoded = decoder.decode(bytes, frame: 0);
+    if (decoded == null) return null;
+    final flipped = img.flipHorizontal(img.bakeOrientation(decoded));
+    return decoder is img.PngDecoder
+        ? img.PngEncoder().encode(flipped, singleFrame: true)
+        : img.JpegEncoder(
+            quality: _stillQuality,
+          ).encode(flipped, singleFrame: true);
+  } on Object {
+    return null;
+  }
+}
+
+/// One generation above the 90 the metadata pass re-encodes at downstream, so
+/// the flip is not what a sent photo loses its detail to.
+const int _stillQuality = 95;
+
+img.Decoder? _stillDecoder(Uint8List bytes) {
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF) {
+    return img.JpegDecoder();
+  }
+  if (bytes.length >= 4 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47) {
+    return img.PngDecoder();
+  }
+  return null;
 }
