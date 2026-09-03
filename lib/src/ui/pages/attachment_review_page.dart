@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../services/attachment_pickers.dart';
 import '../theme/chat_theme.dart';
 import '../theme/default_palette.dart';
+import '../utils/text_selection_menu.dart';
 
 /// One picked attachment together with the caption the user wrote for it on
 /// the review step. [caption] is `null` when the field was left empty.
@@ -265,6 +266,7 @@ class AttachmentCaptionField extends StatelessWidget {
       child: TextField(
         key: const ValueKey('chat_attachment_review_caption'),
         controller: controller,
+        contextMenuBuilder: buildTextSelectionMenu,
         style: TextStyle(color: foreground, fontSize: 16),
         cursorColor: foreground,
         maxLines: 4,

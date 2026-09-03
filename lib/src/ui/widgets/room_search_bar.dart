@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../theme/chat_theme.dart';
+import '../utils/text_selection_menu.dart';
 
 /// Debounced text field used to filter the room list by name.
 class RoomSearchBar extends StatefulWidget {
@@ -57,6 +58,7 @@ class _RoomSearchBarState extends State<RoomSearchBar> {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: TextField(
         controller: _controller,
+        contextMenuBuilder: buildTextSelectionMenu,
         style: widget.theme.roomList.searchTextStyle,
         // Outlined style matching the host app's other TextFields (login
         // / onboarding form). Earlier "pill" treatment (filled, no

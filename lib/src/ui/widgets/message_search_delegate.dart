@@ -6,6 +6,7 @@ import '../controller/message_search_controller.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
 import '../utils/highlight_spans.dart';
+import '../utils/text_selection_menu.dart';
 
 /// Instrumentation id of the [MessageSearchView] row for the message with id
 /// [messageId].
@@ -297,6 +298,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
               controller: _textController,
               focusNode: _focusNode,
               autofocus: widget.autofocus,
+              contextMenuBuilder: buildTextSelectionMenu,
               onChanged: _onQueryChanged,
               style: theme.messageSearchFieldTextStyle,
               cursorColor: theme.messageSearchFieldCursorColor,

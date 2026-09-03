@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
+import '../utils/text_selection_menu.dart';
 import 'user_avatar.dart';
 
 /// Signature for a per-row builder. Lets the consumer fully replace
@@ -283,6 +284,7 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: TextField(
                   controller: _searchController,
+                  contextMenuBuilder: buildTextSelectionMenu,
                   decoration: InputDecoration(
                     hintText: l10n.searchChats,
                     prefixIcon: const Icon(Icons.search, size: 20),
