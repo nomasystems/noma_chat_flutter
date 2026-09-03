@@ -28,7 +28,18 @@ class _CaptureMetrics {
 }
 
 class _FakeWebSocketChannel implements WebSocketChannel {
+  _FakeWebSocketChannel() {
+    _streamController.onListen = _flushPending;
+  }
+
   final _streamController = StreamController<dynamic>.broadcast();
+
+  /// Frames received before anything subscribed. A broadcast controller drops
+  /// those, which swallowed the `auth_ok` queued from inside `channelFactory`
+  /// — the transport only subscribes after awaiting `ready`, one microtask
+  /// later — and left the handshake to expire on its full timeout.
+  final _pending = <String>[];
+
   // ignore: close_sinks
   final _sinkController = StreamController<dynamic>();
   @override
@@ -53,7 +64,25 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 
-  void receiveMessage(String message) => _streamController.add(message);
+  void _flushPending() {
+    if (_pending.isEmpty) return;
+    final queued = List<String>.of(_pending);
+    _pending.clear();
+    scheduleMicrotask(() {
+      for (final message in queued) {
+        if (_streamController.isClosed) return;
+        _streamController.add(message);
+      }
+    });
+  }
+
+  void receiveMessage(String message) {
+    if (!_streamController.hasListener) {
+      _pending.add(message);
+      return;
+    }
+    _streamController.add(message);
+  }
 
   Future<void> simulateDrop({int? closeCode, String? reason}) async {
     _closeCode = closeCode;

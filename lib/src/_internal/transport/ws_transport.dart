@@ -32,6 +32,14 @@ class WsTransport implements RealtimeTransport {
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
+  /// Teardown for the auth handshake currently in flight: cancels its
+  /// [ChatConfig.authTimeout] timer and its event subscription, and fails
+  /// the awaiting [_doConnect] straight away. `null` whenever no handshake
+  /// is pending. Without it a [disconnect]/[dispose] during the handshake
+  /// left the timeout armed for the full `authTimeout`, keeping the
+  /// transport (and, in tests, the isolate) alive long after teardown.
+  void Function()? _abortAuth;
+
   /// Armed on every outbound ping when `wsPongWatchdogEnabled`; cancelled
   /// as soon as the matching `pong` arrives. Firing means the peer stopped
   /// answering — the socket is a "zombie" (TCP still open, server or NAT
@@ -180,7 +188,16 @@ class WsTransport implements RealtimeTransport {
         fields: {'uri': '$uri'},
       );
       _channel = _channelFactory(uri);
-      await _channel!.ready;
+      // Bounded: a socket that opens at TCP level but never completes its
+      // upgrade (captive portal, silently blackholed proxy) leaves `ready`
+      // pending forever, which would strand connect() and latch the state
+      // at `connecting` — where every later connect() is guarded out as a
+      // no-op and the transport never recovers.
+      await _channel!.ready.timeout(
+        _config.authTimeout,
+        onTimeout: () =>
+            throw const ChatTimeoutException(message: 'Connect timeout'),
+      );
       _channelSubscription = _channel!.stream.listen(
         _onMessage,
         onError: _onError,
@@ -193,6 +210,13 @@ class WsTransport implements RealtimeTransport {
       _setState(ChatConnectionState.authenticating);
       await _authenticate();
     } catch (e) {
+      if (_disposed || !_shouldReconnect) {
+        // Teardown raced this attempt: disconnect()/dispose() (or a terminal
+        // close code) already drove the transport to its final state and
+        // aborted the handshake. The failure of the abandoned socket is an
+        // artefact of that teardown, not an application-visible error.
+        return;
+      }
       _config.logs.ws(
         ChatLogLevel.error,
         'WS connection failed',
@@ -211,6 +235,7 @@ class WsTransport implements RealtimeTransport {
     Timer? timeout;
 
     void cleanup(StreamSubscription<ChatEvent> s) {
+      _abortAuth = null;
       timeout?.cancel();
       s.cancel();
     }
@@ -258,6 +283,16 @@ class WsTransport implements RealtimeTransport {
         );
       }
     });
+
+    _abortAuth = () {
+      _abortAuth = null;
+      cleanup(sub);
+      if (!completer.isCompleted) {
+        completer.completeError(
+          const ChatNetworkException('Connection closed during auth'),
+        );
+      }
+    };
 
     try {
       final token = await _config.authInterceptor.getToken();
@@ -799,6 +834,7 @@ class WsTransport implements RealtimeTransport {
   Future<void> disconnect() async {
     _shouldReconnect = false;
     _failPendingAcks();
+    _abortAuth?.call();
     _reconnectTimer?.cancel();
     _stopPing();
     await _channelSubscription?.cancel();

@@ -22,15 +22,14 @@ class _TrackingAuthInterceptor extends AuthInterceptor {
 }
 
 class _FakeWebSocketChannel implements WebSocketChannel {
-  _FakeWebSocketChannel({bool autoAuthOk = false, bool autoPong = false}) {
+  _FakeWebSocketChannel({
+    bool autoAuthOk = false,
+    bool autoPong = false,
+    Future<void>? ready,
+  }) : _ready = ready ?? Future<void>.value() {
+    _streamController.onListen = _flushPending;
     if (autoAuthOk) {
-      _streamController.onListen = () {
-        scheduleMicrotask(() {
-          if (!_streamController.isClosed) {
-            _streamController.add(jsonEncode({'type': 'auth_ok'}));
-          }
-        });
-      };
+      _pending.add(jsonEncode({'type': 'auth_ok'}));
     }
     if (autoPong) {
       sink.onAdd = (data) {
@@ -48,6 +47,15 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   }
 
   final _streamController = StreamController<dynamic>.broadcast();
+
+  /// Frames handed to the fake before anything subscribed. A broadcast
+  /// controller drops those on the floor, which silently swallowed the
+  /// `auth_ok` a test queued from inside its `channelFactory`: the transport
+  /// only subscribes after awaiting `ready`, one microtask later. Holding
+  /// them here and flushing on the first listener makes delivery independent
+  /// of that ordering — the way a real socket behaves.
+  final _pending = <String>[];
+
   final _sinkController = StreamController<dynamic>(); // ignore: close_sinks
   @override
   // ignore: close_sinks
@@ -56,8 +64,10 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   @override
   Stream<dynamic> get stream => _streamController.stream;
 
+  final Future<void> _ready;
+
   @override
-  Future<void> get ready => Future.value();
+  Future<void> get ready => _ready;
 
   @override
   int? closeCode;
@@ -68,7 +78,25 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 
-  void receiveMessage(String message) => _streamController.add(message);
+  void _flushPending() {
+    if (_pending.isEmpty) return;
+    final queued = List<String>.of(_pending);
+    _pending.clear();
+    scheduleMicrotask(() {
+      for (final message in queued) {
+        if (_streamController.isClosed) return;
+        _streamController.add(message);
+      }
+    });
+  }
+
+  void receiveMessage(String message) {
+    if (!_streamController.hasListener) {
+      _pending.add(message);
+      return;
+    }
+    _streamController.add(message);
+  }
 
   Future<void> simulateDrop() async {
     await _streamController.close();
@@ -1386,6 +1414,70 @@ void main() {
           await transport.dispose();
         },
       );
+    });
+
+    group('teardown never waits on the handshake', () {
+      test('dispose() during the handshake resolves connect() at once '
+          'instead of holding the authTimeout timer', () async {
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          // Far longer than this test may take: the point is that teardown
+          // aborts the handshake rather than letting it run its course.
+          authTimeout: const Duration(seconds: 30),
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) => _FakeWebSocketChannel(),
+        );
+
+        final connecting = transport.connect();
+        await Future<void>.delayed(Duration.zero);
+        await transport.dispose();
+
+        await expectLater(
+          connecting.timeout(const Duration(seconds: 2)),
+          completes,
+        );
+        expect(transport.state, ChatConnectionState.disconnected);
+      });
+
+      test('connect() gives up when the channel never becomes ready', () async {
+        final states = <ChatConnectionState>[];
+        final neverReady = Completer<void>();
+
+        final config = ChatConfig(
+          baseUrl: 'http://localhost:8077/v1',
+          realtimeUrl: 'http://localhost:8077',
+          tokenProvider: () async => 'test-token',
+          authTimeout: const Duration(milliseconds: 50),
+          maxReconnectAttempts: 0,
+        );
+
+        final transport = WsTransport(
+          config: config,
+          channelFactory: (uri) =>
+              _FakeWebSocketChannel(ready: neverReady.future),
+        );
+        final sub = transport.stateChanges.listen(states.add);
+
+        await expectLater(
+          transport.connect().timeout(const Duration(seconds: 2)),
+          completes,
+        );
+
+        expect(transport.state, ChatConnectionState.error);
+        expect(
+          states,
+          isNot(contains(ChatConnectionState.authenticating)),
+          reason: 'the socket never opened, so no handshake was ever started',
+        );
+
+        await sub.cancel();
+        await transport.dispose();
+      });
     });
   });
 }
