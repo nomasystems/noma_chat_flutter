@@ -32,6 +32,8 @@ class WsTransport implements RealtimeTransport {
   Timer? _reconnectTimer;
   Timer? _pingTimer;
 
+  void Function()? _abortAuth;
+
   /// Armed on every outbound ping when `wsPongWatchdogEnabled`; cancelled
   /// as soon as the matching `pong` arrives. Firing means the peer stopped
   /// answering — the socket is a "zombie" (TCP still open, server or NAT
@@ -180,7 +182,11 @@ class WsTransport implements RealtimeTransport {
         fields: {'uri': '$uri'},
       );
       _channel = _channelFactory(uri);
-      await _channel!.ready;
+      await _channel!.ready.timeout(
+        _config.authTimeout,
+        onTimeout: () =>
+            throw const ChatTimeoutException(message: 'Connect timeout'),
+      );
       _channelSubscription = _channel!.stream.listen(
         _onMessage,
         onError: _onError,
@@ -193,6 +199,9 @@ class WsTransport implements RealtimeTransport {
       _setState(ChatConnectionState.authenticating);
       await _authenticate();
     } catch (e) {
+      if (_disposed || !_shouldReconnect) {
+        return;
+      }
       _config.logs.ws(
         ChatLogLevel.error,
         'WS connection failed',
@@ -211,6 +220,7 @@ class WsTransport implements RealtimeTransport {
     Timer? timeout;
 
     void cleanup(StreamSubscription<ChatEvent> s) {
+      _abortAuth = null;
       timeout?.cancel();
       s.cancel();
     }
@@ -258,6 +268,16 @@ class WsTransport implements RealtimeTransport {
         );
       }
     });
+
+    _abortAuth = () {
+      _abortAuth = null;
+      cleanup(sub);
+      if (!completer.isCompleted) {
+        completer.completeError(
+          const ChatNetworkException('Connection closed during auth'),
+        );
+      }
+    };
 
     try {
       final token = await _config.authInterceptor.getToken();
@@ -799,6 +819,7 @@ class WsTransport implements RealtimeTransport {
   Future<void> disconnect() async {
     _shouldReconnect = false;
     _failPendingAcks();
+    _abortAuth?.call();
     _reconnectTimer?.cancel();
     _stopPing();
     await _channelSubscription?.cancel();
