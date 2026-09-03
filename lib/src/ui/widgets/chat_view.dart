@@ -204,6 +204,7 @@ class _ChatViewState extends State<ChatView> {
     required bool isOutgoing,
     required bool withReactionRow,
   }) async {
+    ContextMenuController.removeAny();
     final behaviors = widget.behaviors;
     final actions = withReactionRow
         ? (behaviors.contextMenuActions.toSet()..remove(MessageAction.react))

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.32.1 - 2026-09-03
+
+A chat room could stop answering gestures after a long press on a message.
+
+### Fixed
+
+- **The chat room no longer freezes after a long press on a message.** On iOS the composer used the framework default selection toolbar, which is the platform's own `SystemContextMenu`. That menu can only be displayed while a text input connection is live, and asserts from its `build` once the connection is gone with the menu still mounted — which is exactly what opening the long-press sheet over the focused composer does. The assertion then fired on every frame, so the room kept painting but answered no touch at all. The composer and the selectable body of a text bubble now build `AdaptiveTextSelectionToolbar` instead, which carries the same buttons and needs no connection, and opening the message menu dismisses any selection toolbar still on screen.
+
 ## 0.32.0 - 2026-09-03
 
 Attachments and voice notes gain a caption and can answer a message, with a
