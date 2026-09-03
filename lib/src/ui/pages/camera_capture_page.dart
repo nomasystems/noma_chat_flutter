@@ -146,6 +146,10 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // else — a discard, a host popping this route, a teardown — leaves a file
   // in the app cache that only [dispose] is left to collect.
   bool _captureConfirmed = false;
+  // Whether the file behind [_pendingCapture] has already been removed. A
+  // discard keeps the take on screen through the exit transition, so the
+  // result outlives the file it points at.
+  bool _captureCollected = false;
 
   ChatUiLocalizations get _l10n => noticeL10n;
 
@@ -162,9 +166,9 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     _recordingTimer?.cancel();
     final pending = _pendingCapture;
     _pendingCapture = null;
-    if (pending != null && !_captureConfirmed) {
-      // The screen is leaving with a take nobody accepted — a discard, or a
-      // host popping this route out from under the review.
+    if (pending != null && !_captureConfirmed && !_captureCollected) {
+      // The screen is leaving with a take nobody accepted — a host popping
+      // this route out from under the review, or a teardown.
       unawaited(_deleteCapture(pending));
     }
     final controller = _controller;
@@ -731,6 +735,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void _presentForReview(CameraCaptureResult capture) {
     setState(() {
       _pendingCapture = capture;
+      _captureCollected = false;
       _interruptionNotice = null;
     });
   }
@@ -755,14 +760,22 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void _retakePendingCapture() {
     final capture = _pendingCapture;
     if (capture == null) return;
-    setState(() => _pendingCapture = null);
+    setState(() {
+      _pendingCapture = null;
+      _captureCollected = true;
+    });
     unawaited(_deleteCapture(capture));
   }
 
   /// Leaves the camera without sending, exactly like the viewfinder's own
-  /// close button. [dispose] collects the file on the way out.
+  /// close button. The take stays on screen through the exit transition, but
+  /// its file goes now: waiting for [dispose] would hold a full-size still in
+  /// the app cache for as long as the pop animation runs.
   void _discardPendingCapture() {
-    if (_pendingCapture == null) return;
+    final capture = _pendingCapture;
+    if (capture == null) return;
+    _captureCollected = true;
+    unawaited(_deleteCapture(capture));
     Navigator.of(context).pop();
   }
 

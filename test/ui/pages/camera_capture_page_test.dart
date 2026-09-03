@@ -1753,4 +1753,119 @@ void main() {
       await settle(tester, 8);
     },
   );
+
+  File stillOnReview(WidgetTester tester) => File(
+    tester
+        .widget<CameraCaptureReview>(find.byType(CameraCaptureReview))
+        .result
+        .file
+        .path,
+  );
+
+  testWidgets(
+    'a discarded still is off disk before the exit transition it leaves on '
+    'has even started to run',
+    (tester) async {
+      camera.cameras = const <CameraDescription>[_frontCamera];
+      camera.stillBytes = quadrantJpeg();
+      final host = await pumpHostedPage(tester);
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+      await shootStill(tester);
+      final still = stillOnReview(tester);
+      expect(still.existsSync(), isTrue);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pump();
+      await pumpUntil(
+        tester,
+        () => !still.existsSync(),
+        timeout: const Duration(seconds: 5),
+      );
+
+      expect(
+        find.byType(CameraCaptureReview),
+        findsOneWidget,
+        reason: 'the take is still on screen: its file went first',
+      );
+      expect(
+        still.existsSync(),
+        isFalse,
+        reason: 'a discard collects the file itself, not on the way out',
+      );
+
+      await tester.pumpAndSettle();
+      expect(host.returns, 1);
+      expect(host.result, isNull);
+      expect(
+        camera.stillDirectory!.listSync(),
+        isEmpty,
+        reason:
+            'the take was rewritten in place, so there is nothing else '
+            'the discard could have left behind',
+      );
+    },
+  );
+
+  testWidgets(
+    'a second take discarded after a retake leaves nothing on disk either',
+    (tester) async {
+      camera.stillBytes = quadrantJpeg();
+      await pumpHostedPage(tester);
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+      await shootStill(tester);
+      final first = stillOnReview(tester);
+      await tester.tap(find.text('Retake'));
+      await pumpUntil(
+        tester,
+        () => !first.existsSync(),
+        timeout: const Duration(seconds: 5),
+      );
+      await settle(tester, 8);
+      expect(first.existsSync(), isFalse);
+
+      await shootStill(tester);
+      final second = stillOnReview(tester);
+      expect(second.path, isNot(first.path));
+      expect(second.existsSync(), isTrue);
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pump();
+      await pumpUntil(
+        tester,
+        () => !second.existsSync(),
+        timeout: const Duration(seconds: 5),
+      );
+
+      expect(second.existsSync(), isFalse);
+      await tester.pumpAndSettle();
+    },
+  );
+
+  testWidgets(
+    'a take the host pops the route out from under is still collected',
+    (tester) async {
+      camera.stillBytes = quadrantJpeg();
+      await pumpPage(tester);
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+      await shootStill(tester);
+      final still = stillOnReview(tester);
+      expect(still.existsSync(), isTrue);
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
+      await pumpUntil(
+        tester,
+        () => !still.existsSync(),
+        timeout: const Duration(seconds: 5),
+      );
+
+      expect(
+        still.existsSync(),
+        isFalse,
+        reason: 'the teardown is the last collector left for the file',
+      );
+    },
+  );
 }
