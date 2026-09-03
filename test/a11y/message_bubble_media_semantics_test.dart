@@ -83,7 +83,10 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: contract.pdf, 12:00, Sent'), findsOneWidget);
+      expect(
+        semanticsWithLabel('You: contract.pdf, 12:00, Sent'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a captioned photo announces the photo before the caption', (
@@ -173,7 +176,10 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: Forwarded, Photo, 12:00, Sent'), findsOneWidget);
+      expect(
+        semanticsWithLabel('You: Forwarded, Photo, 12:00, Sent'),
+        findsOneWidget,
+      );
     });
   });
 

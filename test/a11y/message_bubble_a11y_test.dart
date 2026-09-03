@@ -40,7 +40,10 @@ void main() {
           wrap(MessageBubble(message: message, isOutgoing: true)),
         );
 
-        expect(findSemanticsWithLabel('You: hello, 12:00, Delivered'), findsOneWidget);
+        expect(
+          findSemanticsWithLabel('You: hello, 12:00, Delivered'),
+          findsOneWidget,
+        );
       },
     );
 

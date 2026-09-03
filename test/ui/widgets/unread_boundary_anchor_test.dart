@@ -151,26 +151,17 @@ void main() {
       expect(boundary?.count, 2);
     });
 
-    test(
-      'a cursor whose only unseen rows are system events degrades to the '
-      'count instead of anchoring on a system row',
-      () {
-        final boundary = resolveUnreadBoundary(
-          messages: [
-            msg('m1', 'u1', 1),
-            msg('sys1', 'u1', 2, isSystem: true),
-          ],
-          currentUserId: me,
-          fallbackUnreadCount: 1,
-          ownReadCursor: const ReadReceipt(
-            userId: me,
-            lastReadMessageId: 'm1',
-          ),
-        );
+    test('a cursor whose only unseen rows are system events degrades to the '
+        'count instead of anchoring on a system row', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [msg('m1', 'u1', 1), msg('sys1', 'u1', 2, isSystem: true)],
+        currentUserId: me,
+        fallbackUnreadCount: 1,
+        ownReadCursor: const ReadReceipt(userId: me, lastReadMessageId: 'm1'),
+      );
 
-        expect(boundary?.messageId, 'm1');
-        expect(boundary?.count, 1);
-      },
-    );
+      expect(boundary?.messageId, 'm1');
+      expect(boundary?.count, 1);
+    });
   });
 }

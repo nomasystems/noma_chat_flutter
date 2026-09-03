@@ -19,7 +19,8 @@ void main() {
     expect(
       kDebugMode,
       isTrue,
-      reason: 'flutter test always runs in debug mode; if this ever fails '
+      reason:
+          'flutter test always runs in debug mode; if this ever fails '
           'the negative-path assertion below is meaningless',
     );
 
@@ -43,9 +44,7 @@ void main() {
     ).readAsStringSync();
 
     expect(
-      RegExp(
-        r'if\s*\(\s*!\s*kDebugMode\s*\)\s*return\s*;',
-      ).hasMatch(source),
+      RegExp(r'if\s*\(\s*!\s*kDebugMode\s*\)\s*return\s*;').hasMatch(source),
       isTrue,
       reason:
           'uiDebugLog must bail out under `!kDebugMode` before calling '

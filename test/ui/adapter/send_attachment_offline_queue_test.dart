@@ -174,89 +174,86 @@ void main() {
     },
   );
 
-  test(
-    'a reply attachment that fails to upload keeps its quote in the '
-    'persisted queue and replays it on reconnect',
-    () async {
-      var uploadAttempts = 0;
-      when(
-        () => rest.uploadBinary(
-          any(),
-          any(),
-          any(),
-          onProgress: any(named: 'onProgress'),
-          cancelToken: any(named: 'cancelToken'),
-        ),
-      ).thenAnswer((_) async {
-        uploadAttempts++;
-        if (uploadAttempts == 1) {
-          throw const ChatNetworkException('offline');
-        }
-        return {'attachmentId': 'att-1', 'url': 'https://cdn/att-1'};
-      });
-      final postedBodies = <Map<String, dynamic>>[];
-      when(() => rest.post(any(), data: any(named: 'data'))).thenAnswer((
-        invocation,
-      ) async {
-        final data = invocation.namedArguments[#data] as Map<String, dynamic>;
-        postedBodies.add(data);
-        return {
-          'id': 'm2',
-          'from': 'u1',
-          'timestamp': '2025-01-01T00:00:00Z',
-          'messageType': 'attachment',
-          'attachmentUrl': 'https://cdn/att-1',
-          'attachmentId': 'att-1',
-          'referencedMessageId': data['referencedMessageId'],
-          'metadata': {'clientMessageId': data['clientMessageId']},
-        };
-      });
+  test('a reply attachment that fails to upload keeps its quote in the '
+      'persisted queue and replays it on reconnect', () async {
+    var uploadAttempts = 0;
+    when(
+      () => rest.uploadBinary(
+        any(),
+        any(),
+        any(),
+        onProgress: any(named: 'onProgress'),
+        cancelToken: any(named: 'cancelToken'),
+      ),
+    ).thenAnswer((_) async {
+      uploadAttempts++;
+      if (uploadAttempts == 1) {
+        throw const ChatNetworkException('offline');
+      }
+      return {'attachmentId': 'att-1', 'url': 'https://cdn/att-1'};
+    });
+    final postedBodies = <Map<String, dynamic>>[];
+    when(() => rest.post(any(), data: any(named: 'data'))).thenAnswer((
+      invocation,
+    ) async {
+      final data = invocation.namedArguments[#data] as Map<String, dynamic>;
+      postedBodies.add(data);
+      return {
+        'id': 'm2',
+        'from': 'u1',
+        'timestamp': '2025-01-01T00:00:00Z',
+        'messageType': 'attachment',
+        'attachmentUrl': 'https://cdn/att-1',
+        'attachmentId': 'att-1',
+        'referencedMessageId': data['referencedMessageId'],
+        'metadata': {'clientMessageId': data['clientMessageId']},
+      };
+    });
 
-      client = NomaChatClient(
-        config: config,
-        restClient: rest,
-        transportManager: transport,
-      );
-      adapter = ChatUiAdapter(client: client, currentUser: me);
-      adapter.start();
-      await client.connect();
+    client = NomaChatClient(
+      config: config,
+      restClient: rest,
+      transportManager: transport,
+    );
+    adapter = ChatUiAdapter(client: client, currentUser: me);
+    adapter.start();
+    await client.connect();
 
-      final controller = adapter.getChatController('r1');
+    final controller = adapter.getChatController('r1');
 
-      final result = await adapter.messages.sendAttachment(
-        'r1',
-        bytes: bytes,
-        mimeType: 'image/png',
-        fileName: 'photo.png',
-        referencedMessageId: 'm-quoted',
-      );
+    final result = await adapter.messages.sendAttachment(
+      'r1',
+      bytes: bytes,
+      mimeType: 'image/png',
+      fileName: 'photo.png',
+      referencedMessageId: 'm-quoted',
+    );
 
-      expect(result.isFailure, isTrue);
-      final tempId = controller.messages.single.id;
-      expect(controller.isFailed(tempId), isTrue);
+    expect(result.isFailure, isTrue);
+    final tempId = controller.messages.single.id;
+    expect(controller.isFailed(tempId), isTrue);
 
-      // If `ChatClient.enqueueOfflineAttachment` (or the call site in
-      // `ChatMessagesController.sendAttachment`'s failure branch) ever
-      // drops `referencedMessageId` again, the queued row loses the quote
-      // here — before the connection even comes back.
-      final queuedBeforeDrain =
-          (await store.getOfflineQueue()).dataOrNull ?? const [];
-      expect(queuedBeforeDrain, hasLength(1));
-      expect(queuedBeforeDrain.single['referencedMessageId'], 'm-quoted');
+    // If `ChatClient.enqueueOfflineAttachment` (or the call site in
+    // `ChatMessagesController.sendAttachment`'s failure branch) ever
+    // drops `referencedMessageId` again, the queued row loses the quote
+    // here — before the connection even comes back.
+    final queuedBeforeDrain =
+        (await store.getOfflineQueue()).dataOrNull ?? const [];
+    expect(queuedBeforeDrain, hasLength(1));
+    expect(queuedBeforeDrain.single['referencedMessageId'], 'm-quoted');
 
-      events.add(const ConnectedEvent());
-      events.add(const DisconnectedEvent());
-      events.add(const ConnectedEvent());
-      await Future<void>.delayed(const Duration(milliseconds: 50));
+    events.add(const ConnectedEvent());
+    events.add(const DisconnectedEvent());
+    events.add(const ConnectedEvent());
+    await Future<void>.delayed(const Duration(milliseconds: 50));
 
-      expect(controller.isFailed(tempId), isFalse);
-      final confirmed = controller.messages.singleWhere((m) => m.id == 'm2');
-      expect(confirmed.referencedMessageId, 'm-quoted');
-      expect(postedBodies.last['referencedMessageId'], 'm-quoted');
+    expect(controller.isFailed(tempId), isFalse);
+    final confirmed = controller.messages.singleWhere((m) => m.id == 'm2');
+    expect(confirmed.referencedMessageId, 'm-quoted');
+    expect(postedBodies.last['referencedMessageId'], 'm-quoted');
 
-      final queuedAfterDrain =
-          (await store.getOfflineQueue()).dataOrNull ?? const [];
-      expect(queuedAfterDrain, isEmpty);
-    },
-  );
+    final queuedAfterDrain =
+        (await store.getOfflineQueue()).dataOrNull ?? const [];
+    expect(queuedAfterDrain, isEmpty);
+  });
 }

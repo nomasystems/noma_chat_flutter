@@ -18,7 +18,8 @@ void main() {
     expect(
       kDebugMode,
       isTrue,
-      reason: 'flutter test always runs in debug mode; if this ever fails '
+      reason:
+          'flutter test always runs in debug mode; if this ever fails '
           'the negative-path assertion below is meaningless',
     );
 
@@ -51,9 +52,7 @@ void main() {
     );
 
     expect(
-      RegExp(
-        r'if\s*\(\s*!\s*kDebugMode\s*\)\s*return\s*;',
-      ).hasMatch(sinkBody),
+      RegExp(r'if\s*\(\s*!\s*kDebugMode\s*\)\s*return\s*;').hasMatch(sinkBody),
       isTrue,
       reason:
           'ConsoleChatLogSink.add must bail out under `!kDebugMode` before '
