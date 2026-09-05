@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../../cache/cache_policy.dart';
 import '../../../cache/local_datasource.dart';
 import '../../../client/chat_client.dart';
 import '../../../core/result.dart';
@@ -10,6 +11,7 @@ import '../../../models/user.dart';
 import '../../../observability/chat_logger.dart';
 import '../../controller/chat_controller.dart';
 import '../../controller/room_list_controller.dart';
+import '../../models/send_retry_policy.dart';
 import '../operation_error.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/pending_reactions_registry.dart';
@@ -45,6 +47,7 @@ class OptimisticHandler {
     updateRoomReactionPreview,
     required ChatMessage Function(ChatMessage message) ensureSentReceipt,
     required this.tempIds,
+    this.sendRetryPolicy = const SendRetryPolicy.firstSendOnly(),
     required bool Function(ChatFailure? failure) isBlockedError,
     required bool Function(ChatFailure? failure) isMutedError,
     void Function(String roomId)? onModerationLock,
@@ -92,6 +95,10 @@ class OptimisticHandler {
   /// here would let a text send mint an id an upload has already taken.
   final TempIdMinter tempIds;
 
+  /// Whether the handler is allowed to repost, on its own, a message that
+  /// raced the room it was addressed to — see [postWithFirstSendRetry].
+  final SendRetryPolicy sendRetryPolicy;
+
   final ChatUser Function() _currentUser;
   final Future<ChatResult<String>> Function(String otherUserId)
   _ensureDmRoomMaterialized;
@@ -133,6 +140,77 @@ class OptimisticHandler {
   /// See `ChatUiAdapter.emitAnalyticsEvent` — already guards against a
   /// throwing sink, so [sendMessage] calls this directly.
   final void Function(ChatAnalyticsEvent event) _analyticsEmit;
+
+  /// Posts the message [tempId] stands for, and — when it was the first
+  /// thing said in a conversation that had to be created for it — gives
+  /// that brand-new room a moment to exist and posts it again.
+  ///
+  /// The one failure worth reposting without asking is [NotFoundFailure]:
+  /// the room was created a heartbeat ago and the send arrived at a server
+  /// that had not caught up with it yet. Everything else (offline, an
+  /// upload nobody accepted, moderation) is handed straight back, so a
+  /// real problem is never buried under three quiet retries.
+  ///
+  /// Every attempt carries the SAME [tempId] as `clientMessageId`, which
+  /// is the server's idempotency key: a first send that actually landed
+  /// comes back as the message it already stored instead of a second copy
+  /// of it. The bubble is walked back to pending before each wait, so the
+  /// row spins while the retry runs and is only marked failed by the
+  /// caller if the last attempt fails too.
+  ///
+  /// [cameFromDraft] gates the whole thing: a send into a room that
+  /// already existed is nobody's race, and [SendRetryPolicy.none] turns it
+  /// off entirely.
+  Future<ChatResult<ChatMessage>> postWithFirstSendRetry({
+    required String roomId,
+    required String tempId,
+    required bool cameFromDraft,
+    ChatController? controller,
+    String? text,
+    MessageType messageType = MessageType.regular,
+    String? referencedMessageId,
+    String? sourceRoomId,
+    String? attachmentUrl,
+    String? attachmentId,
+    Map<String, dynamic>? metadata,
+  }) async {
+    Future<ChatResult<ChatMessage>> post() => client.messages.send(
+      roomId,
+      text: text,
+      messageType: messageType,
+      referencedMessageId: referencedMessageId,
+      sourceRoomId: sourceRoomId,
+      attachmentUrl: attachmentUrl,
+      attachmentId: attachmentId,
+      metadata: metadata,
+      tempId: tempId,
+      clientMessageId: tempId,
+    );
+
+    var result = await post();
+    if (!cameFromDraft) return result;
+
+    final attempts = sendRetryPolicy.maxAttempts;
+    for (var attempt = 0; attempt < attempts; attempt++) {
+      if (result.isSuccess) return result;
+      if (result.failureOrNull is! NotFoundFailure) return result;
+
+      controller?.markPending(tempId);
+      final delay = sendRetryPolicy.delayFor(attempt);
+      if (delay != null && delay > Duration.zero) {
+        await Future<void>.delayed(delay);
+      }
+      // A hint, never the verdict: the re-read is what evicts a cached
+      // "no such room" and gives the server a chance to have caught up.
+      // Whatever it answers — including a throw from a store that is
+      // having its own bad day — the send below is what decides.
+      try {
+        await client.rooms.get(roomId, cachePolicy: CachePolicy.networkOnly);
+      } on Object catch (_) {}
+      result = await post();
+    }
+    return result;
+  }
 
   Future<ChatResult<ChatMessage>> sendMessage(
     String roomIdOrDraftKey, {
@@ -178,7 +256,8 @@ class OptimisticHandler {
     // contact-addressed DM endpoint, whose queue entry carries the
     // recipient instead of a room and resolves the room on drain.
     String effectiveRoomId;
-    if (controller != null && controller.isDraft) {
+    final cameFromDraft = controller != null && controller.isDraft;
+    if (cameFromDraft) {
       final materialization = await _materializeDraft(controller);
       if (materialization.isFailure) {
         return _sendDraftAsDirectMessage(
@@ -204,16 +283,17 @@ class OptimisticHandler {
 
     _updateRoomLastMessage(effectiveRoomId, optimistic);
 
-    final result = await client.messages.send(
-      effectiveRoomId,
+    final result = await postWithFirstSendRetry(
+      roomId: effectiveRoomId,
+      tempId: tempId,
+      cameFromDraft: cameFromDraft,
+      controller: controller,
       text: text,
       referencedMessageId: referencedMessageId,
       messageType: messageType,
       metadata: metadata,
       attachmentUrl: attachmentUrl,
       attachmentId: attachmentId,
-      tempId: tempId,
-      clientMessageId: tempId,
     );
 
     if (result.isFailure && _isBlockedError(result.failureOrNull)) {
@@ -836,7 +916,8 @@ class OptimisticHandler {
     // controller to the real room — and fall back to the contact-addressed
     // queue when materialization is impossible.
     String roomId;
-    if (controller.isDraft) {
+    final cameFromDraft = controller.isDraft;
+    if (cameFromDraft) {
       final materialization = await _materializeDraft(controller);
       if (materialization.isFailure) {
         return _sendDraftAsDirectMessage(
@@ -860,19 +941,21 @@ class OptimisticHandler {
           Future.value(),
     );
 
-    final result = await client.messages.send(
-      roomId,
+    // The original optimistic id is reused as the idempotency key, here
+    // and inside every automatic retry, so a manual retry of a send that
+    // actually landed (lost response) returns the existing message instead
+    // of creating a duplicate.
+    final result = await postWithFirstSendRetry(
+      roomId: roomId,
+      tempId: messageId,
+      cameFromDraft: cameFromDraft,
+      controller: controller,
       text: message.text,
       messageType: message.messageType,
       referencedMessageId: message.referencedMessageId,
       attachmentUrl: message.attachmentUrl,
       attachmentId: message.attachmentId,
       metadata: message.metadata,
-      tempId: messageId,
-      // Reuse the original optimistic id as the idempotency key so a manual
-      // retry of a send that actually landed (lost response) returns the
-      // existing message instead of creating a duplicate.
-      clientMessageId: messageId,
     );
 
     if (result.isSuccess) {

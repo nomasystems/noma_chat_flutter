@@ -855,6 +855,7 @@ class ChatUiAdapter {
         ),
     ensureSentReceipt: _ensureSentReceipt,
     tempIds: _tempIds,
+    sendRetryPolicy: sendRetryPolicy,
     isBlockedError: _isBlockedError,
     isMutedError: _isMutedError,
     // 403 "muted" on send → re-fetch the room detail so `selfMuted`

@@ -498,7 +498,8 @@ interface class ChatMessagesController {
     // mirrors `sendVoice` / `OptimisticHandler.sendMessage` so an
     // attachment can be the first message in a brand-new DM.
     String roomId;
-    if (controller != null && controller.isDraft) {
+    final cameFromDraft = controller != null && controller.isDraft;
+    if (cameFromDraft) {
       final otherUserId = controller.draftOtherUserId;
       if (otherUserId == null) {
         controller.markFailed(tempId);
@@ -726,16 +727,17 @@ interface class ChatMessagesController {
           Future.value(),
     );
 
-    final sendResult = await _a.client.messages.send(
-      roomId,
+    final sendResult = await _a._optimistic.postWithFirstSendRetry(
+      roomId: roomId,
+      tempId: tempId,
+      cameFromDraft: cameFromDraft,
+      controller: controller,
       text: caption ?? '',
       referencedMessageId: referencedMessageId,
       messageType: MessageType.attachment,
       attachmentUrl: url,
       attachmentId: attachment.attachmentId,
       metadata: metadata,
-      tempId: tempId,
-      clientMessageId: tempId,
     );
     if (_a._sessionEndedSince(epoch)) {
       return ChatFailureResult(
@@ -1035,7 +1037,8 @@ interface class ChatMessagesController {
     // so voice messages can be the first message in a brand-new DM with
     // zero extra wiring at the consumer.
     String roomId;
-    if (controller != null && controller.isDraft) {
+    final cameFromDraft = controller != null && controller.isDraft;
+    if (cameFromDraft) {
       final otherUserId = controller.draftOtherUserId;
       if (otherUserId == null) {
         controller.markFailed(tempId);
@@ -1221,15 +1224,16 @@ interface class ChatMessagesController {
           Future.value(),
     );
 
-    final sendResult = await _a.client.messages.send(
-      roomId,
+    final sendResult = await _a._optimistic.postWithFirstSendRetry(
+      roomId: roomId,
+      tempId: tempId,
+      cameFromDraft: cameFromDraft,
+      controller: controller,
       messageType: MessageType.audio,
       referencedMessageId: referencedMessageId,
       attachmentUrl: url,
       attachmentId: attachment.attachmentId,
       metadata: metadata,
-      tempId: tempId,
-      clientMessageId: tempId,
     );
     if (_a._sessionEndedSince(epoch)) {
       // The send is a round trip too. Past this point everything below
@@ -1458,7 +1462,8 @@ interface class ChatMessagesController {
       // message" without waiting for the server.
       String effectiveTargetId = targetKey;
       final draftController = _a._chatControllers[targetKey];
-      if (draftController != null && draftController.isDraft) {
+      final cameFromDraft = draftController != null && draftController.isDraft;
+      if (cameFromDraft) {
         final otherUserId = draftController.draftOtherUserId;
         if (otherUserId == null) {
           const failure = ChatFailureResult<ChatMessage>(
@@ -1511,14 +1516,15 @@ interface class ChatMessagesController {
         targetController.markPending(tempId);
       }
 
-      final res = await _a.client.messages.send(
-        effectiveTargetId,
+      final res = await _a._optimistic.postWithFirstSendRetry(
+        roomId: effectiveTargetId,
+        tempId: tempId,
+        cameFromDraft: cameFromDraft,
+        controller: targetController,
         messageType: MessageType.forward,
         referencedMessageId: messageId,
         sourceRoomId: sourceRoomId,
         metadata: extraMetadata,
-        tempId: tempId,
-        clientMessageId: tempId,
       );
       if (res.isSuccess) {
         final confirmed = _a._ensureSentReceipt(res.dataOrThrow);
