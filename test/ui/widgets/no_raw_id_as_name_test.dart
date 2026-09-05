@@ -259,4 +259,54 @@ void main() {
       expect(find.text(nameless), findsNothing);
     });
   });
+
+  group('ReactionDetailContent', () {
+    final reactions = [
+      const AggregatedReaction(emoji: '\u{1F44D}', count: 1, users: [nameless]),
+    ];
+
+    testWidgets('a fetcher that throws leaves the reactor unnamed', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReactionDetailContent(
+              fetchReactions: () async => reactions,
+              currentUserId: 'me',
+              userFetcher: (_) async => throw StateError('offline'),
+              onRemoveReaction: (_) {},
+              theme: ChatTheme.defaults,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(nameless), findsNothing);
+    });
+
+    testWidgets('a batch fetcher that skips an id leaves it unnamed', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ReactionDetailContent(
+              fetchReactions: () async => reactions,
+              currentUserId: 'me',
+              userFetcher: (id) async =>
+                  ReactionUser(id: id, displayName: 'never called'),
+              batchUserFetcher: (_) async => const {},
+              onRemoveReaction: (_) {},
+              theme: ChatTheme.defaults,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(nameless), findsNothing);
+    });
+  });
 }

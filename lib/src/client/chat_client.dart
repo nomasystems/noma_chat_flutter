@@ -632,7 +632,8 @@ abstract class ChatMembersApi {
   /// — no per-member `GET /users/{id}` round-trip (the N+1 it eliminates).
   /// Without [expand] each row is the bare `{userId, role}` and the
   /// expansion-only fields stay `null`; resolve them through the user cache
-  /// as before.
+  /// as before. A name that stays unresolved renders as no name at all: the
+  /// id is an identifier, never a label to show a reader.
   ///
   /// ```dart
   /// final res = await client.members.list(
@@ -641,7 +642,7 @@ abstract class ChatMembersApi {
   /// );
   /// if (res case ChatSuccess(:final data)) {
   ///   for (final m in data.items) {
-  ///     renderRow(m.displayName ?? m.userId, m.avatarUrl);
+  ///     renderRow(m.displayName ?? '', m.avatarUrl);
   ///   }
   /// }
   /// ```

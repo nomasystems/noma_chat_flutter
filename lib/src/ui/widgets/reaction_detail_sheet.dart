@@ -118,17 +118,17 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
         try {
           resolved.addAll(await batchFetcher(userIds));
         } catch (_) {
-          // Fall through — ids missing below get the id-as-name fallback.
+          // Fall through — ids missing below stay unnamed.
         }
         for (final id in userIds) {
-          resolved.putIfAbsent(id, () => ReactionUser(id: id, displayName: id));
+          resolved.putIfAbsent(id, () => ReactionUser(id: id, displayName: ''));
         }
       } else {
         final futures = userIds.map((id) async {
           try {
             resolved[id] = await widget.userFetcher(id);
           } catch (_) {
-            resolved[id] = ReactionUser(id: id, displayName: id);
+            resolved[id] = ReactionUser(id: id, displayName: '');
           }
         });
         await Future.wait(futures);
@@ -183,7 +183,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
           _UserWithEmoji(
             user:
                 _resolvedUsers[userId] ??
-                ReactionUser(id: userId, displayName: userId),
+                ReactionUser(id: userId, displayName: ''),
             emoji: r.emoji,
           ),
         );
@@ -222,7 +222,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
                         (id) => _UserWithEmoji(
                           user:
                               _resolvedUsers[id] ??
-                              ReactionUser(id: id, displayName: id),
+                              ReactionUser(id: id, displayName: ''),
                           emoji: r.emoji,
                         ),
                       )

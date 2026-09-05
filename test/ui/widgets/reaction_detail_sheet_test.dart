@@ -274,7 +274,7 @@ void main() {
       expect(find.text('Bob'), findsWidgets);
     });
 
-    testWidgets('falls back to id-as-name when batchUserFetcher omits an id', (
+    testWidgets('leaves a reactor the batchUserFetcher omits unnamed', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -305,10 +305,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('You'), findsWidgets);
-      expect(find.text('u2'), findsWidgets);
+      expect(find.text('u2'), findsNothing);
+      expect(find.byType(ListTile), findsNWidgets(3));
     });
 
-    testWidgets('falls back to id-as-name when batchUserFetcher throws', (
+    testWidgets('leaves every reactor unnamed when batchUserFetcher throws', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -337,7 +338,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('You'), findsWidgets);
-      expect(find.text('u2'), findsWidgets);
+      expect(find.text('u2'), findsNothing);
+      expect(find.byType(ListTile), findsNWidgets(3));
     });
 
     testWidgets('shows error state on fetch failure', (tester) async {

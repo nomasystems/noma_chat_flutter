@@ -4,6 +4,9 @@
 /// can map from their own domain entity.
 class ReactionUser {
   final String id;
+
+  /// Name to paint. Empty when nobody could name [id]: the sheet then shows
+  /// an untitled row, never the raw id.
   final String displayName;
   final String? avatarUrl;
 
@@ -28,7 +31,9 @@ class ReactionUser {
 /// Callback that resolves a user ID into display information.
 ///
 /// Consumers inject this so the UI components can show user names and avatars
-/// in reaction detail sheets without depending on any user system.
+/// in reaction detail sheets without depending on any user system. A call that
+/// throws leaves the reactor unnamed — the sheet renders an empty title rather
+/// than the raw id.
 typedef UserFetcher = Future<ReactionUser> Function(String userId);
 
 /// Callback that resolves multiple user IDs into display information in a
@@ -36,7 +41,7 @@ typedef UserFetcher = Future<ReactionUser> Function(String userId);
 /// the lookup (e.g. one HTTP request for N ids) — [ReactionDetailContent]
 /// uses it, when provided, instead of invoking [UserFetcher] once per
 /// unique reactor. IDs missing from the returned map fall back to a
-/// [ReactionUser] with `displayName == id`, same as a failed [UserFetcher]
-/// call.
+/// [ReactionUser] with an empty `displayName`, same as a failed [UserFetcher]
+/// call: an id is not a name, so the row stays untitled.
 typedef BatchUserFetcher =
     Future<Map<String, ReactionUser>> Function(Set<String> userIds);
