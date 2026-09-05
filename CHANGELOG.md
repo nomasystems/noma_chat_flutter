@@ -6,6 +6,104 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.34.0 - 2026-09-05
+
+A host application directory can now answer who a chat id belongs to,
+rooms can be closed by the backend down to "owner only", the room list
+searches by participant, the first send into a brand-new DM retries itself,
+and outgoing images are shrunk before upload by default. Read *Changed*
+before upgrading: an unresolved display name no longer falls back to the
+raw user id anywhere in the UI.
+
+### Added
+
+- **`ChatUiAdapter(userDirectoryResolver:)`** — a host-supplied,
+  batch-and-cache-friendly `Future<Map<String, HostUser>> Function(Set<String> ids)`
+  that lets a host's own users table answer a display name/avatar for an id
+  instead of (or ahead of) chat's own profile store. Answers are persisted
+  (see below) and refreshed every `userDirectoryTtl` (default 12h). See the
+  Developer Guide's *userDirectoryResolver* section.
+- **`HostUser`** (`id`, `displayName`, `avatarUrl`, `gone`, `hasDisplayName`,
+  and the `HostUser.missing(id)` constructor for "looked up, nobody there")
+  and, on the cache layer, `CachedHostUser` plus the `HostUserStore`
+  interface (`saveHostUsers` / `getHostUsers` / `getHostUser` /
+  `clearHostUsers`) that `HiveChatDatasource` implements alongside
+  `ChatLocalDatasource`, in an additive Hive box (`chat_host_users`; no
+  schema-version bump, so existing caches read unaffected).
+- **`ChatUiAdapter(bootstrapCurrentUser:)`** (default `false`) — when `true`,
+  `connect()` provisions the signed-in user's chat profile
+  (`users.get` → `users.create` only on `NotFoundFailure`) automatically.
+- **`ChatUiAdapter(sendRetryPolicy:)`** and **`SendRetryPolicy`**
+  (`firstSendOnly` — the new default — and `none`) — retries, up to three
+  times with backoff, the one message that raced its own DM room's creation
+  and came back "room not found", reusing the original optimistic id so a
+  send that actually landed is never sent twice.
+- **`AttachmentShrinker`, `NoAttachmentShrinker`, `DefaultAttachmentShrinker`,
+  `ShrunkAttachment` and `PolicyConfigurableShrinker`** — a pluggable engine
+  that re-encodes an outgoing image to fit a size cap. `AttachmentPolicy`
+  gains `shrinkEnabled` (default `true`) and `shrinkSteps` (default
+  `AttachmentPolicy.defaultShrinkSteps`, five steps from 3072px@q85 down to
+  1280px@q60), and `ChatUiAdapter(attachmentShrinker:)` sets the engine used
+  by `NomaChatView`'s own capture path. `AttachmentPolicy.deniedExtensions`
+  now also applies to the image/video picker paths, not only `pickFile`.
+- **`RoomWritePolicy` (`members` / `ownerOnly`)** on `RoomConfig.writePolicy`
+  (`RoomDetail`) and mirrored on `RoomListItem.writePolicy` /
+  `UnreadRoom.writePolicy` — a backend-set field (`config.writePolicy` in
+  the room document, read from both the detail and the listing, never from
+  `custom`) that closes a room's composer to everyone but its owner,
+  independent of the room's type. Feeds a third cause into
+  `RoomDetail.isReadOnly` / `RoomListItem.isReadOnly`, alongside a new
+  `RoomListItem.readOnlyReason` / `ChatViewBehaviors.readOnlyReason`
+  (`ReadOnlyReason { announcement, selfMuted, ownerOnly }`).
+- **`ChatViewBuilders.readOnlyNoticeBuilder`** — `Widget? Function(BuildContext, ReadOnlyReason)`,
+  now actually consulted by `ChatView` (see *Fixed*); the SDK's own fallback
+  notice carries the semantic identifier `chat_read_only_notice`.
+- **`RoomListController(participantNameResolver:)` / `ParticipantNameResolver`**
+  and **`matchedParticipantFor(roomId)`** — extends the room list's text
+  filter to match a room by the people in it, not only its title and last
+  message, and reports which participant matched
+  (`RoomTile(matchedParticipant:)` paints it). `ChatUiAdapter` wires a
+  default resolver over `displayNameFor`; feed it a fuller roster with the
+  new `ChatUiAdapter.recordRoomRoster(roomId, userIds, {complete:})` /
+  `roomRosterOf(roomId)`.
+- **`MockChatClient.seedRoomMeta(..., writePolicy:)`** — seeds the write
+  policy on both the mock's room detail and its listing, for tests and
+  `example/` that need an owner-only room without a real backend.
+
+### Changed
+
+- **Breaking — an unresolved display name is never the raw user id
+  anymore.** `ChatUiAdapter.displayNameFor` and every UI surface built on it
+  (`MentionOverlay`, `UserProfileView`, `UserInfoPage`, `GroupMembersView`,
+  `MemberPickerSheet`, `BlockedUsersView`, `MessageInfoSheet`, the
+  reaction-detail sheet, `TypingStatusText`, `NomaChatView`'s default
+  `userFetcher`, and a DM's default title) now fall back to an empty string
+  instead of the id. Membership-banner metadata (`userLabel` / `actorLabel`)
+  is blank rather than the id once a name lookup gives up; the mention
+  overlay no longer inserts `@<uuid>` for someone with no resolvable name.
+  See MIGRATING.md.
+- The room list's text filter now matches a room's *resolved* `displayName`
+  (falling back to `name`), not just its raw `name` — a 1:1 whose title
+  comes from `RoomTitleResolver` or a member's profile was invisible to
+  search even when its on-screen title matched the query. The filter can
+  only match more rooms than before, never fewer.
+- `sendRetryPolicy` defaults to `SendRetryPolicy.firstSendOnly()` — see
+  *Added*. Opt out with `SendRetryPolicy.none()` for the 0.33 behaviour.
+- The five public `AttachmentPickers` entry points default their `shrinker:`
+  parameter to `DefaultAttachmentShrinker` instead of sending the picked
+  bytes untouched.
+
+### Fixed
+
+- **`NomaChatView` was dropping `ChatViewBuilders.statusIconBuilder`.** A
+  host that passed a custom delivery-tick builder to `NomaChatView` (rather
+  than to a bare `ChatView`) saw no effect; `NomaChatView` now forwards it.
+- **`ChatViewBuilders.readOnlyNoticeBuilder` existed but `ChatView` never
+  called it.** The field was inert since it was introduced; `ChatView` now
+  invokes it with the room's `ReadOnlyReason` and falls back to the SDK's
+  own notice (now carrying `Semantics(identifier: 'chat_read_only_notice')`)
+  when it returns `null` or is unset.
+
 ## 0.33.0 - 2026-09-03
 
 Camera improvements: front-lens stills now match the mirrored viewfinder, and

@@ -1,5 +1,235 @@
 # Migration guide
 
+## 0.33.x → 0.34.0
+
+Nothing is removed. Two defaults change what they do at runtime (each with
+an opt-out), one field is added to `ChatViewBuilders`, and — the change with
+the widest reach — an unresolved display name stops falling back to the raw
+id anywhere in the UI layer.
+
+### No id is ever painted as a name
+
+`ChatUiAdapter.displayNameFor(userId)` used to fall back to `userId` itself
+when nobody had a name for that person. It now falls back to an **empty
+string**. This is the one true breaking change in this release, in the
+sense that it changes what a lot of surfaces render, even though no
+signature moves: `MentionOverlay`, `UserProfileView`, `UserInfoPage`,
+`GroupMembersView`, `MemberPickerSheet`, `BlockedUsersView`,
+`MessageInfoSheet`, the reaction-detail sheet, `TypingStatusText`, the
+default `userFetcher` of `NomaChatView`, and a room's default title for a
+1:1 whose other member has no resolved name (`RoomTitleContext` /
+`RoomListItem.displayName`) all used to show a raw UUID as a last resort and
+now show nothing there instead.
+
+If your app read `displayNameFor` (or one of the widgets above) expecting a
+usable string in every case, add your own placeholder for the empty case —
+the SDK deliberately no longer decides what that placeholder says:
+
+```dart
+final label = chat.adapter.displayNameFor(userId);
+Text(label.isEmpty ? 'Unknown' : label);
+```
+
+Two related, narrower spots keep the old "use the id" behaviour on purpose,
+because the id there is not decoration but a sentinel the SDK itself relies
+on to know a name has not arrived yet:
+
+- Membership banners ("X joined", "X left") still compose with the id
+  internally while a name lookup is in flight, and repaint themselves once
+  it resolves — but `metadata['userLabel']` / `metadata['actorLabel']` on
+  the persisted system message are now blank, not the id, once the lookup
+  gives up. `metadata['userId']` still carries the id itself, unchanged.
+- `MessageInput`'s @mention autocomplete no longer inserts `@<uuid>` into
+  the message text when the mentioned person has no resolvable name; it
+  closes the overlay and leaves the composer text as the user typed it.
+
+### A DM's default title is no longer the other member's id
+
+Before a name resolves, a 1:1 room without its own `name` used to show the
+other member's raw id as its title (`RoomTile`, the chat app bar). It now
+shows nothing there and falls through to whatever `RoomListItem.name`
+carries, and finally to an empty string — never a UUID. Order of
+resolution for a 1:1's title: `RoomTitleResolver` (if you supply one) →
+name from `userDirectoryResolver` → chat's own cached profile name → empty.
+A host that wants a placeholder while a name is still resolving supplies one
+through `RoomTitleResolver` or the empty-string case of whatever renders the
+title, exactly as for the point above.
+
+### `ChatViewBuilders` gains `readOnlyNoticeBuilder`
+
+A new named field. Code that builds `ChatViewBuilders` with named arguments
+(the only supported way — it is `const`) compiles unchanged. See
+[Developer Guide — ReadOnlyNoticeBuilder](./doc/DEVELOPER_GUIDE.md#readonlynoticebuilder--why-a-room-is-read-only)
+for what it is for.
+
+### A room can now be closed by the backend's write policy, not just by its type
+
+`RoomDetail.isReadOnly` / `RoomListItem.isReadOnly` gain a third cause,
+combined with `||` alongside the two that already existed (a non-owner in an
+announcement channel, a moderation mute): `RoomConfig.writePolicy ==
+RoomWritePolicy.ownerOnly && userRole != owner`. No backend sends this field
+yet, so the practical effect today is nil — but a room whose backend starts
+setting `config.writePolicy: "owner_only"` will close its composer for every
+member but the owner from the moment this version is running, with no
+further app change needed. See
+[Developer Guide — ReadOnlyNoticeBuilder](./doc/DEVELOPER_GUIDE.md#readonlynoticebuilder--why-a-room-is-read-only).
+
+### The room list's text filter matches strictly more rooms than before
+
+`RoomListController`'s search used to compare the query against the room's
+raw `name` and its last message only — never the *resolved* title. A 1:1
+room without its own name (the common case: its title comes from
+`RoomTitleResolver` or the other member's profile) was invisible to the
+search box even when the title on screen matched the query. The filter now
+matches `displayName` (falls back to `name`) and, when a
+`participantNameResolver` is wired, the room's participants too. A room
+that used to match still matches; some that did not now do. See
+[Developer Guide — ParticipantNameResolver](./doc/DEVELOPER_GUIDE.md#participantnameresolver--recordroomroster--searching-the-room-list-by-member).
+
+### The first send after a new DM room is created now retries automatically
+
+`sendRetryPolicy` defaults to `SendRetryPolicy.firstSendOnly()`: a send that
+raced its own room's creation and came back "room not found" is retried
+automatically, up to three times, reusing the original optimistic id so a
+send that actually landed is never duplicated. A host that relied on that
+failure surfacing immediately to the user restores the 0.33 behaviour with:
+
+```dart
+NomaChat.create(..., sendRetryPolicy: const SendRetryPolicy.none())
+```
+
+### Outgoing images are shrunk by default on every picker path
+
+`AttachmentPickers.pickImageFromCamera` / `pickImageFromGallery` /
+`pickVideoFromGallery` / `pickMultipleMedia` / `pickFile` now default their
+new `shrinker:` parameter to `DefaultAttachmentShrinker` instead of sending
+untouched bytes: an oversized `image/*` pick is resized and re-encoded as
+JPEG before it reaches your send call. A non-image is never touched. Opt
+out per call with `shrinker: const NoAttachmentShrinker()`, or per policy
+with `AttachmentPolicy(shrinkEnabled: false)`. `ChatUiAdapter
+(attachmentShrinker: ...)` — the engine used by `NomaChatView`'s own capture
+path — keeps its own separate default of `NoAttachmentShrinker`, unchanged.
+See [Developer Guide — attachmentShrinker](./doc/DEVELOPER_GUIDE.md#attachmentshrinker--outgoing-image-reduction).
+
+`AttachmentPolicy.deniedExtensions` is now also checked on the image/video
+picker paths, not only on `pickFile` as before — a policy relying on that
+list to block a specific extension now blocks it everywhere, not only on
+generic file picks.
+
+## 0.31.x → 0.32.0
+
+Breaking at compile time in exactly one place: pushing the in-app camera
+screen yourself.
+
+### `CameraCapturePage.show()` returns a `CameraCaptureSubmission`, not a `CameraCaptureResult`
+
+The screen now has a caption field on its review step, so what it hands
+back is the confirmed capture *plus* that caption:
+
+```dart
+// Before (0.31.x and earlier)
+final CameraCaptureResult? shot = await CameraCapturePage.show(context: context);
+
+// After (0.32.0+)
+final CameraCaptureSubmission? submission = await CameraCapturePage.show(context: context);
+if (submission == null) return;
+final CameraCaptureResult shot = submission.capture;
+final String? caption = submission.caption;
+```
+
+`CameraCaptureReview.onSend` changes from a `VoidCallback` to a
+`ValueChanged<String?>` (the typed caption, or `null`) for the same reason —
+relevant only to a host that mounts `CameraCaptureReview` directly rather
+than through `CameraCapturePage.show()`.
+
+Nothing else moves: `NomaChatView`'s own camera row already handles this
+internally, so a host that never calls `CameraCapturePage.show()` or
+`CameraCaptureReview` by hand is unaffected.
+
+## 0.28.x → 0.29.0
+
+No compile-time break. Two fixes change what an existing call site
+*answers* without changing what it compiles to — read this before
+upgrading if you act on either result.
+
+### Deleting a room can now fail, and says so
+
+`ChatRoomsController.delete` used to drop the row from the list and report
+success regardless of whether the durable "deleted" marker was actually
+written. It now returns a failure — and leaves the row on screen — when
+that write fails, since a row dropped without its marker used to reappear
+on the next list rebuild with its old preview intact, which is worse than a
+delete that visibly did nothing. Key any "deleted" confirmation UI off this
+result rather than assuming the call always succeeds.
+
+### `markRoomDeleted` / `clearRoomDeleted` / `getDeletedRoomIds` no longer swallow failures
+
+These three used to collapse a datasource failure into success (for the
+first two) or into an empty set (for the third). They now propagate the
+underlying `ChatResult` as-is. A direct caller that treated them as
+infallible will start seeing failures it was previously blind to.
+
+## 0.27.x → 0.28.0
+
+Two changes break a build; the rest change what an existing screen does
+without touching what it compiles to.
+
+### `onSendMessageRequest` / `onEditMessage` / `onSendReply` answer *was this taken?*, not *did it arrive?*
+
+On `ChatViewCallbacks`, on `MessageInput` (same-named constructor
+parameters), and on `ThreadView.onSendReply`, the callback type changes from
+`void Function(...)` to `FutureOr<bool> Function(...)`. A callback that
+dispatches unconditionally and does not care about the hand-back path
+migrates by ending with `return true`:
+
+```dart
+// Before
+onSendMessageRequest: (text) { myQueue.enqueue(text); },
+
+// After
+onSendMessageRequest: (text) { myQueue.enqueue(text); return true; },
+```
+
+- `true` — something now owns the message (an optimistic bubble, a queue);
+  the composer clears exactly as before. A send that reached the wire and
+  failed there is still `true`: it has its own failed bubble with its own
+  retry.
+- `false` — the request was refused outright with nowhere else for the
+  wording to live (a closed contact gate, a read-only room, a moderation
+  veto). The composer hands the text back — where the user left it, under
+  the reply it was answering, with edit mode reopened on the message being
+  edited — unless the user has already started typing something else in
+  the meantime, in which case the hand-back is silently dropped.
+
+### `RoomListItem` and `UnreadRoom` gain a field in the middle of their constructors
+
+Both models add `lastMessageIsSystem` (`bool`, default `false`). The named
+constructors and `copyWith` are unaffected — every call site that names its
+arguments compiles unchanged. What breaks:
+
+- Freezed's generated **positional** callbacks — `when`, `maybeWhen`,
+  `whenOrNull` — take one more positional argument in the field's position.
+  Any call site already using one of those on `RoomListItem` or `UnreadRoom`
+  needs the new parameter added.
+- A host implementing `ChatRoomsApi` itself (rather than using the SDK's)
+  must add the matching `bool? lastMessageIsSystem` parameter that
+  `updateCachedRoomPreview` gains.
+
+### Two behaviour changes ride along silently — a call site that still compiles does not mean it still does the same thing
+
+- **`ChatViewBehaviors.withRoomState` stops overwriting a host's own
+  `readOnly` / `readOnlyLabel`.** They are now combined with `||`/host-wins
+  rules instead of the room state replacing them outright: the composer
+  stays closed when *either* the room or the host says so. An app that
+  closed the composer for a reason only it knew (a contact gate, a
+  per-app permission) was being silently re-opened by any room the SDK
+  itself considered writable — that no longer happens.
+- **`RoomTile.lastMessagePreviewBuilder` no longer gets a `"Name: "` sender
+  prefix put in front of it.** A non-null return value is now taken as a
+  finished sentence and painted as-is. A host whose builder already names
+  the actor was getting a duplicated prefix ("Alice: Alice joined"); one
+  that relied on the SDK to prepend the name now has to do it itself.
+
 ## 0.26.x → 0.27.0
 
 Nothing breaks at compile time: no API was removed or narrowed. Four

@@ -28,7 +28,7 @@ Full-featured Flutter chat in one dependency. Drop it in, wire five lines, ship.
 ```yaml
 # pubspec.yaml
 dependencies:
-  noma_chat: ^0.26.0
+  noma_chat: ^0.34.0
   # The default persistent cache is Hive-backed; you initialise it (see below).
   hive_ce_flutter: ^2.3.4
 ```
@@ -127,6 +127,26 @@ callbacks) by hand instead — see the [Developer Guide](./doc/DEVELOPER_GUIDE.m
 - Bidirectional opaque-cursor pagination — page back through history and catch up on newer messages
 - Stable, localizable error tokens — branch and translate on `ChatFailure.errorToken` (a snake_case code such as `room_not_found` or `rate_limited`), never on an English string
 - GDPR self-service deletion — `users.deleteCurrentUser()` erases the authenticated account, token-scoped so it can't target the wrong user
+- Host user directory (`ChatUiAdapter(userDirectoryResolver:)`) — resolve a
+  display name/avatar for an id from your own users table instead of chat's
+  profile, with a durable Hive-backed cache (`userDirectoryTtl`, 12h by
+  default); see [Developer Guide — userDirectoryResolver](./doc/DEVELOPER_GUIDE.md#userdirectoryresolver--host-user-directory)
+- No id is ever painted as a name — a display name nobody can resolve is a
+  blank the host fills with its own placeholder, never the raw UUID
+- Outgoing images are shrunk to fit before upload by default
+  (`AttachmentPolicy.shrinkSteps` / `shrinkEnabled`, `attachmentShrinker:` to
+  swap the engine or `NoAttachmentShrinker` to opt out) — see
+  [Developer Guide — attachmentShrinker](./doc/DEVELOPER_GUIDE.md#attachmentshrinker--outgoing-image-reduction)
+- The first send after a lazily-created DM room retries once it exists —
+  `ChatUiAdapter(sendRetryPolicy:)`, default `SendRetryPolicy.firstSendOnly()`
+- Optional user bootstrap on connect (`ChatUiAdapter(bootstrapCurrentUser:)`)
+  — creates the signed-in user's chat profile the first time it is missing
+- Read-only rooms driven by the backend's room config
+  (`RoomConfig.writePolicy`) close the composer for everyone but the owner,
+  independent of room type — see [Developer Guide — ReadOnlyNoticeBuilder](./doc/DEVELOPER_GUIDE.md#readonlynoticebuilder--why-a-room-is-read-only)
+- Room list search also matches a room by the people in it
+  (`RoomListController(participantNameResolver:)` /
+  `ChatUiAdapter.recordRoomRoster`), and shows which participant matched
 
 **Security & observability**
 - Standard TLS transport — the SDK relies on the operating system's CA trust store to validate server certificates; it does **not** pin certificates
