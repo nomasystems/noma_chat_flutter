@@ -4,6 +4,7 @@ import '../../models/message.dart';
 import '../../models/presence.dart';
 import '../../models/room.dart' show RoomWritePolicy;
 import '../../models/room_user.dart';
+import '../widgets/chat_view_config.dart' show ReadOnlyReason;
 
 part 'room_list_item.freezed.dart';
 
@@ -158,4 +159,24 @@ abstract class RoomListItem with _$RoomListItem {
       (isAnnouncement && userRole != RoomRole.owner) ||
       selfMuted ||
       (writePolicy == RoomWritePolicy.ownerOnly && userRole != RoomRole.owner);
+
+  /// Why the composer is closed, or `null` when [isReadOnly] is `false`.
+  ///
+  /// Feeds `ChatViewBehaviors.readOnlyReason`, which is what a host's
+  /// `readOnlyNoticeBuilder` receives. When more than one cause applies at
+  /// once the most specific to this person wins, because that is the one a
+  /// notice has to explain: a moderation mute ([ReadOnlyReason.selfMuted])
+  /// before what the room itself is ([ReadOnlyReason.announcement]) before a
+  /// setting the owner can turn off again ([ReadOnlyReason.ownerOnly]).
+  ReadOnlyReason? get readOnlyReason {
+    if (selfMuted) return ReadOnlyReason.selfMuted;
+    if (isAnnouncement && userRole != RoomRole.owner) {
+      return ReadOnlyReason.announcement;
+    }
+    if (writePolicy == RoomWritePolicy.ownerOnly &&
+        userRole != RoomRole.owner) {
+      return ReadOnlyReason.ownerOnly;
+    }
+    return null;
+  }
 }

@@ -140,4 +140,82 @@ void main() {
       expect(a, isNot(equals(b)));
     });
   });
+
+  group('RoomListItem.readOnlyReason', () {
+    test('null while the room takes messages', () {
+      const room = RoomListItem(id: 'r1', userRole: RoomRole.member);
+      expect(room.isReadOnly, isFalse);
+      expect(room.readOnlyReason, isNull);
+    });
+
+    test('owner_only + non-owner reports ownerOnly', () {
+      const room = RoomListItem(
+        id: 'r1',
+        writePolicy: RoomWritePolicy.ownerOnly,
+        userRole: RoomRole.member,
+      );
+      expect(room.readOnlyReason, ReadOnlyReason.ownerOnly);
+    });
+
+    test('owner_only + owner reports nothing', () {
+      const room = RoomListItem(
+        id: 'r1',
+        writePolicy: RoomWritePolicy.ownerOnly,
+        userRole: RoomRole.owner,
+      );
+      expect(room.readOnlyReason, isNull);
+    });
+
+    test('announcement non-owner reports announcement', () {
+      const room = RoomListItem(
+        id: 'r1',
+        isAnnouncement: true,
+        userRole: RoomRole.member,
+      );
+      expect(room.readOnlyReason, ReadOnlyReason.announcement);
+    });
+
+    test('a moderation mute wins over the room shape and the policy', () {
+      const room = RoomListItem(
+        id: 'r1',
+        selfMuted: true,
+        isAnnouncement: true,
+        writePolicy: RoomWritePolicy.ownerOnly,
+        userRole: RoomRole.member,
+      );
+      expect(room.readOnlyReason, ReadOnlyReason.selfMuted);
+    });
+
+    test('announcement wins over owner_only when both apply', () {
+      const room = RoomListItem(
+        id: 'r1',
+        isAnnouncement: true,
+        writePolicy: RoomWritePolicy.ownerOnly,
+        userRole: RoomRole.member,
+      );
+      expect(room.readOnlyReason, ReadOnlyReason.announcement);
+    });
+
+    test('a reason is reported exactly when the composer closes', () {
+      const rooms = <RoomListItem>[
+        RoomListItem(id: 'r1'),
+        RoomListItem(id: 'r2', selfMuted: true),
+        RoomListItem(id: 'r3', isAnnouncement: true),
+        RoomListItem(id: 'r4', isAnnouncement: true, userRole: RoomRole.owner),
+        RoomListItem(id: 'r5', writePolicy: RoomWritePolicy.ownerOnly),
+        RoomListItem(
+          id: 'r6',
+          writePolicy: RoomWritePolicy.ownerOnly,
+          userRole: RoomRole.owner,
+        ),
+      ];
+      for (final room in rooms) {
+        expect(
+          room.readOnlyReason != null,
+          room.isReadOnly,
+          reason: 'room ${room.id}',
+        );
+      }
+    });
+  });
 }
