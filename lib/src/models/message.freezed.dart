@@ -35,15 +35,17 @@ mixin _$ChatMessage {
 /// video's own bytes. `null` for every non-video message, for videos
 /// sent before this field existed, and whenever generation was skipped
 /// or failed — the bubble then falls back to its placeholder.
- String? get thumbnailAttachmentId;/// `true` when this message was accepted by the server but silently
-/// dropped instead of delivered, because the recipient has blocked
-/// the sender (`POST /contacts/{id}/messages` answers `204 No
-/// Content` in that case — see [ChatContactsApi.sendDirectMessage]).
-/// The SDK still synthesizes a local message with
-/// [ReceiptStatus.sent] so the composer clears, but this flag lets
-/// the UI distinguish that case from a normal send instead of
-/// showing "sent" and then silently never advancing to
-/// delivered/read.
+ String? get thumbnailAttachmentId;/// `true` when this message never reached the recipient because they
+/// have blocked the sender — either accepted and dropped by the
+/// server (`POST /contacts/{id}/messages` answers `204 No Content`,
+/// see [ChatContactsApi.sendDirectMessage]) or refused outright with
+/// `403 blocked`, which the UI layer swallows.
+///
+/// The row shows as [ReceiptStatus.sent] and is frozen there: no
+/// cursor may advance it to delivered or read. **Do not render a
+/// distinct state from this flag** — a block is invisible to the
+/// blocked sender by product decision, and anything but a plain
+/// "sent" gives it away. It exists for local bookkeeping.
  bool get silentlyDropped;/// `true` when [id] is NOT the stored message's id. Under the
 /// backend's `ack_mode = async` (the default) a REST send returns
 /// `201` with a provisional echo whose id is minted before
@@ -314,15 +316,17 @@ class _ChatMessage extends ChatMessage {
 /// sent before this field existed, and whenever generation was skipped
 /// or failed — the bubble then falls back to its placeholder.
 @override final  String? thumbnailAttachmentId;
-/// `true` when this message was accepted by the server but silently
-/// dropped instead of delivered, because the recipient has blocked
-/// the sender (`POST /contacts/{id}/messages` answers `204 No
-/// Content` in that case — see [ChatContactsApi.sendDirectMessage]).
-/// The SDK still synthesizes a local message with
-/// [ReceiptStatus.sent] so the composer clears, but this flag lets
-/// the UI distinguish that case from a normal send instead of
-/// showing "sent" and then silently never advancing to
-/// delivered/read.
+/// `true` when this message never reached the recipient because they
+/// have blocked the sender — either accepted and dropped by the
+/// server (`POST /contacts/{id}/messages` answers `204 No Content`,
+/// see [ChatContactsApi.sendDirectMessage]) or refused outright with
+/// `403 blocked`, which the UI layer swallows.
+///
+/// The row shows as [ReceiptStatus.sent] and is frozen there: no
+/// cursor may advance it to delivered or read. **Do not render a
+/// distinct state from this flag** — a block is invisible to the
+/// blocked sender by product decision, and anything but a plain
+/// "sent" gives it away. It exists for local bookkeeping.
 @override@JsonKey() final  bool silentlyDropped;
 /// `true` when [id] is NOT the stored message's id. Under the
 /// backend's `ack_mode = async` (the default) a REST send returns

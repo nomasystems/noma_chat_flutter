@@ -191,6 +191,13 @@ class RoomMapper {
       pinned: jsonBoolOr(json['pinned'], false),
       hidden: jsonBoolOr(json['hidden'], false),
       selfMuted: jsonBoolOr(json['selfMuted'], false),
+      // Single source for the write policy, in the listing exactly as in the
+      // detail: the room's `config`. Never `custom`, which carries host data.
+      writePolicy: RoomWritePolicyWire.fromWire(
+        (json['config'] is Map<String, dynamic>
+            ? json['config'] as Map<String, dynamic>
+            : const <String, dynamic>{})['writePolicy'],
+      ),
     );
   }
 

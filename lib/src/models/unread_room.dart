@@ -1,6 +1,7 @@
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 import 'message.dart';
+import 'room.dart' show RoomWritePolicy;
 import 'room_user.dart';
 
 part 'unread_room.freezed.dart';
@@ -66,5 +67,13 @@ abstract class UnreadRoom with _$UnreadRoom {
     @Default(false) bool pinned,
     @Default(false) bool hidden,
     @Default(false) bool selfMuted,
+
+    /// Who may post into this room, as the listing projection reports it in
+    /// `config.writePolicy`. Mirrors the room detail's own policy so the
+    /// list can hide the composer of an owner-only room without waiting for
+    /// a per-room detail fetch, and keeps it across a cold start from cache.
+    /// A backend that does not emit the field leaves it at
+    /// [RoomWritePolicy.members].
+    @Default(RoomWritePolicy.members) RoomWritePolicy writePolicy,
   }) = _UnreadRoom;
 }

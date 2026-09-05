@@ -195,6 +195,8 @@ Map<String, dynamic> roomDetailToMap(RoomDetail detail) => {
   'memberCount': detail.memberCount,
   'userRole': detail.userRole.name,
   'allowInvitations': detail.config.allowInvitations,
+  if (detail.config.writePolicy != RoomWritePolicy.members)
+    'writePolicy': detail.config.writePolicy.wireValue,
   'muted': detail.muted,
   'pinned': detail.pinned,
   if (detail.hidden) 'hidden': true,
@@ -229,6 +231,7 @@ RoomDetail roomDetailFromMap(
     userRole: _parseRoomRole(map['userRole'] as String?, onWarning: onWarning),
     config: RoomConfig(
       allowInvitations: map['allowInvitations'] as bool? ?? false,
+      writePolicy: RoomWritePolicyWire.fromWire(map['writePolicy']),
     ),
     muted: map['muted'] as bool? ?? false,
     pinned: map['pinned'] as bool? ?? false,
@@ -301,6 +304,8 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.pinned) 'pinned': unread.pinned,
   if (unread.hidden) 'hidden': true,
   if (unread.selfMuted) 'selfMuted': true,
+  if (unread.writePolicy != RoomWritePolicy.members)
+    'writePolicy': unread.writePolicy.wireValue,
 };
 
 UnreadRoom unreadRoomFromMap(
@@ -354,6 +359,7 @@ UnreadRoom unreadRoomFromMap(
   pinned: map['pinned'] as bool? ?? false,
   hidden: map['hidden'] as bool? ?? false,
   selfMuted: map['selfMuted'] as bool? ?? false,
+  writePolicy: RoomWritePolicyWire.fromWire(map['writePolicy']),
 );
 
 Map<String, dynamic> invitedRoomToMap(InvitedRoom invited) => {

@@ -1259,6 +1259,10 @@ class _NomaChatViewState extends State<NomaChatView>
           readOnlyLabel: (room?.selfMuted ?? false)
               ? _theme.l10nOf(context).mutedByAdmin
               : null,
+          // Which of the three closures applies, so a host's
+          // `readOnlyNoticeBuilder` can word its own notice instead of
+          // receiving the announcement fallback for every case.
+          readOnlyReason: room?.readOnlyReason,
           isGroup: room?.isGroup ?? false,
           // Live: `onBlockedUsersChanged` already rebuilds this view, so a
           // block performed from inside the room prunes its history on the

@@ -805,6 +805,10 @@ class RoomEnricher {
         muted: detail?.muted ?? false,
         muteUntil: detail?.muteUntil ?? unread.muteUntil,
         selfMuted: detail?.selfMuted ?? false,
+        // The detail is authoritative when the fetch landed; the listing
+        // projection carries the same field, so a row whose detail is still
+        // missing already knows whether the room refuses messages.
+        writePolicy: detail?.config.writePolicy ?? unread.writePolicy,
         pinned: detail?.pinned ?? false,
         hidden: detail?.hidden ?? false,
         isGroup:
@@ -851,6 +855,7 @@ class RoomEnricher {
         name: detail?.name,
         avatarUrl: detail?.avatarUrl,
         isGroup: detail?.type == RoomType.group,
+        writePolicy: detail?.config.writePolicy ?? RoomWritePolicy.members,
         custom: {
           ...?detail?.custom,
           'invited': true,
@@ -1369,6 +1374,7 @@ class RoomEnricher {
       isGroup: !isOneToOne,
       isAnnouncement: detail.type == RoomType.announcement,
       selfMuted: detail.selfMuted,
+      writePolicy: detail.config.writePolicy,
       userRole: detail.userRole,
       memberCount: detail.memberCount,
       custom: detail.custom,
@@ -1485,6 +1491,11 @@ class RoomEnricher {
             // right after a 403-muted send — flips the composer to the
             // read-only banner without reopening the chat.
             selfMuted: detail.selfMuted,
+            // Same reason as `selfMuted`: an owner closing the room to
+            // everyone but themselves arrives as a `RoomUpdatedEvent`, and
+            // the open chat has to swap its composer for the notice without
+            // being reopened.
+            writePolicy: detail.config.writePolicy,
             pinned: detail.pinned,
             hidden: detail.hidden,
             isGroup: !isOneToOne,
@@ -1752,6 +1763,10 @@ class RoomEnricher {
       lastMessageReactionTargetType: unread?.lastMessageReactionTargetType,
       muted: unread?.muted ?? false,
       muteUntil: unread?.muteUntil,
+      writePolicy:
+          detail?.config.writePolicy ??
+          unread?.writePolicy ??
+          RoomWritePolicy.members,
       pinned: unread?.pinned ?? false,
       hidden: unread?.hidden ?? false,
       // The defining flag — composer is replaced by the
