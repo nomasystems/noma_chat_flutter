@@ -283,7 +283,9 @@ class AttachmentPickers {
 
   /// Runs [shrinker] over [pick] and returns the payload that will
   /// actually be uploaded: the re-encoded one when the engine produced it,
-  /// [pick] itself when it declined.
+  /// [pick] itself when it declined or when [AttachmentPolicy.shrinkEnabled]
+  /// is `false` — in which case [shrinker] is never even called, so a host
+  /// that opts out gets exactly the bytes it picked, untouched.
   ///
   /// Callers validate the result of this step, never [pick]: measuring the
   /// size cap on bytes the shrinker is about to replace rejects photos that
@@ -294,6 +296,7 @@ class AttachmentPickers {
     required AttachmentPolicy policy,
     required AttachmentShrinker shrinker,
   }) async {
+    if (!policy.shrinkEnabled) return pick;
     final shrunk = await shrinker.fit(
       pick.bytes,
       mimeType: pick.mimeType,
