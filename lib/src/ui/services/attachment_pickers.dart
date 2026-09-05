@@ -216,6 +216,11 @@ class AttachmentPickers {
   /// mappings). Either way [policy] is evaluated post-pick to catch mime-
   /// type, size and dangerous-extension violations. Returns null on
   /// cancellation or rejection.
+  ///
+  /// The deny-list is weighed on the name the user picked, while the size
+  /// cap is weighed on the payload that will actually be uploaded: an
+  /// [AttachmentShrinker] renames what it re-encodes, and a rename must not
+  /// be able to walk a denied extension past the check.
   static Future<AttachmentPickResult?> pickFile({
     List<String> allowedExtensions = const [],
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
@@ -257,7 +262,7 @@ class AttachmentPickers {
       final violation = policy.validate(
         mimeType: pick.mimeType,
         sizeBytes: pick.size,
-        fileName: pick.fileName,
+        fileName: file.name,
       );
       if (violation != null) {
         logger?.call('warn', 'pickFile rejected: $violation');
