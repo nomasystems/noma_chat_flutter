@@ -98,6 +98,41 @@ void main() {
     });
   });
 
+  group('GroupSetupPage — names', () {
+    const namelessId = '9f2a1c44-0e7b-4d31-9a55-6b0f6f0a1c22';
+    const nameless = ChatUser(id: namelessId);
+
+    testWidgets('a member nobody can name paints no id', (tester) async {
+      await tester.pumpWidget(host(initialMembers: const [nameless]));
+      await tester.pumpAndSettle();
+
+      expect(find.text(namelessId), findsNothing);
+      expect(find.text('${l10n.groupMembers} (1)'), findsOneWidget);
+    });
+
+    testWidgets('a member the cache can name reads that name', (tester) async {
+      adapter.cacheUsers(const [
+        ChatUser(id: namelessId, displayName: 'Alice'),
+      ]);
+
+      await tester.pumpWidget(host(initialMembers: const [nameless]));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text(namelessId), findsNothing);
+    });
+
+    testWidgets('a nameless suggestion paints no id either', (tester) async {
+      await client.contacts.add(namelessId);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      expect(find.text(namelessId), findsNothing);
+      expect(find.byIcon(Icons.add), findsOneWidget);
+    });
+  });
+
   group('GroupSetupPage — create gating + submission', () {
     testWidgets('create is disabled with no name and no members', (
       tester,

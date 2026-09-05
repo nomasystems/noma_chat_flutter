@@ -56,4 +56,34 @@ void main() {
 
     expect(find.text('Alice'), findsOneWidget);
   });
+
+  testWidgets('the member list row is blank, not a uuid', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        const MemberListView(
+          members: [MemberEntry(user: nameless, role: RoomRole.member)],
+        ),
+      ),
+    );
+
+    expect(find.text(nameless.id), findsNothing);
+    expect(find.byType(ListTile), findsOneWidget);
+  });
+
+  testWidgets('and a named member still reads its name', (tester) async {
+    await tester.pumpWidget(
+      wrap(
+        const MemberListView(
+          members: [
+            MemberEntry(
+              user: ChatUser(id: 'u2', displayName: 'Alice'),
+              role: RoomRole.member,
+            ),
+          ],
+        ),
+      ),
+    );
+
+    expect(find.text('Alice'), findsOneWidget);
+  });
 }
