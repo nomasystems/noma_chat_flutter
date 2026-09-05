@@ -3307,10 +3307,12 @@ The engine is pluggable through the abstract `AttachmentShrinker` interface
 - `NoAttachmentShrinker` — sends exactly the bytes picked; pass it as
   `shrinker: const NoAttachmentShrinker()` to a picker, or
   `AttachmentPolicy(shrinkEnabled: false)`, to opt out.
-- `ChatUiAdapter(attachmentShrinker: ...)` sets the engine used by
-  `NomaChatView`'s own capture path; it defaults to `NoAttachmentShrinker`
-  there (the pickers' `DefaultAttachmentShrinker` default is a picker-level
-  default, not the adapter's).
+- `ChatUiAdapter(attachmentShrinker: ...)` sets the engine `NomaChatView`
+  hands to every attachment path it drives itself (camera, gallery, multiple
+  media, generic file). It defaults to `DefaultAttachmentShrinker` too, so a
+  host that mounts `NomaChatView` and never touches this parameter still
+  reduces outgoing images; pass `const NoAttachmentShrinker()` to opt the
+  whole view out.
 - A custom engine that wants `AttachmentPolicy.shrinkSteps` to drive its own
   ladder implements `PolicyConfigurableShrinker.withShrinkSteps(steps)`; one
   that does not implement it keeps its own fixed presets untouched by the
@@ -3359,8 +3361,10 @@ side: it is set server-side, never here. An absent field, a value from a
 newer backend, or the wrong type all resolve to `members` (fails open, so a
 spelling mismatch never locks a room nobody meant to close). `RoomListItem`
 and `RoomDetail` both expose `isReadOnly` (`true` for any of the three
-reasons) and `readOnlyReason` (the most specific one that applies, or `null`
-when the room is writable).
+reasons); `readOnlyReason` — the most specific cause that applies, or `null`
+when the room is writable — lives on `RoomListItem` only, and is what feeds
+`ChatViewBehaviors.readOnlyReason` and therefore a host's
+`readOnlyNoticeBuilder`.
 
 ### ParticipantNameResolver & recordRoomRoster — searching the room list by member
 

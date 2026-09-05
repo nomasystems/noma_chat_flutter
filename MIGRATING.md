@@ -67,11 +67,13 @@ for what it is for.
 `RoomDetail.isReadOnly` / `RoomListItem.isReadOnly` gain a third cause,
 combined with `||` alongside the two that already existed (a non-owner in an
 announcement channel, a moderation mute): `RoomConfig.writePolicy ==
-RoomWritePolicy.ownerOnly && userRole != owner`. No backend sends this field
-yet, so the practical effect today is nil — but a room whose backend starts
-setting `config.writePolicy: "owner_only"` will close its composer for every
-member but the owner from the moment this version is running, with no
-further app change needed. See
+RoomWritePolicy.ownerOnly && userRole != owner`. The backend already carries
+the field — it is serialised in a room's `config` block and validated on the
+room lifecycle endpoints — so the effect on any given room depends only on
+whether that room has the policy set: a room left at the default `members`
+behaves exactly as before, and one whose config says `"owner_only"` closes
+its composer for every member but the owner from the moment this version is
+running, with no further app change needed. See
 [Developer Guide — ReadOnlyNoticeBuilder](./doc/DEVELOPER_GUIDE.md#readonlynoticebuilder--why-a-room-is-read-only).
 
 ### The room list's text filter matches strictly more rooms than before
@@ -106,9 +108,17 @@ new `shrinker:` parameter to `DefaultAttachmentShrinker` instead of sending
 untouched bytes: an oversized `image/*` pick is resized and re-encoded as
 JPEG before it reaches your send call. A non-image is never touched. Opt
 out per call with `shrinker: const NoAttachmentShrinker()`, or per policy
-with `AttachmentPolicy(shrinkEnabled: false)`. `ChatUiAdapter
-(attachmentShrinker: ...)` — the engine used by `NomaChatView`'s own capture
-path — keeps its own separate default of `NoAttachmentShrinker`, unchanged.
+with `AttachmentPolicy(shrinkEnabled: false)`.
+
+`NomaChatView` changes with them: it passes
+`ChatUiAdapter(attachmentShrinker: ...)` to all four attachment paths it
+drives itself (camera, gallery, multiple media, generic file), and that
+parameter now defaults to `DefaultAttachmentShrinker`. A host that mounts
+the view and never touched this parameter therefore starts sending reduced
+images — if you relied on the bytes reaching your backend untouched (an
+upstream hash, an EXIF-dependent pipeline, an original-quality archive),
+pass `ChatUiAdapter(attachmentShrinker: const NoAttachmentShrinker())` to
+keep the previous behaviour.
 See [Developer Guide — attachmentShrinker](./doc/DEVELOPER_GUIDE.md#attachmentshrinker--outgoing-image-reduction).
 
 `AttachmentPolicy.deniedExtensions` is now also checked on the image/video
