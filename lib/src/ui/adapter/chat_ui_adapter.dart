@@ -148,10 +148,11 @@ class ShrunkAttachment {
 
 /// Reduces an outgoing image until it fits the size cap that applies to it.
 ///
-/// Every path that uploads a picked or captured image runs its bytes
-/// through this hook after the metadata scrub and before the send, so a
-/// full-resolution camera shot leaves the device as a few hundred KB
-/// instead of a few MB.
+/// Every path that sends a picked or captured image *to a room* runs its
+/// bytes through this hook after the metadata scrub and before the send, so
+/// a full-resolution camera shot leaves the device as a few hundred KB
+/// instead of a few MB. An avatar does not: its crop step re-encodes what
+/// it returns, and the result is a thumbnail either way.
 ///
 /// The contract:
 ///
