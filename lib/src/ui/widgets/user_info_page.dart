@@ -120,9 +120,12 @@ class _UserInfoPageState extends State<UserInfoPage> {
     if (user == null) {
       return const SizedBox.shrink();
     }
-    final name = user.displayName?.trim().isNotEmpty == true
-        ? user.displayName!.trim()
-        : user.id;
+    // The host directory answers before the chat profile does, and an
+    // id nobody can name leaves the header blank instead of printing it.
+    final resolved = widget.adapter.displayNameFor(widget.userId).trim();
+    final name = resolved.isNotEmpty
+        ? resolved
+        : (user.displayName?.trim() ?? '');
     final bio = user.bio?.trim() ?? '';
     return ListView(
       padding: const EdgeInsets.symmetric(vertical: 24),

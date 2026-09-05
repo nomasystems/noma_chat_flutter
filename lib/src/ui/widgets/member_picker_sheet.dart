@@ -18,7 +18,10 @@ import 'user_avatar.dart';
 ///   context: context,
 ///   client: chat.client,
 ///   excludeIds: currentMemberIds,
-///   displayNameResolver: (id) => chat.adapter.findCachedUser(id)?.displayName,
+///   displayNameResolver: (id) {
+///     final name = chat.adapter.displayNameFor(id);
+///     return name.isEmpty ? null : name;
+///   },
 ///   avatarUrlResolver: (id) => chat.adapter.findCachedUser(id)?.avatarUrl,
 ///   onConfirm: (selected) =>
 ///       chat.adapter.rooms.addMembers(roomId, selected.toList()),
@@ -251,10 +254,12 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
         // from raw id → friendly name without another host round-trip.
         final resolvedName =
             widget.displayNameResolver?.call(userId) ?? _resolvedNames[userId];
+        // Nobody could name this contact: the row stays untitled rather
+        // than offering the user a UUID to pick from.
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()
-            : userId;
+            : '';
         final avatarUrl =
             widget.avatarUrlResolver?.call(userId) ?? _resolvedAvatars[userId];
         final selected = _selected.contains(userId);

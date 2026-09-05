@@ -690,9 +690,10 @@ class MessageListState extends State<MessageList> {
     if (resolver != null) {
       final resolved = resolver(userId)?.trim();
       // Honour the resolver only when it returns something other than the
-      // raw id; the SDK's `displayNameFor` falls back to the id when no
-      // name is known, but here we want a true "no name" signal so the
-      // bubble suppresses the label instead of repeating the UUID.
+      // raw id. `ChatUiAdapter.displayNameFor` answers with an empty string
+      // for an id nobody can name, and a host resolver is free to hand back
+      // the id itself; both mean "no name", and the bubble suppresses the
+      // label rather than repeating the UUID.
       if (resolved != null && resolved.isNotEmpty && resolved != userId) {
         return resolved;
       }

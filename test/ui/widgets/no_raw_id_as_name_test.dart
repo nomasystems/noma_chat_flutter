@@ -1,89 +1,262 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 
-/// A user id is an implementation detail. Wherever the SDK has no name for
-/// somebody it paints nothing and lets the host put its own placeholder
-/// there — it never falls back to spelling the id out.
-void main() {
-  const nameless = ChatUser(id: '9f2a1c44-0e7b-4d31-9a55-6b0f6f0a1c22');
+/// One rule across every surface that paints a person: an id is not a name.
+/// When nobody — host directory, chat profile, host resolver — can name an
+/// id, the SDK leaves the slot empty and lets the host put its own
+/// placeholder there. It never spells out the UUID.
+class _FakeBlockedContacts implements ChatContactsApi {
+  _FakeBlockedContacts(this._blocked);
+  final List<String> _blocked;
 
-  Widget wrap(Widget child) => MaterialApp(
-    home: Scaffold(body: Center(child: child)),
+  @override
+  Future<ChatResult<ChatPaginatedResponse<String>>> listBlocked({
+    ChatPaginationParams? pagination,
+  }) async => ChatSuccess(
+    ChatPaginatedResponse(items: List<String>.of(_blocked), hasMore: false),
   );
 
-  testWidgets('the mention overlay row is blank, not a uuid', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        MentionOverlay(query: '', users: const [nameless], onSelect: (_) {}),
-      ),
-    );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
-    expect(find.text(nameless.id), findsNothing);
-    expect(find.byType(ListTile), findsOneWidget);
-  });
+class _BlockedOnlyClient implements ChatClient {
+  _BlockedOnlyClient(this.contacts);
 
-  testWidgets('and a named one still reads its name', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        MentionOverlay(
-          query: '',
-          users: const [ChatUser(id: 'u2', displayName: 'Alice')],
-          onSelect: (_) {},
+  @override
+  final ChatContactsApi contacts;
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+void main() {
+  const me = ChatUser(id: 'me', displayName: 'Me');
+  const nameless = 'a5f3c9d1-0000-4000-8000-000000000001';
+
+  group('GroupMembersView', () {
+    late MockChatClient client;
+    late ChatUiAdapter adapter;
+
+    setUp(() {
+      client = MockChatClient(currentUserId: 'me');
+      client.seedRoom(
+        const ChatRoom(id: 'r1', name: 'Team', members: ['me', nameless]),
+      );
+      adapter = ChatUiAdapter(client: client, currentUser: me);
+      adapter.start();
+    });
+
+    tearDown(() async {
+      await adapter.dispose();
+      await client.dispose();
+    });
+
+    Widget wrap({String? Function(String)? names}) => MaterialApp(
+      home: Scaffold(
+        body: GroupMembersView(
+          adapter: adapter,
+          roomId: 'r1',
+          currentUserRole: RoomRole.member,
+          displayNameResolver: names,
         ),
       ),
     );
 
-    expect(find.text('Alice'), findsOneWidget);
+    testWidgets('a member nobody can name is never listed by id', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      expect(find.text(nameless), findsNothing);
+    });
+
+    testWidgets('a resolved name is still shown', (tester) async {
+      await tester.pumpWidget(
+        wrap(names: (id) => id == nameless ? 'Alice' : null),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text(nameless), findsNothing);
+    });
   });
 
-  testWidgets('the profile sheet headline is blank, not a uuid', (
-    tester,
-  ) async {
-    await tester.pumpWidget(wrap(const UserProfileView(user: nameless)));
+  group('BlockedUsersView', () {
+    testWidgets('a blocked id nobody can name is never listed by id', (
+      tester,
+    ) async {
+      final client = _BlockedOnlyClient(_FakeBlockedContacts([nameless]));
 
-    expect(find.text(nameless.id), findsNothing);
-  });
-
-  testWidgets('and a named profile still reads its name', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        const UserProfileView(
-          user: ChatUser(id: 'u2', displayName: 'Alice'),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: BlockedUsersView(client: client)),
         ),
-      ),
-    );
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Alice'), findsOneWidget);
-  });
+      expect(find.text(nameless), findsNothing);
+    });
 
-  testWidgets('the member list row is blank, not a uuid', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        const MemberListView(
-          members: [MemberEntry(user: nameless, role: RoomRole.member)],
-        ),
-      ),
-    );
+    testWidgets('a resolved name is still shown', (tester) async {
+      final client = _BlockedOnlyClient(_FakeBlockedContacts([nameless]));
 
-    expect(find.text(nameless.id), findsNothing);
-    expect(find.byType(ListTile), findsOneWidget);
-  });
-
-  testWidgets('and a named member still reads its name', (tester) async {
-    await tester.pumpWidget(
-      wrap(
-        const MemberListView(
-          members: [
-            MemberEntry(
-              user: ChatUser(id: 'u2', displayName: 'Alice'),
-              role: RoomRole.member,
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BlockedUsersView(
+              client: client,
+              displayNameResolver: (id) => 'Bob',
             ),
-          ],
+          ),
         ),
-      ),
-    );
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Alice'), findsOneWidget);
+      expect(find.text('Bob'), findsOneWidget);
+      expect(find.text(nameless), findsNothing);
+    });
+  });
+
+  group('MessageInput mentions', () {
+    testWidgets('picking a nameless candidate writes no id into the message', (
+      tester,
+    ) async {
+      final controller = ChatController(
+        initialMessages: const [],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: nameless)],
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SafeArea(
+              child: MessageInput(
+                controller: controller,
+                onSendMessageRequest: (_) => true,
+                enableMentions: true,
+                mentionUsers: const [ChatUser(id: nameless)],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final field = find.byType(TextField);
+      await tester.enterText(field, '@');
+      await tester.pump();
+      expect(find.byType(MentionOverlay), findsOneWidget);
+
+      await tester.tap(find.byType(ListTile).first);
+      await tester.pump();
+
+      final text = tester.widget<TextField>(field).controller!.text;
+      expect(text, '@');
+      expect(text.contains(nameless), isFalse);
+      expect(find.byType(MentionOverlay), findsNothing);
+    });
+
+    testWidgets('a named candidate is still inserted', (tester) async {
+      const alice = ChatUser(id: 'u1', displayName: 'Alice');
+      final controller = ChatController(
+        initialMessages: const [],
+        currentUser: me,
+        otherUsers: const [alice],
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SafeArea(
+              child: MessageInput(
+                controller: controller,
+                onSendMessageRequest: (_) => true,
+                enableMentions: true,
+                mentionUsers: const [alice],
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final field = find.byType(TextField);
+      await tester.enterText(field, '@a');
+      await tester.pump();
+      await tester.tap(find.text('Alice'));
+      await tester.pump();
+
+      expect(tester.widget<TextField>(field).controller!.text, '@Alice ');
+    });
+
+    testWidgets('the composer resolver names a candidate its profile cannot', (
+      tester,
+    ) async {
+      final controller = ChatController(
+        initialMessages: const [],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: nameless)],
+      );
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SafeArea(
+              child: MessageInput(
+                controller: controller,
+                onSendMessageRequest: (_) => true,
+                enableMentions: true,
+                mentionUsers: const [ChatUser(id: nameless)],
+                displayNameResolver: (id) => id == nameless ? 'Carol' : null,
+              ),
+            ),
+          ),
+        ),
+      );
+
+      final field = find.byType(TextField);
+      await tester.enterText(field, '@');
+      await tester.pump();
+      await tester.tap(find.byType(ListTile).first);
+      await tester.pump();
+
+      expect(tester.widget<TextField>(field).controller!.text, '@Carol ');
+    });
+  });
+
+  group('MessageInfoSheet', () {
+    testWidgets('a receipt row with no resolver carries no id', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: MessageInfoSheet(
+              message: ChatMessage(
+                id: 'm1',
+                from: 'me',
+                timestamp: DateTime(2026, 1, 1),
+                text: 'hi',
+              ),
+              currentUserId: 'me',
+              receipts: [
+                ReadReceipt(
+                  userId: nameless,
+                  lastReadAt: DateTime.utc(2026, 1, 1, 10),
+                  lastDeliveredAt: DateTime.utc(2026, 1, 1, 10),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(nameless), findsNothing);
+    });
   });
 }

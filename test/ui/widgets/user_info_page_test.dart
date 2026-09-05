@@ -62,7 +62,7 @@ void main() {
       expect(find.text('Not found'), findsOneWidget);
     });
 
-    testWidgets('falls back to the raw id when display name is empty', (
+    testWidgets('leaves the name blank when nobody can name the peer', (
       tester,
     ) async {
       client.seedUser(const ChatUser(id: 'u3', displayName: ''));
@@ -70,7 +70,7 @@ void main() {
       await tester.pumpWidget(wrap('u3'));
       await tester.pumpAndSettle();
 
-      expect(find.text('u3'), findsOneWidget);
+      expect(find.text('u3'), findsNothing);
     });
   });
 

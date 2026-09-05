@@ -97,6 +97,14 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     super.dispose();
   }
 
+  /// Name for [id] as every roster this page opens should see it: the
+  /// host's own directory first, the chat profile after, and `null` — not
+  /// the id — when neither can name the person.
+  String? _nameOrNull(String id) {
+    final name = widget.adapter.displayNameFor(id).trim();
+    return name.isEmpty ? null : name;
+  }
+
   Future<void> _loadDetail() async {
     setState(() {
       _loading = true;
@@ -168,8 +176,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       client: widget.adapter.client,
       excludeIds: excludeIds,
       theme: widget.theme,
-      displayNameResolver: (id) =>
-          widget.adapter.findCachedUser(id)?.displayName,
+      displayNameResolver: (id) => _nameOrNull(id),
       avatarUrlResolver: (id) => widget.adapter.findCachedUser(id)?.avatarUrl,
       onConfirm: (selected) async {
         if (selected.isEmpty) return;
@@ -318,8 +325,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
                   currentUserRole: _detail!.userRole,
                   theme: widget.theme,
                   embedded: true,
-                  displayNameResolver: (id) =>
-                      widget.adapter.findCachedUser(id)?.displayName,
+                  displayNameResolver: _nameOrNull,
                   avatarUrlResolver: (id) =>
                       widget.adapter.findCachedUser(id)?.avatarUrl,
                   onMemberRemoved: (_) => _loadDetail(),

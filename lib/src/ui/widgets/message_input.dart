@@ -326,6 +326,18 @@ class _MessageInputState extends State<MessageInput> {
     });
   }
 
+  /// Name to write into the composer for a picked mention, or `null` when
+  /// neither the user's own profile nor [displayNameResolver] can name them.
+  String? _mentionNameFor(ChatUser user) {
+    final own = user.displayName?.trim();
+    if (own != null && own.isNotEmpty) return own;
+    final resolved = widget.displayNameResolver?.call(user.id)?.trim();
+    if (resolved != null && resolved.isNotEmpty && resolved != user.id) {
+      return resolved;
+    }
+    return null;
+  }
+
   void _selectMention(ChatUser user) {
     final startIndex = _mentionStartIndex;
     if (startIndex == null) return;
@@ -333,9 +345,15 @@ class _MessageInputState extends State<MessageInput> {
     final selection = _textController.selection;
     if (!selection.isValid) return;
     final caret = selection.start;
-    final name = user.displayName?.trim().isNotEmpty == true
-        ? user.displayName!.trim()
-        : user.id;
+    final name = _mentionNameFor(user);
+    // An id is not a name, and a message is the worst place to learn that:
+    // `@3f9c-…` would be sent, stored and read by everyone. With nobody
+    // able to name the id the overlay simply closes and what the user typed
+    // stays as typed.
+    if (name == null) {
+      _setMention(null, null);
+      return;
+    }
     final replacement = '@$name ';
     final newText = text.replaceRange(startIndex, caret, replacement);
     final newCaret = startIndex + replacement.length;

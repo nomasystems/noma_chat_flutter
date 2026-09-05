@@ -56,9 +56,10 @@ class GroupMembersView extends StatefulWidget {
   final RoomRole currentUserRole;
   final ChatTheme theme;
 
-  /// Resolver from userId → display name. Return `null` to fall back to
-  /// the raw userId rendering. Typically wired to
-  /// `adapter.findCachedUser(id)?.displayName`.
+  /// Resolver from userId → display name. Return `null` for an id you
+  /// cannot name: the row then renders without a title rather than
+  /// spelling out the id. Typically wired to `adapter.displayNameFor(id)`,
+  /// mapping its empty answer to `null`.
   final String? Function(String userId)? displayNameResolver;
 
   /// Resolver from userId → avatar URL.
@@ -505,10 +506,12 @@ class _GroupMembersViewState extends State<GroupMembersView>
         }
         final m = rows[index];
         final resolvedName = widget.displayNameResolver?.call(m.userId);
+        // An id is not a name. A row nobody can name renders blank and
+        // fills in the moment the resolver learns the name.
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()
-            : m.userId;
+            : '';
         final avatarUrl = widget.avatarUrlResolver?.call(m.userId);
         final badge = _badgeFor(m.role);
         final isSelf = m.userId == currentUserId;

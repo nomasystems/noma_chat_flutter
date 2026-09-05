@@ -81,9 +81,9 @@ class MediaGalleryPage extends StatefulWidget {
 
   /// Optional resolver from `senderId` → display name. Used by the Docs
   /// and Links tabs to render the sender as "Alice" instead of a raw
-  /// UUID. Typically wired to `ChatUiAdapter.displayNameFor`. When
-  /// `null` (or when the resolver returns the same id back) the
-  /// sender chip is omitted from the row.
+  /// UUID. Typically wired to `ChatUiAdapter.displayNameFor`, which answers
+  /// with an empty string for an id it cannot name. When `null`, empty, or
+  /// the id itself, the sender chip is omitted from the row.
   final String? Function(String userId)? senderNameResolver;
 
   @override
