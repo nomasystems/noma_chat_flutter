@@ -623,6 +623,34 @@ void main() {
       },
       variant: TargetPlatformVariant.only(TargetPlatform.android),
     );
+
+    testWidgets(
+      'a clip whose extension is denied is refused like any other pick',
+      (tester) async {
+        await pumpRoom(
+          tester,
+          policy: const AttachmentPolicy(
+            maxBytes: 1024 * 1024,
+            deniedExtensions: {'mp4'},
+          ),
+          shrinker: _TruncatingShrinker(),
+        );
+
+        await record(tester);
+        await confirm(tester);
+
+        expect(client.attachments.uploadCount, 0);
+        expect(
+          find.text(ChatUiLocalizations.en.attachmentTypeNotAllowed),
+          findsWidgets,
+          reason:
+              'a camera clip carries a name, so the deny list judges it by '
+              'the same rule as a picked file — and on the length it is '
+              'read from, before the recording is pulled into memory',
+        );
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
   });
 
   group('the plug & play entry point', () {

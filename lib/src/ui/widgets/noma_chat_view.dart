@@ -1101,6 +1101,7 @@ class _NomaChatViewState extends State<NomaChatView>
       final violation = policy.validate(
         mimeType: shot.mimeType,
         sizeBytes: onDisk,
+        fileName: shot.fileName,
       );
       if (violation != null) {
         _reportAttachmentRejected(
