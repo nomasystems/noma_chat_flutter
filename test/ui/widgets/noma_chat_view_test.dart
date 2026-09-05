@@ -1499,7 +1499,7 @@ void main() {
       expect(fetched.displayName, 'Seven');
     });
 
-    testWidgets('default userFetcher falls back to the id when unknown', (
+    testWidgets('default userFetcher never falls back to the id', (
       tester,
     ) async {
       adapter.roomListController.addRoom(
@@ -1518,7 +1518,12 @@ void main() {
       await tester.pump();
 
       final fetched = await chatViewOf(tester).builders.userFetcher!('nobody');
-      expect(fetched.displayName, 'nobody');
+      expect(fetched.id, 'nobody');
+      expect(
+        fetched.displayName,
+        isEmpty,
+        reason: 'an id is not a name; the host paints its own placeholder',
+      );
     });
 
     testWidgets('pin context-menu action pins via the adapter', (tester) async {

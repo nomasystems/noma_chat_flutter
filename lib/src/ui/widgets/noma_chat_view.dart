@@ -726,7 +726,7 @@ class _NomaChatViewState extends State<NomaChatView>
     if (cached != null) {
       return ReactionUser(
         id: userId,
-        displayName: cached.displayName ?? userId,
+        displayName: adapter.displayNameFor(userId),
         avatarUrl: cached.avatarUrl,
       );
     }
@@ -736,11 +736,14 @@ class _NomaChatViewState extends State<NomaChatView>
       adapter.cacheUsers([user]);
       return ReactionUser(
         id: user.id,
-        displayName: user.displayName ?? user.id,
+        displayName: adapter.displayNameFor(user.id),
         avatarUrl: user.avatarUrl,
       );
     }
-    return ReactionUser(id: userId, displayName: userId);
+    return ReactionUser(
+      id: userId,
+      displayName: adapter.displayNameFor(userId),
+    );
   }
 
   Future<void> _defaultReport(ChatMessage message) async {
@@ -796,7 +799,7 @@ class _NomaChatViewState extends State<NomaChatView>
           user.displayNameResolver ??
           (id) {
             final resolved = adapter.displayNameFor(id);
-            return resolved == id ? null : resolved;
+            return resolved.isEmpty ? null : resolved;
           },
       avatarUrlResolver:
           user.avatarUrlResolver ??

@@ -55,7 +55,7 @@ class MentionOverlay extends StatelessWidget {
                 theme: theme,
               ),
               title: Text(
-                user.displayName ?? user.id,
+                user.displayName ?? '',
                 style:
                     theme.roomList.nameStyle ??
                     const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),

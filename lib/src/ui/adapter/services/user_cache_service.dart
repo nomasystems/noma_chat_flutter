@@ -32,27 +32,55 @@ class UserCacheService {
   final HostUserDirectory directory;
 
   final Map<String, ChatUser> _cache = {};
+
+  /// Host identities held for ids whose chat profile has not landed yet.
+  ///
+  /// Kept apart from [_cache] on purpose. An entry here is a name and a
+  /// picture and nothing else: the bio, the email, the role and the rest of
+  /// the profile are still missing, so the id is still worth fetching. Were
+  /// it filed in [_cache], the `containsKey` guard in [ensureCached] would
+  /// read it as a finished lookup and the profile would never be asked for
+  /// again — a host that answers while chat is down would leave the user
+  /// permanently half-loaded.
+  final Map<String, ChatUser> _hostOnly = {};
+
   final Set<String> _pendingFetches = {};
 
   /// Returns the cached [ChatUser] for [userId], or `null` when not
-  /// yet hydrated.
-  ChatUser? find(String userId) => _cache[userId];
+  /// yet hydrated. A host identity waiting on its chat profile counts:
+  /// there is a name to paint, which is what callers of this ask for.
+  ChatUser? find(String userId) => _cache[userId] ?? _hostOnly[userId];
 
   /// Iterable view of every cached user — used by diagnostics and
   /// the rare "list me everyone I've heard of" callsites. Cheap (no
   /// copy).
-  Iterable<ChatUser> get all => _cache.values;
+  Iterable<ChatUser> get all => _cache.values.followedBy(
+    _hostOnly.entries
+        .where((e) => !_cache.containsKey(e.key))
+        .map((e) => e.value),
+  );
 
-  /// `true` when [userId] has an entry in the cache (even one with
+  /// `true` when [userId] has a settled entry in the cache (even one with
   /// `displayName == null`).
+  ///
+  /// A host identity still waiting on its chat profile does **not** count:
+  /// callers use this to decide whether the id is worth fetching, and it
+  /// is — [find] is what answers "is there anything to paint".
   bool contains(String userId) => _cache.containsKey(userId);
 
   /// Inserts or updates [user] in the cache. Returns the previous
   /// entry, or `null` when this is a new id. The caller is expected
   /// to compare the returned value against [user] to decide whether
   /// to fire change notifications.
+  ///
+  /// Handing back the host identity that is still waiting on its chat
+  /// profile does not settle it — the round trip through a caller that
+  /// paints it and feeds it back would otherwise close the door
+  /// [ensureCached] deliberately left open.
   ChatUser? insert(ChatUser user) {
-    final prev = _cache[user.id];
+    final prev = find(user.id);
+    if (_hostOnly[user.id] == user) return prev;
+    _hostOnly.remove(user.id);
     _cache[user.id] = user;
     return prev;
   }
@@ -82,16 +110,17 @@ class UserCacheService {
     try {
       final fromHost = await _resolveFromHost(userId);
       if (_isDisposed()) return null;
-      if (fromHost != null) _cache[userId] = fromHost;
+      if (fromHost != null) _hostOnly[userId] = fromHost;
       final result = await _api.get(userId);
       if (_isDisposed()) return null;
       final profile = result.dataOrNull;
-      if (profile == null) return _cache[userId];
+      if (profile == null) return _hostOnly[userId];
       final merged = _underHostIdentity(profile, fromHost);
+      _hostOnly.remove(merged.id);
       _cache[merged.id] = merged;
       return merged;
     } catch (_) {
-      return _cache[userId];
+      return find(userId);
     } finally {
       _pendingFetches.remove(userId);
     }
@@ -145,12 +174,14 @@ class UserCacheService {
   /// from `signOut` / `dispose`.
   void clear() {
     _cache.clear();
+    _hostOnly.clear();
     _pendingFetches.clear();
     directory.dispose();
   }
 
-  /// Diagnostics — number of cached users.
-  int get length => _cache.length;
+  /// Diagnostics — number of cached users, host identities awaiting their
+  /// chat profile included.
+  int get length => all.length;
 
   /// Diagnostics — number of fetches currently in flight.
   int get pendingFetchCount => _pendingFetches.length;

@@ -158,7 +158,7 @@ class SuggestionBarController extends ChangeNotifier {
             if (u.active == false) continue;
             searchMap[u.id] = SuggestedContact(
               id: u.id,
-              displayName: u.displayName ?? u.id,
+              displayName: u.displayName ?? _adapter.displayNameFor(u.id),
               avatarUrl: u.avatarUrl,
             );
           }
