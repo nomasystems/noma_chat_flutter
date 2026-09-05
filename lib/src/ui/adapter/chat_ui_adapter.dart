@@ -1518,6 +1518,12 @@ class ChatUiAdapter {
   /// hands over its cached rows behind a handshake. That adds local I/O
   /// ahead of the socket; a store that throws is logged and skipped —
   /// an unreadable cache must never stop a connection.
+  ///
+  /// Under [bootstrapCurrentUser] the chat account is settled here too,
+  /// once the socket is up and before the host gets a chance to load its
+  /// rooms: see [ChatProfileController.ensureRegistered]. It never aborts
+  /// the connection — a bootstrap that cannot run is logged, and the
+  /// session carries on with whatever account the server does have.
   Future<void> connect() async {
     _cancelSubscriptions();
     start();
@@ -1529,6 +1535,13 @@ class ChatUiAdapter {
       }
     }
     await client.connect();
+    if (bootstrapCurrentUser) {
+      try {
+        await profile.ensureRegistered();
+      } catch (e) {
+        logger?.call('warn', 'connect: current user bootstrap failed: $e');
+      }
+    }
   }
 
   /// Full realtime resync after a reconnect: refreshes the room list from
