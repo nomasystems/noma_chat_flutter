@@ -793,7 +793,12 @@ void _seedGroupEngineering(MockChatClient client, DateTime Function(int) t) {
       id: 'room-group-engineering',
       name: 'Q4 release',
       audience: RoomAudience.contacts,
-      members: ['demo-user', 'alice', 'bob', 'carol'],
+      // 'dana' is a member with no `client.seedUser` entry of her own —
+      // chat itself has never met her, only the room roster names her.
+      // She exercises `userDirectoryResolver`: the host's own directory
+      // (see `demoUserDirectoryResolver` in chat_session.dart) is the only
+      // place her name and avatar come from.
+      members: ['demo-user', 'alice', 'bob', 'carol', 'dana'],
       avatarUrl: 'asset:assets/avatars/engineering.jpg',
     ),
   );
@@ -972,6 +977,16 @@ void _seedGroupEngineering(MockChatClient client, DateTime Function(int) t) {
       text: 'Tomorrow 10am ✓',
       isEdited: true,
       receipt: ReceiptStatus.read,
+    ),
+  );
+  client.addMessage(
+    'room-group-engineering',
+    ChatMessage(
+      id: 'eng-12',
+      from: 'dana',
+      timestamp: t(10),
+      text: "Pulled in for the release crunch — I'll take the migration "
+          'scripts.',
     ),
   );
 }

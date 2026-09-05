@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:noma_chat/noma_chat.dart';
 
@@ -225,6 +228,90 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
     );
   }
 
+  /// Overrides `NomaChatView`'s default `onPickCamera` (which already calls
+  /// `CameraCapturePage.show` internally) so this app's own attachment
+  /// policy and rejection UI apply to a photo taken in-app the same way
+  /// they do to one picked from the gallery ([_pickAndSendGalleryImage]).
+  /// `CameraCaptureSubmission.caption` — written on the capture screen's
+  /// own review step — travels straight through to `sendAttachment`'s
+  /// `caption` parameter.
+  Future<void> _captureAndSendPhoto() async {
+    final theme = ChatTheme.defaults.copyWith(l10n: LocaleProvider.of(context).l10n);
+    final submission = await CameraCapturePage.show(context: context, theme: theme);
+    if (submission == null || !mounted) return;
+    final capture = submission.capture;
+    try {
+      final policy = AttachmentPolicy.whatsappLike;
+      final bytes = await capture.file.readAsBytes();
+      final violation = policy.validate(
+        mimeType: capture.mimeType,
+        sizeBytes: bytes.length,
+        fileName: capture.fileName,
+      );
+      if (violation != null) {
+        if (!mounted) return;
+        final rejection = AttachmentRejection.fromPolicyViolation(
+          violation,
+          fileName: capture.fileName,
+          sizeBytes: bytes.length,
+        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(rejection.message)));
+        return;
+      }
+      await _chat.adapter.messages.sendAttachment(
+        _navKey,
+        bytes: bytes,
+        mimeType: capture.mimeType,
+        fileName: capture.fileName,
+        caption: submission.caption,
+        policy: policy,
+      );
+    } finally {
+      unawaited(_discardCapture(capture));
+    }
+  }
+
+  Future<void> _discardCapture(CameraCaptureResult capture) async {
+    try {
+      await File(capture.file.path).delete();
+    } on Object catch (_) {
+      // Best-effort cleanup; a capture the user chose not to send has
+      // nothing else referencing it either way.
+    }
+  }
+
+  /// `ChatViewBuilders.readOnlyNoticeBuilder`: an icon that matches
+  /// [reason] next to the SDK's own copy, replacing the default plain-text
+  /// strip. Keeps the `chat_read_only_notice` semantics identifier the
+  /// default notice carries, so a driver looking for it still finds it.
+  static Widget? _buildReadOnlyNotice(BuildContext context, ReadOnlyReason reason) {
+    final l10n = LocaleProvider.of(context).l10n;
+    final icon = switch (reason) {
+      ReadOnlyReason.announcement => Icons.campaign_outlined,
+      ReadOnlyReason.selfMuted => Icons.volume_off_outlined,
+      ReadOnlyReason.ownerOnly => Icons.lock_outline,
+    };
+    return Semantics(
+      identifier: 'chat_read_only_notice',
+      child: Container(
+        key: const ValueKey('chat_read_only_notice'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16),
+            const SizedBox(width: 8),
+            Flexible(child: Text(l10n.readOnlyChannel)),
+          ],
+        ),
+      ),
+    );
+  }
+
   Future<void> _refresh() async {
     Future<Object?> swallow(Future<Object?> fut) async {
       try {
@@ -277,12 +364,14 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
       callbacks: ChatViewCallbacks(
         onTapImage: _openImageViewer,
         onPickGallery: _pickAndSendGalleryImage,
+        onPickCamera: _captureAndSendPhoto,
         onContextMenuAction: (message, action) {
           if (action == MessageAction.forward) {
             _openForwardSheet(message);
           }
         },
       ),
+      builders: ChatViewBuilders(readOnlyNoticeBuilder: _buildReadOnlyNotice),
       appBarActions: [
         IconButton(
           icon: const Icon(Icons.refresh),

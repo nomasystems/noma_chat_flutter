@@ -98,6 +98,27 @@ final class LoginUnexpected extends LoginOutcome {
   const LoginUnexpected(this.message);
 }
 
+/// The example's "host directory" — the answer [UserDirectoryResolver]
+/// exists for: a person chat itself has never met.
+///
+/// The mock seeds 'dana' as a member of the engineering group room (see
+/// `mock_data.dart`) without ever calling `client.seedUser` for her, so
+/// `chat.client.users.get('dana')` is a genuine miss. This is the only
+/// place her name comes from — the same shape a host's own contacts
+/// table or user service would answer with in a real app. Every other id
+/// resolves to [HostUser.missing] so the SDK caches that answer and never
+/// asks again, per the resolver's contract.
+final UserDirectoryResolver demoUserDirectoryResolver = _resolveDemoDirectory;
+
+Future<Map<String, HostUser>> _resolveDemoDirectory(Set<String> ids) async {
+  const knownToHost = {
+    'dana': HostUser(id: 'dana', displayName: 'Dana'),
+  };
+  return {
+    for (final id in ids) id: knownToHost[id] ?? HostUser.missing(id),
+  };
+}
+
 /// Builds a [NomaChat] instance from persisted [ExampleSettings].
 ///
 /// CHT mode:
@@ -109,13 +130,19 @@ final class LoginUnexpected extends LoginOutcome {
 /// - 1-step `users.create(displayName, avatarUrl)` — when [pickedAvatar]
 ///   is provided the bytes get uploaded through `adapter.uploadAvatar`
 ///   first so the new user record lands with its profile photo in a
-///   single round-trip.
+///   single round-trip. Kept as an explicit call instead of
+///   `bootstrapCurrentUser` because the latter has no way to attach an
+///   avatar picked before the account exists — see [demoUserDirectoryResolver]
+///   for where a 0.34.0 hook does fit this flow.
 ///
 /// Mock mode:
 /// - Wires [MockChatClient] with the seeded demo data. The [settings]
 ///   parameter's username is ignored — mock uses a fixed `demo-user` so the
 ///   pre-baked rooms (DM with Alice, group "Equipo cervecero", announcements)
 ///   render correctly.
+/// - `bootstrapCurrentUser: true` — `demo-user` already exists in the mock
+///   client, so this exercises the lookup-succeeds branch of
+///   `ChatProfileController.ensureRegistered` on every login.
 Future<LoginOutcome> openChatSession(
   ExampleSettings settings, {
   void Function()? onAuthFailure,
@@ -127,6 +154,8 @@ Future<LoginOutcome> openChatSession(
     final chat = NomaChat.fromClient(
       client: client,
       currentUser: const ChatUser(id: 'demo-user', displayName: 'Me'),
+      userDirectoryResolver: demoUserDirectoryResolver,
+      bootstrapCurrentUser: true,
     );
     await chat.connect();
     await chat.adapter.rooms.load();
@@ -249,6 +278,10 @@ Future<LoginOutcome> openChatSession(
     config: config,
     currentUser: ChatUser(id: userId, displayName: displayName),
     l10n: ChatUiLocalizations.forLanguageCode(settings.languageCode),
+    // Wired for parity with mock mode; a live CHT deployment usually knows
+    // every id it hands back, so this rarely fires here in practice — see
+    // `demoUserDirectoryResolver` for the mock-mode case where it does.
+    userDirectoryResolver: demoUserDirectoryResolver,
     // Cache is always enabled (default in NomaChat.create). The
     // previous `enableCache: settings.enableCache` toggle was retired
     // 2026-05-25 — 99% of apps want the cache and the noisy "off"

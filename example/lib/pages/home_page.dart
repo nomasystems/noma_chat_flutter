@@ -303,6 +303,36 @@ class _HomePageState extends State<HomePage> {
     await _loadSuggestions();
   }
 
+  /// `RoomListView.swipeActionsBuilder`: a quick one-thumb shortcut to the
+  /// same pin/archive toggles the long-press menu already offers
+  /// ([_showRoomOptionsForRow]) — Pin/Unpin from the leading edge, so it
+  /// never competes with iOS's system back-swipe, Archive/Unarchive from
+  /// the trailing edge.
+  List<RoomSwipeAction> _swipeActionsFor(BuildContext context, RoomListItem room) {
+    final chat = ChatProvider.of(context);
+    final l10n = LocaleProvider.of(context).l10n;
+    final roomId = room.id;
+    return [
+      RoomSwipeAction(
+        icon: room.pinned ? Icons.push_pin_outlined : Icons.push_pin,
+        label: room.pinned ? l10n.unpin : l10n.pin,
+        side: RoomSwipeSide.start,
+        identifier: 'chat_room_swipe_pin_$roomId',
+        onPressed: () => room.pinned
+            ? chat.adapter.rooms.unpin(roomId)
+            : chat.adapter.rooms.pin(roomId),
+      ),
+      RoomSwipeAction(
+        icon: room.hidden ? Icons.unarchive_outlined : Icons.archive_outlined,
+        label: room.hidden ? l10n.unarchiveChat : l10n.archiveChat,
+        identifier: 'chat_room_swipe_archive_$roomId',
+        onPressed: () => room.hidden
+            ? chat.adapter.rooms.unarchive(roomId)
+            : chat.adapter.rooms.hide(roomId),
+      ),
+    ];
+  }
+
   /// Long-press handler on a row of the room list. Opens the SAME set of
   /// options as the three-dots overflow inside the chat — view members,
   /// search, media gallery, mute/pin toggles, clear/delete/leave/block.
@@ -664,6 +694,7 @@ class _HomePageState extends State<HomePage> {
                 if (!mounted) return;
                 messenger.showSnackBar(SnackBar(content: Text(label)));
               },
+              swipeActionsBuilder: _swipeActionsFor,
             ),
           ),
         ],

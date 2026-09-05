@@ -17,8 +17,8 @@ flutter pub get
 flutter run
 ```
 
-You will see three demo rooms (DM, group, announcement) and can play with
-messages, reactions, pins, search, etc.
+You will see six demo rooms (three DMs, two groups, one announcement
+channel) and can play with messages, reactions, pins, search, etc.
 
 ## Connecting to a real CHT backend
 
@@ -54,6 +54,21 @@ flutter run \
 A subsequent **Logout** within the same session suppresses the auto-login
 so the user can enter a different name (otherwise it would relog-loop).
 
+## 0.34.0 feature tour
+
+Beyond the pieces already listed below, this app exercises the SDK
+surface added between 0.29.0 and 0.34.0:
+
+| Feature                          | Where                                                                                   |
+| --------------------------------- | --------------------------------------------------------------------------------------- |
+| `RoomListView.swipeActionsBuilder` | `home_page.dart` — swipe a row for Pin/Archive shortcuts                               |
+| `RoomTile.subtitleHeaderBuilder`   | `catalog_page.dart` — "RoomTile" section, an extra line above the preview              |
+| `CameraCapturePage.show` + captions | `chat_room_page.dart` — camera row in the attachment sheet, caption travels to `sendAttachment` |
+| `ChatViewBuilders.readOnlyNoticeBuilder` | `chat_room_page.dart` — open the "Newsroom" announcement channel                  |
+| `UserDirectoryResolver`           | `chat_session.dart` (`demoUserDirectoryResolver`) — resolves "Dana", a group member the mock chat client never seeded as a user |
+| `NomaChat.create`/`fromClient(bootstrapCurrentUser:)` | `chat_session.dart` — mock-mode login                                  |
+| `RoomListController.participantNameResolver` | wired automatically by the adapter — search the room list by member name (open a group first so its roster is known) |
+
 ## Pages
 
 | Page                  | Feature                                                                                            |
@@ -64,6 +79,7 @@ so the user can enter a different name (otherwise it would relog-loop).
 | `pinned_messages_page`| Lists `ChatController.pinnedMessages`, demonstrates optimistic pin/unpin                           |
 | `global_error_banner` | Subscribes to `adapter.operationErrors` and shows SnackBars on failure                             |
 | `onboarding_page`     | Name picker for cht mode (auto-confirms when `AUTOLOGIN_AS` is set)                                |
+| `catalog_page`        | Storybook-style visual catalog of UI components (status icons, avatars, bubbles, `RoomTile`)       |
 
 ## Files
 
@@ -80,5 +96,7 @@ so the user can enter a different name (otherwise it would relog-loop).
 - `onboarding_page.dart` — text field + "Enter chat" button. Pre-fills and
   auto-confirms when `AUTOLOGIN_AS` is non-empty.
 - `chat_provider.dart` — `InheritedWidget` exposing the `NomaChat` instance.
-- `mock_data.dart` — seeds the mock client with three rooms and a handful
-  of messages of different `MessageType`s.
+- `mock_data.dart` — seeds the mock client with six rooms and a handful
+  of messages of different `MessageType`s. One member of the engineering
+  group ("Dana") is never registered as a chat user on purpose — see
+  `demoUserDirectoryResolver` in `chat_session.dart`.
