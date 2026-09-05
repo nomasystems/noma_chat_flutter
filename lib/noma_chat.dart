@@ -59,6 +59,7 @@ export 'src/core/pagination.dart';
 // === SDK: Models ===
 export 'src/models/attachment.dart';
 export 'src/models/chat_analytics_event.dart';
+export 'src/models/host_user.dart';
 export 'src/models/user.dart';
 export 'src/models/room.dart';
 export 'src/models/message.dart';
@@ -111,6 +112,7 @@ export 'src/ui/models/attachment_policy.dart';
 export 'src/ui/models/attachment_rejection.dart';
 export 'src/ui/models/camera_capture_result.dart';
 export 'src/ui/models/send_message_request.dart';
+export 'src/ui/models/send_retry_policy.dart';
 export 'src/ui/models/suggested_contact.dart';
 export 'src/ui/models/voice_message_data.dart';
 
@@ -121,6 +123,7 @@ export 'src/ui/models/voice_message_data.dart';
 // reachable through `package:noma_chat/noma_chat.dart`.
 export 'src/ui/adapter/chat_ui_adapter.dart';
 export 'src/ui/adapter/room_title_resolver.dart';
+export 'src/ui/adapter/user_directory_resolver.dart';
 export 'src/ui/adapter/operation_error.dart';
 // `ChatUiAdapter.roomHydrationNotifier` is typed on these, so by the rule
 // stated above they belong in the primary barrel and not in

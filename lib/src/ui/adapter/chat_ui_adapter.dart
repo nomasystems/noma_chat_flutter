@@ -34,6 +34,7 @@ import '../controller/room_list_controller.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../models/attachment_policy.dart';
 import '../models/room_list_item.dart';
+import '../models/send_retry_policy.dart';
 import '../room_defaults.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_bytes_loader.dart';
@@ -45,6 +46,7 @@ import '../widgets/chat_room_options_menu.dart';
 import '../widgets/chat_view.dart';
 import 'operation_error.dart';
 import 'room_title_resolver.dart';
+import 'user_directory_resolver.dart';
 
 import 'handlers/chat_event_router.dart';
 import 'handlers/member_event_handler.dart';
@@ -133,6 +135,10 @@ class ChatUiAdapter {
     this.isDmRoom,
     this.membershipBannerFilter,
     this.roomTitleResolver,
+    this.userDirectoryResolver,
+    this.userDirectoryTtl = const Duration(hours: 12),
+    this.bootstrapCurrentUser = false,
+    this.sendRetryPolicy = const SendRetryPolicy.firstSendOnly(),
     this.autoMarkAsRead = true,
     this.autoConfirmDelivery = true,
     this.manageAppLifecycle = true,
@@ -333,6 +339,41 @@ class ChatUiAdapter {
   final MembershipBannerFilter? membershipBannerFilter;
 
   final RoomTitleResolver? roomTitleResolver;
+
+  /// The host's own answer to "who is this id?", used wherever the SDK
+  /// would otherwise have nothing to paint for a person: a one-to-one
+  /// room's title, the sender prefix in a group, an avatar, the subject
+  /// of a system line.
+  ///
+  /// `null` (the default) keeps the SDK asking chat and nobody else,
+  /// which is all it could do before this hook existed.
+  final UserDirectoryResolver? userDirectoryResolver;
+
+  /// How long a name resolved through [userDirectoryResolver] stays good
+  /// before the SDK asks again.
+  ///
+  /// Twelve hours by default: people rename themselves rarely, and the
+  /// cost of a stale name for an afternoon is far below the cost of a
+  /// directory round trip on every room list build.
+  final Duration userDirectoryTtl;
+
+  /// Whether [connect] should make sure the current user exists in chat
+  /// before anything else runs.
+  ///
+  /// Off by default: a host that provisions its users elsewhere gets the
+  /// behaviour it already had. Turned on, the adapter reads the profile
+  /// once and creates it only when chat says it is not there — never
+  /// blindly, and never fatal if the read itself fails.
+  final bool bootstrapCurrentUser;
+
+  /// Whether the SDK retries, on its own, a message sent into a
+  /// conversation the server did not know about yet.
+  ///
+  /// Defaults to [SendRetryPolicy.firstSendOnly]; the retry reuses the
+  /// optimistic row's `tempId`, so the send is idempotent and a message
+  /// that did arrive cannot be duplicated by the retry.
+  final SendRetryPolicy sendRetryPolicy;
+
   final ChatLocalDatasource? _cache;
 
   /// Plugged-in storage for avatar uploads. Defaults to

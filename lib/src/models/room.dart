@@ -134,3 +134,37 @@ enum RoomType { group, oneToOne, announcement }
 /// Behavior for [ChatMembersApi.invite]: invite without joining, accept /
 /// decline a pending invitation, or invite-and-join atomically.
 enum RoomUserMode { invite, acceptInvitation, declineInvitation, inviteAndJoin }
+
+/// Who may post into a room, independent of its [RoomType].
+///
+/// An announcement channel is read-only by shape; a write policy makes any
+/// room read-only by configuration — a support conversation that has been
+/// closed, a group frozen by its owner — without changing what the room
+/// *is*. It travels in the room's config document, is set server-side, and
+/// the SDK only ever reads it.
+enum RoomWritePolicy {
+  /// Default. Every member of the room can post.
+  members,
+
+  /// Only the room's owner can post; everyone else reads.
+  ownerOnly,
+}
+
+/// Wire encoding for [RoomWritePolicy], as it travels in a room's config.
+extension RoomWritePolicyWire on RoomWritePolicy {
+  /// Reads the policy off the wire.
+  ///
+  /// Anything the SDK does not recognise — a value from a newer backend, a
+  /// wrong type, or the field missing entirely, which is what every backend
+  /// that predates this feature sends — resolves to [RoomWritePolicy.members].
+  /// Failing open matters: the alternative is a room nobody can write to
+  /// because a string was spelled differently.
+  static RoomWritePolicy fromWire(Object? raw) =>
+      raw == 'owner_only' ? RoomWritePolicy.ownerOnly : RoomWritePolicy.members;
+
+  /// The value the backend uses for this policy.
+  String get wireValue => switch (this) {
+    RoomWritePolicy.members => 'members',
+    RoomWritePolicy.ownerOnly => 'owner_only',
+  };
+}

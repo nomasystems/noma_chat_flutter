@@ -55,6 +55,38 @@ enum BlockedContentPolicy {
   show,
 }
 
+/// Why a room refuses to take a message.
+///
+/// The three are not interchangeable to a reader: one is what the room
+/// *is*, one is something an admin did to this person, and one is a
+/// setting the room's owner can turn off again. A host that paints its
+/// own notice usually wants to word them differently — and to offer a
+/// way out of exactly one of them.
+enum ReadOnlyReason {
+  /// An announcement channel and the viewer does not own it. Everyone
+  /// but the owner reads; nothing about this person is special.
+  announcement,
+
+  /// An admin or owner silenced this person in this room.
+  selfMuted,
+
+  /// The room's write policy is owner-only
+  /// (`RoomWritePolicy.ownerOnly`) and the viewer is not the owner — a
+  /// conversation that has been closed to replies.
+  ownerOnly,
+}
+
+/// Replaces the strip [ChatView] paints where the composer would be when
+/// the room is read-only.
+///
+/// Receives why the room is read-only so one notice can speak for all
+/// three cases. Returning `null` falls back to the SDK's own notice,
+/// which is a labelled bar carrying the `chat_read_only_notice`
+/// identifier — keep that identifier in a replacement if anything (a
+/// test, an accessibility audit) looks for it.
+typedef ReadOnlyNoticeBuilder =
+    Widget? Function(BuildContext context, ReadOnlyReason reason);
+
 /// Visual builder / resolver overrides for [ChatView].
 ///
 /// Group all `Widget Function(...)`, `String Function(...)` and similar
@@ -71,6 +103,7 @@ class ChatViewBuilders {
     this.headerBuilder,
     this.blockedBannerBuilder,
     this.notParticipatingBannerBuilder,
+    this.readOnlyNoticeBuilder,
     this.displayNameResolver,
     this.avatarUrlResolver,
     this.userFetcher,
@@ -183,6 +216,13 @@ class ChatViewBuilders {
   /// Optional override for the not-participating banner. When `null`,
   /// the SDK renders its default banner.
   final WidgetBuilder? notParticipatingBannerBuilder;
+
+  /// Optional override for the notice shown in place of the composer in
+  /// a read-only room. Receives the reason so one builder can cover an
+  /// announcement channel, a muted member and an owner-only room.
+  /// Returning `null` — for the reason at hand or for all of them —
+  /// falls back to the SDK's own notice.
+  final ReadOnlyNoticeBuilder? readOnlyNoticeBuilder;
 
   /// Optional sync resolver from userId → display name. Forwarded to
   /// [MessageList.displayNameResolver]. Wire it to

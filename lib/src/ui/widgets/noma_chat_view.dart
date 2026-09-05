@@ -782,6 +782,7 @@ class _NomaChatViewState extends State<NomaChatView>
       headerBuilder: user.headerBuilder,
       blockedBannerBuilder: user.blockedBannerBuilder,
       notParticipatingBannerBuilder: user.notParticipatingBannerBuilder,
+      readOnlyNoticeBuilder: user.readOnlyNoticeBuilder,
       audioUploadProgressFor: user.audioUploadProgressFor,
       attachmentUploadProgressFor:
           user.attachmentUploadProgressFor ??
@@ -790,6 +791,7 @@ class _NomaChatViewState extends State<NomaChatView>
           user.attachmentUploadCancellableFor ??
           adapter.attachmentUploadCancellableFor,
       linkPreviewFetcher: user.linkPreviewFetcher,
+      statusIconBuilder: user.statusIconBuilder,
       displayNameResolver:
           user.displayNameResolver ??
           (id) {
