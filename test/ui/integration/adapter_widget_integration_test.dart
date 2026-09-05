@@ -185,7 +185,10 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('user42 joined'), findsOneWidget);
+      // Nobody can name user42 yet, so the banner says what it knows and
+      // keeps the id out of the sentence.
+      expect(find.text('Member joined'), findsOneWidget);
+      expect(find.textContaining('user42'), findsNothing);
     });
 
     test('loadRooms populates room list controller', () async {
