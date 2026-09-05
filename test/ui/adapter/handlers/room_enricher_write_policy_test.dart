@@ -19,6 +19,9 @@ class _PolicyRoomsApi implements ChatRoomsApi {
   RoomWritePolicy? detailPolicy = RoomWritePolicy.members;
   RoomRole detailRole = RoomRole.member;
 
+  /// Whether the detail read reports the user as moderation-muted.
+  bool detailSelfMuted = false;
+
   @override
   Future<ChatResult<UserRooms>> getUserRooms({
     String type = 'all',
@@ -43,6 +46,7 @@ class _PolicyRoomsApi implements ChatRoomsApi {
         memberCount: 4,
         userRole: detailRole,
         config: RoomConfig(writePolicy: policy),
+        selfMuted: detailSelfMuted,
       ),
     );
   }
@@ -125,7 +129,13 @@ void main() {
   UnreadRoom row(
     String id, {
     RoomWritePolicy writePolicy = RoomWritePolicy.members,
-  }) => UnreadRoom(roomId: id, unreadMessages: 0, writePolicy: writePolicy);
+    bool selfMuted = false,
+  }) => UnreadRoom(
+    roomId: id,
+    unreadMessages: 0,
+    writePolicy: writePolicy,
+    selfMuted: selfMuted,
+  );
 
   test('the detail read is what the row believes when it lands', () async {
     client.rooms.listing = [row('r1')];
@@ -179,6 +189,35 @@ void main() {
     final item = adapter.roomListController.getRoomById('r1');
     expect(item!.writePolicy, RoomWritePolicy.ownerOnly);
     expect(item.isReadOnly, isFalse);
+  });
+
+  test(
+    'the listing carries the moderation mute when no detail lands',
+    () async {
+      client.rooms.listing = [row('r1', selfMuted: true)];
+      client.rooms.detailPolicy = null;
+
+      await adapter.loadRooms(forceNetwork: true);
+
+      final item = adapter.roomListController.getRoomById('r1');
+      expect(item, isNotNull);
+      expect(item!.selfMuted, isTrue);
+      expect(item.isReadOnly, isTrue);
+      expect(item.readOnlyReason, ReadOnlyReason.selfMuted);
+    },
+  );
+
+  test('the detail lifts a mute the listing still reported', () async {
+    client.rooms.listing = [row('r1', selfMuted: true)];
+    client.rooms.detailPolicy = RoomWritePolicy.members;
+    client.rooms.detailSelfMuted = false;
+
+    await adapter.loadRooms(forceNetwork: true);
+
+    final item = adapter.roomListController.getRoomById('r1');
+    expect(item!.selfMuted, isFalse);
+    expect(item.isReadOnly, isFalse);
+    expect(item.readOnlyReason, isNull);
   });
 
   test('a room_updated event closes an open room in place', () async {

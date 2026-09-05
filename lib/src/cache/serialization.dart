@@ -200,6 +200,7 @@ Map<String, dynamic> roomDetailToMap(RoomDetail detail) => {
   'muted': detail.muted,
   'pinned': detail.pinned,
   if (detail.hidden) 'hidden': true,
+  if (detail.selfMuted) 'selfMuted': true,
   if (detail.createdAt != null)
     'createdAt': detail.createdAt!.toIso8601String(),
   if (detail.avatarUrl != null) 'avatarUrl': detail.avatarUrl,
@@ -236,6 +237,7 @@ RoomDetail roomDetailFromMap(
     muted: map['muted'] as bool? ?? false,
     pinned: map['pinned'] as bool? ?? false,
     hidden: map['hidden'] as bool? ?? false,
+    selfMuted: map['selfMuted'] as bool? ?? false,
     createdAt: map['createdAt'] != null
         ? DateTime.parse(map['createdAt'] as String)
         : null,

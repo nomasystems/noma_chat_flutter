@@ -46,6 +46,32 @@ void main() {
       expect(detail.pinned, isTrue);
     });
 
+    test('seedRoomMeta closes a room to everyone but its owner', () async {
+      client.seedRoom(
+        const ChatRoom(id: 'r1', name: 'Team', members: ['u1', 'u2', 'u3']),
+      );
+      client.seedRoomMeta('r1', writePolicy: RoomWritePolicy.ownerOnly);
+
+      final rooms = (await client.rooms.getUserRooms()).dataOrThrow;
+      expect(rooms.rooms.single.writePolicy, RoomWritePolicy.ownerOnly);
+
+      final detail = (await client.rooms.get('r1')).dataOrThrow;
+      expect(detail.config.writePolicy, RoomWritePolicy.ownerOnly);
+    });
+
+    test('a room nobody closed is writable on both reads', () async {
+      client.seedRoom(
+        const ChatRoom(id: 'r1', name: 'Team', members: ['u1', 'u2', 'u3']),
+      );
+
+      final rooms = (await client.rooms.getUserRooms()).dataOrThrow;
+      expect(rooms.rooms.single.writePolicy, RoomWritePolicy.members);
+
+      final detail = (await client.rooms.get('r1')).dataOrThrow;
+      expect(detail.config.writePolicy, RoomWritePolicy.members);
+      expect(detail.isReadOnly, isFalse);
+    });
+
     test('addMessage replaces an existing message id in place', () async {
       client.seedRoom(const ChatRoom(id: 'r1', members: ['u1']));
       final ts = DateTime(2026, 1, 1);

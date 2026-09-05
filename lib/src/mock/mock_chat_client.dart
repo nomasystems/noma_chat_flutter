@@ -45,6 +45,7 @@ class MockChatClient implements ChatClient {
   final Map<String, int> _unread = {};
   final Map<String, bool> _pinned = {};
   final Map<String, bool> _muted = {};
+  final Map<String, RoomWritePolicy> _writePolicy = {};
 
   // Per-user starred messages (messageId -> roomId), most-recent-first
   // insertion order. Seeds [MockMessagesApi.listStarred].
@@ -137,12 +138,29 @@ class MockChatClient implements ChatClient {
   }
 
   /// Test/demo helper: seed chat-list metadata (unread badge, pinned,
-  /// muted) that the real backend computes/stores but the mock `ChatRoom`
-  /// model doesn't carry. Null args leave the current value untouched.
-  void seedRoomMeta(String roomId, {int? unread, bool? pinned, bool? muted}) {
+  /// muted, write policy) that the real backend computes/stores but the mock
+  /// `ChatRoom` model doesn't carry. Null args leave the current value
+  /// untouched.
+  ///
+  /// [writePolicy] closes the room to everyone but its owner exactly like the
+  /// backend's `config.writePolicy` does, and reaches both the listing
+  /// ([UnreadRoom.writePolicy]) and the detail ([RoomConfig.writePolicy]) —
+  /// the two sources the composer reads:
+  ///
+  /// ```dart
+  /// client.seedRoomMeta(roomId, writePolicy: RoomWritePolicy.ownerOnly);
+  /// ```
+  void seedRoomMeta(
+    String roomId, {
+    int? unread,
+    bool? pinned,
+    bool? muted,
+    RoomWritePolicy? writePolicy,
+  }) {
     if (unread != null) _unread[roomId] = unread;
     if (pinned != null) _pinned[roomId] = pinned;
     if (muted != null) _muted[roomId] = muted;
+    if (writePolicy != null) _writePolicy[roomId] = writePolicy;
   }
 
   /// Test helper: register a user directly in the mock store so subsequent
@@ -474,6 +492,7 @@ class MockRoomsApi implements ChatRoomsApi {
             ? 'announcement'
             : (r.members.length == 2 ? 'one-to-one' : 'group'),
         memberCount: r.members.length,
+        writePolicy: _client._writePolicy[r.id] ?? RoomWritePolicy.members,
         // Last-message preview + time so the tile shows the snippet and
         // timestamp (and the list sorts by recency) instead of a bare
         // title. Derived from the seeded messages (max timestamp).
@@ -523,7 +542,10 @@ class MockRoomsApi implements ChatRoomsApi {
         type: type,
         memberCount: room.members.length,
         userRole: RoomRole.owner,
-        config: RoomConfig(allowInvitations: room.allowInvitations),
+        config: RoomConfig(
+          allowInvitations: room.allowInvitations,
+          writePolicy: _client._writePolicy[roomId] ?? RoomWritePolicy.members,
+        ),
         avatarUrl: room.avatarUrl,
         custom: room.custom,
         muted: _client._muted[roomId] ?? false,

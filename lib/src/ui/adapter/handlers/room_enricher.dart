@@ -804,10 +804,12 @@ class RoomEnricher {
             : unread.unreadMentions,
         muted: detail?.muted ?? false,
         muteUntil: detail?.muteUntil ?? unread.muteUntil,
-        selfMuted: detail?.selfMuted ?? false,
+        selfMuted: detail?.selfMuted ?? unread.selfMuted,
         // The detail is authoritative when the fetch landed; the listing
-        // projection carries the same field, so a row whose detail is still
-        // missing already knows whether the room refuses messages.
+        // projection carries the same fields, so a row whose detail is still
+        // missing already knows whether the room refuses messages — both
+        // because the policy closed it and because a moderator silenced
+        // this user.
         writePolicy: detail?.config.writePolicy ?? unread.writePolicy,
         pinned: detail?.pinned ?? false,
         hidden: detail?.hidden ?? false,
