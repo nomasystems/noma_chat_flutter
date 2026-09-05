@@ -1044,7 +1044,8 @@ class _NomaChatViewState extends State<NomaChatView>
   /// The size cap is measured on what actually leaves the device — after the
   /// metadata scrub and after [ChatUiAdapter.attachmentShrinker] — so a
   /// full-resolution shot above the cap is reduced and sent rather than
-  /// refused for a weight it no longer has.
+  /// refused for a weight it no longer has. See [_capturePayload] for the
+  /// captures that cannot get any lighter than the file they came in.
   Future<void> _captureAndSend(String sendKey) async {
     final replyTo = _pendingReplyId();
     final submission = await CameraCapturePage.show(
@@ -1057,36 +1058,8 @@ class _NomaChatViewState extends State<NomaChatView>
     try {
       if (!mounted) return;
       final policy = _attachmentPolicy;
-      // Same metadata pass every other picked image gets: a photo shot with
-      // location services on carries GPS coordinates in its EXIF block.
-      final scrubbed = await ImageMetadataScrubber.scrub(
-        await shot.file.readAsBytes(),
-        onMetric: widget.adapter.metricCallback,
-      );
-      final payload = await AttachmentPickers.shrinkToPolicy(
-        AttachmentPickResult(
-          bytes: scrubbed,
-          mimeType: shot.mimeType,
-          fileName: shot.fileName,
-        ),
-        policy: policy,
-        shrinker: widget.adapter.attachmentShrinker,
-      );
-      if (!mounted) return;
-      final violation = policy.validate(
-        mimeType: payload.mimeType,
-        sizeBytes: payload.size,
-      );
-      if (violation != null) {
-        _reportAttachmentRejected(
-          AttachmentRejection.fromPolicyViolation(
-            violation,
-            fileName: payload.fileName,
-            sizeBytes: payload.size,
-          ),
-        );
-        return;
-      }
+      final payload = await _capturePayload(shot, policy);
+      if (!mounted || payload == null) return;
       await widget.adapter.messages.sendAttachment(
         sendKey,
         bytes: payload.bytes,
@@ -1102,6 +1075,69 @@ class _NomaChatViewState extends State<NomaChatView>
       // collects it, so a rejected clip would sit there at full size forever.
       unawaited(_discardCapture(shot));
     }
+  }
+
+  /// The bytes [shot] should be uploaded as, or `null` when [policy] refuses
+  /// it — in which case the rejection has already been shown.
+  ///
+  /// Which weight the cap is measured on depends on whether the capture can
+  /// still lose any. An image is weighed at the end, after the metadata
+  /// scrub and after [ChatUiAdapter.attachmentShrinker], so a shot above the
+  /// cap is reduced and sent instead of refused for a weight it no longer
+  /// has. Anything else is weighed on disk first: [AttachmentShrinker.fit]
+  /// declines every type that is not an image, so a clip over the cap is
+  /// refused whatever happens next — and reading it to find that out would
+  /// pull the whole recording into memory, then copy it again into the
+  /// scrubber's isolate, for a rejection a `length()` already had.
+  Future<AttachmentPickResult?> _capturePayload(
+    CameraCaptureResult shot,
+    AttachmentPolicy policy,
+  ) async {
+    if (!shot.mimeType.startsWith('image/')) {
+      final onDisk = await shot.file.length();
+      final violation = policy.validate(
+        mimeType: shot.mimeType,
+        sizeBytes: onDisk,
+      );
+      if (violation != null) {
+        _reportAttachmentRejected(
+          AttachmentRejection.fromPolicyViolation(
+            violation,
+            fileName: shot.fileName,
+            sizeBytes: onDisk,
+          ),
+        );
+        return null;
+      }
+    }
+    // Same metadata pass every other picked image gets: a photo shot with
+    // location services on carries GPS coordinates in its EXIF block.
+    final scrubbed = await ImageMetadataScrubber.scrub(
+      await shot.file.readAsBytes(),
+      onMetric: widget.adapter.metricCallback,
+    );
+    final payload = await AttachmentPickers.shrinkToPolicy(
+      AttachmentPickResult(
+        bytes: scrubbed,
+        mimeType: shot.mimeType,
+        fileName: shot.fileName,
+      ),
+      policy: policy,
+      shrinker: widget.adapter.attachmentShrinker,
+    );
+    final violation = policy.validate(
+      mimeType: payload.mimeType,
+      sizeBytes: payload.size,
+    );
+    if (violation == null) return payload;
+    _reportAttachmentRejected(
+      AttachmentRejection.fromPolicyViolation(
+        violation,
+        fileName: payload.fileName,
+        sizeBytes: payload.size,
+      ),
+    );
+    return null;
   }
 
   Future<void> _discardCapture(CameraCaptureResult shot) async {

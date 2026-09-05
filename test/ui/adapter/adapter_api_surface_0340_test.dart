@@ -1,9 +1,123 @@
-import 'dart:typed_data';
+import 'dart:async';
+import 'dart:io';
 
+import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
+
+const _permissionChannel = MethodChannel(
+  'flutter.baseflow.com/permissions/methods',
+);
+
+const _granted = 1;
+
+const _backCamera = CameraDescription(
+  name: 'back',
+  lensDirection: CameraLensDirection.back,
+  sensorOrientation: 0,
+);
+
+/// The smallest byte sequence the metadata stripper recognises as a JPEG it
+/// can walk, so the capture path behaves as it does for a real shot.
+final Uint8List _jpeg = Uint8List.fromList([
+  0xFF, 0xD8, // SOI
+  0xFF, 0xDB, 0x00, 0x05, 0x00, 0x10, 0x0B, // a quantisation table
+  0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x3F, 0x00, // start of scan
+  0xAA, 0xBB, 0xCC, 0xDD,
+  0xFF, 0xD9, // EOI
+]);
+
+/// Stands in for a hold-to-record clip: far too heavy for the caps these
+/// tests set, and nothing a shrinker could ever make lighter.
+final Uint8List _clip = Uint8List(4096);
+
+/// Camera platform that hands back a capture the test can watch on disk: the
+/// bytes come from memory (a widget test cannot turn the real event loop for
+/// file reads), while `path` names a file that really exists.
+class _FakeCameraPlatform extends CameraPlatform {
+  _FakeCameraPlatform(this.capturePath, this.clipPath);
+
+  final String capturePath;
+
+  final String clipPath;
+
+  // ignore: close_sinks
+  final StreamController<CameraInitializedEvent> _initialized =
+      StreamController<CameraInitializedEvent>.broadcast();
+  // ignore: close_sinks
+  final StreamController<CameraErrorEvent> _errors =
+      StreamController<CameraErrorEvent>.broadcast();
+  // ignore: close_sinks
+  final StreamController<DeviceOrientationChangedEvent> _orientation =
+      StreamController<DeviceOrientationChangedEvent>.broadcast();
+
+  int _nextCameraId = 1;
+
+  @override
+  Future<List<CameraDescription>> availableCameras() async => const [
+    _backCamera,
+  ];
+
+  @override
+  Future<int> createCameraWithSettings(
+    CameraDescription cameraDescription,
+    MediaSettings mediaSettings,
+  ) async => _nextCameraId++;
+
+  @override
+  Future<void> initializeCamera(
+    int cameraId, {
+    ImageFormatGroup imageFormatGroup = ImageFormatGroup.unknown,
+  }) async {
+    _initialized.add(
+      CameraInitializedEvent(
+        cameraId,
+        1080,
+        1920,
+        ExposureMode.auto,
+        true,
+        FocusMode.auto,
+        true,
+      ),
+    );
+  }
+
+  @override
+  Future<double> getMinZoomLevel(int cameraId) async => 1.0;
+
+  @override
+  Future<double> getMaxZoomLevel(int cameraId) async => 1.0;
+
+  @override
+  Stream<CameraInitializedEvent> onCameraInitialized(int cameraId) =>
+      _initialized.stream.where((event) => event.cameraId == cameraId);
+
+  @override
+  Stream<CameraErrorEvent> onCameraError(int cameraId) => _errors.stream;
+
+  @override
+  Stream<DeviceOrientationChangedEvent> onDeviceOrientationChanged() =>
+      _orientation.stream;
+
+  @override
+  Widget buildPreview(int cameraId) => const SizedBox.expand();
+
+  @override
+  Future<XFile> takePicture(int cameraId) async =>
+      XFile.fromData(_jpeg, path: capturePath, name: 'shot.jpg');
+
+  @override
+  Future<void> startVideoCapturing(VideoCaptureOptions options) async {}
+
+  @override
+  Future<XFile> stopVideoRecording(int cameraId) async => XFile(clipPath);
+
+  @override
+  Future<void> dispose(int cameraId) async {}
+}
 
 /// The 0.34 surface a host writes against: the directory hook, the
 /// bootstrap switch, the send-retry policy, the read-only notice, and the
@@ -334,6 +448,183 @@ void main() {
     });
   });
 
+  group('the shrinker on the SDK capture path', () {
+    late Directory captureDir;
+    late File capture;
+    late File clip;
+
+    setUp(() {
+      captureDir = Directory.systemTemp.createTempSync('noma_0340_capture');
+      capture = File('${captureDir.path}/shot.jpg')..writeAsBytesSync(_jpeg);
+      clip = File('${captureDir.path}/clip.mp4')..writeAsBytesSync(_clip);
+      CameraPlatform.instance = _FakeCameraPlatform(capture.path, clip.path);
+
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_permissionChannel, (call) async {
+            switch (call.method) {
+              case 'requestPermissions':
+                return {
+                  for (final permission
+                      in (call.arguments as List<dynamic>).cast<int>())
+                    permission: _granted,
+                };
+              case 'checkPermissionStatus':
+                return _granted;
+              default:
+                return null;
+            }
+          });
+    });
+
+    tearDown(() {
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(_permissionChannel, null);
+      if (captureDir.existsSync()) captureDir.deleteSync(recursive: true);
+    });
+
+    Future<void> pumpRoom(
+      WidgetTester tester, {
+      required AttachmentPolicy policy,
+      required AttachmentShrinker shrinker,
+    }) async {
+      final adapter = ChatUiAdapter(
+        client: client,
+        currentUser: me,
+        manageAppLifecycle: false,
+        attachmentShrinker: shrinker,
+      );
+      addTearDown(adapter.dispose);
+      adapter.roomListController.addRoom(const RoomListItem(id: 'r1'));
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: NomaChatView(
+            roomId: 'r1',
+            adapter: adapter,
+            hydrateGroupMembers: false,
+            attachmentPolicy: policy,
+            builders: ChatViewBuilders(
+              videoPreviewBuilder: (context, file, theme) =>
+                  const SizedBox.shrink(),
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+    }
+
+    /// Lets the real event loop turn so the `dart:io` calls the send path
+    /// makes can complete, then hands control back to the fake clock.
+    Future<void> drain(WidgetTester tester) async {
+      for (var round = 0; round < 6; round++) {
+        await tester.pump();
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+    }
+
+    Future<void> openCamera(WidgetTester tester) async {
+      tester.widget<ChatView>(find.byType(ChatView)).callbacks.onPickCamera!();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      for (var i = 0; i < 6; i++) {
+        await tester.pump();
+      }
+      expect(find.byType(CameraCaptureButton), findsOneWidget);
+    }
+
+    /// Taps the shutter and stops on the review step, where a still waits
+    /// until the user says what to do with it.
+    Future<void> shoot(WidgetTester tester) async {
+      await openCamera(tester);
+      await tester.tap(find.byType(CameraCaptureButton));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await drain(tester);
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
+    }
+
+    /// Holds the shutter down and stops on the review step, with a clip.
+    Future<void> record(WidgetTester tester) async {
+      await openCamera(tester);
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(CameraCaptureButton)),
+      );
+      await tester.pump(const Duration(milliseconds: 600));
+      await drain(tester);
+      await gesture.up();
+      await drain(tester);
+      expect(find.byType(CameraCaptureReview), findsOneWidget);
+    }
+
+    /// Confirms whatever waits on the review step.
+    Future<void> confirm(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.send));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 400));
+      await drain(tester);
+    }
+
+    testWidgets(
+      'a capture over the cap is reduced and sent, not refused',
+      (tester) async {
+        final shrinker = _TruncatingShrinker();
+        await pumpRoom(
+          tester,
+          policy: const AttachmentPolicy(maxBytes: 8),
+          shrinker: shrinker,
+        );
+
+        await shoot(tester);
+        await confirm(tester);
+
+        expect(
+          shrinker.calls,
+          1,
+          reason: 'the host engine has to reach the SDK capture path',
+        );
+        expect(
+          client.attachments.uploadCount,
+          1,
+          reason:
+              'the shot fits once reduced, so refusing it measures the '
+              'wrong bytes',
+        );
+        expect(client.attachments.uploadedMimeTypes, ['image/jpeg']);
+        expect(capture.existsSync(), isFalse);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+
+    testWidgets(
+      'a clip over the cap is weighed on disk, so it is never read in',
+      (tester) async {
+        final shrinker = _TruncatingShrinker();
+        await pumpRoom(
+          tester,
+          policy: const AttachmentPolicy(maxBytes: 8),
+          shrinker: shrinker,
+        );
+
+        await record(tester);
+        await confirm(tester);
+
+        expect(client.attachments.uploadCount, 0);
+        expect(
+          shrinker.calls,
+          0,
+          reason:
+              'no engine reduces a video, so nothing downstream of the '
+              'read may run: a clip over the cap is refused on its length',
+        );
+        expect(clip.existsSync(), isFalse);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.android),
+    );
+  });
+
   group('the plug & play entry point', () {
     test('hands the 0.34 wiring straight to the adapter', () async {
       Future<Map<String, HostUser>> resolver(Set<String> ids) async =>
@@ -381,6 +672,10 @@ void main() {
 /// Stand-in for the real encoder: cuts the payload down to the cap and
 /// renames it, which is all the surface under test has to carry.
 class _TruncatingShrinker implements AttachmentShrinker {
+  /// How many payloads reached the engine. A path that refuses an
+  /// attachment before reading it never gets this far.
+  int calls = 0;
+
   @override
   Future<ShrunkAttachment?> fit(
     Uint8List bytes, {
@@ -388,6 +683,7 @@ class _TruncatingShrinker implements AttachmentShrinker {
     required int maxBytes,
     required String fileName,
   }) async {
+    calls++;
     if (bytes.length <= maxBytes) return null;
     return ShrunkAttachment(
       bytes: Uint8List.fromList(bytes.sublist(0, maxBytes)),
