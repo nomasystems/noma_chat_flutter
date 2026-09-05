@@ -349,10 +349,10 @@ void main() {
   });
 
   group('the image shrinker hook', () {
-    test('is inert until the host supplies an engine', () async {
+    test('is the SDK engine until the host supplies its own', () async {
       final adapter = adapterWith();
 
-      expect(adapter.attachmentShrinker, isA<NoAttachmentShrinker>());
+      expect(adapter.attachmentShrinker, isA<DefaultAttachmentShrinker>());
       expect(
         await adapter.attachmentShrinker.fit(
           Uint8List.fromList(const [1, 2, 3]),
@@ -361,7 +361,7 @@ void main() {
           fileName: 'shot.png',
         ),
         isNull,
-        reason: 'the default sends the bytes the user picked, untouched',
+        reason: 'bytes no decoder can read travel exactly as they came in',
       );
     });
 
@@ -692,7 +692,7 @@ void main() {
         chat.adapter.sendRetryPolicy,
         const SendRetryPolicy.firstSendOnly(),
       );
-      expect(chat.adapter.attachmentShrinker, isA<NoAttachmentShrinker>());
+      expect(chat.adapter.attachmentShrinker, isA<DefaultAttachmentShrinker>());
     });
   });
 }

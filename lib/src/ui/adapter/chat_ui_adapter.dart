@@ -167,9 +167,10 @@ class ShrunkAttachment {
 /// - **Answers under the cap.** Handing back bytes that are still over it
 ///   only moves the rejection further down the send.
 ///
-/// Wired by default to [NoAttachmentShrinker]; hosts override it through
-/// `ChatUiAdapter(attachmentShrinker: …)` when they have an encoder of
-/// their own.
+/// Wired by default to [DefaultAttachmentShrinker]; hosts override it
+/// through `ChatUiAdapter(attachmentShrinker: …)` when they have an encoder
+/// of their own, or with [NoAttachmentShrinker] to send the bytes the user
+/// picked untouched.
 abstract class AttachmentShrinker {
   /// Re-encodes [bytes] — an attachment of type [mimeType] to be sent as
   /// [fileName] — so the result weighs at most [maxBytes]. Returns `null`
@@ -236,7 +237,8 @@ class ChatUiAdapter {
        _currentUser = currentUser,
        avatarStorage = avatarStorage ?? DefaultAvatarStorage(client),
        videoThumbnailer = videoThumbnailer ?? const NativeVideoThumbnailer(),
-       attachmentShrinker = attachmentShrinker ?? const NoAttachmentShrinker(),
+       attachmentShrinker =
+           attachmentShrinker ?? const DefaultAttachmentShrinker(),
        roomListController = RoomListController(),
        _lifecycle = ConnectionLifecycle(),
        _resyncDebounce = resyncDebounce {
@@ -476,9 +478,11 @@ class ChatUiAdapter {
   /// sets, on every path that uploads one: the picker, the review step and
   /// the SDK's own camera screen.
   ///
-  /// Defaults to [NoAttachmentShrinker] — the bytes the user picked are the
-  /// bytes that are sent. Supply your own to hand the re-encoding to an
-  /// engine of your choice.
+  /// Defaults to [DefaultAttachmentShrinker] — an oversized image is
+  /// re-encoded down the policy's ladder until it fits its cap, and
+  /// anything else travels untouched. Supply your own to hand the
+  /// re-encoding to an engine of your choice, or [NoAttachmentShrinker] to
+  /// send exactly the bytes the user picked.
   final AttachmentShrinker attachmentShrinker;
 
   /// Default [AttachmentUrlResolver] the adapter wires into
