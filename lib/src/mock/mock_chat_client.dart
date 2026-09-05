@@ -46,6 +46,7 @@ class MockChatClient implements ChatClient {
   final Map<String, bool> _pinned = {};
   final Map<String, bool> _muted = {};
   final Map<String, RoomWritePolicy> _writePolicy = {};
+  final Map<String, RoomRole> _userRole = {};
 
   // Per-user starred messages (messageId -> roomId), most-recent-first
   // insertion order. Seeds [MockMessagesApi.listStarred].
@@ -150,17 +151,25 @@ class MockChatClient implements ChatClient {
   /// ```dart
   /// client.seedRoomMeta(roomId, writePolicy: RoomWritePolicy.ownerOnly);
   /// ```
+  ///
+  /// [userRole] overrides the current user's role in [RoomDetail.userRole],
+  /// which otherwise defaults to [RoomRole.owner]. Pair it with
+  /// `writePolicy: RoomWritePolicy.ownerOnly` and a non-owner role to seed a
+  /// room the current user can only read — the combination
+  /// `ChatView`/`NomaChatView` resolve into `ReadOnlyReason.ownerOnly`.
   void seedRoomMeta(
     String roomId, {
     int? unread,
     bool? pinned,
     bool? muted,
     RoomWritePolicy? writePolicy,
+    RoomRole? userRole,
   }) {
     if (unread != null) _unread[roomId] = unread;
     if (pinned != null) _pinned[roomId] = pinned;
     if (muted != null) _muted[roomId] = muted;
     if (writePolicy != null) _writePolicy[roomId] = writePolicy;
+    if (userRole != null) _userRole[roomId] = userRole;
   }
 
   /// Test helper: register a user directly in the mock store so subsequent
@@ -492,6 +501,7 @@ class MockRoomsApi implements ChatRoomsApi {
             ? 'announcement'
             : (r.members.length == 2 ? 'one-to-one' : 'group'),
         memberCount: r.members.length,
+        userRole: _client._userRole[r.id] ?? RoomRole.owner,
         writePolicy: _client._writePolicy[r.id] ?? RoomWritePolicy.members,
         // Last-message preview + time so the tile shows the snippet and
         // timestamp (and the list sorts by recency) instead of a bare
@@ -541,7 +551,7 @@ class MockRoomsApi implements ChatRoomsApi {
         subject: room.subject,
         type: type,
         memberCount: room.members.length,
-        userRole: RoomRole.owner,
+        userRole: _client._userRole[roomId] ?? RoomRole.owner,
         config: RoomConfig(
           allowInvitations: room.allowInvitations,
           writePolicy: _client._writePolicy[roomId] ?? RoomWritePolicy.members,

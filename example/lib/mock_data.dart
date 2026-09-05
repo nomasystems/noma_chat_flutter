@@ -68,6 +68,7 @@ void seedDemoData(MockChatClient client) {
   _seedGroupTennis(client, t);
   _seedGroupEngineering(client, t);
   _seedAnnouncements(client, t);
+  _seedGroupArchive(client, t);
 
   // Chat-list metadata the real backend computes/stores but the mock
   // `ChatRoom` model doesn't carry. Pin Alice's DM to the top, mute the
@@ -80,7 +81,16 @@ void seedDemoData(MockChatClient client) {
     ..seedRoomMeta('room-news', muted: true)
     ..seedRoomMeta('room-dm-bob', unread: 2)
     ..seedRoomMeta('room-group-tennis', unread: 5)
-    ..seedRoomMeta('room-dm-carol', unread: 1);
+    ..seedRoomMeta('room-dm-carol', unread: 1)
+    // `demo-user` is a plain member here, not the owner, and the room is
+    // closed to everyone but its owner — the combination `NomaChatView`
+    // resolves into `ReadOnlyReason.ownerOnly`, hiding the composer behind
+    // `readOnlyNoticeBuilder`.
+    ..seedRoomMeta(
+      'room-group-archive',
+      writePolicy: RoomWritePolicy.ownerOnly,
+      userRole: RoomRole.member,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1047,6 +1057,42 @@ void _seedAnnouncements(MockChatClient client, DateTime Function(int) t) {
             'viewer, and broadcast rooms.',
         'linkImage': 'https://picsum.photos/seed/release-notes/600/315',
       },
+    ),
+  );
+}
+
+/// A group `alice` owns and closed to replies. `demo-user` is a plain
+/// member, so the composer never renders — [ReadOnlyReason.ownerOnly] takes
+/// over via `seedRoomMeta(writePolicy: ..., userRole: RoomRole.member)`
+/// above, exercising the same demo notice the announcements channel and a
+/// self-mute already cover for the other two reasons.
+void _seedGroupArchive(MockChatClient client, DateTime Function(int) t) {
+  client.seedRoom(
+    const ChatRoom(
+      id: 'room-group-archive',
+      name: 'Product Retro Q1',
+      owner: 'alice',
+      members: ['demo-user', 'alice', 'bob'],
+      avatarUrl: 'asset:assets/avatars/tennis.jpg',
+    ),
+  );
+
+  client.addMessage(
+    'room-group-archive',
+    ChatMessage(
+      id: 'arch-1',
+      from: 'alice',
+      timestamp: t(60 * 24 * 14),
+      text: 'Closing this one out — great retro, thanks all!',
+    ),
+  );
+  client.addMessage(
+    'room-group-archive',
+    ChatMessage(
+      id: 'arch-2',
+      from: 'alice',
+      timestamp: t(60 * 24 * 14 - 5),
+      text: "Locking replies so the notes above stay the final word.",
     ),
   );
 }

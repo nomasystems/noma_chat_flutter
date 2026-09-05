@@ -59,6 +59,28 @@ void main() {
       expect(detail.config.writePolicy, RoomWritePolicy.ownerOnly);
     });
 
+    test(
+      'seedRoomMeta userRole makes an owner-only room read-only for '
+      'a plain member',
+      () async {
+        client.seedRoom(
+          const ChatRoom(id: 'r1', name: 'Team', members: ['u1', 'u2', 'u3']),
+        );
+        client.seedRoomMeta(
+          'r1',
+          writePolicy: RoomWritePolicy.ownerOnly,
+          userRole: RoomRole.member,
+        );
+
+        final rooms = (await client.rooms.getUserRooms()).dataOrThrow;
+        expect(rooms.rooms.single.userRole, RoomRole.member);
+
+        final detail = (await client.rooms.get('r1')).dataOrThrow;
+        expect(detail.userRole, RoomRole.member);
+        expect(detail.isReadOnly, isTrue);
+      },
+    );
+
     test('a room nobody closed is writable on both reads', () async {
       client.seedRoom(
         const ChatRoom(id: 'r1', name: 'Team', members: ['u1', 'u2', 'u3']),
