@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -24,6 +25,7 @@ class _FakeDirectory {
   final Map<String, String?> people;
   final List<Set<String>> calls = [];
   Object? throwOnCall;
+  bool hangOnCall = false;
 
   Future<Map<String, HostUser>> resolve(Set<String> ids) async {
     calls.add(Set<String>.from(ids));
@@ -32,6 +34,7 @@ class _FakeDirectory {
       throwOnCall = null;
       throw failure;
     }
+    if (hangOnCall) return Completer<Map<String, HostUser>>().future;
     final out = <String, HostUser>{};
     for (final id in ids) {
       if (!people.containsKey(id)) continue;
@@ -54,6 +57,7 @@ void main() {
     ChatLocalDatasource? cache,
     Duration ttl = const Duration(hours: 12),
     int maxBatchSize = 50,
+    Duration resolverTimeout = const Duration(seconds: 10),
     DateTime Function()? clock,
     bool Function()? isDisposed,
   }) => HostUserDirectory(
@@ -62,6 +66,7 @@ void main() {
     ttl: ttl,
     batchWindow: window,
     maxBatchSize: maxBatchSize,
+    resolverTimeout: resolverTimeout,
     isDisposed: isDisposed,
     clock: clock ?? DateTime.now,
   );
@@ -184,6 +189,30 @@ void main() {
       await Future<void>.delayed(window * 4);
 
       expect(host.calls.length, 1);
+    });
+  });
+
+  group('a host that never answers', () {
+    const patience = Duration(milliseconds: 20);
+
+    test('is given up on instead of stranding whoever asked', () async {
+      final host = _FakeDirectory({'a': 'Amy'})..hangOnCall = true;
+      final directory = make(host: host, resolverTimeout: patience);
+
+      expect(await directory.lookup('a'), isNull);
+      expect(directory.pendingLookupCount, 0);
+    });
+
+    test('leaves the id askable once it starts answering again', () async {
+      final host = _FakeDirectory({'a': 'Amy'})..hangOnCall = true;
+      final directory = make(host: host, resolverTimeout: patience);
+      await directory.lookup('a');
+
+      host.hangOnCall = false;
+      final second = await directory.lookup('a');
+
+      expect(second?.displayName, 'Amy');
+      expect(host.calls.length, 2);
     });
   });
 
@@ -348,6 +377,88 @@ void main() {
 
       expect(directory.length, 0);
       expect(directory.pendingLookupCount, 0);
+    });
+  });
+
+  group('what the cache holds after a host answer', () {
+    late MockChatClient client;
+
+    setUp(() {
+      client = MockChatClient(currentUserId: 'me');
+    });
+
+    tearDown(() async {
+      await client.dispose();
+    });
+
+    UserCacheService cacheWith(_FakeDirectory? host) => UserCacheService(
+      api: client.users,
+      isDisposed: () => false,
+      directory: HostUserDirectory(
+        resolver: host?.resolve,
+        batchWindow: window,
+      ),
+    );
+
+    const inChat = ChatUser(
+      id: 'bob',
+      displayName: 'bob@chat',
+      bio: 'Fixes the boiler',
+      email: 'bob@example.com',
+      active: false,
+    );
+
+    test('the host names the person and chat still fills the rest', () async {
+      client.seedUser(inChat);
+      final cache = cacheWith(_FakeDirectory({'bob': 'Bob Marsh'}));
+
+      final user = await cache.ensureCached('bob');
+
+      expect(user?.displayName, 'Bob Marsh');
+      expect(user?.bio, 'Fixes the boiler');
+      expect(user?.email, 'bob@example.com');
+      expect(user?.active, isFalse);
+    });
+
+    test('later readers find the merged profile, not the host half', () async {
+      client.seedUser(inChat);
+      final cache = cacheWith(_FakeDirectory({'bob': 'Bob Marsh'}));
+      await cache.ensureCached('bob');
+
+      expect(cache.find('bob')?.displayName, 'Bob Marsh');
+      expect(cache.find('bob')?.bio, 'Fixes the boiler');
+      expect(cache.find('bob')?.active, isFalse);
+    });
+
+    test('someone chat has no profile for still gets the host name', () async {
+      final cache = cacheWith(_FakeDirectory({'ghost': 'Ghost'}));
+
+      final user = await cache.ensureCached('ghost');
+
+      expect(user?.displayName, 'Ghost');
+      expect(cache.find('ghost')?.displayName, 'Ghost');
+    });
+
+    test('a host with no name for them leaves the profile whole', () async {
+      client.seedUser(inChat);
+      final cache = cacheWith(_FakeDirectory({'bob': null}));
+
+      final user = await cache.ensureCached('bob');
+
+      expect(user?.displayName, 'bob@chat');
+      expect(user?.bio, 'Fixes the boiler');
+      expect(user?.active, isFalse);
+    });
+
+    test('no host wired means the chat profile arrives untouched', () async {
+      client.seedUser(inChat);
+      final cache = cacheWith(null);
+
+      final user = await cache.ensureCached('bob');
+
+      expect(user?.displayName, 'bob@chat');
+      expect(user?.bio, 'Fixes the boiler');
+      expect(user?.active, isFalse);
     });
   });
 

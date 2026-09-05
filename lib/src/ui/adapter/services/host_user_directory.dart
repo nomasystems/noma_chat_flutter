@@ -39,6 +39,7 @@ class HostUserDirectory {
     this.ttl = const Duration(hours: 12),
     this.batchWindow = const Duration(milliseconds: 30),
     this.maxBatchSize = 50,
+    this.resolverTimeout = const Duration(seconds: 10),
     bool Function()? isDisposed,
     void Function(String level, String message)? logger,
     DateTime Function() clock = _systemClock,
@@ -74,6 +75,13 @@ class HostUserDirectory {
   /// Ceiling on how many ids travel in one resolver call. Ids past the
   /// ceiling go out in the next window rather than being dropped.
   final int maxBatchSize;
+
+  /// How long the host gets to answer one batch. A resolver that never
+  /// returns would otherwise strand the whole batch: nobody waiting on
+  /// those ids is ever released and no later paint can ask about them
+  /// again. Giving up settles them as "no name yet", which is a question
+  /// the next paint is free to re-ask.
+  final Duration resolverTimeout;
 
   final Map<String, CachedHostUser> _entries = {};
   final Map<String, List<Completer<HostUser?>>> _waiting = {};
@@ -143,8 +151,9 @@ class HostUserDirectory {
   ///
   /// Returns the held answer immediately when it is fresh, so the common
   /// case costs nothing. Returns `null` when there is no resolver, when
-  /// the host left the id out of its answer, or when the call failed —
-  /// all three mean "no name yet", and all three may be asked again.
+  /// the host left the id out of its answer, when the call failed, or when
+  /// it outran [resolverTimeout] — all of them mean "no name yet", and all
+  /// of them may be asked again.
   Future<HostUser?> lookup(String userId) {
     if (!isEnabled || userId.isEmpty || _isDisposed()) {
       return Future<HostUser?>.value(null);
@@ -197,7 +206,7 @@ class HostUserDirectory {
     if (ask.isEmpty) return;
     _inFlight.addAll(ask);
     try {
-      final answers = await _resolver!(ask);
+      final answers = await _resolver!(ask).timeout(resolverTimeout);
       if (_isDisposed()) {
         for (final id in ask) {
           _settle(id, null);

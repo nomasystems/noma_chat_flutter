@@ -62,10 +62,17 @@ class UserCacheService {
   /// multiple paths invoke this method back-to-back. Silent best-effort:
   /// failures, cache misses, and disposed-mid-fetch are all swallowed.
   ///
-  /// Returns the fetched user, or `null` when:
-  /// - the user is already cached (no fetch);
+  /// The host directory and the chat profile answer different questions,
+  /// so one never replaces the other. The host owns the identity — the
+  /// name and the picture to paint — and its answer is cached the moment
+  /// it lands so paint paths stop waiting on the network. Chat owns
+  /// everything else a profile carries (bio, email, active, role,
+  /// configuration, custom), so the chat fetch still goes out and the two
+  /// are merged: host identity laid over the chat profile.
+  ///
+  /// Returns the resulting user, or `null` when:
   /// - another fetch for the same id is in flight (caller piggybacks);
-  /// - the REST call failed;
+  /// - neither the host nor chat had anything to say;
   /// - the adapter was disposed mid-flight.
   Future<ChatUser?> ensureCached(String userId) async {
     if (_isDisposed()) return null;
@@ -75,32 +82,40 @@ class UserCacheService {
     try {
       final fromHost = await _resolveFromHost(userId);
       if (_isDisposed()) return null;
-      if (fromHost != null) {
-        _cache[userId] = fromHost;
-        return fromHost;
-      }
+      if (fromHost != null) _cache[userId] = fromHost;
       final result = await _api.get(userId);
       if (_isDisposed()) return null;
-      final user = result.dataOrNull;
-      if (user != null) {
-        _cache[user.id] = user;
-      }
-      return user;
+      final profile = result.dataOrNull;
+      if (profile == null) return _cache[userId];
+      final merged = _underHostIdentity(profile, fromHost);
+      _cache[merged.id] = merged;
+      return merged;
     } catch (_) {
-      return null;
+      return _cache[userId];
     } finally {
       _pendingFetches.remove(userId);
     }
+  }
+
+  /// [profile] with the host's answer laid over the two fields the host is
+  /// authoritative about. A host that gave no name, or no picture, leaves
+  /// chat's own value standing rather than blanking it.
+  ChatUser _underHostIdentity(ChatUser profile, ChatUser? fromHost) {
+    if (fromHost == null) return profile;
+    return profile.copyWith(
+      displayName: fromHost.displayName ?? profile.displayName,
+      avatarUrl: fromHost.avatarUrl ?? profile.avatarUrl,
+    );
   }
 
   /// Asks the host directory about [userId] and turns a settled answer
   /// into a [ChatUser] the rest of the SDK can hold.
   ///
   /// Settled means the host either gave a name or said there is nobody
-  /// there ([HostUser.gone]); both are cached, and neither costs a chat
-  /// round trip. An unsettled id — no resolver, an omitted key, a failed
-  /// lookup — returns `null` so the caller falls back to chat's own
-  /// profile, which is all the SDK had before this hook existed.
+  /// there ([HostUser.gone]). An unsettled id — no resolver, an omitted
+  /// key, a failed lookup — returns `null`, and so does a settled answer
+  /// with no name in it, because in both cases chat's own profile is the
+  /// only thing left to paint.
   Future<ChatUser?> _resolveFromHost(String userId) async {
     if (!directory.isEnabled) return null;
     final known = directory.find(userId);
