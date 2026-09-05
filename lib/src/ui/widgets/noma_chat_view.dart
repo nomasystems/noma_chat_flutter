@@ -1040,6 +1040,11 @@ class _NomaChatViewState extends State<NomaChatView>
   /// [ChatViewBuilders.videoPreviewBuilder] rides along so a host can keep
   /// `video_player` out of its build — this is the only path that reaches
   /// the review step's clip preview.
+  ///
+  /// The size cap is measured on what actually leaves the device — after the
+  /// metadata scrub and after [ChatUiAdapter.attachmentShrinker] — so a
+  /// full-resolution shot above the cap is reduced and sent rather than
+  /// refused for a weight it no longer has.
   Future<void> _captureAndSend(String sendKey) async {
     final replyTo = _pendingReplyId();
     final submission = await CameraCapturePage.show(
@@ -1052,38 +1057,41 @@ class _NomaChatViewState extends State<NomaChatView>
     try {
       if (!mounted) return;
       final policy = _attachmentPolicy;
-      final violation = policy.validate(
-        mimeType: shot.mimeType,
-        sizeBytes: await shot.file.length(),
+      // Same metadata pass every other picked image gets: a photo shot with
+      // location services on carries GPS coordinates in its EXIF block.
+      final scrubbed = await ImageMetadataScrubber.scrub(
+        await shot.file.readAsBytes(),
+        onMetric: widget.adapter.metricCallback,
+      );
+      final payload = await AttachmentPickers.shrinkToPolicy(
+        AttachmentPickResult(
+          bytes: scrubbed,
+          mimeType: shot.mimeType,
+          fileName: shot.fileName,
+        ),
+        policy: policy,
+        shrinker: widget.adapter.attachmentShrinker,
       );
       if (!mounted) return;
+      final violation = policy.validate(
+        mimeType: payload.mimeType,
+        sizeBytes: payload.size,
+      );
       if (violation != null) {
         _reportAttachmentRejected(
           AttachmentRejection.fromPolicyViolation(
             violation,
-            fileName: shot.fileName,
+            fileName: payload.fileName,
+            sizeBytes: payload.size,
           ),
         );
         return;
       }
-      // Same metadata pass every other picked image gets: a photo shot with
-      // location services on carries GPS coordinates in its EXIF block.
-      final bytes = await ImageMetadataScrubber.scrub(
-        await shot.file.readAsBytes(),
-        onMetric: widget.adapter.metricCallback,
-      );
-      final shrunk = await widget.adapter.attachmentShrinker.fit(
-        bytes,
-        mimeType: shot.mimeType,
-        maxBytes: policy.maxBytesFor(shot.mimeType),
-        fileName: shot.fileName,
-      );
-      if (!mounted) return;
       await widget.adapter.messages.sendAttachment(
         sendKey,
-        bytes: shrunk?.bytes ?? bytes,
-        mimeType: shrunk?.mimeType ?? shot.mimeType,
-        fileName: shrunk?.fileName ?? shot.fileName,
+        bytes: payload.bytes,
+        mimeType: payload.mimeType,
+        fileName: payload.fileName,
         caption: submission.caption,
         referencedMessageId: replyTo,
         policy: policy,
@@ -1114,11 +1122,13 @@ class _NomaChatViewState extends State<NomaChatView>
             policy: policy,
             onRejected: _reportAttachmentRejected,
             onMetric: widget.adapter.metricCallback,
+            shrinker: widget.adapter.attachmentShrinker,
           )
         : await AttachmentPickers.pickImageFromGallery(
             policy: policy,
             onRejected: _reportAttachmentRejected,
             onMetric: widget.adapter.metricCallback,
+            shrinker: widget.adapter.attachmentShrinker,
           );
     if (pick == null || !mounted) return;
     await _reviewAndSend(sendKey, [pick], policy);
@@ -1130,6 +1140,7 @@ class _NomaChatViewState extends State<NomaChatView>
       policy: policy,
       onRejected: _reportAttachmentRejected,
       onMetric: widget.adapter.metricCallback,
+      shrinker: widget.adapter.attachmentShrinker,
     );
     if (pick == null || !mounted) return;
     await _reviewAndSend(sendKey, [pick], policy);

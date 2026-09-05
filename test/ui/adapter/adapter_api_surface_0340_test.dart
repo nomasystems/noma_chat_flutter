@@ -276,6 +276,105 @@ void main() {
       );
       expect(shrunk.fileName, 'shot.jpg');
     });
+
+    test('reaches the payload the size cap is measured on', () async {
+      const policy = AttachmentPolicy(maxBytes: 4);
+      final oversized = AttachmentPickResult(
+        bytes: Uint8List.fromList(List<int>.filled(12, 7)),
+        mimeType: 'image/heic',
+        fileName: 'shot.heic',
+      );
+
+      expect(
+        policy.validate(
+          mimeType: oversized.mimeType,
+          sizeBytes: oversized.size,
+        ),
+        isNotNull,
+        reason: 'what the camera handed over is over the cap as it stands',
+      );
+
+      final payload = await AttachmentPickers.shrinkToPolicy(
+        oversized,
+        policy: policy,
+        shrinker: _TruncatingShrinker(),
+      );
+
+      expect(payload.size, lessThanOrEqualTo(4));
+      expect(payload.mimeType, 'image/jpeg');
+      expect(payload.fileName, 'shot.jpg');
+      expect(
+        policy.validate(mimeType: payload.mimeType, sizeBytes: payload.size),
+        isNull,
+        reason: 'a capture above the cap is reduced and sent, not refused',
+      );
+    });
+
+    test('leaves the refusal in place when no engine is wired', () async {
+      const policy = AttachmentPolicy(maxBytes: 4);
+      final oversized = AttachmentPickResult(
+        bytes: Uint8List.fromList(List<int>.filled(12, 7)),
+        mimeType: 'image/heic',
+        fileName: 'shot.heic',
+      );
+
+      final payload = await AttachmentPickers.shrinkToPolicy(
+        oversized,
+        policy: policy,
+        shrinker: const NoAttachmentShrinker(),
+      );
+
+      expect(payload, same(oversized));
+      expect(
+        policy
+            .validate(mimeType: payload.mimeType, sizeBytes: payload.size)
+            ?.kind,
+        AttachmentPolicyViolationKind.tooLarge,
+      );
+    });
+  });
+
+  group('the plug & play entry point', () {
+    test('hands the 0.34 wiring straight to the adapter', () async {
+      Future<Map<String, HostUser>> resolver(Set<String> ids) async =>
+          const <String, HostUser>{};
+      final shrinker = _TruncatingShrinker();
+      final chat = NomaChat.fromClient(
+        client: client,
+        currentUser: me,
+        manageAppLifecycle: false,
+        userDirectoryResolver: resolver,
+        userDirectoryTtl: const Duration(minutes: 5),
+        bootstrapCurrentUser: true,
+        sendRetryPolicy: const SendRetryPolicy.none(),
+        attachmentShrinker: shrinker,
+      );
+      addTearDown(chat.dispose);
+
+      expect(chat.adapter.userDirectoryResolver, same(resolver));
+      expect(chat.adapter.userDirectoryTtl, const Duration(minutes: 5));
+      expect(chat.adapter.bootstrapCurrentUser, isTrue);
+      expect(chat.adapter.sendRetryPolicy, const SendRetryPolicy.none());
+      expect(chat.adapter.attachmentShrinker, same(shrinker));
+    });
+
+    test('keeps the sane defaults when the host says nothing', () async {
+      final chat = NomaChat.fromClient(
+        client: client,
+        currentUser: me,
+        manageAppLifecycle: false,
+      );
+      addTearDown(chat.dispose);
+
+      expect(chat.adapter.userDirectoryResolver, isNull);
+      expect(chat.adapter.userDirectoryTtl, const Duration(hours: 12));
+      expect(chat.adapter.bootstrapCurrentUser, isFalse);
+      expect(
+        chat.adapter.sendRetryPolicy,
+        const SendRetryPolicy.firstSendOnly(),
+      );
+      expect(chat.adapter.attachmentShrinker, isA<NoAttachmentShrinker>());
+    });
   });
 }
 

@@ -3,6 +3,8 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' as ip;
 
 import '../../_internal/cache/cache_manager.dart' show MetricCallback;
+import '../adapter/chat_ui_adapter.dart'
+    show AttachmentShrinker, NoAttachmentShrinker;
 import '../models/attachment_policy.dart';
 import '../models/attachment_rejection.dart';
 import '../utils/platform_support.dart';
@@ -74,6 +76,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
   }) async {
     if (!PlatformSupport.supportsCameraCapture) {
       logger?.call(
@@ -94,6 +97,7 @@ class AttachmentPickers {
         logger,
         onRejected,
         onMetric,
+        shrinker,
       );
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromCamera failed: $e');
@@ -108,6 +112,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
   }) async {
     try {
       final file = await _imagePicker.pickImage(
@@ -121,6 +126,7 @@ class AttachmentPickers {
         logger,
         onRejected,
         onMetric,
+        shrinker,
       );
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromGallery failed: $e');
@@ -135,6 +141,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
   }) async {
     try {
       final file = await _imagePicker.pickVideo(
@@ -147,6 +154,7 @@ class AttachmentPickers {
         logger,
         onRejected,
         onMetric,
+        shrinker,
         fallbackMime: 'video/mp4',
       );
     } on Object catch (e) {
@@ -169,6 +177,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
   }) async {
     try {
       final files = await _imagePicker.pickMultipleMedia(
@@ -183,6 +192,7 @@ class AttachmentPickers {
           logger,
           onRejected,
           onMetric,
+          shrinker,
         );
         if (r != null) results.add(r);
       }
@@ -212,6 +222,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
   }) async {
     if (!PlatformSupport.supportsFilePicker) {
       logger?.call('warn', 'pickFile unsupported on this platform; ignoring');
@@ -233,11 +244,15 @@ class AttachmentPickers {
         onRejected?.call(AttachmentRejection.unreadable(fileName: file.name));
         return null;
       }
-      final pick = AttachmentPickResult(
-        bytes: await ImageMetadataScrubber.scrub(bytes, onMetric: onMetric),
-        mimeType:
-            _mimeFromExtension(file.extension) ?? 'application/octet-stream',
-        fileName: file.name,
+      final pick = await shrinkToPolicy(
+        AttachmentPickResult(
+          bytes: await ImageMetadataScrubber.scrub(bytes, onMetric: onMetric),
+          mimeType:
+              _mimeFromExtension(file.extension) ?? 'application/octet-stream',
+          fileName: file.name,
+        ),
+        policy: policy,
+        shrinker: shrinker,
       );
       final violation = policy.validate(
         mimeType: pick.mimeType,
@@ -263,12 +278,40 @@ class AttachmentPickers {
     }
   }
 
+  /// Runs [shrinker] over [pick] and returns the payload that will
+  /// actually be uploaded: the re-encoded one when the engine produced it,
+  /// [pick] itself when it declined.
+  ///
+  /// Callers validate the result of this step, never [pick]: measuring the
+  /// size cap on bytes the shrinker is about to replace rejects photos that
+  /// would have fit once reduced.
+  @internal
+  static Future<AttachmentPickResult> shrinkToPolicy(
+    AttachmentPickResult pick, {
+    required AttachmentPolicy policy,
+    required AttachmentShrinker shrinker,
+  }) async {
+    final shrunk = await shrinker.fit(
+      pick.bytes,
+      mimeType: pick.mimeType,
+      maxBytes: policy.maxBytesFor(pick.mimeType),
+      fileName: pick.fileName ?? '',
+    );
+    if (shrunk == null) return pick;
+    return AttachmentPickResult(
+      bytes: shrunk.bytes,
+      mimeType: shrunk.mimeType,
+      fileName: shrunk.fileName,
+    );
+  }
+
   static Future<AttachmentPickResult?> _xfileToValidatedResult(
     ip.XFile? file,
     AttachmentPolicy policy,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
-    MetricCallback? onMetric, {
+    MetricCallback? onMetric,
+    AttachmentShrinker shrinker, {
     String fallbackMime = 'application/octet-stream',
   }) async {
     if (file == null) return null;
@@ -276,13 +319,17 @@ class AttachmentPickers {
       await file.readAsBytes(),
       onMetric: onMetric,
     );
-    final pick = AttachmentPickResult(
-      bytes: bytes,
-      mimeType:
-          file.mimeType ??
-          _mimeFromExtension(_extensionOf(file.name)) ??
-          fallbackMime,
-      fileName: file.name,
+    final pick = await shrinkToPolicy(
+      AttachmentPickResult(
+        bytes: bytes,
+        mimeType:
+            file.mimeType ??
+            _mimeFromExtension(_extensionOf(file.name)) ??
+            fallbackMime,
+        fileName: file.name,
+      ),
+      policy: policy,
+      shrinker: shrinker,
     );
     final violation = policy.validate(
       mimeType: pick.mimeType,
