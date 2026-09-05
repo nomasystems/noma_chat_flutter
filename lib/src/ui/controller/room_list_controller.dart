@@ -3,13 +3,28 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import '../models/room_list_item.dart';
 
+/// Resolves the display names of [room]'s participants for the room list's
+/// "search by member" matching — see
+/// [RoomListController.participantNameResolver].
+///
+/// The SDK does not track room membership itself (that lives in whatever
+/// directory/cache the host already maintains), so this hands the whole
+/// [RoomListItem] to the host and asks for plain candidate strings back:
+/// no ids, no async, no batching contract. Returning an empty iterable
+/// (the default when no resolver is wired) simply means the room can only
+/// be found by title or last-message text.
+typedef ParticipantNameResolver = Iterable<String> Function(RoomListItem room);
+
 /// Manages the list of rooms displayed in [RoomListView].
 ///
 /// Handles sorting (pinned first, then by last message time), text filtering,
 /// and multi-selection state. Backed by [ChangeNotifier].
 class RoomListController extends ChangeNotifier {
-  RoomListController({List<RoomListItem> initialRooms = const []})
-    : _rooms = List<RoomListItem>.from(initialRooms) {
+  RoomListController({
+    List<RoomListItem> initialRooms = const [],
+    ParticipantNameResolver? participantNameResolver,
+  }) : _rooms = List<RoomListItem>.from(initialRooms),
+       _participantNameResolver = participantNameResolver {
     _sortRooms();
     _rebuildIndex();
   }
@@ -31,6 +46,14 @@ class RoomListController extends ChangeNotifier {
   String _filter = '';
   bool _filterDirty = true;
   List<RoomListItem>? _cachedFilteredRooms;
+  List<RoomListItem>? _cachedFilteredArchivedRooms;
+  ParticipantNameResolver? _participantNameResolver;
+
+  /// Participant name that matched the active [filter], keyed by room id —
+  /// populated by the same pass that builds [_cachedFilteredRooms] /
+  /// [_cachedFilteredArchivedRooms], so it is always in sync with whichever
+  /// rooms those actually contain.
+  final Map<String, String> _matchedParticipantByRoomId = {};
 
   /// Monotonic counter behind [nextSeq]; [_lastAppliedSeq] is the highest
   /// sequence number any pass has actually reached the list with so far.
@@ -88,22 +111,7 @@ class RoomListController extends ChangeNotifier {
   Set<String> get deletedRoomIds => Set.unmodifiable(_deletedRoomIds);
 
   List<RoomListItem> get rooms {
-    if (_filterDirty || _cachedFilteredRooms == null) {
-      final visible = _rooms.where((r) => !r.hidden && !_isDeleted(r.id));
-      if (_filter.isEmpty) {
-        _cachedFilteredRooms = List.unmodifiable(visible.toList());
-      } else {
-        final lower = _filter.toLowerCase();
-        _cachedFilteredRooms = List.unmodifiable(
-          visible.where(
-            (r) =>
-                (r.name?.toLowerCase().contains(lower) ?? false) ||
-                (r.lastMessage?.toLowerCase().contains(lower) ?? false),
-          ),
-        );
-      }
-      _filterDirty = false;
-    }
+    _ensureFilterCache();
     return _cachedFilteredRooms!;
   }
 
@@ -114,16 +122,83 @@ class RoomListController extends ChangeNotifier {
   /// collapsible "Archived" section of [RoomListView]. Sorted like the
   /// main list (pinned first, then most-recent).
   List<RoomListItem> get archivedRooms {
-    final archived = _rooms.where((r) => r.hidden && !_isDeleted(r.id));
-    if (_filter.isEmpty) return List.unmodifiable(archived.toList());
-    final lower = _filter.toLowerCase();
-    return List.unmodifiable(
-      archived.where(
-        (r) =>
-            (r.name?.toLowerCase().contains(lower) ?? false) ||
-            (r.lastMessage?.toLowerCase().contains(lower) ?? false),
-      ),
+    _ensureFilterCache();
+    return _cachedFilteredArchivedRooms!;
+  }
+
+  /// Wires (or clears) the [ParticipantNameResolver] the filter matches
+  /// against, for hosts that want a "search by member" box in addition to
+  /// title/last-message text. Also settable via the constructor; use this
+  /// when the host only has the resolver ready after building the
+  /// controller (e.g. once its own member cache warms up).
+  void setParticipantNameResolver(ParticipantNameResolver? resolver) {
+    if (identical(_participantNameResolver, resolver)) return;
+    _participantNameResolver = resolver;
+    _invalidateFilterCache();
+    notifyListeners();
+  }
+
+  /// The participant name that matched the active [filter] for [roomId] —
+  /// e.g. a group titled "Weekend trip" found by typing "ali" because
+  /// "Alice" is a member — for use as the row's match subtitle. `null`
+  /// when [roomId] is not currently visible under [filter], or it matched
+  /// on its title/last message rather than a member name.
+  String? matchedParticipantFor(String roomId) {
+    _ensureFilterCache();
+    return _matchedParticipantByRoomId[roomId];
+  }
+
+  void _ensureFilterCache() {
+    if (!_filterDirty &&
+        _cachedFilteredRooms != null &&
+        _cachedFilteredArchivedRooms != null) {
+      return;
+    }
+    final lower = _filter.isEmpty ? null : _filter.toLowerCase();
+    _matchedParticipantByRoomId.clear();
+    _cachedFilteredRooms = _filterRooms(
+      _rooms.where((r) => !r.hidden && !_isDeleted(r.id)),
+      lower,
     );
+    _cachedFilteredArchivedRooms = _filterRooms(
+      _rooms.where((r) => r.hidden && !_isDeleted(r.id)),
+      lower,
+    );
+    _filterDirty = false;
+  }
+
+  List<RoomListItem> _filterRooms(
+    Iterable<RoomListItem> source,
+    String? lowerFilter,
+  ) {
+    if (lowerFilter == null) return List.unmodifiable(source.toList());
+    final resolver = _participantNameResolver;
+    final result = <RoomListItem>[];
+    for (final room in source) {
+      if (room.displayName.toLowerCase().contains(lowerFilter) ||
+          (room.lastMessage?.toLowerCase().contains(lowerFilter) ?? false)) {
+        result.add(room);
+        continue;
+      }
+      final match = resolver == null
+          ? null
+          : _firstMatchingParticipant(resolver(room), lowerFilter);
+      if (match != null) {
+        _matchedParticipantByRoomId[room.id] = match;
+        result.add(room);
+      }
+    }
+    return List.unmodifiable(result);
+  }
+
+  String? _firstMatchingParticipant(
+    Iterable<String> names,
+    String lowerFilter,
+  ) {
+    for (final name in names) {
+      if (name.toLowerCase().contains(lowerFilter)) return name;
+    }
+    return null;
   }
 
   /// `true` when at least one room is archived (ignoring the text filter).
@@ -187,6 +262,8 @@ class RoomListController extends ChangeNotifier {
 
   Set<String> get selectedIds => Set.unmodifiable(_selectedIds);
   String get filter => _filter;
+  ParticipantNameResolver? get participantNameResolver =>
+      _participantNameResolver;
   bool get isSelecting => _selectedIds.isNotEmpty;
 
   RoomListItem? getRoomById(String roomId) {
@@ -491,8 +568,12 @@ class RoomListController extends ChangeNotifier {
 
   /// Notifies listeners without changing room state. Use after external data
   /// that the tile renders (e.g. cached member display names) has changed and
-  /// the visible representation needs to refresh.
+  /// the visible representation needs to refresh. Also invalidates the
+  /// filter cache: a [participantNameResolver] typically reads from that
+  /// same external cache, so a name landing after the filter was first
+  /// applied can turn a previously-hidden room into a match.
   void notifyMembersChanged() {
+    _invalidateFilterCache();
     notifyListeners();
   }
 

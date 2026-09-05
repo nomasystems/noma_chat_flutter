@@ -213,6 +213,7 @@ class RoomListView extends StatelessWidget {
       theme: theme,
       currentUserId: currentUserId,
       lastMessageSenderName: lastMessageSenderNames[room.id],
+      matchedParticipant: controller.matchedParticipantFor(room.id),
       statusIconBuilder: statusIconBuilder,
       blockedSenderIds: _blockedSenderIds,
       blockedContentPolicy: blockedContentPolicy,
