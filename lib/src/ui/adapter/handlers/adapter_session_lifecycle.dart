@@ -6,9 +6,10 @@ part of '../chat_ui_adapter.dart';
 /// [ChatUiAdapter.signOut] and [ChatUiAdapter.dispose], plus the state each
 /// of them resets.
 ///
-/// Lives next to the adapter as a `part`, so every member reads and writes
-/// the same private fields it did when it sat in the class body.
-extension ChatUiAdapterSessionLifecycle on ChatUiAdapter {
+/// Lives next to the adapter as a `part` and is mixed into [ChatUiAdapter],
+/// so every member stays a real instance member of the adapter and reads
+/// and writes the same private fields it did when it sat in the class body.
+mixin _AdapterSessionLifecycle on _AdapterCore {
   /// Starts listening to SDK events without connecting. Call [connect] instead for full setup.
   void start() {
     _cancelSubscriptions();

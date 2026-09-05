@@ -6,9 +6,10 @@ part of '../chat_ui_adapter.dart';
 /// flags (mute, pin, hide), membership and configuration writes,
 /// invitations and the kicked-chat cleanup.
 ///
-/// Lives next to the adapter as a `part`, so every member reads and writes
-/// the same private fields it did when it sat in the class body.
-extension ChatUiAdapterRoomActions on ChatUiAdapter {
+/// Lives next to the adapter as a `part` and is mixed into [ChatUiAdapter],
+/// so every member stays a real instance member of the adapter and reads
+/// and writes the same private fields it did when it sat in the class body.
+mixin _AdapterRoomActions on _AdapterCore {
   /// Returns (or creates) a [ChatController] for the given room.
   ///
   /// When [otherUsers] is supplied it is cached and pushed onto the
@@ -227,6 +228,7 @@ extension ChatUiAdapterRoomActions on ChatUiAdapter {
   /// (network error, timeout, 5xx) never touches the list, here or in any
   /// caller.
   @internal
+  @override
   Future<ChatResult<void>> loadRooms({
     String type = 'all',
     bool forceNetwork = false,
@@ -422,6 +424,7 @@ extension ChatUiAdapterRoomActions on ChatUiAdapter {
   void _addRoomFromDetail(String roomId, {ChatMessage? lastMessage}) =>
       _enricher.addFromDetail(roomId, lastMessage: lastMessage);
 
+  @override
   void _enrichRoomFromDetail(String roomId) => _enricher.refreshRoom(roomId);
 
   /// "Delete kicked chat" — WhatsApp's option to manually remove a

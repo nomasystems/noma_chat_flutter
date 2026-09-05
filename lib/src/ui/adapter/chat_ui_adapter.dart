@@ -78,6 +78,7 @@ part 'api/messages_attachments_controller.dart';
 part 'api/messages_controller.dart';
 part 'api/profile_controller.dart';
 part 'api/rooms_controller.dart';
+part 'handlers/adapter_core.dart';
 part 'handlers/adapter_profile_actions.dart';
 part 'handlers/adapter_room_actions.dart';
 part 'handlers/adapter_session_lifecycle.dart';
@@ -207,7 +208,8 @@ class NoAttachmentShrinker implements AttachmentShrinker {
 /// Subscribes to real-time events and routes them to the appropriate
 /// [ChatController] or [RoomListController]. Provides high-level actions
 /// (send, edit, delete, react) with optimistic UI updates.
-class ChatUiAdapter {
+class ChatUiAdapter extends _AdapterCore
+    with _AdapterSessionLifecycle, _AdapterRoomActions, _AdapterProfileActions {
   ChatUiAdapter({
     required this.client,
     required ChatUser currentUser,
@@ -256,6 +258,7 @@ class ChatUiAdapter {
     }
   }
 
+  @override
   final ChatClient client;
 
   // -- Sub-APIs -----------------------------------------------------
@@ -268,22 +271,27 @@ class ChatUiAdapter {
 
   /// Per-message operations — `load`, `send`, `edit`, `delete`,
   /// reactions, attachments, voice, threads, search, pin, etc.
+  @override
   late final ChatMessagesController messages = ChatMessagesController(this);
 
   /// Room-level operations — `load`, `mute`/`unmute`, `pin`/`unpin`,
   /// `hide`/`unhide`, `leave`, `addMembers`, `updateConfig`,
   /// `createGroup`, etc.
+  @override
   late final ChatRoomsController rooms = ChatRoomsController(this);
 
   /// Contact / blocked-users operations — `block`, `unblock`,
   /// `loadBlocked`, `pruneBlockedRooms`, `blockedUserIds`.
+  @override
   late final ChatContactsController contacts = ChatContactsController(this);
 
   /// Current-user profile mutations — `update`, `uploadAvatar`.
+  @override
   late final ChatProfileController profile = ChatProfileController(this);
 
   /// Direct-message helpers — `findExisting`, `openDraft`,
   /// `ensureMaterialized`, `draftRoutingKey`.
+  @override
   late final ChatDmController dm = ChatDmController(this);
 
   /// Profile of the user this adapter belongs to. Starts as the value
@@ -291,7 +299,9 @@ class ChatUiAdapter {
   /// optimistically and the WS `user_updated` echo from the backend can
   /// also push fresh values (e.g. a profile change made from a second
   /// device).
+  @override
   ChatUser get currentUser => _currentUser;
+  @override
   ChatUser _currentUser;
 
   /// Reactive view of [currentUser]. Rebuilds via `ValueListenableBuilder`
@@ -303,6 +313,7 @@ class ChatUiAdapter {
   /// header, settings entry...). Reading `adapter.currentUser` directly
   /// is fine for one-shot reads but does not trigger rebuilds.
   ValueListenable<ChatUser> get currentUserListenable => _currentUserListenable;
+  @override
   late final ValueNotifier<ChatUser> _currentUserListenable =
       ValueNotifier<ChatUser>(_currentUser);
 
@@ -315,6 +326,7 @@ class ChatUiAdapter {
   /// `GroupMembersView` uses exactly this to refresh sender avatars in
   /// group bubbles + member-row avatars without a manual reload.
   Listenable get userCacheListenable => _userCacheListenable;
+  @override
   final _BroadcastNotifier _userCacheListenable = _BroadcastNotifier();
 
   /// Fires whenever [blockedUserIds] mutates — either via [blockContact]
@@ -324,6 +336,7 @@ class ChatUiAdapter {
   /// notifier carries no payload; callers read the current snapshot
   /// from [blockedUserIds].
   Listenable get blockedUsersListenable => _blockedUsersListenable;
+  @override
   final _BroadcastNotifier _blockedUsersListenable = _BroadcastNotifier();
 
   /// Fires whenever a room's membership changes in realtime (someone was
@@ -335,6 +348,7 @@ class ChatUiAdapter {
   /// pull-to-refresh, mirroring the [userCacheListenable] avatar/name
   /// push-update.
   Listenable get roomMembersListenable => _roomMembersListenable;
+  @override
   final _BroadcastNotifier _roomMembersListenable = _BroadcastNotifier();
 
   /// Id of the room whose membership most recently changed, set right
@@ -432,6 +446,7 @@ class ChatUiAdapter {
   ///
   /// `null` (the default) keeps the SDK asking chat and nobody else,
   /// which is all it could do before this hook existed.
+  @override
   final UserDirectoryResolver? userDirectoryResolver;
 
   /// How long a name resolved through [userDirectoryResolver] stays good
@@ -449,6 +464,7 @@ class ChatUiAdapter {
   /// behaviour it already had. Turned on, the adapter reads the profile
   /// once and creates it only when chat says it is not there — never
   /// blindly, and never fatal if the read itself fails.
+  @override
   final bool bootstrapCurrentUser;
 
   /// Whether the SDK retries, on its own, a message sent into a
@@ -459,12 +475,14 @@ class ChatUiAdapter {
   /// that did arrive cannot be duplicated by the retry.
   final SendRetryPolicy sendRetryPolicy;
 
+  @override
   final ChatLocalDatasource? _cache;
 
   /// Plugged-in storage for avatar uploads. Defaults to
   /// [DefaultAvatarStorage] which delegates to `client.attachments.upload`.
   /// Consumers wire a custom implementation when avatars must live on
   /// their own backend (Firebase, S3, custom CHT/wb pipeline, …).
+  @override
   final AvatarStorage avatarStorage;
 
   /// Extracts the poster frame `sendAttachment` uploads alongside an
@@ -507,6 +525,7 @@ class ChatUiAdapter {
   /// sends; see `AuthenticatedAttachmentLoader`'s doc.
   AttachmentMediaLoader get defaultAttachmentMediaLoader =>
       _attachmentMediaLoader;
+  @override
   late final AttachmentMediaLoader _attachmentMediaLoader =
       AuthenticatedAttachmentLoader(client: client, logger: logs);
 
@@ -521,6 +540,7 @@ class ChatUiAdapter {
   /// existed. Cached from whatever [logger] holds at first access, same as
   /// [_attachmentResolver] always has — reassigning [logger] afterwards
   /// does not retarget an already-built [logs].
+  @override
   ChatLogger? get logs => logger == null
       ? null
       : (_logs ??= ChatLogger(
@@ -539,6 +559,7 @@ class ChatUiAdapter {
   ///
   /// Disable when the consumer wants to drive marking-as-read manually
   /// (e.g. tied to message visibility on screen rather than chat entry).
+  @override
   final bool autoMarkAsRead;
 
   /// When `true` (default), the adapter confirms message delivery
@@ -577,6 +598,7 @@ class ChatUiAdapter {
   /// flappy reconnects only resyncs once per 5 seconds. Disable if the host
   /// wants to drive resync itself (e.g. tied to its own connectivity
   /// signal).
+  @override
   final bool enableReconnectResync;
 
   /// Minimum spacing between background room-list revalidation passes for
@@ -590,6 +612,7 @@ class ChatUiAdapter {
 
   /// Registered in the constructor when [manageAppLifecycle] is `true`;
   /// detached in [dispose]. `null` otherwise.
+  @override
   ChatLifecycleObserver? _lifecycleObserver;
 
   /// Wall-clock time the current/last [resync] *attempt* started, used to
@@ -597,28 +620,33 @@ class ChatUiAdapter {
   /// [enableReconnectResync]). Owned per-attempt: a failing attempt only
   /// clears it when no newer attempt has re-stamped it in the meantime, so a
   /// late failure can never wipe a seal a subsequent attempt already set.
+  @override
   DateTime? _lastResyncAt;
 
   /// `true` while a [resync] loop is running its network work. A trigger
   /// that lands during this window is coalesced into [_resyncPending] rather
   /// than dropped on the debounce floor — a reconnect that arrives mid-resync
   /// carries its own disconnected-window backlog to recover.
+  @override
   bool _resyncInFlight = false;
 
   /// Set when a [resync] trigger arrives while one is already
   /// [_resyncInFlight]; makes the in-flight loop run one more pass once it
   /// finishes so the later trigger's backlog is not lost.
+  @override
   bool _resyncPending = false;
 
   /// Minimum spacing between automatic reconnect-triggered [resync] calls.
   /// Test-overridable via the constructor's `resyncDebounce` parameter so a
   /// suite can shrink the window instead of waiting out the real default.
+  @override
   final Duration _resyncDebounce;
 
   /// Set while a trigger dropped by the time debounce (not the in-flight
   /// coalescing above) is waiting to run once the window clears, so a burst
   /// of triggers inside the same window schedules only one deferred pass
   /// instead of stacking timers.
+  @override
   Timer? _resyncDeferredTimer;
 
   bool _isDmDetail(RoomDetail detail) {
@@ -633,6 +661,7 @@ class ChatUiAdapter {
     return true;
   }
 
+  @override
   void Function(String level, String message)? logger;
 
   /// Minimum level a record must reach to pass through [logs]. Mirrors
@@ -672,6 +701,7 @@ class ChatUiAdapter {
   /// adapter's own internal emission sites (`setActiveRoom`, the send path,
   /// the incoming-message router). A throwing sink is caught and dropped:
   /// analytics must never be able to break the chat.
+  @override
   void emitAnalyticsEvent(ChatAnalyticsEvent event) {
     final sink = analyticsSink;
     if (sink == null) return;
@@ -680,20 +710,24 @@ class ChatUiAdapter {
     } catch (_) {}
   }
 
+  @override
   final RoomListController roomListController;
 
   /// Lifecycle service: owns `connectionStateNotifier`,
   /// `initializedNotifier`, the disposal flag, and the in-flight
   /// `loadRooms` completer.
+  @override
   final ConnectionLifecycle _lifecycle;
 
   /// Notifier for the current realtime connection state. Backed by
   /// [_lifecycle] — the getter keeps the public API source-compatible
   /// (`adapter.connectionStateNotifier` still works).
+  @override
   ValueNotifier<ChatConnectionState> get connectionStateNotifier =>
       _lifecycle.connectionState;
 
   /// Becomes `true` after the first successful [loadRooms] call.
+  @override
   ValueNotifier<bool> get initializedNotifier => _lifecycle.initialized;
 
   /// What the cache (disk) phase of the room load was able to say, so a
@@ -729,6 +763,7 @@ class ChatUiAdapter {
   /// ```
   ///
   /// Released by [dispose]; do not listen after that.
+  @override
   ValueListenable<RoomHydrationStatus> get roomHydrationNotifier =>
       _enricher.hydrationNotifier;
 
@@ -752,18 +787,22 @@ class ChatUiAdapter {
   /// existing `_chatControllers[roomId]` callsites work unchanged.
   /// The added value is the `disposeAll()` lifecycle helper used in
   /// `signOut` / `dispose`.
+  @override
   final ChatControllerRegistry _chatControllers = ChatControllerRegistry();
 
   /// Bidirectional `contact ↔ room` map plus stashed draft customs.
   /// Backed by [DmContactRegistry]. The legacy `_dmRoomByContact`
   /// callsites in the `part of` collaborators go through the
   /// service.
+  @override
   final DmContactRegistry _dmContacts = DmContactRegistry();
+  @override
   final RoomRosterRegistry _roomRosters = RoomRosterRegistry();
 
   // -- Sub-managers (composition) --
   /// Standalone handler — no `part of` access, fully injected. Lives
   /// in `services/presence_registry.dart`.
+  @override
   late final PresenceRegistry _presence = PresenceRegistry(
     api: client.presence,
     roomList: roomListController,
@@ -781,6 +820,7 @@ class ChatUiAdapter {
   /// Standalone handler — `handlers/room_enricher.dart`. Receives
   /// every dep explicitly so tests can mock individual services
   /// instead of building the full adapter.
+  @override
   late final RoomEnricher _enricher = RoomEnricher(
     client: client,
     controllers: _chatControllers,
@@ -815,6 +855,7 @@ class ChatUiAdapter {
   /// events or optimistic operations (last-message preview, reaction
   /// preview, receipts, unread counts, DM title/avatar refresh,
   /// sender-name backfill and blocked-rooms pruning).
+  @override
   late final RoomListMutator _roomListMutator = RoomListMutator(
     roomListController: roomListController,
     cache: _cache,
@@ -909,6 +950,7 @@ class ChatUiAdapter {
     logger: logger,
   );
 
+  @override
   // -- Typing throttle & stop-emit timers --
   // Backed by `TypingTimerRegistry`. Adapter wires the auto-stop
   // callback to the actual REST `sendTyping(stopsTyping)` so the
@@ -919,6 +961,7 @@ class ChatUiAdapter {
     },
   );
 
+  @override
   // -- User cache (in-memory only; persistent cache lives in [_cache]).
   // Backed by `UserCacheService` which also owns the in-flight fetch
   // dedupe.
@@ -964,6 +1007,7 @@ class ChatUiAdapter {
   /// room max, follow-ups stash the newest cursor. Used by the event
   /// router (live messages), `messages.load` and the room-sync catch-up
   /// when [autoConfirmDelivery] is on.
+  @override
   late final DeliveredConfirmationCoordinator _deliveredCoord =
       DeliveredConfirmationCoordinator(
         messages: client.messages,
@@ -975,17 +1019,20 @@ class ChatUiAdapter {
         // confirmation is re-sent then.
         connectionState: connectionStateNotifier,
       );
+  @override
   // Both ARE cancelled, in `_cancelSubscriptions` below, via locals
   // snapshotted from these fields — see that method's doc comment for why
   // the lint's simple direct-field-reference pattern can't see it.
   // ignore: cancel_subscriptions
   StreamSubscription<ChatEvent>? _eventSub;
+  @override
   // ignore: cancel_subscriptions
   StreamSubscription<ChatConnectionState>? _stateSub;
 
   /// Convenience accessor for the lifecycle's disposed flag — used in
   /// the ~25 async paths that need to early-out when the adapter has
   /// been torn down mid-flight.
+  @override
   bool get _disposed => _lifecycle.isDisposed;
 
   /// Bumped every time the room controllers are wiped — [signOut],
@@ -994,6 +1041,7 @@ class ChatUiAdapter {
   /// flow that captured a [ChatController] before it has no more right to
   /// touch it, or the cache `signOut` just cleared, than one racing a real
   /// disposal.
+  @override
   int _sessionEpoch = 0;
 
   /// `true` when the session that was live at [epoch] has ended — see
@@ -1001,6 +1049,7 @@ class ChatUiAdapter {
   /// front and re-check it after every suspension point.
   bool _sessionEndedSince(int epoch) => _disposed || _sessionEpoch != epoch;
 
+  @override
   bool _clearingRooms = false;
 
   /// `true` for the whole of a session teardown — every notification it
@@ -1019,6 +1068,7 @@ class ChatUiAdapter {
   /// Deliberately an explicit signal instead of an inference from the list
   /// going empty: being removed from the only room you had empties it too,
   /// and that one is a real removal the host still has to hear about.
+  @override
   bool get isTearingDown => _disposed || _clearingRooms;
 
   void Function(String message)? onBroadcast;
@@ -1057,6 +1107,7 @@ class ChatUiAdapter {
   /// and fires its own onChange callback on real mutations; the
   /// adapter glues that callback to the room-prune flow + the public
   /// `onBlockedUsersChanged` hook below.
+  @override
   late final BlockedUsersRegistry _blockedUsers = BlockedUsersRegistry(
     onChanged: (ids) {
       // Blocking keeps the chat (Decision A): the blocked DM stays in the
@@ -1077,12 +1128,14 @@ class ChatUiAdapter {
   /// changes ([blockedUserIds]= …). Consumers typically push the full set
   /// after their own user-info refresh; [blockContact] also keeps it in
   /// sync for the rooms it touches.
+  @override
   Set<String> get blockedUserIds => contacts.blockedUserIds;
 
   /// Replaces the blocked-users set wholesale and prunes any DM rooms
   /// whose `otherUserId` ended up blocked. Emits [onBlockedUsersChanged]
   /// after the prune. Idempotent — passing the same set twice is a no-op
   /// (the prune still runs but finds nothing new to remove).
+  @override
   set blockedUserIds(Set<String> ids) {
     contacts.blockedUserIds = ids;
   }
@@ -1119,12 +1172,14 @@ class ChatUiAdapter {
   /// every `_emitFailure(...)` / `emitOperationSuccess(...)` callsite
   /// to this hub so the stream lifecycle + "skip if closed" guard
   /// have a single tested home.
+  @override
   final OperationHub _operations = OperationHub();
 
   /// Broadcast stream of failures from any adapter operation. The
   /// original `ChatResult.ChatFailureResult` is still returned to the caller; this
   /// stream is for cross-cutting concerns (global snackbars,
   /// telemetry). Multiple subscribers can listen concurrently.
+  @override
   Stream<OperationError> get operationErrors => _operations.errors;
 
   /// Broadcast stream of successful operations that have user-visible
@@ -1151,6 +1206,7 @@ class ChatUiAdapter {
     userId: userId,
   );
 
+  @override
   ChatResult<T> _emitFailure<T>(
     ChatResult<T> result,
     OperationKind kind, {
@@ -1171,6 +1227,7 @@ class ChatUiAdapter {
   /// back without one. The server omits the field for the synchronous POST
   /// response, so without this helper an outgoing bubble would render with no
   /// status icon until a `delivered`/`read` event arrives.
+  @override
   ChatMessage _ensureSentReceipt(ChatMessage message) => message.receipt == null
       ? message.copyWith(receipt: ReceiptStatus.sent)
       : message;
@@ -1184,6 +1241,7 @@ class ChatUiAdapter {
   /// immediately for incoming messages in that room — so the sender sees
   /// the second tick flip to blue in real time, exactly as WhatsApp does
   /// when both peers are in the same conversation.
+  @override
   String? _activeRoomId;
   String? get activeRoomId => _activeRoomId;
 
@@ -1219,6 +1277,7 @@ class ChatUiAdapter {
   /// Loads initial messages for a room using cache-then-network:
   /// 1. Shows cached messages instantly (if available).
   /// 2. Fetches fresh messages from network in background and merges.
+  @override
   Future<ChatResult<List<ChatMessage>>> loadMessages(
     String roomId, {
     int limit = 50,
@@ -1301,6 +1360,7 @@ class ChatUiAdapter {
     int limit = 50,
   }) => messages.loadMore(roomId, limit: limit);
 
+  @override
   // Message IDs with pending reaction deletes — skip WS refresh for these.
   // Backed by `PendingReactionsRegistry` (services/) so the
   // suppression logic has its own tested home rather than being a
@@ -1314,6 +1374,7 @@ class ChatUiAdapter {
   /// specific [OperationKind] on the error stream instead of the default
   /// [OperationKind.sendMessage]; pass `null` to use the default.
   @internal
+  @override
   Future<ChatResult<ChatMessage>> sendMessage(
     String roomId, {
     required String text,
@@ -1429,6 +1490,7 @@ class ChatUiAdapter {
   /// original sender so the second tick can flip to "read"; legacy callers
   /// that omit it still get the room-level `lastReadAt` persisted as before.
   @internal
+  @override
   Future<ChatResult<void>> markAsRead(
     String roomId, {
     String? lastReadMessageId,
@@ -1498,6 +1560,7 @@ class ChatUiAdapter {
   /// from [AttachmentPickers]. For voice messages keep using the
   /// dedicated [sendVoiceMessage] (it owns the waveform + duration).
   @internal
+  @override
   Future<ChatResult<ChatMessage>> sendAttachment(
     String roomIdOrDraftKey, {
     required Uint8List bytes,
@@ -1526,6 +1589,7 @@ class ChatUiAdapter {
   /// that resolved one once and subscribed to it directly would get a
   /// use-after-dispose on its next rebuild. See [VoiceUploadRegistry] for
   /// the full argument.
+  @override
   final VoiceUploadRegistry _voiceUploads = VoiceUploadRegistry();
 
   /// Cancel tokens for every blob currently on the wire — `sendAttachment`,
@@ -1533,9 +1597,11 @@ class ChatUiAdapter {
   /// [_resetConnectionState], which cancels the lot when a session ends.
   /// Kept apart from [_voiceUploads]: a progress notifier and a cancel token
   /// have unrelated lifecycles (see [AttachmentUploadCancelRegistry]'s doc).
+  @override
   final AttachmentUploadCancelRegistry _attachmentUploadCancels =
       AttachmentUploadCancelRegistry();
 
+  @override
   final FailedUploadRegistry _failedUploads = FailedUploadRegistry();
 
   /// Bytes held for media rows whose upload failed, so `messages.retrySend`
@@ -1619,6 +1685,7 @@ class ChatUiAdapter {
     waveform: waveform,
   );
 
+  @override
   bool _currentUserAvatarProbed = false;
 
   /// Retries sending a failed message.
@@ -1676,6 +1743,7 @@ class ChatUiAdapter {
   /// Routes a real-time event from the SDK to the right adapter helper.
   /// All cases live in [ChatEventRouter] so this facade only carries the
   /// one-line delegate.
+  @override
   late final ChatEventRouter _eventRouter = ChatEventRouter(
     ChatEventRouterDeps(
       client: client,

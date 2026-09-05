@@ -6,15 +6,17 @@ part of '../chat_ui_adapter.dart';
 /// [ChatUiAdapter.updateMyProfile], [ChatUiAdapter.refreshCurrentUser])
 /// and the presence lookups.
 ///
-/// Lives next to the adapter as a `part`, so every member reads and writes
-/// the same private fields it did when it sat in the class body.
-extension ChatUiAdapterProfileActions on ChatUiAdapter {
+/// Lives next to the adapter as a `part` and is mixed into [ChatUiAdapter],
+/// so every member stays a real instance member of the adapter and reads
+/// and writes the same private fields it did when it sat in the class body.
+mixin _AdapterProfileActions on _AdapterCore {
   /// Best-effort resolution of a room's other participants from state the
   /// adapter already holds — currently the resolved DM contact hydrated
   /// from the in-memory user cache. Returns `const []` for group rooms,
   /// unresolved DMs, or DMs whose peer hasn't been cached yet. Never
   /// triggers a network fetch; callers that need a guaranteed roster use
   /// the room-detail / members flows.
+  @override
   List<ChatUser> _cachedOtherUsersForRoom(String roomId) {
     final contactId = _dmContacts.contactIdFor(roomId);
     if (contactId == null) return const [];
@@ -121,6 +123,7 @@ extension ChatUiAdapterProfileActions on ChatUiAdapter {
   }
 
   /// Inserts or updates the given users in the in-memory cache.
+  @override
   void cacheUsers(Iterable<ChatUser> users) {
     if (_disposed) return;
     var changed = false;
