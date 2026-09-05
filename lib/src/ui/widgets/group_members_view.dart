@@ -207,6 +207,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
         // render so the sync resolvers (which read the cache) already have
         // names + avatars on this same frame.
         _seedCacheFromExpanded(paginated.items);
+        _recordRoster(paginated.items, complete: !paginated.hasMore);
         setState(() {
           _loading = false;
           _hasMore = paginated.hasMore;
@@ -249,6 +250,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
       }),
       (paginated) {
         _seedCacheFromExpanded(paginated.items);
+        _recordRoster(paginated.items, complete: false);
         setState(() {
           _loadingMore = false;
           _hasMore = paginated.hasMore;
@@ -258,6 +260,17 @@ class _GroupMembersViewState extends State<GroupMembersView>
         });
         unawaited(_warmMissingUsers(paginated.items));
       },
+    );
+  }
+
+  /// Hands the ids of a roster page to the adapter so the room list can be
+  /// searched by member. Unlike the user-cache seed above this keeps every
+  /// id, named or not: naming is the adapter's job and can land later.
+  void _recordRoster(List<RoomUser> members, {required bool complete}) {
+    widget.adapter.recordRoomRoster(
+      widget.roomId,
+      members.map((m) => m.userId),
+      complete: complete,
     );
   }
 

@@ -62,6 +62,7 @@ import 'services/chat_lifecycle_observer.dart';
 import 'services/connection_lifecycle.dart';
 import 'services/delivered_confirmation_coordinator.dart';
 import 'services/dm_contact_registry.dart';
+import 'services/room_roster_registry.dart';
 import 'services/host_user_directory.dart';
 import 'services/mark_as_read_coordinator.dart';
 import 'services/operation_hub.dart';
@@ -750,6 +751,7 @@ class ChatUiAdapter {
   /// callsites in the `part of` collaborators go through the
   /// service.
   final DmContactRegistry _dmContacts = DmContactRegistry();
+  final RoomRosterRegistry _roomRosters = RoomRosterRegistry();
 
   // -- Sub-managers (composition) --
   /// Standalone handler — no `part of` access, fully injected. Lives
@@ -1243,24 +1245,63 @@ class ChatUiAdapter {
     return '';
   }
 
+  /// Records who belongs to [roomId] so the room list can be searched by
+  /// member without a round trip. Every roster the SDK reads feeds this —
+  /// opening a chat, its info page or its member list — and a host that
+  /// keeps its own roster is free to add it too:
+  ///
+  /// ```dart
+  /// chat.adapter.recordRoomRoster(roomId, myDirectory.memberIdsOf(roomId));
+  /// ```
+  ///
+  /// Pass `complete: false` for a page of a paginated roster, which adds to
+  /// what is already known instead of replacing it. The names shown come
+  /// from [displayNameFor], so ids nobody can name cost nothing.
+  ///
+  /// This is a search index, not a membership source: it never drives who
+  /// may read or write a room.
+  void recordRoomRoster(
+    String roomId,
+    Iterable<String> userIds, {
+    bool complete = true,
+  }) {
+    if (_disposed) return;
+    if (complete) {
+      _roomRosters.record(roomId, userIds);
+    } else {
+      _roomRosters.addAll(roomId, userIds);
+    }
+    roomListController.notifyMembersChanged();
+  }
+
+  /// Members known for [roomId] — what [recordRoomRoster] and the member
+  /// events have recorded so far. Empty for a room whose roster the SDK has
+  /// never seen.
+  Set<String> roomRosterOf(String roomId) => _roomRosters.membersOf(roomId);
+
   /// People the room-list text filter matches on top of the room's own
   /// title: the ones this adapter can name for a row without a round trip.
   ///
-  /// Those are the peer of a one-to-one chat and whoever wrote the last
-  /// message, both resolved through [displayNameFor] — so the host's own
-  /// directory answers first, and an id nobody can name contributes nothing
-  /// instead of making the row searchable by its UUID. The local user is
-  /// left out: every chat has them in it, so their name would match
-  /// everything.
+  /// Those are the peer of a one-to-one chat, whoever wrote the last
+  /// message, and every member of a roster the SDK has already seen (see
+  /// [recordRoomRoster]) — all resolved through [displayNameFor], so the
+  /// host's own directory answers first and an id nobody can name
+  /// contributes nothing instead of making the row searchable by its UUID.
+  /// The local user is left out: every chat has them in it, so their name
+  /// would match everything.
   ///
-  /// The SDK keeps no roster in memory, so a group member who has never
-  /// written here is not searchable through this default. A host that does
-  /// keep one widens the search by calling
-  /// [RoomListController.setParticipantNameResolver] with its own resolver,
-  /// which replaces this one.
+  /// A group whose roster has never been read is still searchable by its
+  /// title and its last writer alone. A host that keeps its own roster
+  /// either feeds it through [recordRoomRoster] or replaces this default
+  /// outright via [RoomListController.setParticipantNameResolver].
   Iterable<String> _participantNamesFor(RoomListItem room) {
     final names = <String>{};
-    for (final id in [room.otherUserId, room.lastMessageUserId]) {
+    final ids = <String?>[
+      room.otherUserId,
+      room.lastMessageUserId,
+      ..._roomRosters.membersOf(room.id),
+    ];
+    for (final id in ids) {
       if (id == null || id.isEmpty || id == currentUser.id) continue;
       final name = displayNameFor(id);
       if (name.isNotEmpty) names.add(name);
@@ -1697,6 +1738,7 @@ class ChatUiAdapter {
       _attachmentUploadCancels.cancelAll();
       _chatControllers.disposeAll();
       _dmContacts.clear();
+      _roomRosters.clear();
       _activeRoomId = null;
       // Raised only across the wipe itself: `setRooms([])` notifies
       // synchronously, so every listener that has to tell this apart from a
@@ -2741,9 +2783,22 @@ class ChatUiAdapter {
       confirmDeliveredFn: _deliveredCoord.confirm,
       refreshMessageFn: _refreshMessage,
       refreshReactionsFn: _refreshReactions,
-      handleUserJoinedFn: _memberEventHandler.handleUserJoined,
-      handleUserLeftFn: _memberEventHandler.handleUserLeft,
-      handleUserRejoinedFn: _memberEventHandler.handleUserRejoined,
+      handleUserJoinedFn: (roomId, userId) {
+        _roomRosters.add(roomId, userId);
+        _memberEventHandler.handleUserJoined(roomId, userId);
+      },
+      handleUserLeftFn: (roomId, userId, {String? actorUserId}) {
+        _roomRosters.remove(roomId, userId);
+        _memberEventHandler.handleUserLeft(
+          roomId,
+          userId,
+          actorUserId: actorUserId,
+        );
+      },
+      handleUserRejoinedFn: (roomId, userId) {
+        _roomRosters.add(roomId, userId);
+        _memberEventHandler.handleUserRejoined(roomId, userId);
+      },
       addSystemMessageFn: _memberEventHandler.addSystemMessage,
       addRoomFromDetailFn: _addRoomFromDetail,
       enrichRoomFromDetailFn: _enrichRoomFromDetail,

@@ -167,6 +167,14 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Future<void> _onAddMembers() async {
     final membersRes = await widget.adapter.client.members.list(widget.roomId);
     if (!mounted) return;
+    final roster = membersRes.dataOrNull;
+    if (roster != null) {
+      widget.adapter.recordRoomRoster(
+        widget.roomId,
+        roster.items.map((m) => m.userId),
+        complete: !roster.hasMore,
+      );
+    }
     final excludeIds = <String>{
       widget.adapter.currentUser.id,
       ...?membersRes.dataOrNull?.items.map((m) => m.userId),

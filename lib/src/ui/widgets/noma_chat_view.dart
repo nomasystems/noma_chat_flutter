@@ -552,6 +552,11 @@ class _NomaChatViewState extends State<NomaChatView>
       if (!mounted) return;
       final paginated = result.dataOrNull;
       if (paginated == null) return;
+      adapter.recordRoomRoster(
+        widget.roomId,
+        paginated.items.map((m) => m.userId),
+        complete: !paginated.hasMore,
+      );
       final selfId = adapter.currentUser.id;
       final memberIds = <String>[
         for (final m in paginated.items)
