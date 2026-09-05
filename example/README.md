@@ -64,7 +64,7 @@ surface added between 0.29.0 and 0.34.0:
 | `RoomListView.swipeActionsBuilder` | `home_page.dart` — swipe a row for Pin/Archive shortcuts                               |
 | `RoomTile.subtitleHeaderBuilder`   | `catalog_page.dart` — "RoomTile" section, an extra line above the preview              |
 | `CameraCapturePage.show` + captions | `chat_room_page.dart` — camera row in the attachment sheet, caption travels to `sendAttachment` |
-| `ChatViewBuilders.readOnlyNoticeBuilder` | `chat_room_page.dart` — open the "Newsroom" announcement channel                  |
+| `ChatViewBuilders.readOnlyNoticeBuilder` | `chat_room_page.dart` — wired on every room; the notice itself only renders against a backend that reports a read-only room (announcement channel where you are not the owner, `writePolicy: ownerOnly`, or muted), so it stays hidden in mock mode, where `MockChatClient` always reports `RoomRole.owner` |
 | `UserDirectoryResolver`           | `chat_session.dart` (`demoUserDirectoryResolver`) — resolves "Dana", a group member the mock chat client never seeded as a user |
 | `NomaChat.create`/`fromClient(bootstrapCurrentUser:)` | `chat_session.dart` — mock-mode login                                  |
 | `RoomListController.participantNameResolver` | wired automatically by the adapter — search the room list by member name (open a group first so its roster is known) |

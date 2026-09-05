@@ -236,8 +236,13 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   /// own review step — travels straight through to `sendAttachment`'s
   /// `caption` parameter.
   Future<void> _captureAndSendPhoto() async {
-    final theme = ChatTheme.defaults.copyWith(l10n: LocaleProvider.of(context).l10n);
-    final submission = await CameraCapturePage.show(context: context, theme: theme);
+    final theme = ChatTheme.defaults.copyWith(
+      l10n: LocaleProvider.of(context).l10n,
+    );
+    final submission = await CameraCapturePage.show(
+      context: context,
+      theme: theme,
+    );
     if (submission == null || !mounted) return;
     final capture = submission.capture;
     try {
@@ -286,7 +291,10 @@ class _ChatRoomPageState extends State<ChatRoomPage> {
   /// [reason] next to the SDK's own copy, replacing the default plain-text
   /// strip. Keeps the `chat_read_only_notice` semantics identifier the
   /// default notice carries, so a driver looking for it still finds it.
-  static Widget? _buildReadOnlyNotice(BuildContext context, ReadOnlyReason reason) {
+  static Widget? _buildReadOnlyNotice(
+    BuildContext context,
+    ReadOnlyReason reason,
+  ) {
     final l10n = LocaleProvider.of(context).l10n;
     final icon = switch (reason) {
       ReadOnlyReason.announcement => Icons.campaign_outlined,

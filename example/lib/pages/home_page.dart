@@ -308,7 +308,10 @@ class _HomePageState extends State<HomePage> {
   /// ([_showRoomOptionsForRow]) — Pin/Unpin from the leading edge, so it
   /// never competes with iOS's system back-swipe, Archive/Unarchive from
   /// the trailing edge.
-  List<RoomSwipeAction> _swipeActionsFor(BuildContext context, RoomListItem room) {
+  List<RoomSwipeAction> _swipeActionsFor(
+    BuildContext context,
+    RoomListItem room,
+  ) {
     final chat = ChatProvider.of(context);
     final l10n = LocaleProvider.of(context).l10n;
     final roomId = room.id;

@@ -111,12 +111,8 @@ final class LoginUnexpected extends LoginOutcome {
 final UserDirectoryResolver demoUserDirectoryResolver = _resolveDemoDirectory;
 
 Future<Map<String, HostUser>> _resolveDemoDirectory(Set<String> ids) async {
-  const knownToHost = {
-    'dana': HostUser(id: 'dana', displayName: 'Dana'),
-  };
-  return {
-    for (final id in ids) id: knownToHost[id] ?? HostUser.missing(id),
-  };
+  const knownToHost = {'dana': HostUser(id: 'dana', displayName: 'Dana')};
+  return {for (final id in ids) id: knownToHost[id] ?? HostUser.missing(id)};
 }
 
 /// Builds a [NomaChat] instance from persisted [ExampleSettings].

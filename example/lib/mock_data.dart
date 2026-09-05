@@ -985,7 +985,8 @@ void _seedGroupEngineering(MockChatClient client, DateTime Function(int) t) {
       id: 'eng-12',
       from: 'dana',
       timestamp: t(10),
-      text: "Pulled in for the release crunch — I'll take the migration "
+      text:
+          "Pulled in for the release crunch — I'll take the migration "
           'scripts.',
     ),
   );
