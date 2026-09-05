@@ -175,8 +175,9 @@ class RoomListController extends ChangeNotifier {
     final resolver = _participantNameResolver;
     final result = <RoomListItem>[];
     for (final room in source) {
-      if (room.displayName.toLowerCase().contains(lowerFilter) ||
-          (room.lastMessage?.toLowerCase().contains(lowerFilter) ?? false)) {
+      if (_matchesText(room.displayName, lowerFilter) ||
+          _matchesText(room.name, lowerFilter) ||
+          _matchesText(room.lastMessage, lowerFilter)) {
         result.add(room);
         continue;
       }
@@ -189,6 +190,15 @@ class RoomListController extends ChangeNotifier {
       }
     }
     return List.unmodifiable(result);
+  }
+
+  /// Case-insensitive `contains` that treats a null/empty haystack as no
+  /// match. Both the resolved title and the raw server [RoomListItem.name]
+  /// are searched: a host [RoomTitleResolver] that renames a group must not
+  /// make that group unfindable by the name everyone else still sees.
+  bool _matchesText(String? value, String lowerFilter) {
+    if (value == null || value.isEmpty) return false;
+    return value.toLowerCase().contains(lowerFilter);
   }
 
   String? _firstMatchingParticipant(

@@ -133,6 +133,26 @@ void main() {
       expect(controller.matchedParticipantFor('r1'), 'Alice');
     });
 
+    test('a renamed room stays findable by its raw server name', () {
+      final controller = RoomListController(
+        initialRooms: const [
+          RoomListItem(
+            id: 'r1',
+            name: 'Weekend trip',
+            effectiveDisplayName: 'Escapada',
+            isGroup: true,
+          ),
+        ],
+      );
+
+      controller.setFilter('escapada');
+      expect(controller.rooms.map((r) => r.id), ['r1']);
+
+      controller.setFilter('weekend');
+      expect(controller.rooms.map((r) => r.id), ['r1']);
+      expect(controller.matchedParticipantFor('r1'), isNull);
+    });
+
     test('setParticipantNameResolver swaps the resolver and re-filters', () {
       final controller = RoomListController(
         initialRooms: const [
