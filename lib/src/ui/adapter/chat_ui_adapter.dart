@@ -121,6 +121,79 @@ typedef MembershipBannerFilter = bool Function(String roomId, String eventType);
 // `RoomEnricher` handler can import them without pulling in the
 // entire adapter library.
 
+/// An attachment the SDK re-encoded so it would fit under the size cap its
+/// [AttachmentPolicy] sets.
+///
+/// The name and the type travel with the bytes because shrinking an image
+/// changes both: a HEIC or a PNG that comes back as JPEG has to be sent as
+/// `image/jpeg` under a `.jpg` name, or the backend stores a blob whose
+/// declared content type its own bytes contradict.
+@immutable
+class ShrunkAttachment {
+  const ShrunkAttachment({
+    required this.bytes,
+    required this.mimeType,
+    required this.fileName,
+  });
+
+  /// Re-encoded payload, ready to upload as it stands.
+  final Uint8List bytes;
+
+  /// MIME type [bytes] are now encoded in.
+  final String mimeType;
+
+  /// Name to send [bytes] under, extension included.
+  final String fileName;
+}
+
+/// Reduces an outgoing image until it fits the size cap that applies to it.
+///
+/// Every path that uploads a picked or captured image runs its bytes
+/// through this hook after the metadata scrub and before the send, so a
+/// full-resolution camera shot leaves the device as a few hundred KB
+/// instead of a few MB.
+///
+/// The contract:
+///
+/// - **`null` means "send it untouched".** Not an error: it is the answer
+///   for a payload already under the cap, for anything that must not be
+///   re-encoded (every type that is not an image), and for a host that
+///   turns shrinking off.
+/// - **Never throws.** Shrinking is an optimisation; a decoder that fails
+///   returns `null` and the original bytes still go out.
+/// - **Answers under the cap.** Handing back bytes that are still over it
+///   only moves the rejection further down the send.
+///
+/// Wired by default to [NoAttachmentShrinker]; hosts override it through
+/// `ChatUiAdapter(attachmentShrinker: …)` when they have an encoder of
+/// their own.
+abstract class AttachmentShrinker {
+  /// Re-encodes [bytes] — an attachment of type [mimeType] to be sent as
+  /// [fileName] — so the result weighs at most [maxBytes]. Returns `null`
+  /// when the payload should travel exactly as it came in.
+  Future<ShrunkAttachment?> fit(
+    Uint8List bytes, {
+    required String mimeType,
+    required int maxBytes,
+    required String fileName,
+  });
+}
+
+/// [AttachmentShrinker] that never re-encodes anything — the documented way
+/// to upload precisely the bytes the user picked
+/// (`ChatUiAdapter(attachmentShrinker: const NoAttachmentShrinker())`).
+class NoAttachmentShrinker implements AttachmentShrinker {
+  const NoAttachmentShrinker();
+
+  @override
+  Future<ShrunkAttachment?> fit(
+    Uint8List bytes, {
+    required String mimeType,
+    required int maxBytes,
+    required String fileName,
+  }) async => null;
+}
+
 /// Bridges the [ChatClient] SDK with the UI components's controllers and widgets.
 ///
 /// Subscribes to real-time events and routes them to the appropriate
@@ -153,12 +226,14 @@ class ChatUiAdapter {
     ChatLocalDatasource? cache,
     AvatarStorage? avatarStorage,
     VideoThumbnailer? videoThumbnailer,
+    AttachmentShrinker? attachmentShrinker,
   }) : _cache = cache,
        _l10n = l10n,
        _l10nPinnedByHost = !identical(l10n, ChatUiLocalizations.en),
        _currentUser = currentUser,
        avatarStorage = avatarStorage ?? DefaultAvatarStorage(client),
        videoThumbnailer = videoThumbnailer ?? const NativeVideoThumbnailer(),
+       attachmentShrinker = attachmentShrinker ?? const NoAttachmentShrinker(),
        roomListController = RoomListController(),
        _lifecycle = ConnectionLifecycle(),
        _resyncDebounce = resyncDebounce {
@@ -392,6 +467,15 @@ class ChatUiAdapter {
   /// [NoVideoThumbnailer] to turn the feature off entirely. Never blocks a
   /// send: whatever it returns, `null` included, the video goes out.
   final VideoThumbnailer videoThumbnailer;
+
+  /// Shrinks an outgoing image so it fits the cap its [AttachmentPolicy]
+  /// sets, on every path that uploads one: the picker, the review step and
+  /// the SDK's own camera screen.
+  ///
+  /// Defaults to [NoAttachmentShrinker] — the bytes the user picked are the
+  /// bytes that are sent. Supply your own to hand the re-encoding to an
+  /// engine of your choice.
+  final AttachmentShrinker attachmentShrinker;
 
   /// Default [AttachmentUrlResolver] the adapter wires into
   /// `NomaChatView`/`ChatView` when the host doesn't supply its own

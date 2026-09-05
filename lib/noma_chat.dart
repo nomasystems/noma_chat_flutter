@@ -120,7 +120,9 @@ export 'src/ui/models/voice_message_data.dart';
 // chat_ui_adapter.dart exports the api/*_controller.dart files as `part of`,
 // so re-exporting it here makes ChatMessagesController, ChatRoomsController,
 // ChatContactsController, ChatDmController and ChatProfileController all
-// reachable through `package:noma_chat/noma_chat.dart`.
+// reachable through `package:noma_chat/noma_chat.dart`, and so does the
+// same for the hooks declared next to the adapter itself:
+// `AttachmentShrinker`, `ShrunkAttachment` and `NoAttachmentShrinker`.
 export 'src/ui/adapter/chat_ui_adapter.dart';
 export 'src/ui/adapter/room_title_resolver.dart';
 export 'src/ui/adapter/user_directory_resolver.dart';

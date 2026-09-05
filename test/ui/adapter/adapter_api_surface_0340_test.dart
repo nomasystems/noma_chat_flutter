@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
@@ -231,4 +233,67 @@ void main() {
       expect(view.builders.statusIconBuilder, same(tick));
     });
   });
+
+  group('the image shrinker hook', () {
+    test('is inert until the host supplies an engine', () async {
+      final adapter = adapterWith();
+
+      expect(adapter.attachmentShrinker, isA<NoAttachmentShrinker>());
+      expect(
+        await adapter.attachmentShrinker.fit(
+          Uint8List.fromList(const [1, 2, 3]),
+          mimeType: 'image/png',
+          maxBytes: 1,
+          fileName: 'shot.png',
+        ),
+        isNull,
+        reason: 'the default sends the bytes the user picked, untouched',
+      );
+    });
+
+    test('is the host engine once one is supplied', () async {
+      final adapter = ChatUiAdapter(
+        client: client,
+        currentUser: me,
+        manageAppLifecycle: false,
+        attachmentShrinker: _TruncatingShrinker(),
+      );
+      addTearDown(adapter.dispose);
+
+      final shrunk = await adapter.attachmentShrinker.fit(
+        Uint8List.fromList(List<int>.filled(8, 7)),
+        mimeType: 'image/heic',
+        maxBytes: 4,
+        fileName: 'shot.heic',
+      );
+
+      expect(shrunk, isNotNull);
+      expect(shrunk!.bytes, hasLength(4));
+      expect(
+        shrunk.mimeType,
+        'image/jpeg',
+        reason: 're-encoding changes the type the blob must be stored under',
+      );
+      expect(shrunk.fileName, 'shot.jpg');
+    });
+  });
+}
+
+/// Stand-in for the real encoder: cuts the payload down to the cap and
+/// renames it, which is all the surface under test has to carry.
+class _TruncatingShrinker implements AttachmentShrinker {
+  @override
+  Future<ShrunkAttachment?> fit(
+    Uint8List bytes, {
+    required String mimeType,
+    required int maxBytes,
+    required String fileName,
+  }) async {
+    if (bytes.length <= maxBytes) return null;
+    return ShrunkAttachment(
+      bytes: Uint8List.fromList(bytes.sublist(0, maxBytes)),
+      mimeType: 'image/jpeg',
+      fileName: '${fileName.split('.').first}.jpg',
+    );
+  }
 }

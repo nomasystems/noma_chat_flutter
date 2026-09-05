@@ -1072,12 +1072,18 @@ class _NomaChatViewState extends State<NomaChatView>
         await shot.file.readAsBytes(),
         onMetric: widget.adapter.metricCallback,
       );
+      final shrunk = await widget.adapter.attachmentShrinker.fit(
+        bytes,
+        mimeType: shot.mimeType,
+        maxBytes: policy.maxBytesFor(shot.mimeType),
+        fileName: shot.fileName,
+      );
       if (!mounted) return;
       await widget.adapter.messages.sendAttachment(
         sendKey,
-        bytes: bytes,
-        mimeType: shot.mimeType,
-        fileName: shot.fileName,
+        bytes: shrunk?.bytes ?? bytes,
+        mimeType: shrunk?.mimeType ?? shot.mimeType,
+        fileName: shrunk?.fileName ?? shot.fileName,
         caption: submission.caption,
         referencedMessageId: replyTo,
         policy: policy,
