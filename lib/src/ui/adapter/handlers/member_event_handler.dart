@@ -191,7 +191,9 @@ class MemberEventHandler {
   }
 
   /// Longest the banner waits for a display name before composing with
-  /// whatever [_displayNameFor] can give — the raw id in the worst case.
+  /// whatever [_displayNameFor] can give — a blank in the worst case,
+  /// which the paint layer spells as the generic member noun and repairs
+  /// the moment a name lands.
   /// The lookup behind [_ensureUserCached] is a single REST read, so the
   /// budget only has to cover a slow round trip; past it the banner is
   /// still posted (and the bubble re-resolves the name when it repaints).
@@ -260,14 +262,14 @@ class MemberEventHandler {
     }
   }
 
-  /// `true` when composing the banner right now would put [userId] itself
-  /// in the sentence. Self never needs a lookup (the local user's name is
-  /// on `currentUser`), and neither does an id the cache already answers
-  /// for; anything else is a name the SDK has simply not read yet.
+  /// `true` when composing the banner right now would leave [userId]
+  /// unnamed in the sentence. Self never needs a lookup (the local user's
+  /// name is on `currentUser`), and neither does an id the cache already
+  /// answers for; anything else is a name the SDK has simply not read yet.
   bool _needsNameResolution(String userId, ChatUser me) =>
       userId != me.id &&
       !userCacheService.contains(userId) &&
-      _displayNameFor(userId) == userId;
+      _displayNameFor(userId).isEmpty;
 
   /// How often the piggybacking branch below re-reads the cache.
   static const Duration _labelResolutionPollInterval = Duration(

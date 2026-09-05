@@ -56,10 +56,12 @@ abstract final class SystemMessageMetadataKeys {
 /// user lookup on every paint. A rename is not reflected on old banners,
 /// exactly as it is not on any other message already sent.
 ///
-/// The one label that is not frozen is the one that never was a name: when
-/// a row was composed before the user cache knew who the id belonged to,
-/// its label *is* the raw id, and [resolveDisplayName] — when given — gets
-/// a second chance to turn it into a name on this paint.
+/// The one label that is not frozen is the one that never was a name: a
+/// row composed before anybody could name the id carries a blank label
+/// (or, for rows written by 0.33 and older, the raw id), and
+/// [resolveDisplayName] — when given — gets a second chance to turn it
+/// into a name on this paint. A label still unresolved after that is
+/// spelled as the generic member noun, never as the id.
 String? localizedSystemMessageText(
   ChatMessage message,
   ChatUiLocalizations l10n, {
@@ -83,19 +85,21 @@ String? localizedSystemMessageTextFromMetadata(
   final event = metadata[SystemMessageMetadataKeys.event];
   if (event is! String) return null;
   final rawUserLabel = metadata[SystemMessageMetadataKeys.userLabel];
-  if (rawUserLabel is! String || rawUserLabel.isEmpty) return null;
+  if (rawUserLabel is! String) return null;
 
   final userId = metadata[SystemMessageMetadataKeys.userId];
   final actorUserId = metadata[SystemMessageMetadataKeys.actorUserId];
   final isKick = actorUserId is String && actorUserId != userId;
   final rawActorLabel = metadata[SystemMessageMetadataKeys.actorLabel];
-  final userLabel = _preferResolvedLabel(
-    rawUserLabel,
-    userId,
-    resolveDisplayName,
+  final userLabel = _nameOrNoun(
+    _preferResolvedLabel(rawUserLabel, userId, resolveDisplayName),
+    l10n,
   );
-  final actorLabel = rawActorLabel is String && rawActorLabel.isNotEmpty
-      ? _preferResolvedLabel(rawActorLabel, actorUserId, resolveDisplayName)
+  final actorLabel = rawActorLabel is String
+      ? _nameOrNoun(
+          _preferResolvedLabel(rawActorLabel, actorUserId, resolveDisplayName),
+          l10n,
+        )
       : null;
 
   if (event == 'user_left' && isKick) {
@@ -117,8 +121,9 @@ String? localizedSystemMessageTextFromMetadata(
   };
 }
 
-/// [message] with every membership label that is still the raw id it was
-/// supposed to name replaced by what [resolveDisplayName] answers for it.
+/// [message] with every membership label that never named anybody — blank,
+/// or the raw id on rows written by 0.33 and older — replaced by what
+/// [resolveDisplayName] answers for it.
 ///
 /// A host can paint the banner itself — `systemMessageTextResolver` and
 /// `systemMessageBuilder` both take precedence over the sentence
@@ -143,7 +148,7 @@ ChatMessage messageWithResolvedSystemLabels(
   ];
   for (final (idKey, labelKey) in pairs) {
     final label = metadata[labelKey];
-    if (label is! String || label.isEmpty) continue;
+    if (label is! String) continue;
     final resolved = _preferResolvedLabel(
       label,
       metadata[idKey],
@@ -155,8 +160,15 @@ ChatMessage messageWithResolvedSystemLabels(
   return patched == null ? message : message.copyWith(metadata: patched);
 }
 
-/// [label] unless it is the raw [userId] it was supposed to name, in which
-/// case [resolve] is asked for a real name. Anything the resolver cannot
+/// [label] unless it never named anybody, in which case [resolve] is asked
+/// for a real name.
+///
+/// A banner is minted the instant the membership event lands, sometimes
+/// before the SDK can put a name to the id in it; the label it carries is
+/// then blank, and that blank is the sentinel for "still unnamed" — every
+/// paint gives the resolver another go at filling it in. Rows persisted by
+/// 0.33 and older carry the raw id in that slot instead, so an id that
+/// names itself counts as unresolved too. Anything the resolver cannot
 /// improve on (no resolver, no match, the id again, blanks) leaves the
 /// stored label untouched.
 String _preferResolvedLabel(
@@ -164,8 +176,16 @@ String _preferResolvedLabel(
   Object? userId,
   String? Function(String userId)? resolve,
 ) {
-  if (resolve == null || userId is! String || label != userId) return label;
+  if (resolve == null || userId is! String) return label;
+  if (label.isNotEmpty && label != userId) return label;
   final resolved = resolve(userId)?.trim();
   if (resolved == null || resolved.isEmpty || resolved == userId) return label;
   return resolved;
 }
+
+/// [label], or the generic member noun when it is blank.
+///
+/// The sentence has to name somebody, and the one thing it must never name
+/// them is their id. "A member left" says exactly what is known.
+String _nameOrNoun(String label, ChatUiLocalizations l10n) =>
+    label.isEmpty ? l10n.member : label;

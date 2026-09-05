@@ -44,8 +44,8 @@ void main() {
       l10n: () => ChatUiLocalizations.en,
       currentUser: () => me,
       displayNameFor: (userId) {
-        if (userId == me.id) return me.displayName ?? userId;
-        return userCache.find(userId)?.displayName ?? userId;
+        if (userId == me.id) return me.displayName ?? '';
+        return userCache.find(userId)?.displayName ?? '';
       },
       ensureUserCached: (userId) async {
         ensuredUsers.add(userId);
@@ -248,6 +248,27 @@ void main() {
       final msg = controller.messages.last;
       expect(msg.isSystem, isTrue);
       expect(msg.metadata?[SystemMessageMetadataKeys.userId], 'unknown-user');
+      // The sentence names a member, never the id it could not resolve,
+      // and the blank label is the sentinel a later paint repairs.
+      expect(msg.text, isNot(contains('unknown-user')));
+      expect(
+        msg.text,
+        ChatUiLocalizations.en.userJoined(ChatUiLocalizations.en.member),
+      );
+      expect(msg.metadata?[SystemMessageMetadataKeys.userLabel], '');
+    });
+
+    test('a banner minted unnamed reads the name once it lands', () async {
+      await handler.addSystemMessage('r1', 'user_joined', 'unknown-user');
+
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          controller.messages.last.metadata,
+          ChatUiLocalizations.en,
+          resolveDisplayName: (id) => id == 'unknown-user' ? 'Carol' : null,
+        ),
+        'Carol joined',
+      );
     });
 
     test('carries the ingredients that let the banner be re-localized', () {
@@ -308,8 +329,8 @@ void main() {
       l10n: () => ChatUiLocalizations.en,
       currentUser: () => me,
       displayNameFor: (userId) {
-        if (userId == me.id) return me.displayName ?? userId;
-        return userCache.find(userId)?.displayName ?? userId;
+        if (userId == me.id) return me.displayName ?? '';
+        return userCache.find(userId)?.displayName ?? '';
       },
       ensureUserCached: (userId) async {
         await userCache.ensureCached(userId);

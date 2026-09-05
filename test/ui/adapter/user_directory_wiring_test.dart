@@ -89,6 +89,44 @@ void main() {
       expect(adapter.displayNameFor('u1'), isEmpty);
     });
 
+    test('a membership banner never writes the id into the sentence', () async {
+      final adapter = adapterWith();
+      await adapter.connect();
+      final controller = adapter.getChatController('room1');
+
+      client.emitEvent(
+        const ChatEvent.userJoined(roomId: 'room1', userId: 'ghost'),
+      );
+      await settle();
+
+      final banner = controller.messages.where((m) => m.isSystem).last;
+      expect(banner.text, isNot(contains('ghost')));
+      expect(
+        banner.metadata?[SystemMessageMetadataKeys.userLabel],
+        isEmpty,
+        reason: 'a blank label is the sentinel a later paint repairs',
+      );
+    });
+
+    test('and the host directory names that banner', () async {
+      final adapter = adapterWith(
+        resolver: (ids) async => {
+          for (final id in ids) id: HostUser(id: id, displayName: 'Bob Host'),
+        },
+      );
+      await adapter.connect();
+      final controller = adapter.getChatController('room1');
+
+      client.emitEvent(
+        const ChatEvent.userJoined(roomId: 'room1', userId: 'u2'),
+      );
+      await settle();
+
+      final banner = controller.messages.where((m) => m.isSystem).last;
+      expect(banner.text, contains('Bob Host'));
+      expect(banner.text, isNot(contains('u2')));
+    });
+
     test('and once it has answered, chat does not overwrite it', () async {
       final adapter = adapterWith(
         resolver: (ids) async => {

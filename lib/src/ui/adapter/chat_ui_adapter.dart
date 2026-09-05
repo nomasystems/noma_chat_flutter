@@ -886,7 +886,7 @@ class ChatUiAdapter {
     userCacheService: _userCacheService,
     l10n: () => _l10n,
     currentUser: () => _currentUser,
-    displayNameFor: _membershipLabelFor,
+    displayNameFor: displayNameFor,
     ensureUserCached: _ensureUserCached,
     addRoomFromDetail: _addRoomFromDetail,
     removeChatController: removeChatController,
@@ -1240,20 +1240,6 @@ class ChatUiAdapter {
     final cached = _userCacheService.find(userId)?.displayName?.trim();
     if (cached != null && cached.isNotEmpty) return cached;
     return '';
-  }
-
-  /// [displayNameFor] with the raw id back as the last resort, handed to
-  /// the membership-banner machinery and to nothing else.
-  ///
-  /// There a label doubles as a sentinel: the banner is minted the moment
-  /// the event lands, and `system_message_text` recognises a label that is
-  /// still the id as "nobody could name this person yet", so it can swap
-  /// in the real name as soon as one arrives. An empty string would leave
-  /// that layer with no way to tell an unresolved label from a resolved
-  /// blank one, and the banner would keep whatever it was minted with.
-  String _membershipLabelFor(String userId) {
-    final name = displayNameFor(userId);
-    return name.isEmpty ? userId : name;
   }
 
   /// Inserts or updates the given users in the in-memory cache.

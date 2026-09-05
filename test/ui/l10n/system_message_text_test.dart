@@ -183,6 +183,51 @@ void main() {
       );
     });
 
+    test('resolves a label minted blank because nobody had a name yet', () {
+      expect(
+        localizedSystemMessageTextFromMetadata(
+          const {
+            SystemMessageMetadataKeys.event: 'user_joined',
+            SystemMessageMetadataKeys.userId: 'u2',
+            SystemMessageMetadataKeys.userLabel: '',
+          },
+          ChatUiLocalizations.es,
+          resolveDisplayName: (id) => id == 'u2' ? 'Alice' : null,
+        ),
+        'Alice se ha unido',
+      );
+    });
+
+    test('spells an unresolved label as the member noun, never as the id', () {
+      expect(
+        localizedSystemMessageTextFromMetadata(const {
+          SystemMessageMetadataKeys.event: 'user_joined',
+          SystemMessageMetadataKeys.userId: 'u2',
+          SystemMessageMetadataKeys.userLabel: '',
+        }, ChatUiLocalizations.en),
+        'Member joined',
+      );
+    });
+
+    test(
+      'names the kicked member generically when only the actor is known',
+      () {
+        expect(
+          localizedSystemMessageTextFromMetadata(const {
+            SystemMessageMetadataKeys.event: 'user_left',
+            SystemMessageMetadataKeys.userId: 'u3',
+            SystemMessageMetadataKeys.actorUserId: 'u2',
+            SystemMessageMetadataKeys.userLabel: '',
+            SystemMessageMetadataKeys.actorLabel: 'Alice',
+          }, ChatUiLocalizations.en),
+          ChatUiLocalizations.en.userRemovedBy(
+            ChatUiLocalizations.en.member,
+            'Alice',
+          ),
+        );
+      },
+    );
+
     test('keeps the stored label when the resolver has nothing better', () {
       expect(
         localizedSystemMessageTextFromMetadata(

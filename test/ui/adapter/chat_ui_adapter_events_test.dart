@@ -203,7 +203,15 @@ void main() {
             .where((m) => m.isSystem)
             .firstOrNull;
         expect(systemMsg, isNotNull);
-        expect(systemMsg!.text, contains('u2'));
+        // The id is the ingredient, never the sentence: the banner names a
+        // member until somebody can name that id, and the metadata is what
+        // a later paint re-resolves from.
+        expect(systemMsg!.text, isNot(contains('u2')));
+        expect(systemMsg.metadata?[SystemMessageMetadataKeys.userId], 'u2');
+        expect(
+          systemMsg.metadata?[SystemMessageMetadataKeys.userLabel],
+          isEmpty,
+        );
       },
     );
   });
