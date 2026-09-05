@@ -17,7 +17,7 @@ flutter pub get
 flutter run
 ```
 
-You will see six demo rooms (three DMs, two groups, one announcement
+You will see seven demo rooms (three DMs, three groups, one announcement
 channel) and can play with messages, reactions, pins, search, etc.
 
 ## Connecting to a real CHT backend
@@ -64,7 +64,7 @@ surface added between 0.29.0 and 0.34.0:
 | `RoomListView.swipeActionsBuilder` | `home_page.dart` — swipe a row for Pin/Archive shortcuts                               |
 | `RoomTile.subtitleHeaderBuilder`   | `catalog_page.dart` — "RoomTile" section, an extra line above the preview              |
 | `CameraCapturePage.show` + captions | `chat_room_page.dart` — camera row in the attachment sheet, caption travels to `sendAttachment` |
-| `ChatViewBuilders.readOnlyNoticeBuilder` | `chat_room_page.dart` — wired on every room; the notice itself only renders against a backend that reports a read-only room (announcement channel where you are not the owner, `writePolicy: ownerOnly`, or muted), so it stays hidden in mock mode, where `MockChatClient` always reports `RoomRole.owner` |
+| `ChatViewBuilders.readOnlyNoticeBuilder` | `chat_room_page.dart` — wired on every room; open **Product Retro Q1**, the group seeded with `writePolicy: ownerOnly` and `userRole: RoomRole.member`, and the composer is replaced by the notice — the same path a backend takes for an announcement channel you do not own or a room you were muted in |
 | `UserDirectoryResolver`           | `chat_session.dart` (`demoUserDirectoryResolver`) — resolves "Dana", a group member the mock chat client never seeded as a user |
 | `NomaChat.create`/`fromClient(bootstrapCurrentUser:)` | `chat_session.dart` — mock-mode login                                  |
 | `RoomListController.participantNameResolver` | wired automatically by the adapter — search the room list by member name (open a group first so its roster is known) |

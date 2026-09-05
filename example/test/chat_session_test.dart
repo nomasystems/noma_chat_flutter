@@ -1,5 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:noma_chat/noma_chat.dart';
+import 'package:noma_chat/noma_chat_testing.dart';
 import 'package:noma_chat_example/chat_session.dart';
+import 'package:noma_chat_example/mock_data.dart';
 import 'package:noma_chat_example/settings/example_settings.dart';
 
 void main() {
@@ -52,6 +55,20 @@ void main() {
     test('keys every answer by the requested id, batched', () async {
       final result = await demoUserDirectoryResolver({'dana', 'nobody'});
       expect(result.keys, unorderedEquals(<String>{'dana', 'nobody'}));
+    });
+  });
+
+  group('seedDemoData', () {
+    test('seeds an owner-only room the demo user cannot write to', () async {
+      final client = MockChatClient(currentUserId: 'demo-user');
+      seedDemoData(client);
+
+      final result = await client.rooms.get('room-group-archive');
+      expect(result, isA<ChatSuccess<RoomDetail>>());
+      final detail = (result as ChatSuccess<RoomDetail>).data;
+      expect(detail.userRole, RoomRole.member);
+      expect(detail.config.writePolicy, RoomWritePolicy.ownerOnly);
+      expect(detail.isReadOnly, isTrue);
     });
   });
 
