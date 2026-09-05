@@ -74,6 +74,7 @@ import 'services/voice_upload_registry.dart';
 
 part 'api/contacts_controller.dart';
 part 'api/dm_controller.dart';
+part 'api/messages_attachments_controller.dart';
 part 'api/messages_controller.dart';
 part 'api/profile_controller.dart';
 part 'api/rooms_controller.dart';
