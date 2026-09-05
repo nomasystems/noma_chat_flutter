@@ -3,12 +3,17 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' as ip;
 
 import '../../_internal/cache/cache_manager.dart' show MetricCallback;
-import '../adapter/chat_ui_adapter.dart'
-    show AttachmentShrinker, NoAttachmentShrinker;
+import '../adapter/chat_ui_adapter.dart' show AttachmentShrinker;
 import '../models/attachment_policy.dart';
 import '../models/attachment_rejection.dart';
 import '../utils/platform_support.dart';
+import 'attachment_shrinker.dart';
 import 'image_metadata_scrubber.dart';
+
+/// Re-exported so the shrinking engine every picker below defaults to is
+/// reachable from `package:noma_chat/noma_chat.dart`, next to the pickers
+/// that use it.
+export 'attachment_shrinker.dart';
 
 /// ChatResult of an attachment picker call.
 ///
@@ -76,7 +81,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
-    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     if (!PlatformSupport.supportsCameraCapture) {
       logger?.call(
@@ -112,7 +117,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
-    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     try {
       final file = await _imagePicker.pickImage(
@@ -141,7 +146,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
-    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     try {
       final file = await _imagePicker.pickVideo(
@@ -177,7 +182,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
-    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     try {
       final files = await _imagePicker.pickMultipleMedia(
@@ -228,7 +233,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
-    AttachmentShrinker shrinker = const NoAttachmentShrinker(),
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     if (!PlatformSupport.supportsFilePicker) {
       logger?.call('warn', 'pickFile unsupported on this platform; ignoring');
@@ -287,6 +292,13 @@ class AttachmentPickers {
   /// is `false` — in which case [shrinker] is never even called, so a host
   /// that opts out gets exactly the bytes it picked, untouched.
   ///
+  /// [policy] is the single source of the downscale ladder: a [shrinker]
+  /// that implements [PolicyConfigurableShrinker] is re-configured with
+  /// [AttachmentPolicy.shrinkSteps] before it runs, so
+  /// `copyWith(shrinkSteps: [...])` changes what actually happens here. A
+  /// shrinker that does not implement it keeps whatever cascade its own
+  /// encoder defines.
+  ///
   /// Callers validate the result of this step, never [pick]: measuring the
   /// size cap on bytes the shrinker is about to replace rejects photos that
   /// would have fit once reduced.
@@ -297,7 +309,12 @@ class AttachmentPickers {
     required AttachmentShrinker shrinker,
   }) async {
     if (!policy.shrinkEnabled) return pick;
-    final shrunk = await shrinker.fit(
+    final engine = shrinker is PolicyConfigurableShrinker
+        ? (shrinker as PolicyConfigurableShrinker).withShrinkSteps(
+            policy.shrinkSteps,
+          )
+        : shrinker;
+    final shrunk = await engine.fit(
       pick.bytes,
       mimeType: pick.mimeType,
       maxBytes: policy.maxBytesFor(pick.mimeType),

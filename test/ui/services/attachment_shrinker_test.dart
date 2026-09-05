@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:noma_chat/noma_chat.dart';
-import 'package:noma_chat/src/ui/services/attachment_shrinker.dart';
 
 /// A per-pixel pattern with enough local detail that JPEG can't compress it
 /// to near nothing at any resolution — unlike a flat fill or a smooth
@@ -178,6 +177,12 @@ void main() {
       expect(out, isNotNull);
       expect(out!.fileName, 'IMG_20260905.jpg');
     });
+
+    test('a name that is nothing but an extension does not grow one', () {
+      expect(DefaultAttachmentShrinker.debugJpgName('.jpeg'), 'attachment.jpg');
+      expect(DefaultAttachmentShrinker.debugJpgName(''), 'attachment.jpg');
+      expect(DefaultAttachmentShrinker.debugJpgName('a.b.png'), 'a.b.jpg');
+    });
   });
 
   group('AttachmentPolicy.shrinkEnabled', () {
@@ -227,17 +232,79 @@ void main() {
       final pick = AttachmentPickResult(bytes: bytes, mimeType: 'image/png');
       final policy = AttachmentPolicy(
         maxBytesByMimePrefix: {'image/': maxBytes},
+        shrinkSteps: const [step],
       );
 
       final result = await AttachmentPickers.shrinkToPolicy(
         pick,
         policy: policy,
-        shrinker: const DefaultAttachmentShrinker(steps: [step]),
+        shrinker: const DefaultAttachmentShrinker(),
       );
 
       expect(identical(result, pick), isFalse);
       expect(result.mimeType, 'image/jpeg');
       expect(result.bytes.length, lessThanOrEqualTo(maxBytes));
+    });
+  });
+
+  group('AttachmentPolicy.shrinkSteps', () {
+    test('is the ladder the picker path actually runs', () async {
+      final source = _busyImage(900, 700);
+      final bytes = img.encodePng(source);
+      const policyStep = ShrinkStep(maxDimension: 120, quality: 45);
+      final policyStepBytes = img.encodeJpg(
+        img.copyResize(
+          source,
+          width: policyStep.maxDimension,
+          interpolation: img.Interpolation.average,
+        ),
+        quality: policyStep.quality,
+      );
+      final maxBytes = policyStepBytes.length + 500;
+      expect(bytes.length, greaterThan(maxBytes));
+
+      final pick = AttachmentPickResult(bytes: bytes, mimeType: 'image/png');
+      final policy = AttachmentPolicy(
+        maxBytesByMimePrefix: {'image/': maxBytes},
+        shrinkSteps: const [policyStep],
+      );
+
+      // The engine carries a ladder that could never reach the cap: only
+      // the policy's own step can, so a result at all proves the policy
+      // replaced it.
+      final result = await AttachmentPickers.shrinkToPolicy(
+        pick,
+        policy: policy,
+        shrinker: const DefaultAttachmentShrinker(
+          steps: [ShrinkStep(maxDimension: 890, quality: 100)],
+        ),
+      );
+
+      expect(result.mimeType, 'image/jpeg');
+      expect(result.bytes.length, lessThanOrEqualTo(maxBytes));
+    });
+
+    test('a shrinker that is not configurable keeps its own ladder', () async {
+      final source = _busyImage(400, 300);
+      final bytes = img.encodePng(source);
+      final pick = AttachmentPickResult(
+        bytes: bytes,
+        mimeType: 'image/png',
+        fileName: 'photo.png',
+      );
+      const policy = AttachmentPolicy(
+        maxBytesByMimePrefix: {'image/': 8},
+        shrinkSteps: [ShrinkStep(maxDimension: 8, quality: 5)],
+      );
+
+      final result = await AttachmentPickers.shrinkToPolicy(
+        pick,
+        policy: policy,
+        shrinker: const _FixedLadderShrinker(),
+      );
+
+      expect(result.fileName, 'fixed.jpg');
+      expect(result.mimeType, 'image/jpeg');
     });
   });
 
@@ -249,5 +316,66 @@ void main() {
         expect(steps[i].maxDimension, lessThan(steps[i - 1].maxDimension));
       }
     });
+
+    test('brings a real oversized photo under the cap as a .jpg', () async {
+      final source = _busyImage(4000, 3000);
+      final bytes = img.encodePng(source);
+      const maxBytes = 900 * 1024;
+      expect(bytes.length, greaterThan(maxBytes));
+
+      const shrinker = DefaultAttachmentShrinker();
+      final out = await shrinker.fit(
+        bytes,
+        mimeType: 'image/png',
+        maxBytes: maxBytes,
+        fileName: 'IMG_0042.HEIC',
+      );
+
+      expect(out, isNotNull);
+      expect(out!.bytes.length, lessThanOrEqualTo(maxBytes));
+      expect(out.mimeType, 'image/jpeg');
+      expect(out.fileName, 'IMG_0042.jpg');
+      expect(img.decodeJpg(out.bytes), isNotNull);
+    });
   });
+
+  group('DefaultAttachmentShrinker.withShrinkSteps', () {
+    test('returns the same instance when the ladder is unchanged', () {
+      const shrinker = DefaultAttachmentShrinker();
+      expect(
+        identical(
+          shrinker.withShrinkSteps(AttachmentPolicy.defaultShrinkSteps),
+          shrinker,
+        ),
+        isTrue,
+      );
+    });
+
+    test('carries the new ladder without mutating the original', () {
+      const other = [ShrinkStep(maxDimension: 64, quality: 20)];
+      const shrinker = DefaultAttachmentShrinker();
+      final reconfigured = shrinker.withShrinkSteps(other);
+      expect(reconfigured.steps, other);
+      expect(shrinker.steps, AttachmentPolicy.defaultShrinkSteps);
+    });
+  });
+}
+
+/// An engine outside the SDK's own: it ignores whatever ladder a policy
+/// carries, the way a wrapper around a native encoder with fixed presets
+/// would.
+class _FixedLadderShrinker implements AttachmentShrinker {
+  const _FixedLadderShrinker();
+
+  @override
+  Future<ShrunkAttachment?> fit(
+    Uint8List bytes, {
+    required String mimeType,
+    required int maxBytes,
+    required String fileName,
+  }) async => ShrunkAttachment(
+    bytes: bytes,
+    mimeType: 'image/jpeg',
+    fileName: 'fixed.jpg',
+  );
 }

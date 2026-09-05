@@ -72,19 +72,20 @@ class AttachmentPolicy {
   /// Progressive downscale ladder an [AttachmentShrinker] tries, largest
   /// [ShrinkStep] first, stopping at the first one whose re-encode fits the
   /// cap [maxBytesFor] resolves for the image being sent. Defaults to
-  /// [defaultShrinkSteps]. Consulted by the SDK's own shrinker; a host that
-  /// supplies its own [AttachmentShrinker] implementation is free to ignore
-  /// this list and use its own encoder's ladder instead.
+  /// [defaultShrinkSteps]. This is the source of the cascade on every picker
+  /// path: `AttachmentPickers.shrinkToPolicy` hands it to any shrinker that
+  /// can be re-configured (the SDK's own can), so cloning a policy with
+  /// `copyWith(shrinkSteps: [...])` changes what is actually encoded. A host
+  /// whose shrinker wraps a native encoder with fixed presets keeps that
+  /// encoder's ladder and this list is ignored.
   final List<ShrinkStep> shrinkSteps;
 
   static const int _defaultMaxBytes = 25 * 1024 * 1024; // 25 MB
 
-  /// The shrink ladder used by the SDK's default [AttachmentShrinker] when a
-  /// policy doesn't override [shrinkSteps]. Mirrors the five-step cascade
-  /// WannaBeer's own compressor used: each step trades a lower ceiling on
-  /// the longest side for a lower JPEG quality, so a photo well over the cap
-  /// converges in one or two steps while a merely-oversized one only pays
-  /// for the first.
+  /// The shrink ladder [shrinkSteps] starts from. Each step trades a lower
+  /// ceiling on the longest side for a lower JPEG quality, so a photo well
+  /// over the cap converges in one or two steps while a merely-oversized one
+  /// only pays for the first.
   static const List<ShrinkStep> defaultShrinkSteps = [
     ShrinkStep(maxDimension: 3072, quality: 85),
     ShrinkStep(maxDimension: 2560, quality: 80),

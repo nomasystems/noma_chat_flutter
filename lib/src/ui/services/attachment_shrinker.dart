@@ -7,14 +7,31 @@ import '../adapter/chat_ui_adapter.dart'
 import '../models/attachment_policy.dart' show AttachmentPolicy, ShrinkStep;
 import '../utils/platform_support.dart';
 
+/// An [AttachmentShrinker] whose downscale ladder can be swapped for the one
+/// an [AttachmentPolicy] carries.
+///
+/// [AttachmentShrinker.fit] receives only the resolved byte cap, so an
+/// engine that wants [AttachmentPolicy.shrinkSteps] to be the source of its
+/// cascade implements this and gets re-configured with the policy's list
+/// right before it runs. An engine that doesn't implement it keeps its own
+/// ladder, which is the right answer for a host wrapping a native encoder
+/// with a fixed set of presets.
+abstract interface class PolicyConfigurableShrinker {
+  /// This engine, configured to try [steps] in order. Implementations
+  /// return a new instance rather than mutating, so one shrinker can serve
+  /// several policies at once.
+  AttachmentShrinker withShrinkSteps(List<ShrinkStep> steps);
+}
+
 /// The SDK's own [AttachmentShrinker], built on `package:image` — the same
 /// dependency [ImageMetadataScrubber] already carries, so wiring this in
 /// adds no new package to a host's dependency tree.
 ///
-/// Not wired by default (`ChatUiAdapter`'s own default is
-/// `NoAttachmentShrinker`, so a fresh install sends exactly the bytes the
-/// user picked); a host opts in with
-/// `ChatUiAdapter(attachmentShrinker: const DefaultAttachmentShrinker())`.
+/// Every [AttachmentPickers] entry point defaults to it, so a host calling
+/// the pickers gets shrinking out of the box; opting out is
+/// `AttachmentPolicy.copyWith(shrinkEnabled: false)` for a single policy, or
+/// passing `shrinker: const NoAttachmentShrinker()` to send exactly the
+/// bytes the user picked.
 ///
 /// The algorithm tries [steps] in order — largest [ShrinkStep.maxDimension]
 /// first — resizing the decoded image so its longer side is at most that
@@ -38,17 +55,28 @@ import '../utils/platform_support.dart';
 /// The decode/resize/encode pass runs on a background isolate wherever
 /// [PlatformSupport.supportsBackgroundIsolates] is `true`; on web it runs
 /// inline, same trade-off [ImageMetadataScrubber] makes.
-class DefaultAttachmentShrinker implements AttachmentShrinker {
+class DefaultAttachmentShrinker
+    implements AttachmentShrinker, PolicyConfigurableShrinker {
   const DefaultAttachmentShrinker({
     this.steps = AttachmentPolicy.defaultShrinkSteps,
   });
 
   /// The downscale ladder tried, in order. Defaults to
-  /// [AttachmentPolicy.defaultShrinkSteps]; pass a different list to use a
-  /// different cascade regardless of what any particular [AttachmentPolicy]
-  /// carries — [fit] doesn't receive the policy, only the resolved
-  /// `maxBytes`, so this is the one place the ladder is configured.
+  /// [AttachmentPolicy.defaultShrinkSteps].
+  ///
+  /// On a picker path the policy wins: [AttachmentPickers.shrinkToPolicy]
+  /// calls [withShrinkSteps] with [AttachmentPolicy.shrinkSteps] before
+  /// running the engine, so a policy cloned with `copyWith(shrinkSteps:
+  /// [...])` replaces this list. What is set here is what a host gets when
+  /// it calls [fit] itself, since [fit] receives only the resolved
+  /// `maxBytes` and never the policy.
   final List<ShrinkStep> steps;
+
+  @override
+  DefaultAttachmentShrinker withShrinkSteps(List<ShrinkStep> steps) =>
+      identical(steps, this.steps)
+      ? this
+      : DefaultAttachmentShrinker(steps: steps);
 
   @override
   Future<ShrunkAttachment?> fit(
@@ -85,11 +113,17 @@ class DefaultAttachmentShrinker implements AttachmentShrinker {
 
   /// Swaps whatever extension [fileName] carries (if any) for `.jpg`, since
   /// the bytes coming back are always a JPEG re-encode regardless of what
-  /// format they started as.
+  /// format they started as. A name that is nothing but an extension
+  /// (`.jpeg`) or that is empty has no base to keep, so it becomes
+  /// `attachment.jpg` rather than growing a second extension.
+  @visibleForTesting
+  static String debugJpgName(String fileName) => _asJpgName(fileName);
+
   static String _asJpgName(String fileName) {
     final dot = fileName.lastIndexOf('.');
-    final base = (dot > 0) ? fileName.substring(0, dot) : fileName;
-    return base.isEmpty ? 'attachment.jpg' : '$base.jpg';
+    if (dot > 0) return '${fileName.substring(0, dot)}.jpg';
+    if (dot == 0 || fileName.isEmpty) return 'attachment.jpg';
+    return '$fileName.jpg';
   }
 }
 
