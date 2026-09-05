@@ -46,7 +46,7 @@ import 'serialization.dart';
 /// Passing no `userId` keeps the historical unscoped names — that layout
 /// is shared by every account on the device and only exists for
 /// backwards compatibility.
-class HiveChatDatasource implements ChatLocalDatasource {
+class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
   // === Global box names ===
   //
   // Singleton boxes shared across the entire user session. Keys are
@@ -63,6 +63,11 @@ class HiveChatDatasource implements ChatLocalDatasource {
   static const String _boxReceipts = 'chat_receipts';
   static const String _boxMembers = 'chat_room_members';
 
+  /// Names and faces the host application resolved for chat ids. Added
+  /// after the schema version was last raised and read defensively, so an
+  /// existing store simply grows an empty box instead of being wiped.
+  static const String _boxHostUsers = 'chat_host_users';
+
   // Every global box, in adoption order. `_boxMeta` is handled apart
   // because it is opened before the registry exists.
   static const List<String> _globalBoxNames = [
@@ -77,6 +82,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
     _boxPins,
     _boxReceipts,
     _boxMembers,
+    _boxHostUsers,
   ];
 
   // === Per-room box prefixes ===
@@ -749,6 +755,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
             if (roomId is String) roomIds.add(roomId);
           }
         } else if (name != _boxUsers &&
+            name != _boxHostUsers &&
             name != _boxContacts &&
             name != _boxOfflineQueue) {
           roomIds.addAll(box.keys.whereType<String>());
@@ -862,7 +869,9 @@ class HiveChatDatasource implements ChatLocalDatasource {
           final roomId = entry['roomId'];
           if (roomId is String) roomIds.add(roomId);
         }
-      } else if (name != _boxUsers && name != _boxContacts) {
+      } else if (name != _boxUsers &&
+          name != _boxHostUsers &&
+          name != _boxContacts) {
         roomIds.addAll(legacy.keys.whereType<String>());
       }
       await _moveIntoScope(name, legacy);
@@ -1152,6 +1161,7 @@ class HiveChatDatasource implements ChatLocalDatasource {
           if (roomId is String) roomIds.add(roomId);
         }
       } else if (name != _boxUsers &&
+          name != _boxHostUsers &&
           name != _boxContacts &&
           name != _boxOfflineQueue) {
         roomIds.addAll(box.keys.whereType<String>());
@@ -1876,6 +1886,56 @@ class HiveChatDatasource implements ChatLocalDatasource {
     });
   }
 
+  // Host directory
+
+  @override
+  Future<ChatResult<void>> saveHostUsers(List<CachedHostUser> users) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      if (users.isEmpty) return;
+      final box = await _box(_boxHostUsers);
+      final entries = <String, Map<dynamic, dynamic>>{
+        for (final entry in users) entry.user.id: entry.toMap(),
+      };
+      await _safeWrite('saveHostUsers', () => box.putAll(entries));
+      await _evictHostUsersIfNeeded();
+    });
+  }
+
+  @override
+  Future<ChatResult<List<CachedHostUser>>> getHostUsers() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxHostUsers);
+      final out = <CachedHostUser>[];
+      for (final raw in box.values) {
+        final entry = CachedHostUser.fromMap(raw);
+        if (entry != null) out.add(entry);
+      }
+      return out;
+    });
+  }
+
+  @override
+  Future<ChatResult<CachedHostUser?>> getHostUser(String userId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxHostUsers);
+      final data = box.get(userId);
+      if (data == null) return null;
+      return CachedHostUser.fromMap(data);
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> clearHostUsers() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxHostUsers);
+      await _safeWrite('clearHostUsers', () => box.clear());
+    });
+  }
+
   // Contacts
 
   @override
@@ -2436,6 +2496,23 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
     onMetric?.call('cache_eviction', {
       'entity': 'rooms',
+      'count': toRemove.length,
+    });
+  }
+
+  /// Bounds the host-directory box by the same ceiling as the chat user
+  /// box. One entry per person the viewer has ever shared a room with is
+  /// small, but unbounded: a support account that talks to thousands of
+  /// people would otherwise carry all of them on disk forever.
+  Future<void> _evictHostUsersIfNeeded() async {
+    if (maxUsers == null) return;
+    final box = await _box(_boxHostUsers);
+    if (box.length <= maxUsers!) return;
+    final keys = box.keys.cast<String>().toList();
+    final toRemove = keys.sublist(0, keys.length - maxUsers!);
+    await _safeWrite('evictHostUsers', () => box.deleteAll(toRemove));
+    onMetric?.call('cache_eviction', {
+      'entity': 'host_users',
       'count': toRemove.length,
     });
   }

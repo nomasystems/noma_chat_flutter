@@ -392,10 +392,16 @@ class RoomEnricher {
 
   Future<_HydrationPass> _runHydration(String type) async {
     final epoch = _sessionEpoch;
+    // The host's stored names, read alongside the rooms rather than
+    // before them, so the first frame painted off disk already carries
+    // them without this read standing between the caller and the room
+    // cache. Both are awaited before anything is painted.
+    final hostNames = userCache.directory.hydrate();
     final cachedResult = await client.rooms.getUserRooms(
       type: type,
       cachePolicy: CachePolicy.cacheOnly,
     );
+    await hostNames;
     // `isSuccess` means the cache ANSWERED, which since the empty/miss
     // split in `RoomsApi.getUserRooms` includes answering "you have zero
     // rooms". [_HydrationPass.cacheHadContent] is the narrower "the cache
@@ -1040,6 +1046,13 @@ class RoomEnricher {
       }
     }
 
+    // Everyone this listing needs a name for, asked of the host in one
+    // batch instead of one call per row: the senders above plus the peer
+    // of every one-to-one row. Runs on the cache pass too — unlike the
+    // chat profile fetch, the directory has a disk answer of its own and
+    // the point is to fill in the titles that came back blank.
+    _prefetchHostNames();
+
     // Confirm delivery for every room whose last message came from
     // someone else AND is still unread. Mirrors WhatsApp: as soon as
     // the recipient comes online (loadRooms resolves), the sender sees
@@ -1575,6 +1588,24 @@ class RoomEnricher {
     return existingId.compareTo(newId) <= 0 ? existingId : newId;
   }
 
+  /// Queues every id in the current listing the host might have a name
+  /// for. No-op when no directory is wired.
+  void _prefetchHostNames() {
+    final directory = userCache.directory;
+    if (!directory.isEnabled) return;
+    final me = _currentUser().id;
+    final ids = <String>{};
+    for (final room in roomList.allRooms) {
+      final peerId = room.otherUserId;
+      if (peerId != null && peerId.isNotEmpty && peerId != me) ids.add(peerId);
+      final senderId = room.lastMessageUserId;
+      if (senderId != null && senderId.isNotEmpty && senderId != me) {
+        ids.add(senderId);
+      }
+    }
+    if (ids.isNotEmpty) directory.prefetch(ids);
+  }
+
   /// Runs the custom [RoomTitleResolver] first, then the SDK's DM-aware
   /// default. Returns `null` when neither produces a value — callers should
   /// preserve the existing `effectiveDisplayName` in that case so a
@@ -1586,26 +1617,40 @@ class RoomEnricher {
     bool? isDmOverride,
   }) {
     final isDm = isDmOverride ?? (detail != null && _isDmDetail(detail));
+    final peer = isDm && otherMembers.isNotEmpty
+        ? otherMembers.firstWhere(
+            (u) => u.id != _currentUser().id,
+            orElse: () => otherMembers.first,
+          )
+        : null;
+    final rawPeerId = peer?.id ?? currentItem.otherUserId;
     final ctx = RoomTitleContext(
       currentItem: currentItem,
       currentUser: _currentUser(),
       detail: detail,
       otherMembers: otherMembers,
       isDm: isDm,
+      rawPeerId: rawPeerId,
     );
     final custom = _roomTitleResolver?.call(ctx);
     if (custom != null) {
       final trimmed = custom.trim();
       if (trimmed.isNotEmpty) return trimmed;
     }
-    if (isDm && otherMembers.isNotEmpty) {
-      final other = otherMembers.firstWhere(
-        (u) => u.id != _currentUser().id,
-        orElse: () => otherMembers.first,
-      );
-      final name = other.displayName?.trim();
+    if (peer != null) {
+      // The host's directory first: it is the app's own address book,
+      // and where the two disagree the person reading the row expects
+      // the name they gave the contact, not the one chat happens to
+      // hold.
+      final hostName = userCache.hostDisplayName(peer.id);
+      if (hostName != null && hostName.isNotEmpty) return hostName;
+      final name = peer.displayName?.trim();
       if (name != null && name.isNotEmpty) return name;
-      return other.id;
+      // Deliberately NOT the peer's id. A UUID where a name belongs
+      // reads as a bug; an empty title lets `RoomListItem.displayName`
+      // fall through to the room's own name and, failing that, lets the
+      // host paint whatever placeholder it prefers.
+      return null;
     }
     // Self-chat / orphan-room fallback. Three scenarios collapse here:
     // 1. WhatsApp-style "Message yourself" (1-member room created on

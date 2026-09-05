@@ -1,5 +1,7 @@
 import '../../../client/chat_client.dart';
+import '../../../models/host_user.dart';
 import '../../../models/user.dart';
+import 'host_user_directory.dart';
 
 /// In-memory cache for [ChatUser] objects looked up across the
 /// adapter (room list previews, message sender labels, DM resolution,
@@ -16,11 +18,18 @@ class UserCacheService {
   UserCacheService({
     required ChatUsersApi api,
     required bool Function() isDisposed,
+    HostUserDirectory? directory,
   }) : _api = api,
-       _isDisposed = isDisposed;
+       _isDisposed = isDisposed,
+       directory = directory ?? HostUserDirectory();
 
   final ChatUsersApi _api;
   final bool Function() _isDisposed;
+
+  /// The host application's own answer to "who is this id?". Inert when
+  /// the host wired no resolver, which is why it is never null: callers
+  /// ask it unconditionally and get "nothing" instead of having to branch.
+  final HostUserDirectory directory;
 
   final Map<String, ChatUser> _cache = {};
   final Set<String> _pendingFetches = {};
@@ -64,6 +73,12 @@ class UserCacheService {
     if (_pendingFetches.contains(userId)) return null;
     _pendingFetches.add(userId);
     try {
+      final fromHost = await _resolveFromHost(userId);
+      if (_isDisposed()) return null;
+      if (fromHost != null) {
+        _cache[userId] = fromHost;
+        return fromHost;
+      }
       final result = await _api.get(userId);
       if (_isDisposed()) return null;
       final user = result.dataOrNull;
@@ -78,6 +93,34 @@ class UserCacheService {
     }
   }
 
+  /// Asks the host directory about [userId] and turns a settled answer
+  /// into a [ChatUser] the rest of the SDK can hold.
+  ///
+  /// Settled means the host either gave a name or said there is nobody
+  /// there ([HostUser.gone]); both are cached, and neither costs a chat
+  /// round trip. An unsettled id — no resolver, an omitted key, a failed
+  /// lookup — returns `null` so the caller falls back to chat's own
+  /// profile, which is all the SDK had before this hook existed.
+  Future<ChatUser?> _resolveFromHost(String userId) async {
+    if (!directory.isEnabled) return null;
+    final known = directory.find(userId);
+    final host = known != null && directory.isFresh(userId)
+        ? known
+        : await directory.lookup(userId) ?? known;
+    if (host == null) return null;
+    if (!host.hasDisplayName && !host.gone) return null;
+    return ChatUser(
+      id: userId,
+      displayName: host.hasDisplayName ? host.displayName!.trim() : null,
+      avatarUrl: host.avatarUrl,
+    );
+  }
+
+  /// The host's name for [userId], synchronously, or `null` when the host
+  /// has none. Used by paint paths that cannot await — a room title, a
+  /// sender prefix — and never falls back to the id.
+  String? hostDisplayName(String userId) => directory.displayNameFor(userId);
+
   /// `true` while a fetch for [userId] is in flight. A caller that got a
   /// `null` out of [ensureCached] can tell "nobody is looking" apart from
   /// "someone else already is, and the entry is about to land".
@@ -88,6 +131,7 @@ class UserCacheService {
   void clear() {
     _cache.clear();
     _pendingFetches.clear();
+    directory.dispose();
   }
 
   /// Diagnostics — number of cached users.

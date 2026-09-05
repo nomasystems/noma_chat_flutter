@@ -1,6 +1,9 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/pagination.dart';
 import '../core/result.dart';
 import '../models/contact.dart';
+import '../models/host_user.dart';
 import '../models/invited_room.dart';
 import '../models/message.dart';
 import '../models/pin.dart';
@@ -10,6 +13,106 @@ import '../models/room.dart';
 import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
+
+/// A [HostUser] as the cache keeps it: the answer plus the moment it was
+/// given, which is the only thing that can tell a fresh name from one the
+/// host resolved months ago.
+///
+/// Stored rather than recomputed because the host's directory is often the
+/// slow, expensive side of the app — a contacts sync, a permissioned user
+/// service — and a cold start that had to ask it again before painting a
+/// single row would show a list of blank titles for as long as that call
+/// takes.
+@immutable
+class CachedHostUser {
+  const CachedHostUser({required this.user, required this.updatedAt});
+
+  /// What the host answered.
+  final HostUser user;
+
+  /// When the host answered it. Compared against a time-to-live to decide
+  /// whether the entry may be painted as-is or has to be asked about again.
+  final DateTime updatedAt;
+
+  /// Whether this entry is still within [ttl] as of [now].
+  bool isFresh(Duration ttl, {DateTime? now}) =>
+      (now ?? DateTime.now()).difference(updatedAt) < ttl;
+
+  Map<String, dynamic> toMap() => {
+    'id': user.id,
+    'displayName': user.displayName,
+    'avatarUrl': user.avatarUrl,
+    'gone': user.gone,
+    'updatedAt': updatedAt.toIso8601String(),
+  };
+
+  /// Rebuilds an entry from its stored shape, or returns `null` when the
+  /// record is unusable (no id, unparseable timestamp). A single corrupt
+  /// row costs one name, never the whole box.
+  static CachedHostUser? fromMap(Map<dynamic, dynamic> map) {
+    final id = map['id'];
+    if (id is! String || id.isEmpty) return null;
+    final raw = map['updatedAt'];
+    final updatedAt = raw is String ? DateTime.tryParse(raw) : null;
+    if (updatedAt == null) return null;
+    final displayName = map['displayName'];
+    final avatarUrl = map['avatarUrl'];
+    return CachedHostUser(
+      user: HostUser(
+        id: id,
+        displayName: displayName is String ? displayName : null,
+        avatarUrl: avatarUrl is String ? avatarUrl : null,
+        gone: map['gone'] == true,
+      ),
+      updatedAt: updatedAt,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is CachedHostUser &&
+          other.user == user &&
+          other.updatedAt == updatedAt;
+
+  @override
+  int get hashCode => Object.hash(user, updatedAt);
+
+  @override
+  String toString() => 'CachedHostUser($user, updatedAt: $updatedAt)';
+}
+
+/// Durable storage for host directory answers, kept as a contract of its
+/// own rather than as part of [ChatLocalDatasource].
+///
+/// The split is deliberate. Everything a [ChatLocalDatasource] holds came
+/// from chat; this came from the host application, and a store is free to
+/// implement one without the other. Making it a separate interface also
+/// means a datasource written against an earlier version of the SDK keeps
+/// satisfying [ChatLocalDatasource] unchanged — it simply persists no host
+/// names, exactly as it did before this existed.
+///
+/// A store that also implements this is picked up automatically: the SDK
+/// tests the datasource it was given and persists only when it answers to
+/// this contract.
+///
+/// Entries are keyed by the same id chat uses for the person, so a room's
+/// member list can be titled straight from the store on the first frame.
+/// They are kept apart from [ChatLocalDatasource.saveUsers] on purpose:
+/// those are chat's own profiles, these are the host's, and the two
+/// disagree often (a contact renamed in the phone book, a colleague
+/// titled by role).
+abstract class HostUserStore {
+  Future<ChatResult<void>> saveHostUsers(List<CachedHostUser> users);
+  Future<ChatResult<List<CachedHostUser>>> getHostUsers();
+  Future<ChatResult<CachedHostUser?>> getHostUser(String userId);
+
+  /// Forgets every stored answer. For sign-out, and for a host whose
+  /// directory changed underneath the SDK — a contacts re-sync, a
+  /// permission granted — and wants the next paint to ask again. Does not
+  /// touch [ChatLocalDatasource.saveUsers] data.
+  Future<ChatResult<void>> clearHostUsers();
+}
 
 /// Contract for local data persistence in the chat SDK.
 ///
