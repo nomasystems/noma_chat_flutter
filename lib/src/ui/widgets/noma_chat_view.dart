@@ -1116,24 +1116,26 @@ class _NomaChatViewState extends State<NomaChatView>
       await shot.file.readAsBytes(),
       onMetric: widget.adapter.metricCallback,
     );
+    final original = AttachmentPickResult(
+      bytes: scrubbed,
+      mimeType: shot.mimeType,
+      fileName: shot.fileName,
+    );
     final payload = await AttachmentPickers.shrinkToPolicy(
-      AttachmentPickResult(
-        bytes: scrubbed,
-        mimeType: shot.mimeType,
-        fileName: shot.fileName,
-      ),
+      original,
       policy: policy,
       shrinker: widget.adapter.attachmentShrinker,
     );
-    final violation = policy.validate(
-      mimeType: payload.mimeType,
-      sizeBytes: payload.size,
+    final violation = AttachmentPickers.violationFor(
+      policy,
+      original: original,
+      payload: payload,
     );
     if (violation == null) return payload;
     _reportAttachmentRejected(
       AttachmentRejection.fromPolicyViolation(
         violation,
-        fileName: payload.fileName,
+        fileName: original.fileName,
         sizeBytes: payload.size,
       ),
     );

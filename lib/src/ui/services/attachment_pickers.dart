@@ -217,10 +217,11 @@ class AttachmentPickers {
   /// type, size and dangerous-extension violations. Returns null on
   /// cancellation or rejection.
   ///
-  /// The deny-list is weighed on the name the user picked, while the size
-  /// cap is weighed on the payload that will actually be uploaded: an
-  /// [AttachmentShrinker] renames what it re-encodes, and a rename must not
-  /// be able to walk a denied extension past the check.
+  /// The deny-list and the mime whitelist are weighed on the file the user
+  /// picked, while the size cap is weighed on the payload that will actually
+  /// be uploaded: an [AttachmentShrinker] re-encodes and renames, and neither
+  /// a rename nor a re-labelled mime type may walk a rejected file past the
+  /// check.
   static Future<AttachmentPickResult?> pickFile({
     List<String> allowedExtensions = const [],
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
@@ -249,27 +250,24 @@ class AttachmentPickers {
         onRejected?.call(AttachmentRejection.unreadable(fileName: file.name));
         return null;
       }
+      final original = AttachmentPickResult(
+        bytes: await ImageMetadataScrubber.scrub(bytes, onMetric: onMetric),
+        mimeType:
+            _mimeFromExtension(file.extension) ?? 'application/octet-stream',
+        fileName: file.name,
+      );
       final pick = await shrinkToPolicy(
-        AttachmentPickResult(
-          bytes: await ImageMetadataScrubber.scrub(bytes, onMetric: onMetric),
-          mimeType:
-              _mimeFromExtension(file.extension) ?? 'application/octet-stream',
-          fileName: file.name,
-        ),
+        original,
         policy: policy,
         shrinker: shrinker,
       );
-      final violation = policy.validate(
-        mimeType: pick.mimeType,
-        sizeBytes: pick.size,
-        fileName: file.name,
-      );
+      final violation = violationFor(policy, original: original, payload: pick);
       if (violation != null) {
         logger?.call('warn', 'pickFile rejected: $violation');
         onRejected?.call(
           AttachmentRejection.fromPolicyViolation(
             violation,
-            fileName: pick.fileName,
+            fileName: original.fileName,
             sizeBytes: pick.size,
           ),
         );
@@ -324,34 +322,70 @@ class AttachmentPickers {
       await file.readAsBytes(),
       onMetric: onMetric,
     );
+    final original = AttachmentPickResult(
+      bytes: bytes,
+      mimeType:
+          file.mimeType ??
+          _mimeFromExtension(_extensionOf(file.name)) ??
+          fallbackMime,
+      fileName: file.name,
+    );
     final pick = await shrinkToPolicy(
-      AttachmentPickResult(
-        bytes: bytes,
-        mimeType:
-            file.mimeType ??
-            _mimeFromExtension(_extensionOf(file.name)) ??
-            fallbackMime,
-        fileName: file.name,
-      ),
+      original,
       policy: policy,
       shrinker: shrinker,
     );
-    final violation = policy.validate(
-      mimeType: pick.mimeType,
-      sizeBytes: pick.size,
-    );
+    final violation = violationFor(policy, original: original, payload: pick);
     if (violation != null) {
       logger?.call('warn', 'pick rejected: $violation');
       onRejected?.call(
         AttachmentRejection.fromPolicyViolation(
           violation,
-          fileName: pick.fileName,
+          fileName: original.fileName,
           sizeBytes: pick.size,
         ),
       );
       return null;
     }
     return pick;
+  }
+
+  /// Weighs [policy] the way an upload path has to: what the file *is* comes
+  /// from [original], the pick as the system handed it over, and how much of
+  /// it travels comes from [payload], whatever [shrinkToPolicy] left behind.
+  ///
+  /// Splitting the judgement in two closes a hole an [AttachmentShrinker]
+  /// would otherwise open. A shrinker re-encodes and renames — that is its
+  /// job — so judging the mime type or the extension on its output lets a
+  /// `report.pdf` relabelled `image/jpeg` through a policy that accepts
+  /// images only. Judging the size on the input is the mirror mistake: a
+  /// photo that fits once reduced would be refused for the bytes the picker
+  /// happened to hand over.
+  ///
+  /// The size cap is the one that applies to the original mime type, for the
+  /// same reason: a re-labelled payload must not be able to claim a roomier
+  /// bucket than the file the policy actually approved.
+  @internal
+  static AttachmentPolicyViolation? violationFor(
+    AttachmentPolicy policy, {
+    required AttachmentPickResult original,
+    required AttachmentPickResult payload,
+  }) {
+    final identity = policy.validate(
+      mimeType: original.mimeType,
+      sizeBytes: 0,
+      fileName: original.fileName,
+    );
+    if (identity != null) return identity;
+    final cap = policy.maxBytesFor(original.mimeType);
+    if (payload.size > cap) {
+      return AttachmentPolicyViolation.tooLarge(
+        mimeType: original.mimeType,
+        actualBytes: payload.size,
+        maxBytes: cap,
+      );
+    }
+    return null;
   }
 
   static String? _extensionOf(String path) {
