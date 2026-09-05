@@ -744,7 +744,7 @@ class _ChatViewState extends State<ChatView> {
     final builders = widget.builders;
     final callbacks = widget.callbacks;
     if (behaviors.readOnly) {
-      return _buildReadOnlyBanner();
+      return _buildReadOnlyBanner(context);
     }
     if (behaviors.isBlocked) {
       // WhatsApp-style: composer swapped for a "tap to unblock"
@@ -772,31 +772,44 @@ class _ChatViewState extends State<ChatView> {
     return _buildMessageInput();
   }
 
-  Widget _buildReadOnlyBanner() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-      decoration: BoxDecoration(
-        color:
-            widget.theme.input.backgroundColor ?? DefaultPalette.mutedSurface,
-        border: Border(
-          top: BorderSide(
-            color:
-                widget.theme.input.editingBorderColor ??
-                DefaultPalette.mutedBorder,
-            width: 0.5,
+  Widget _buildReadOnlyBanner(BuildContext context) {
+    final reason =
+        widget.behaviors.readOnlyReason ?? ReadOnlyReason.announcement;
+    final custom = widget.builders.readOnlyNoticeBuilder?.call(context, reason);
+    if (custom != null) return custom;
+
+    final label =
+        widget.behaviors.readOnlyLabel ??
+        widget.theme.l10nOf(context).readOnlyChannel;
+    return Semantics(
+      identifier: 'chat_read_only_notice',
+      label: label,
+      excludeSemantics: true,
+      child: Container(
+        key: const ValueKey('chat_read_only_notice'),
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+        decoration: BoxDecoration(
+          color:
+              widget.theme.input.backgroundColor ?? DefaultPalette.mutedSurface,
+          border: Border(
+            top: BorderSide(
+              color:
+                  widget.theme.input.editingBorderColor ??
+                  DefaultPalette.mutedBorder,
+              width: 0.5,
+            ),
           ),
         ),
-      ),
-      child: Text(
-        widget.behaviors.readOnlyLabel ??
-            widget.theme.l10nOf(context).readOnlyChannel,
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: widget.theme.systemMessageBackgroundColor != null
-              ? null
-              : Colors.grey[600],
-          fontSize: 14,
+        child: Text(
+          label,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: widget.theme.systemMessageBackgroundColor != null
+                ? null
+                : Colors.grey[600],
+            fontSize: 14,
+          ),
         ),
       ),
     );

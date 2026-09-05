@@ -527,6 +527,7 @@ class ChatViewBehaviors {
     this.emptySubtitle,
     bool? readOnly,
     this.readOnlyLabel,
+    this.readOnlyReason,
     bool? enableLinkPreview,
     bool? enableMentions,
     bool? showOperationFeedback,
@@ -744,6 +745,13 @@ class ChatViewBehaviors {
   /// when the SDK marks the room read-only; otherwise the host's is used.
   final String? readOnlyLabel;
 
+  /// Which of the three read-only causes applies, passed on to
+  /// [ChatViewBuilders.readOnlyNoticeBuilder] so a host-supplied notice can
+  /// word each one differently. `null` when the reason has not been
+  /// classified — the default notice ignores it either way and just shows
+  /// [readOnlyLabel].
+  final ReadOnlyReason? readOnlyReason;
+
   /// Forwarded to the composer. When true (default), URLs typed in the input
   /// trigger an Open Graph fetch and a preview banner above the text field.
   bool get enableLinkPreview => _enableLinkPreview ?? true;
@@ -851,6 +859,7 @@ class ChatViewBehaviors {
     emptySubtitle: emptySubtitle ?? base.emptySubtitle,
     readOnly: _readOnly ?? base._readOnly,
     readOnlyLabel: readOnlyLabel ?? base.readOnlyLabel,
+    readOnlyReason: readOnlyReason ?? base.readOnlyReason,
     enableLinkPreview: _enableLinkPreview ?? base._enableLinkPreview,
     enableMentions: _enableMentions ?? base._enableMentions,
     showOperationFeedback:
@@ -882,6 +891,7 @@ class ChatViewBehaviors {
   /// a contact gate, a per-app permission — is not silently re-opened by a
   /// room that happens to be writable. The room's [readOnlyLabel] still wins
   /// whenever the room itself is read-only; the host's is used otherwise.
+  /// [readOnlyReason] follows the same rule as [readOnlyLabel].
   ChatViewBehaviors withRoomState({
     required String? initialMessageId,
     required String? unreadBoundaryMessageId,
@@ -890,6 +900,7 @@ class ChatViewBehaviors {
     required bool isParticipating,
     required bool readOnly,
     required String? readOnlyLabel,
+    ReadOnlyReason? readOnlyReason,
     required bool? isGroup,
     Set<String>? blockedSenderIds,
   }) => ChatViewBehaviors(
@@ -926,6 +937,9 @@ class ChatViewBehaviors {
     isParticipating: isParticipating,
     readOnly: readOnly || (_readOnly ?? false),
     readOnlyLabel: readOnly ? readOnlyLabel : this.readOnlyLabel,
+    readOnlyReason: readOnly
+        ? (readOnlyReason ?? this.readOnlyReason)
+        : this.readOnlyReason,
     isGroup: isGroup,
     restoreComposerOnEditFailure: _restoreComposerOnEditFailure,
     confirmDeleteForEveryone: _confirmDeleteForEveryone,

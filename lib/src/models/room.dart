@@ -64,19 +64,27 @@ abstract class RoomDetail with _$RoomDetail {
   }) = _RoomDetail;
 
   /// True when the composer must be read-only: an announcement channel the
-  /// user doesn't own, OR the user has been moderation-muted in this room
-  /// (an admin/owner silenced them). [selfMuted] is distinct from [muted]
-  /// (the user's own notification preference).
+  /// user doesn't own, the user has been moderation-muted in this room (an
+  /// admin/owner silenced them — [selfMuted], distinct from [muted], the
+  /// user's own notification preference), or the room's [RoomConfig.writePolicy]
+  /// has been closed to everyone but its owner.
   bool get isReadOnly =>
       (type == RoomType.announcement && userRole != RoomRole.owner) ||
-      selfMuted;
+      selfMuted ||
+      (config.writePolicy == RoomWritePolicy.ownerOnly &&
+          userRole != RoomRole.owner);
 }
 
 /// Room-level configuration flags.
 @freezed
 abstract class RoomConfig with _$RoomConfig {
-  const factory RoomConfig({@Default(false) bool allowInvitations}) =
-      _RoomConfig;
+  const factory RoomConfig({
+    @Default(false) bool allowInvitations,
+
+    /// Who may post into this room. Set server-side, read-only from the
+    /// SDK's point of view. See [RoomWritePolicy].
+    @Default(RoomWritePolicy.members) RoomWritePolicy writePolicy,
+  }) = _RoomConfig;
 }
 
 /// The current user's private preferences for a room: notification mute,

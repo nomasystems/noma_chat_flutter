@@ -37,6 +37,11 @@ class RoomMapper {
     userRole: _parseRoomRole(dto.userRole),
     config: RoomConfig(
       allowInvitations: jsonBoolOr(dto.config?['allowInvitations'], false),
+      // Read only from `config.writePolicy` — never from `custom`, which
+      // carries unrelated app-defined flags (e.g. a support room's
+      // `support`/`reportRef`). Missing or unrecognised resolves to
+      // `members` (see RoomWritePolicyWire.fromWire).
+      writePolicy: RoomWritePolicyWire.fromWire(dto.config?['writePolicy']),
     ),
     muted: dto.muted,
     muteUntil: dto.muteUntil != null ? DateTime.tryParse(dto.muteUntil!) : null,

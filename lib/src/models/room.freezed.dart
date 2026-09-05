@@ -619,7 +619,9 @@ $RoomConfigCopyWith<$Res> get config {
 /// @nodoc
 mixin _$RoomConfig {
 
- bool get allowInvitations;
+ bool get allowInvitations;/// Who may post into this room. Set server-side, read-only from the
+/// SDK's point of view. See [RoomWritePolicy].
+ RoomWritePolicy get writePolicy;
 /// Create a copy of RoomConfig
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -630,16 +632,16 @@ $RoomConfigCopyWith<RoomConfig> get copyWith => _$RoomConfigCopyWithImpl<RoomCon
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is RoomConfig&&(identical(other.allowInvitations, allowInvitations) || other.allowInvitations == allowInvitations));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is RoomConfig&&(identical(other.allowInvitations, allowInvitations) || other.allowInvitations == allowInvitations)&&(identical(other.writePolicy, writePolicy) || other.writePolicy == writePolicy));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,allowInvitations);
+int get hashCode => Object.hash(runtimeType,allowInvitations,writePolicy);
 
 @override
 String toString() {
-  return 'RoomConfig(allowInvitations: $allowInvitations)';
+  return 'RoomConfig(allowInvitations: $allowInvitations, writePolicy: $writePolicy)';
 }
 
 
@@ -650,7 +652,7 @@ abstract mixin class $RoomConfigCopyWith<$Res>  {
   factory $RoomConfigCopyWith(RoomConfig value, $Res Function(RoomConfig) _then) = _$RoomConfigCopyWithImpl;
 @useResult
 $Res call({
- bool allowInvitations
+ bool allowInvitations, RoomWritePolicy writePolicy
 });
 
 
@@ -667,10 +669,11 @@ class _$RoomConfigCopyWithImpl<$Res>
 
 /// Create a copy of RoomConfig
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? allowInvitations = null,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? allowInvitations = null,Object? writePolicy = null,}) {
   return _then(_self.copyWith(
 allowInvitations: null == allowInvitations ? _self.allowInvitations : allowInvitations // ignore: cast_nullable_to_non_nullable
-as bool,
+as bool,writePolicy: null == writePolicy ? _self.writePolicy : writePolicy // ignore: cast_nullable_to_non_nullable
+as RoomWritePolicy,
   ));
 }
 
@@ -755,10 +758,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool allowInvitations)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( bool allowInvitations,  RoomWritePolicy writePolicy)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _RoomConfig() when $default != null:
-return $default(_that.allowInvitations);case _:
+return $default(_that.allowInvitations,_that.writePolicy);case _:
   return orElse();
 
 }
@@ -776,10 +779,10 @@ return $default(_that.allowInvitations);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool allowInvitations)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( bool allowInvitations,  RoomWritePolicy writePolicy)  $default,) {final _that = this;
 switch (_that) {
 case _RoomConfig():
-return $default(_that.allowInvitations);case _:
+return $default(_that.allowInvitations,_that.writePolicy);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -796,10 +799,10 @@ return $default(_that.allowInvitations);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool allowInvitations)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( bool allowInvitations,  RoomWritePolicy writePolicy)?  $default,) {final _that = this;
 switch (_that) {
 case _RoomConfig() when $default != null:
-return $default(_that.allowInvitations);case _:
+return $default(_that.allowInvitations,_that.writePolicy);case _:
   return null;
 
 }
@@ -811,10 +814,13 @@ return $default(_that.allowInvitations);case _:
 
 
 class _RoomConfig implements RoomConfig {
-  const _RoomConfig({this.allowInvitations = false});
+  const _RoomConfig({this.allowInvitations = false, this.writePolicy = RoomWritePolicy.members});
   
 
 @override@JsonKey() final  bool allowInvitations;
+/// Who may post into this room. Set server-side, read-only from the
+/// SDK's point of view. See [RoomWritePolicy].
+@override@JsonKey() final  RoomWritePolicy writePolicy;
 
 /// Create a copy of RoomConfig
 /// with the given fields replaced by the non-null parameter values.
@@ -826,16 +832,16 @@ _$RoomConfigCopyWith<_RoomConfig> get copyWith => __$RoomConfigCopyWithImpl<_Roo
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _RoomConfig&&(identical(other.allowInvitations, allowInvitations) || other.allowInvitations == allowInvitations));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _RoomConfig&&(identical(other.allowInvitations, allowInvitations) || other.allowInvitations == allowInvitations)&&(identical(other.writePolicy, writePolicy) || other.writePolicy == writePolicy));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,allowInvitations);
+int get hashCode => Object.hash(runtimeType,allowInvitations,writePolicy);
 
 @override
 String toString() {
-  return 'RoomConfig(allowInvitations: $allowInvitations)';
+  return 'RoomConfig(allowInvitations: $allowInvitations, writePolicy: $writePolicy)';
 }
 
 
@@ -846,7 +852,7 @@ abstract mixin class _$RoomConfigCopyWith<$Res> implements $RoomConfigCopyWith<$
   factory _$RoomConfigCopyWith(_RoomConfig value, $Res Function(_RoomConfig) _then) = __$RoomConfigCopyWithImpl;
 @override @useResult
 $Res call({
- bool allowInvitations
+ bool allowInvitations, RoomWritePolicy writePolicy
 });
 
 
@@ -863,10 +869,11 @@ class __$RoomConfigCopyWithImpl<$Res>
 
 /// Create a copy of RoomConfig
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? allowInvitations = null,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? allowInvitations = null,Object? writePolicy = null,}) {
   return _then(_RoomConfig(
 allowInvitations: null == allowInvitations ? _self.allowInvitations : allowInvitations // ignore: cast_nullable_to_non_nullable
-as bool,
+as bool,writePolicy: null == writePolicy ? _self.writePolicy : writePolicy // ignore: cast_nullable_to_non_nullable
+as RoomWritePolicy,
   ));
 }
 
