@@ -239,6 +239,7 @@ class ChatUiAdapter {
        roomListController = RoomListController(),
        _lifecycle = ConnectionLifecycle(),
        _resyncDebounce = resyncDebounce {
+    roomListController.setParticipantNameResolver(_participantNamesFor);
     if (manageAppLifecycle) {
       _lifecycleObserver = ChatLifecycleObserver(
         policy: lifecyclePolicy,
@@ -1240,6 +1241,31 @@ class ChatUiAdapter {
     final cached = _userCacheService.find(userId)?.displayName?.trim();
     if (cached != null && cached.isNotEmpty) return cached;
     return '';
+  }
+
+  /// People the room-list text filter matches on top of the room's own
+  /// title: the ones this adapter can name for a row without a round trip.
+  ///
+  /// Those are the peer of a one-to-one chat and whoever wrote the last
+  /// message, both resolved through [displayNameFor] — so the host's own
+  /// directory answers first, and an id nobody can name contributes nothing
+  /// instead of making the row searchable by its UUID. The local user is
+  /// left out: every chat has them in it, so their name would match
+  /// everything.
+  ///
+  /// The SDK keeps no roster in memory, so a group member who has never
+  /// written here is not searchable through this default. A host that does
+  /// keep one widens the search by calling
+  /// [RoomListController.setParticipantNameResolver] with its own resolver,
+  /// which replaces this one.
+  Iterable<String> _participantNamesFor(RoomListItem room) {
+    final names = <String>{};
+    for (final id in [room.otherUserId, room.lastMessageUserId]) {
+      if (id == null || id.isEmpty || id == currentUser.id) continue;
+      final name = displayNameFor(id);
+      if (name.isNotEmpty) names.add(name);
+    }
+    return names;
   }
 
   /// Inserts or updates the given users in the in-memory cache.

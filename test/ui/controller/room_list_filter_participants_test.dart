@@ -60,7 +60,7 @@ void main() {
       expect(controller.matchedParticipantFor('r1'), isNull);
     });
 
-    test('filters by resolved title (effectiveDisplayName), not raw name', () {
+    test('filters by the resolved title when there is no raw name', () {
       final controller = RoomListController(
         initialRooms: const [
           RoomListItem(id: 'dm-1', effectiveDisplayName: 'Alice Johnson'),
