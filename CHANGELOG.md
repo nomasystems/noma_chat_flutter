@@ -110,6 +110,11 @@ raw user id anywhere in the UI.
   invokes it with the room's `ReadOnlyReason` and falls back to the SDK's
   own notice (now carrying `Semantics(identifier: 'chat_read_only_notice')`)
   when it returns `null` or is unset.
+- **Two quick taps on Send could post the same message twice.** With link
+  previews enabled, the composer waited up to 2.5s for the preview of a
+  freshly typed URL before clearing its field, so a second tap in that window
+  started a second send — and, in a not-yet-created DM, created a second
+  room. The composer now refuses a send while one is still being prepared.
 
 ## 0.33.0 - 2026-09-03
 

@@ -187,6 +187,7 @@ class _MessageInputState extends State<MessageInput> {
   final _textController = TextEditingController();
   final _focusNode = FocusNode();
   bool _hasText = false;
+  bool _sendInFlight = false;
   bool _isEditing = false;
   bool _wasReplyingOrEditing = false;
   late final MessageInputVoiceController _voice;
@@ -467,95 +468,101 @@ class _MessageInputState extends State<MessageInput> {
   }
 
   void _send() {
+    if (_sendInFlight) return;
     unawaited(_sendAsync());
   }
 
   Future<void> _sendAsync() async {
     final text = _textController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty || _sendInFlight) return;
+    _sendInFlight = true;
 
     final editing = widget.controller.editingMessage;
-    final Future<bool> outcome;
+    late final Future<bool> outcome;
     ChatMessage? replyTo;
-    if (editing != null) {
-      if (widget.onEditMessage != null) {
-        outcome = _dispatchEdit(editing, text);
+    try {
+      if (editing != null) {
+        if (widget.onEditMessage != null) {
+          outcome = _dispatchEdit(editing, text);
+        } else {
+          outcome = _dispatchSend(
+            SendMessageRequest(text: text, editing: editing),
+          );
+        }
+        widget.controller.setEditingMessage(null);
       } else {
-        outcome = _dispatchSend(
-          SendMessageRequest(text: text, editing: editing),
-        );
-      }
-      widget.controller.setEditingMessage(null);
-    } else {
-      Map<String, dynamic>? metadata;
-      final preview = _currentPreview;
-      if (preview != null && _textContainsUrl(text, preview.url)) {
-        metadata = preview.toMessageMetadata();
-      } else if (widget.enableLinkPreview && _linkFetcher != null) {
-        // The user typed an URL and hit Send before the debounced
-        // fetcher resolved — first-send-of-a-fresh-URL race. Block
-        // briefly to give the fetch a chance: the second send for the
-        // same URL would have hit the in-memory cache and rendered
-        // the preview, leaving the first message preview-less and
-        // confusing. Cap at 2.5s so a flaky page doesn't freeze the
-        // composer; if it doesn't resolve in time we send without
-        // metadata (same fallback as before).
-        final urls = UrlDetector.extractUrls(text);
-        if (urls.isNotEmpty) {
-          final url = urls.first;
-          if (!_dismissedUrls.contains(url)) {
-            LinkPreviewMetadata? fetched;
-            try {
-              fetched = await _linkFetcher!
-                  .fetch(url)
-                  // Re-typed to the nullable form before the deadline, and
-                  // that hop is load-bearing: `Future<T>.timeout` checks
-                  // `onTimeout` against the *runtime* `T`, so a host-injected
-                  // fetcher narrowing its override to
-                  // `Future<LinkPreviewMetadata>` — a legal covariant
-                  // override, and this fetcher is public and injectable —
-                  // makes `() => null` a TypeError raised at the call
-                  // boundary, before `timeout` subscribes to anything. The
-                  // `catch` below would swallow it and every send would ship
-                  // preview-less, silently.
-                  .then<LinkPreviewMetadata?>((preview) => preview)
-                  .timeout(
-                    const Duration(milliseconds: 2500),
-                    onTimeout: () => null,
-                  );
-            } catch (_) {
-              fetched = null;
-            }
-            if (!mounted) return;
-            if (fetched != null && _textContainsUrl(text, fetched.url)) {
-              metadata = fetched.toMessageMetadata();
+        Map<String, dynamic>? metadata;
+        final preview = _currentPreview;
+        if (preview != null && _textContainsUrl(text, preview.url)) {
+          metadata = preview.toMessageMetadata();
+        } else if (widget.enableLinkPreview && _linkFetcher != null) {
+          // The user typed an URL and hit Send before the debounced
+          // fetcher resolved — first-send-of-a-fresh-URL race. Block
+          // briefly to give the fetch a chance: the second send for the
+          // same URL would have hit the in-memory cache and rendered
+          // the preview, leaving the first message preview-less and
+          // confusing. Cap at 2.5s so a flaky page doesn't freeze the
+          // composer; if it doesn't resolve in time we send without
+          // metadata (same fallback as before).
+          final urls = UrlDetector.extractUrls(text);
+          if (urls.isNotEmpty) {
+            final url = urls.first;
+            if (!_dismissedUrls.contains(url)) {
+              LinkPreviewMetadata? fetched;
+              try {
+                fetched = await _linkFetcher!
+                    .fetch(url)
+                    // Re-typed to the nullable form before the deadline, and
+                    // that hop is load-bearing: `Future<T>.timeout` checks
+                    // `onTimeout` against the *runtime* `T`, so a host-injected
+                    // fetcher narrowing its override to
+                    // `Future<LinkPreviewMetadata>` — a legal covariant
+                    // override, and this fetcher is public and injectable —
+                    // makes `() => null` a TypeError raised at the call
+                    // boundary, before `timeout` subscribes to anything. The
+                    // `catch` below would swallow it and every send would ship
+                    // preview-less, silently.
+                    .then<LinkPreviewMetadata?>((preview) => preview)
+                    .timeout(
+                      const Duration(milliseconds: 2500),
+                      onTimeout: () => null,
+                    );
+              } catch (_) {
+                fetched = null;
+              }
+              if (!mounted) return;
+              if (fetched != null && _textContainsUrl(text, fetched.url)) {
+                metadata = fetched.toMessageMetadata();
+              }
             }
           }
         }
-      }
-      // C.1 — when mentions are enabled, scan the trimmed text for
-      // `@<DisplayName>` tokens that match a known mentionable user
-      // and stash the matched userIds in `metadata.mentions`. This
-      // makes the data available server-side for analytics, push
-      // notifications targeted at mentioned users, etc. The render
-      // path doesn't depend on this list — `parseMarkdown` highlights
-      // every `@\w+` token regardless — but the persistence layer
-      // does.
-      if (widget.enableMentions && widget.mentionUsers.isNotEmpty) {
-        final ids = _extractMentionUserIds(text);
-        if (ids.isNotEmpty) {
-          metadata = {...?metadata, 'mentions': ids};
+        // C.1 — when mentions are enabled, scan the trimmed text for
+        // `@<DisplayName>` tokens that match a known mentionable user
+        // and stash the matched userIds in `metadata.mentions`. This
+        // makes the data available server-side for analytics, push
+        // notifications targeted at mentioned users, etc. The render
+        // path doesn't depend on this list — `parseMarkdown` highlights
+        // every `@\w+` token regardless — but the persistence layer
+        // does.
+        if (widget.enableMentions && widget.mentionUsers.isNotEmpty) {
+          final ids = _extractMentionUserIds(text);
+          if (ids.isNotEmpty) {
+            metadata = {...?metadata, 'mentions': ids};
+          }
         }
+        replyTo = widget.controller.replyingTo;
+        outcome = _dispatchSend(
+          SendMessageRequest(text: text, metadata: metadata, replyTo: replyTo),
+        );
+        widget.controller.setReplyTo(null);
       }
-      replyTo = widget.controller.replyingTo;
-      outcome = _dispatchSend(
-        SendMessageRequest(text: text, metadata: metadata, replyTo: replyTo),
-      );
-      widget.controller.setReplyTo(null);
+      _resetLinkPreviewState();
+      _textController.clear();
+      if (editing == null) widget.controller.setDraft(null, notify: false);
+    } finally {
+      _sendInFlight = false;
     }
-    _resetLinkPreviewState();
-    _textController.clear();
-    if (editing == null) widget.controller.setDraft(null, notify: false);
     if (await outcome) return;
     _restoreRefusedComposer(text: text, editing: editing, replyTo: replyTo);
   }
