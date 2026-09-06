@@ -74,9 +74,11 @@ interface class ChatMessagesController {
       if (_a._disposed) return const ChatSuccess(<ChatMessage>[]);
       controller.addMessages(visible);
       _a._loadReactionsFromMessages(controller, visible);
+      final cachedCursor =
+          cachedData.prevCursor ?? controller.oldestMessageCursor;
       controller.setPaginationState(
-        hasMore: cachedData.hasMore,
-        cursor: cachedData.prevCursor,
+        hasMore: cachedData.hasMore || cachedCursor != null,
+        cursor: cachedCursor,
       );
       if (cachedReceipts.isNotEmpty) {
         _applyRoomReceipts(
