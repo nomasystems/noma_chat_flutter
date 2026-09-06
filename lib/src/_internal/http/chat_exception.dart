@@ -137,7 +137,7 @@ final class ChatRateLimitException extends ChatException {
 
 final class ChatTimeoutException extends ChatException {
   /// Which request phase timed out, so the offline queue / retry layer
-  /// can tell a safe-to-resend pre-response timeout from a [receive]
+  /// can tell a safe-to-resend pre-response timeout from a [TimeoutKind.receive]
   /// timeout that may already have reached the server.
   final TimeoutKind kind;
 
