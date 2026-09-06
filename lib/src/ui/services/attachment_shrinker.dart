@@ -24,7 +24,7 @@ abstract interface class PolicyConfigurableShrinker {
 }
 
 /// The SDK's own [AttachmentShrinker], built on `package:image` — the same
-/// dependency [ImageMetadataScrubber] already carries, so wiring this in
+/// dependency `ImageMetadataScrubber` already carries, so wiring this in
 /// adds no new package to a host's dependency tree.
 ///
 /// Every [AttachmentPickers] entry point defaults to it, so a host calling
@@ -54,7 +54,7 @@ abstract interface class PolicyConfigurableShrinker {
 ///
 /// The decode/resize/encode pass runs on a background isolate wherever
 /// [PlatformSupport.supportsBackgroundIsolates] is `true`; on web it runs
-/// inline, same trade-off [ImageMetadataScrubber] makes.
+/// inline, same trade-off `ImageMetadataScrubber` makes.
 class DefaultAttachmentShrinker
     implements AttachmentShrinker, PolicyConfigurableShrinker {
   const DefaultAttachmentShrinker({
@@ -135,7 +135,7 @@ typedef _ShrinkJob = ({Uint8List bytes, List<ShrinkStep> steps, int maxBytes});
 /// The whole of the work, as one pure function over bytes so it can be
 /// handed to an isolate. Never throws: a decode failure, a resize failure
 /// or an encode failure on any given step all fall through to `null` (or
-/// the next step), mirroring [ImageMetadataScrubber._rebuild]'s stance that
+/// the next step), mirroring `ImageMetadataScrubber._rebuild`'s stance that
 /// a compression pass must never turn a bad photo into a crash.
 Uint8List? _shrink(_ShrinkJob job) {
   img.Image? decoded;
