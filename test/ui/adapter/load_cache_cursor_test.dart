@@ -22,30 +22,33 @@ void main() {
     await client.dispose();
   });
 
-  test('reopening a paginated room offline keeps the older-history cursor', () async {
-    client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
-    client.addMessage(
-      'r1',
-      ChatMessage(
-        id: 'm1',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'older',
-      ),
-    );
-    await adapter.rooms.load();
-    await adapter.messages.load('r1');
+  test(
+    'reopening a paginated room offline keeps the older-history cursor',
+    () async {
+      client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
+      client.addMessage(
+        'r1',
+        ChatMessage(
+          id: 'm1',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'older',
+        ),
+      );
+      await adapter.rooms.load();
+      await adapter.messages.load('r1');
 
-    final controller = adapter.getChatController('r1');
-    controller.setPaginationState(hasMore: true, cursor: 'c1');
+      final controller = adapter.getChatController('r1');
+      controller.setPaginationState(hasMore: true, cursor: 'c1');
 
-    client.messages.throwNextList = true;
-    await expectLater(
-      () => adapter.messages.load('r1'),
-      throwsA(isA<StateError>()),
-    );
+      client.messages.throwNextList = true;
+      await expectLater(
+        () => adapter.messages.load('r1'),
+        throwsA(isA<StateError>()),
+      );
 
-    expect(controller.oldestMessageCursor, 'c1');
-    expect(controller.hasMoreMessages, isTrue);
-  });
+      expect(controller.oldestMessageCursor, 'c1');
+      expect(controller.hasMoreMessages, isTrue);
+    },
+  );
 }

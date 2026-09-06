@@ -202,7 +202,8 @@ void main() {
       expect(
         item.isReadOnly,
         isFalse,
-        reason: 'the policy and the role come off the same listing row: '
+        reason:
+            'the policy and the role come off the same listing row: '
             'degrading one without the other shuts the owner out of a room '
             'they own',
       );

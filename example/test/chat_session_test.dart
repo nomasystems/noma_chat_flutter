@@ -20,28 +20,31 @@ void main() {
   });
 
   group('LoginOutcome', () {
-    test('is a sealed hierarchy with exactly the four expected variants', () async {
-      // A switch with no default over a sealed type is exhaustiveness-checked
-      // by the compiler: adding a fifth LoginOutcome subclass anywhere makes
-      // this fail to compile, which is what actually reminds us to update
-      // the onboarding switch in onboarding_page.dart — not the isNotNull
-      // checks a tear-off would always pass anyway.
-      String labelFor(LoginOutcome outcome) => switch (outcome) {
-        LoginSuccess() => 'success',
-        LoginAuthFailed() => 'authFailed',
-        LoginNetworkFailed() => 'networkFailed',
-        LoginUnexpected() => 'unexpected',
-      };
+    test(
+      'is a sealed hierarchy with exactly the four expected variants',
+      () async {
+        // A switch with no default over a sealed type is exhaustiveness-checked
+        // by the compiler: adding a fifth LoginOutcome subclass anywhere makes
+        // this fail to compile, which is what actually reminds us to update
+        // the onboarding switch in onboarding_page.dart — not the isNotNull
+        // checks a tear-off would always pass anyway.
+        String labelFor(LoginOutcome outcome) => switch (outcome) {
+          LoginSuccess() => 'success',
+          LoginAuthFailed() => 'authFailed',
+          LoginNetworkFailed() => 'networkFailed',
+          LoginUnexpected() => 'unexpected',
+        };
 
-      final success = await openChatSession(const ExampleSettings());
-      expect(success, isA<LoginSuccess>());
-      addTearDown((success as LoginSuccess).chat.dispose);
+        final success = await openChatSession(const ExampleSettings());
+        expect(success, isA<LoginSuccess>());
+        addTearDown((success as LoginSuccess).chat.dispose);
 
-      expect(labelFor(success), 'success');
-      expect(labelFor(const LoginAuthFailed('auth')), 'authFailed');
-      expect(labelFor(const LoginNetworkFailed('network')), 'networkFailed');
-      expect(labelFor(const LoginUnexpected('unexpected')), 'unexpected');
-    });
+        expect(labelFor(success), 'success');
+        expect(labelFor(const LoginAuthFailed('auth')), 'authFailed');
+        expect(labelFor(const LoginNetworkFailed('network')), 'networkFailed');
+        expect(labelFor(const LoginUnexpected('unexpected')), 'unexpected');
+      },
+    );
   });
 
   group('demoUserDirectoryResolver', () {

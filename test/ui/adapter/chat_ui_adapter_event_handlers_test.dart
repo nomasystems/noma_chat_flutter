@@ -504,33 +504,38 @@ void main() {
     expect(controller.otherUsers.map((u) => u.id), isNot(contains('u3')));
   });
 
-  test('MessageUpdatedEvent triggers a refresh that applies the new text', () async {
-    final controller = adapter.getChatController('r1');
-    controller.addMessage(
-      ChatMessage(
-        id: 'm-x',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'before',
-      ),
-    );
-    client.addMessage(
-      'r1',
-      ChatMessage(
-        id: 'm-x',
-        from: 'u2',
-        timestamp: DateTime(2026, 1, 1),
-        text: 'after',
-      ),
-    );
+  test(
+    'MessageUpdatedEvent triggers a refresh that applies the new text',
+    () async {
+      final controller = adapter.getChatController('r1');
+      controller.addMessage(
+        ChatMessage(
+          id: 'm-x',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'before',
+        ),
+      );
+      client.addMessage(
+        'r1',
+        ChatMessage(
+          id: 'm-x',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'after',
+        ),
+      );
 
-    client.emitEvent(const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-x'));
-    await drain();
+      client.emitEvent(
+        const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-x'),
+      );
+      await drain();
 
-    final updated = controller.messages.firstWhere((m) => m.id == 'm-x');
-    expect(updated.text, 'after');
-    expect(updated.isEdited, isTrue);
-  });
+      final updated = controller.messages.firstWhere((m) => m.id == 'm-x');
+      expect(updated.text, 'after');
+      expect(updated.isEdited, isTrue);
+    },
+  );
 
   test(
     'ReactionAddedEvent from another user stamps the room-list reaction preview',
@@ -618,7 +623,8 @@ void main() {
     await drain();
 
     final systemMessage = controller.messages.where(
-      (m) => m.metadata?[SystemMessageMetadataKeys.event] == 'user_role_changed',
+      (m) =>
+          m.metadata?[SystemMessageMetadataKeys.event] == 'user_role_changed',
     );
     expect(systemMessage, isNotEmpty);
     expect(systemMessage.single.isSystem, isTrue);

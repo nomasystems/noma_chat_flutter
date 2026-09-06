@@ -157,7 +157,8 @@ void main() {
     expect(
       rest.requestCount,
       greaterThanOrEqualTo(2),
-      reason: 'a 120-room account does not fit in one 100-room page, so the '
+      reason:
+          'a 120-room account does not fit in one 100-room page, so the '
           'listing had to ask for the next one',
     );
   });

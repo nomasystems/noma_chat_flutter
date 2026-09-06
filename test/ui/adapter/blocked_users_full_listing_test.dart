@@ -31,7 +31,8 @@ void main() {
     expect(
       adapter.contacts.blockedUserIds.contains('blocked-119'),
       isTrue,
-      reason: 'the users on the pages past the first are blocked too — '
+      reason:
+          'the users on the pages past the first are blocked too — '
           'dropping them puts their DMs back in the room list',
     );
   });
