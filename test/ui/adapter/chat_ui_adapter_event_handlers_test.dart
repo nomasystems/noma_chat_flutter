@@ -502,13 +502,36 @@ void main() {
     await drain();
   });
 
-  test('MessageUpdatedEvent triggers a refresh path (no crash)', () async {
+  test('MessageUpdatedEvent triggers a refresh that applies the new text', () async {
+    final controller = adapter.getChatController('r1');
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-x',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'before',
+      ),
+    );
+    client.addMessage(
+      'r1',
+      ChatMessage(
+        id: 'm-x',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'after',
+      ),
+    );
+
     client.emitEvent(const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-x'));
     await drain();
+
+    final updated = controller.messages.firstWhere((m) => m.id == 'm-x');
+    expect(updated.text, 'after');
+    expect(updated.isEdited, isTrue);
   });
 
   test(
-    'ReactionAddedEvent from another user is processed (no crash)',
+    'ReactionAddedEvent from another user stamps the room-list reaction preview',
     () async {
       final controller = adapter.getChatController('r1');
       controller.addMessage(
@@ -529,17 +552,41 @@ void main() {
         ),
       );
       await drain();
+
+      final room = adapter.roomListController.getRoomById('r1');
+      expect(room, isNotNull);
+      expect(room!.lastMessageType, MessageType.reaction);
+      expect(room.lastMessageReactionEmoji, '🎉');
     },
   );
 
-  test('ReactionDeletedEvent triggers reaction refresh', () async {
-    client.emitEvent(
-      const ReactionDeletedEvent(roomId: 'r1', messageId: 'm-x'),
-    );
-    await drain();
-  });
+  test(
+    'ReactionDeletedEvent triggers a reaction refresh that clears a stale local reaction',
+    () async {
+      final controller = adapter.getChatController('r1');
+      controller.addMessage(
+        ChatMessage(
+          id: 'm-x',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'hi',
+        ),
+      );
+      controller.setReactions('m-x', {'👍': 1});
+      expect(controller.reactions['m-x'], isNotNull);
 
-  test('PresenceChangedEvent updates room list (no crash)', () async {
+      client.emitEvent(
+        const ReactionDeletedEvent(roomId: 'r1', messageId: 'm-x'),
+      );
+      await drain();
+
+      expect(controller.reactions['m-x'], isNull);
+    },
+  );
+
+  test('PresenceChangedEvent updates the DM room-list row', () async {
+    adapter.dm.registerRoom('u2', 'r1');
+
     client.emitEvent(
       const PresenceChangedEvent(
         userId: 'u2',
@@ -548,9 +595,16 @@ void main() {
       ),
     );
     await drain();
+
+    final room = adapter.roomListController.getRoomById('r1');
+    expect(room, isNotNull);
+    expect(room!.isOnline, isTrue);
+    expect(room.presenceStatus, PresenceStatus.available);
   });
 
-  test('UserRoleChangedEvent triggers detail refresh (no crash)', () async {
+  test('UserRoleChangedEvent posts a system message to the room', () async {
+    final controller = adapter.getChatController('r1');
+
     client.emitEvent(
       const UserRoleChangedEvent(
         roomId: 'r1',
@@ -559,6 +613,13 @@ void main() {
       ),
     );
     await drain();
+    await drain();
+
+    final systemMessage = controller.messages.where(
+      (m) => m.metadata?[SystemMessageMetadataKeys.event] == 'user_role_changed',
+    );
+    expect(systemMessage, isNotEmpty);
+    expect(systemMessage.single.isSystem, isTrue);
   });
 
   test('DmActivityEvent for a known contact toggles typing', () async {
