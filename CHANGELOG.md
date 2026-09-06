@@ -121,6 +121,11 @@ raw user id anywhere in the UI.
   state; when the network page then failed, the next pull asked for the newest
   page instead of the older one and no older message appeared. The cache phase
   no longer narrows the pagination state.
+- **A room search with no matches showed the "no chats yet" empty state.**
+  `RoomListView` could not tell an empty list from a filtered one, so a search
+  that matched nothing offered the "start a chat" call to action — or, while
+  the list was still loading, an endless spinner. It now shows the localised
+  "no results" state instead.
 
 ## 0.33.0 - 2026-09-03
 

@@ -255,9 +255,16 @@ class RoomListView extends StatelessWidget {
         final archived = controller.archivedRooms;
         final hasArchived = archived.isNotEmpty;
         final showList = rooms.isNotEmpty || hasArchived;
+        final isFiltering = controller.filter.trim().isNotEmpty;
 
         Widget list;
-        if (!showList && isLoading) {
+        if (!showList && isFiltering) {
+          list = EmptyState(
+            icon: Icons.search_off,
+            title: theme.l10nOf(context).noResults,
+            theme: theme,
+          );
+        } else if (!showList && isLoading) {
           list = const Center(child: CircularProgressIndicator());
         } else if (!showList) {
           list =
@@ -309,7 +316,7 @@ class RoomListView extends StatelessWidget {
         }
 
         if (onRefresh != null) {
-          if (!showList && !isLoading) {
+          if (!showList && (!isLoading || isFiltering)) {
             list = RefreshIndicator(
               onRefresh: onRefresh!,
               child: CustomScrollView(
