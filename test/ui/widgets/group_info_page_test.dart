@@ -274,10 +274,8 @@ void main() {
   });
 
   group('GroupInfoPage — save failures', () {
-    // The room is removed from the mock backend after the page has already
-    // loaded its detail, so the next `updateConfig` fails while the loaded
-    // screen stays on stage. What the user must read is the localized
-    // "could not save" line, never the failure's own wording.
+    // What the user must read is the localized "could not save" line, never
+    // the failure's own wording.
     Future<void> failNextSave() => client.rooms.delete('r1');
 
     testWidgets('a failed name save shows the localized notice', (

@@ -363,8 +363,6 @@ void main() {
       expect(contacts.requests.first?.offset, 0);
       expect(contacts.requests[1]?.offset, 100);
 
-      // The row past the first backend page exists and is reachable, so
-      // the user can still unblock the people the first page left out.
       expect(find.text('User 0'), findsOneWidget);
       await tester.scrollUntilVisible(find.text('User 119'), 400);
       expect(find.text('User 119'), findsOneWidget);

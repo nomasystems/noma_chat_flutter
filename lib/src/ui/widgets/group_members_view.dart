@@ -518,8 +518,6 @@ class _GroupMembersViewState extends State<GroupMembersView>
         }
         final m = rows[index];
         final resolvedName = widget.displayNameResolver?.call(m.userId);
-        // An id is not a name. A row nobody can name renders blank and
-        // fills in the moment the resolver learns the name.
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()

@@ -164,12 +164,9 @@ extension _RoomEnricherHydration on RoomEnricher {
       isGroup: detail?.type == RoomType.group,
       isAnnouncement: detail?.type == RoomType.announcement,
       memberCount: detail?.memberCount,
-      // Degrades to the listing snapshot for the same reason `writePolicy`
-      // below does, and has to degrade with it: the two are read together,
-      // so a stub that knows the room is owner-only but not that this user
-      // owns it describes a room nobody may write in. A kicked room this
-      // pass had no detail for is exactly the case with a snapshot and no
-      // detail to hand.
+      // Degrades with `writePolicy` below for the reason spelled out in
+      // `room_enricher_enrichment.dart`; a kicked room this pass had no
+      // detail for is exactly the case described there.
       userRole: detail?.userRole ?? unread?.userRole,
       // Snapshot of the last message at kick time. The unread
       // counter is forced to 0 — there's nothing the user can mark

@@ -819,10 +819,9 @@ class RoomEnricher {
       if (hostName != null && hostName.isNotEmpty) return hostName;
       final name = peer.displayName?.trim();
       if (name != null && name.isNotEmpty) return name;
-      // Deliberately NOT the peer's id. A UUID where a name belongs
-      // reads as a bug; an empty title lets `RoomListItem.displayName`
-      // fall through to the room's own name and, failing that, lets the
-      // host paint whatever placeholder it prefers.
+      // Not the peer's id: an empty title lets `RoomListItem.displayName`
+      // fall through to the room's own name and then to the host's own
+      // placeholder.
       return null;
     }
     // Self-chat / orphan-room fallback. Three scenarios collapse here:

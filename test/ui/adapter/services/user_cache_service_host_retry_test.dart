@@ -105,7 +105,6 @@ void main() {
         final provisional = await service.ensureCached('u1');
         expect(provisional, isNotNull);
 
-        // What `cacheUsers` does with whatever `ensureCached` handed back.
         service.insert(provisional!);
 
         expect(

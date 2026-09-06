@@ -248,8 +248,6 @@ void main() {
       final msg = controller.messages.last;
       expect(msg.isSystem, isTrue);
       expect(msg.metadata?[SystemMessageMetadataKeys.userId], 'unknown-user');
-      // The sentence names a member, never the id it could not resolve,
-      // and the blank label is the sentinel a later paint repairs.
       expect(msg.text, isNot(contains('unknown-user')));
       expect(
         msg.text,

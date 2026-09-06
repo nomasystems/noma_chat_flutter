@@ -320,7 +320,6 @@ void main() {
         userId: 'me',
       );
 
-      // A brand new directory, and a host that has forgotten everyone.
       final second = make(host: _FakeDirectory(), cache: store);
       await second.hydrate();
 

@@ -172,8 +172,6 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
             itemBuilder: (context, index) {
               final userId = _rendered[index];
               final resolvedName = widget.displayNameResolver?.call(userId);
-              // Same rule as everywhere else: an unnameable id shows as
-              // a blank row, never as its own UUID.
               final displayName =
                   (resolvedName != null && resolvedName.trim().isNotEmpty)
                   ? resolvedName.trim()

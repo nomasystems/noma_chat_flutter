@@ -254,8 +254,6 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
         // from raw id → friendly name without another host round-trip.
         final resolvedName =
             widget.displayNameResolver?.call(userId) ?? _resolvedNames[userId];
-        // Nobody could name this contact: the row stays untitled rather
-        // than offering the user a UUID to pick from.
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()

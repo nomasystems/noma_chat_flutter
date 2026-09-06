@@ -185,8 +185,6 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      // Nobody can name user42 yet, so the banner says what it knows and
-      // keeps the id out of the sentence.
       expect(find.text('Member joined'), findsOneWidget);
       expect(find.textContaining('user42'), findsNothing);
     });

@@ -349,10 +349,7 @@ class _MessageInputState extends State<MessageInput> {
     if (!selection.isValid) return;
     final caret = selection.start;
     final name = _mentionNameFor(user);
-    // An id is not a name, and a message is the worst place to learn that:
-    // `@3f9c-…` would be sent, stored and read by everyone. With nobody
-    // able to name the id the overlay simply closes and what the user typed
-    // stays as typed.
+    // Never insert `@<uuid>`: with no name the overlay just closes.
     if (name == null) {
       _setMention(null, null);
       return;
