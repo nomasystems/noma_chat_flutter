@@ -42,15 +42,26 @@ void main() {
     },
   );
 
-  testWidgets('a filter with no matches beats the loading spinner', (
+  testWidgets('a filter with no matches waits for the first load to finish', (
     tester,
   ) async {
     await tester.pumpWidget(wrap(isLoading: true));
     controller.setFilter('zzz');
     await tester.pump();
 
-    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    expect(find.text(ChatUiLocalizations.en.noResults), findsNothing);
+  });
+
+  testWidgets('a whitespace-only filter counts as a filter', (tester) async {
+    await tester.pumpWidget(wrap());
+    expect(find.text('Alice'), findsOneWidget);
+
+    controller.setFilter(' ');
+    await tester.pump();
+
     expect(find.text(ChatUiLocalizations.en.noResults), findsOneWidget);
+    expect(find.text(ChatUiLocalizations.en.noChatsYet), findsNothing);
   });
 
   testWidgets('an empty list with no filter still says "no chats yet"', (
