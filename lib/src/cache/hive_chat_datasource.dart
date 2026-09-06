@@ -23,6 +23,10 @@ import '_schema_migrator.dart';
 import '_scope_digest.dart';
 import 'serialization.dart';
 
+part 'hive_box_layout.dart';
+part 'hive_eviction_quotas.dart';
+part 'hive_orphan_reaper.dart';
+
 /// Persistent [ChatLocalDatasource] implementation backed by Hive CE.
 ///
 /// Use the [create] factory to initialize Hive boxes and obtain an instance.
@@ -46,78 +50,7 @@ import 'serialization.dart';
 /// Passing no `userId` keeps the historical unscoped names — that layout
 /// is shared by every account on the device and only exists for
 /// backwards compatibility.
-class HiveChatDatasource implements ChatLocalDatasource {
-  // === Global box names ===
-  //
-  // Singleton boxes shared across the entire user session. Keys are
-  // entity ids (roomId, userId, etc.); values are JSON-shaped maps.
-  static const String _boxMeta = 'chat_meta';
-  static const String _boxRooms = 'chat_rooms';
-  static const String _boxRoomDetails = 'chat_room_details';
-  static const String _boxUsers = 'chat_users';
-  static const String _boxContacts = 'chat_contacts';
-  static const String _boxUnreads = 'chat_unreads';
-  static const String _boxInvited = 'chat_invited';
-  static const String _boxOfflineQueue = 'chat_offline_queue';
-  static const String _boxPins = 'chat_pins';
-  static const String _boxReceipts = 'chat_receipts';
-  static const String _boxMembers = 'chat_room_members';
-
-  // Every global box, in adoption order. `_boxMeta` is handled apart
-  // because it is opened before the registry exists.
-  static const List<String> _globalBoxNames = [
-    _boxMeta,
-    _boxRooms,
-    _boxRoomDetails,
-    _boxUsers,
-    _boxContacts,
-    _boxUnreads,
-    _boxInvited,
-    _boxOfflineQueue,
-    _boxPins,
-    _boxReceipts,
-    _boxMembers,
-  ];
-
-  // === Per-room box prefixes ===
-  //
-  // One box per room so per-room ops are O(box) instead of O(all
-  // messages) and so `clearMessages(roomId)` is a single `.clear()`
-  // call. Box name = prefix + `_sanitizeForBoxName(roomId)`.
-  static const String _msgBoxPrefix = 'chat_messages_';
-  static const String _pendingBoxPrefix = 'chat_pending_';
-  static const String _reactionsBoxPrefix = 'chat_reactions_';
-
-  static String _messagesBoxName(String roomId) =>
-      '$_msgBoxPrefix${_sanitizeForBoxName(roomId)}';
-  static String _pendingBoxName(String roomId) =>
-      '$_pendingBoxPrefix${_sanitizeForBoxName(roomId)}';
-  static String _reactionsBoxName(String roomId) =>
-      '$_reactionsBoxPrefix${_sanitizeForBoxName(roomId)}';
-
-  // === Meta box keys ===
-  static const String _messageRoomIdsKey = 'messageRoomIds';
-  static const String _schemaVersionKey = 'schemaVersion';
-  static const int _schemaVersion = 2;
-
-  /// Identity that owns this store. Written on every open of a scoped
-  /// store and read back by the unscoped-cache adoption guard, which is
-  /// the only proof of ownership the cache has.
-  static const String _cacheOwnerKey = 'cacheOwner';
-
-  /// Outcome of the one-shot unscoped → scoped adoption. Its presence is
-  /// what stops the migration from running twice.
-  static const String _unscopedMigrationKey = 'unscopedMigration';
-
-  /// Rooms whose message box is tracked but that the server has stopped
-  /// listing. See [_cleanOrphanedMessageBoxes].
-  static const String _orphanCandidatesKey = 'orphanCandidates';
-
-  /// Authoritative room-list reconciles a room must be missing from
-  /// before its boxes become reclaimable. One is a glitch; two spread
-  /// across [orphanGracePeriod] is a deletion.
-  static const int _orphanConfirmationsRequired = 2;
-
+class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
   late final HiveBoxRegistry _registry;
   late final Box<Map<dynamic, dynamic>> _metaBox;
   final int maxMessagesPerRoom;
@@ -336,177 +269,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
   }
 
-  /// Every room id this cache can prove still exists.
-  ///
-  /// `chat_rooms` alone is not that proof: `saveRooms` has a single
-  /// caller in the SDK (the `POST /rooms` create path), so on any install
-  /// that joined its rooms instead of creating them the box is empty
-  /// while the room list lives in `chat_unreads` / `chat_invited`. Every
-  /// source below is read from a box `_openCoreBoxes` has already opened,
-  /// so this costs no extra box opens on the launch path.
-  Future<Set<String>> _attestedRoomIds() async {
-    final ids = <String>{};
-    ids.addAll((await _box(_boxRooms)).keys.whereType<String>());
-    ids.addAll((await _box(_boxRoomDetails)).keys.whereType<String>());
-    ids.addAll((await _box(_boxUnreads)).keys.whereType<String>());
-    for (final entry in (await _box(_boxInvited)).values) {
-      final roomId = entry['roomId'];
-      if (roomId is String) ids.add(roomId);
-    }
-    // Kicked rooms are deliberately retained read-only after the backend
-    // stops listing them — their history is the whole point.
-    ids.addAll(_readKickedRoomIds());
-    return ids;
-  }
-
-  /// Destroys the per-room boxes of a room proven gone. Returns `false`
-  /// when the message box could not be removed from disk, so the caller
-  /// keeps tracking it and retries on a later launch instead of leaving
-  /// an unreachable (and, under a cipher, undecryptable) file forever.
-  Future<bool> _reclaimRoomBoxes(String roomId) async {
-    final name = _messagesBoxName(roomId);
-    final box = await _box(name);
-    await _safeWrite('orphanSweep clear', () => box.clear());
-    if (!await _deleteBoxFromDisk(name)) return false;
-    _msgIdIndex.invalidateRoom(roomId);
-    await _deleteBoxFromDisk(_pendingBoxName(roomId));
-    await _deleteBoxFromDisk(_reactionsBoxName(roomId));
-    return true;
-  }
-
-  /// Destroys message boxes belonging to rooms the server has proven are
-  /// gone.
-  ///
-  /// Deletion never follows from absence of evidence. A room only becomes
-  /// a candidate inside [reconcileUnreads] — the single authoritative
-  /// "this is your full room set" signal the SDK has — and only survives
-  /// as one while no local source attests it. Reclaiming it additionally
-  /// requires [_orphanConfirmationsRequired] such listings and
-  /// [orphanGracePeriod] of wall time. An install that is offline, that
-  /// has not loaded its room list yet, or whose listing failed therefore
-  /// produces no candidates at all and loses nothing — and neither does
-  /// one whose listing came back empty or truncated, which prove no more
-  /// than a failed one: see [_recordOrphanEvidence] for the first and
-  /// `RoomsApi.getUserRooms` for the second.
-  ///
-  /// This pass only harvests: it reads the candidate set, drops entries
-  /// the evidence has since vindicated, and destroys what is left over.
-  Future<void> _cleanOrphanedMessageBoxes() async {
-    final candidates = _readOrphanCandidates();
-    if (candidates.isEmpty) return;
-    final tracked = _getMessageRoomIds();
-    final attested = await _attestedRoomIds();
-    final now = DateTime.now().toUtc();
-
-    final survivors = <String, _OrphanCandidate>{};
-    final reclaimed = <String>{};
-    for (final entry in candidates.entries) {
-      final roomId = entry.key;
-      if (!tracked.contains(roomId) || attested.contains(roomId)) continue;
-      final candidate = entry.value;
-      if (candidate.confirmations < _orphanConfirmationsRequired ||
-          now.difference(candidate.since) < orphanGracePeriod) {
-        survivors[roomId] = candidate;
-        continue;
-      }
-      if (await _reclaimRoomBoxes(roomId)) {
-        reclaimed.add(roomId);
-      } else {
-        survivors[roomId] = candidate;
-      }
-    }
-
-    if (reclaimed.isNotEmpty) {
-      final remaining = tracked.difference(reclaimed);
-      await _safeWrite(
-        'orphanSweep meta',
-        () => _metaBox.put(_messageRoomIdsKey, {'ids': remaining.toList()}),
-      );
-      onMetric?.call('cache_orphan_reclaimed', {'count': reclaimed.length});
-    }
-    if (survivors.length != candidates.length) {
-      await _writeOrphanCandidates(survivors);
-    }
-  }
-
-  Map<String, _OrphanCandidate> _readOrphanCandidates() {
-    Map<dynamic, dynamic>? data;
-    try {
-      data = _metaBox.get(_orphanCandidatesKey);
-    } catch (_) {
-      return {};
-    }
-    final byRoom = data?['byRoom'];
-    if (byRoom is! Map) return {};
-    final result = <String, _OrphanCandidate>{};
-    for (final entry in byRoom.entries) {
-      final roomId = entry.key;
-      final value = entry.value;
-      if (roomId is! String || value is! Map) continue;
-      final since = DateTime.tryParse('${value['since']}');
-      if (since == null) continue;
-      final confirmations = value['confirmations'];
-      result[roomId] = _OrphanCandidate(
-        since: since,
-        confirmations: confirmations is int ? confirmations : 1,
-      );
-    }
-    return result;
-  }
-
-  Future<void> _writeOrphanCandidates(
-    Map<String, _OrphanCandidate> candidates,
-  ) => _safeWrite(
-    'orphanCandidates',
-    () => _metaBox.put(_orphanCandidatesKey, {
-      'byRoom': {
-        for (final entry in candidates.entries)
-          entry.key: {
-            'since': entry.value.since.toIso8601String(),
-            'confirmations': entry.value.confirmations,
-          },
-      },
-    }),
-  );
-
-  /// Records one authoritative room listing against the tracked message
-  /// rooms: attested rooms lose their candidacy, unattested ones gain a
-  /// confirmation. Called from [reconcileUnreads] only.
-  ///
-  /// A listing that names no room at all is refused as evidence. It is
-  /// indistinguishable from a listing answered for somebody else — a
-  /// token that resolved to another subject, a tenant or base-URL switch,
-  /// a staging backend, an account momentarily removed from every room —
-  /// and it names nothing, so it says nothing about the rooms it omits.
-  /// Accepting it would let two such responses nominate every tracked
-  /// room at once, and reclamation takes the unsent outbox with it. A
-  /// user who really left their last room goes through [deleteRoom],
-  /// whose cascade reclaims that room's boxes directly; refusing this
-  /// evidence therefore costs at most one stale box, which the next
-  /// listing that does name a room nominates anyway.
-  Future<void> _recordOrphanEvidence(Set<String> serverRoomIds) async {
-    if (serverRoomIds.isEmpty) return;
-    final tracked = _getMessageRoomIds();
-    final previous = _readOrphanCandidates();
-    if (tracked.isEmpty && previous.isEmpty) return;
-    final attested = (await _attestedRoomIds())..addAll(serverRoomIds);
-    final now = DateTime.now().toUtc();
-
-    final next = <String, _OrphanCandidate>{};
-    for (final roomId in tracked) {
-      if (attested.contains(roomId)) continue;
-      final existing = previous[roomId];
-      next[roomId] = existing == null
-          ? _OrphanCandidate(since: now, confirmations: 1)
-          : _OrphanCandidate(
-              since: existing.since,
-              confirmations: existing.confirmations + 1,
-            );
-    }
-    if (next.isEmpty && previous.isEmpty) return;
-    await _writeOrphanCandidates(next);
-  }
-
   Future<void> _migrateIfNeeded() async {
     final migrator = CacheSchemaMigrator(
       metaBox: _metaBox,
@@ -533,168 +295,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
     await _box(_boxOfflineQueue);
   }
 
-  // === Unscoped → per-user adoption ===
-  //
-  // The first time a user opens a scoped store, the device may still
-  // hold the pre-scoping device-wide boxes. They are moved into this
-  // user's namespace only when someone can say they are this user's: a
-  // cache whose owner cannot be established could belong to anybody who
-  // used the device, and handing it to the wrong account is exactly the
-  // leak scoping exists to prevent.
-  //
-  // Two parties can say so. The store itself, through the `cacheOwner`
-  // stamp — evidence, but only stores written by a scoped build carry
-  // one. And the host, through `adoptUnscopedCacheFor` — a declaration,
-  // available to every install, and the only answer a device upgrading
-  // from a pre-scoping build can ever get. Evidence outranks the
-  // declaration; silence from both refuses and reclaims the boxes after
-  // [unscopedCacheRetention].
-  //
-  // The outcome is recorded in this user's meta box, which is also what
-  // stops the migration from running a second time — with the single
-  // exception in [_assertionReopens].
-  Future<void> _adoptUnscopedCacheIfNeeded() async {
-    if (_scopePrefix.isEmpty) return;
-    final record = _readMigrationRecord();
-    if (record != null && !_assertionReopens(record)) {
-      await _reclaimUnscopedCacheIfDue(record);
-      return;
-    }
-    if (!await _unscopedCacheExists()) {
-      await _recordMigration(adopted: false, reason: 'no_unscoped_cache');
-      return;
-    }
-    final legacyMeta = await _openUnscopedBox(_boxMeta);
-    if (legacyMeta == null) {
-      await _recordMigration(adopted: false, reason: 'unreadable');
-      return;
-    }
-    final decision = _decideAdoption(_readOwnerUserId(legacyMeta));
-    if (!decision.adopt) {
-      await legacyMeta.close();
-      await _recordMigration(
-        adopted: false,
-        reason: decision.reason,
-        // Only a store nobody claims is ever reclaimed: one that names —
-        // or is asserted to belong to — a different user is still theirs
-        // to adopt when they sign in.
-        abandonedAt: decision.reclaimable ? DateTime.now().toUtc() : null,
-      );
-      return;
-    }
-    await _adoptUnscopedBoxes(legacyMeta);
-    // An adopted store may carry no stamp at all, since the assertion is
-    // what got it here. Stamp it now so the next launch reads evidence
-    // instead of asking the host again.
-    await _stampOwner(force: true);
-    await _recordMigration(adopted: true, reason: decision.reason);
-  }
-
-  /// Whether a recorded refusal is reopened by an assertion the host was
-  /// not making when it was taken.
-  ///
-  /// A host that adopts this parameter one release after the scoping —
-  /// the likely sequence — would otherwise find the answer already
-  /// recorded and the history already forfeit for everyone who launched
-  /// in between. Reopening puts the same [_decideAdoption] contract to
-  /// the question again, and costs nothing while the boxes are still on
-  /// disk: this is the path that merges an old store into one that has
-  /// been live for a release, which is why [_moveIntoScope] fills gaps
-  /// instead of overwriting. An adoption, a reclaimed store, and a
-  /// refusal reached with this very assertion in place are all final.
-  bool _assertionReopens(Map<dynamic, dynamic> record) =>
-      _assertedUnscopedOwner != null &&
-      record['adopted'] != true &&
-      record['reclaimed'] != true &&
-      record['asserted'] != _assertedUnscopedOwner;
-
-  /// Resolves whether the unscoped store may be adopted, from the
-  /// `cacheOwner` stamp it carries (`null` when it has none) and the
-  /// host's `adoptUnscopedCacheFor` assertion. See [create] for the
-  /// contract this implements.
-  _AdoptionDecision _decideAdoption(String? stampedOwner) {
-    final current = _normalizeId(userId);
-    final asserted = _assertedUnscopedOwner;
-    if (stampedOwner != null) {
-      if (asserted != null && asserted != stampedOwner) {
-        return const _AdoptionDecision.refuse('assertion_contradicted');
-      }
-      return stampedOwner == current
-          ? const _AdoptionDecision.adopt('owner_match')
-          : const _AdoptionDecision.refuse('owner_mismatch');
-    }
-    if (asserted == null) {
-      return const _AdoptionDecision.refuse('no_owner', reclaimable: true);
-    }
-    return asserted == current
-        ? const _AdoptionDecision.adopt('host_asserted')
-        : const _AdoptionDecision.refuse('assertion_other_user');
-  }
-
-  // === Ownership guard ===
-  //
-  // The namespace decides which physical store a user gets; this decides
-  // whether they may have it. The two are independent on purpose: the
-  // namespace is derived from the id, so anything that ever makes two ids
-  // derive the same one — a digest collision, a host that changes how it
-  // spells its ids between releases, a backup restored from another
-  // device — hands the store to the wrong account. The stamp does not
-  // depend on the derivation, so it catches what the derivation missed.
-  //
-  // A store stamped for somebody else is destroyed before it is read:
-  // losing a cache costs a re-fetch from the server, serving one to the
-  // wrong account cannot be undone. An unstamped store is claimed rather
-  // than destroyed — the only way to reach a scoped namespace without a
-  // stamp is to have crashed mid-adoption in it, which is this user's own
-  // interrupted work.
-  //
-  // When the destruction cannot be completed, the session is refused
-  // outright. Returning here would hand the caller a working datasource
-  // reading the boxes that survived — the exact outcome the destruction
-  // exists to prevent, reached by the path that knows it is happening.
-  // A refusal costs the host a cached session, which is recoverable; the
-  // alternative is not.
-  Future<void> _takeOwnership() async {
-    if (_scopePrefix.isEmpty) return;
-    final stamped = _readOwnerUserId(_metaBox);
-    if (stamped != null && stamped != _normalizeId(userId)) {
-      onWarning?.call(
-        'Cache namespace is stamped for another user — clearing it',
-      );
-      onMetric?.call('cache_foreign_store_cleared', const {});
-      if (!await _evictForeignStore()) {
-        // Something of theirs is still there. The stamp changes hands
-        // only over an emptied store, so leaving theirs in place is what
-        // makes the next launch try again instead of finding an
-        // unclaimed store and adopting the remains.
-        onWarning?.call('Foreign cache could not be cleared — refusing it');
-        onMetric?.call('cache_foreign_store_clear_failed', const {});
-        await _closeMetaBoxQuietly();
-        throw StateError(
-          'The local cache for this user still holds another account\'s '
-          'data that could not be cleared. Opening it would serve that '
-          'data to the signed-in user, so the store is refused. Retry, or '
-          'run this session with the cache disabled (enableCache: false).',
-        );
-      }
-    }
-    await _stampOwner();
-  }
-
-  /// Releases the handle on a store this instance has just refused, so a
-  /// failed [create] leaves nothing of it open.
-  Future<void> _closeMetaBoxQuietly() => _closeBoxQuietly(_metaBox);
-
-  Future<void> _closeBoxQuietly(Box<Map<dynamic, dynamic>> box) async {
-    try {
-      await box.close();
-    } catch (e) {
-      onWarning?.call(
-        'Foreign cache box "${box.name}" could not be closed: $e',
-      );
-    }
-  }
-
   /// Forces [_evictForeignStore] to report that it left the previous
   /// owner's data behind, so the refusal in [_takeOwnership] can be
   /// exercised.
@@ -708,394 +308,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
   /// to `false`.
   @visibleForTesting
   static bool debugFailForeignEviction = false;
-
-  /// Empties every box in this namespace, the previous owner's stamp and
-  /// adoption record included — that record answers a question that was
-  /// theirs, not this user's. Returns whether nothing of theirs is left.
-  ///
-  /// Enumeration mirrors [_purgeUnscopedBoxes]: the tracked message rooms
-  /// plus every room id the store's own listings still name, a per-room
-  /// box being unreachable except through one of them. Reading those
-  /// listings is best-effort and deleting never depends on it — a box
-  /// that cannot be opened (written under a cipher this session no longer
-  /// holds, say) is still removed, since leaving it readable is the state
-  /// this guard exists to end.
-  ///
-  /// Deletion is how the disk is reclaimed, not how the data is made
-  /// unreachable: a delete the filesystem refuses falls back to emptying
-  /// the box, which is an ordinary write and fails far less often. Only
-  /// when both fail does anything survive, and the caller then refuses
-  /// the store rather than claim it over the remains.
-  ///
-  /// Runs before any box of this store has been opened or indexed. The
-  /// handles it takes are its own — [_openScopedBox] goes around the
-  /// registry, so nothing else will ever close them — and every one of
-  /// them is released before returning, whichever way this ends: the
-  /// caller's refusal path throws without handing the host anything to
-  /// dispose.
-  Future<bool> _evictForeignStore() async {
-    if (debugFailForeignEviction) return false;
-    final roomIds = <String>{..._getMessageRoomIds(), ..._readKickedRoomIds()};
-    final listed = <Box<Map<dynamic, dynamic>>>[];
-    try {
-      for (final name in _globalBoxNames) {
-        if (name == _boxMeta) continue;
-        final box = await _openScopedBox(name);
-        if (box == null) continue;
-        listed.add(box);
-        if (name == _boxInvited) {
-          for (final entry in box.values) {
-            final roomId = entry['roomId'];
-            if (roomId is String) roomIds.add(roomId);
-          }
-        } else if (name != _boxUsers &&
-            name != _boxContacts &&
-            name != _boxOfflineQueue) {
-          roomIds.addAll(box.keys.whereType<String>());
-        }
-      }
-    } catch (e) {
-      // A corrupted listing costs the rooms it would have named, not the
-      // eviction: every global box is still destroyed below.
-      onWarning?.call('Foreign cache room listing unreadable: $e');
-    }
-    for (final box in listed) {
-      await _closeBoxQuietly(box);
-    }
-
-    var emptied = true;
-    final names = [
-      for (final name in _globalBoxNames)
-        if (name != _boxMeta) name,
-      for (final roomId in roomIds) ..._perRoomBoxNames(roomId),
-    ];
-    for (final name in names) {
-      if (await _deleteBoxFromDisk(name)) continue;
-      final box = await _openScopedBox(name);
-      // Absent, or unopenable — and an unopenable box is not a way back
-      // in either: the registry deletes and recreates one it cannot open
-      // the first time anything asks for it.
-      if (box == null) continue;
-      try {
-        await box.clear();
-      } catch (e) {
-        onWarning?.call('Foreign box "$name" could not be emptied: $e');
-        emptied = false;
-      }
-      await _closeBoxQuietly(box);
-    }
-
-    if (!emptied) return false;
-    // The meta box is open and owned directly, so it is emptied rather
-    // than deleted. Everything in it belongs to the previous owner.
-    try {
-      await _metaBox.clear();
-    } catch (e) {
-      onWarning?.call('Foreign meta box could not be emptied: $e');
-      return false;
-    }
-    return true;
-  }
-
-  /// Writes this store's `cacheOwner` stamp, the evidence future launches
-  /// read instead of asking the host who the cache belongs to.
-  ///
-  /// Only ever called once [_takeOwnership] has established that the
-  /// store is this user's. The stamp is the sole record of ownership, so
-  /// writing it over a live one would destroy the evidence the guard
-  /// reads. [force] rewrites a stamp already in place, which the adoption
-  /// path uses to guarantee the merged store names this user whatever the
-  /// merge did with the key.
-  Future<void> _stampOwner({bool force = false}) async {
-    if (!force && _readOwnerUserId(_metaBox) == _normalizeId(userId)) return;
-    await _safeWrite(
-      'cacheOwner',
-      () => _metaBox.put(_cacheOwnerKey, {'userId': _normalizeId(userId)}),
-    );
-  }
-
-  Future<bool> _unscopedCacheExists() async {
-    try {
-      return await Hive.boxExists(_boxMeta);
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /// Boxes whose keys are positions in a list rather than identities:
-  /// `saveContacts` / `saveInvitedRooms` clear and rewrite them from
-  /// `0..n-1` on every call, so key `3` means "the fourth entry of
-  /// whatever list was saved last" and nothing more. Merging two of them
-  /// key by key would splice two unrelated lists into one, so they are
-  /// adopted whole or not at all.
-  static const Set<String> _positionKeyedBoxes = {_boxContacts, _boxInvited};
-
-  /// Meta keys holding a `{'ids': [...]}` registry that has to survive
-  /// adoption as the union of both stores. Keeping only the live value
-  /// would leave every room arriving with the adoption untracked — its
-  /// boxes on disk but invisible to [clear] and to the TTL sweep — and
-  /// keeping only the legacy value would do the same to every room
-  /// tracked since.
-  static const Set<String> _unionMetaKeys = {
-    _messageRoomIdsKey,
-    _kickedRoomIdsKey,
-    _deletedRoomIdsKey,
-  };
-
-  Future<void> _adoptUnscopedBoxes(
-    Box<Map<dynamic, dynamic>> legacyMeta,
-  ) async {
-    final roomIds = <String>{};
-    final trackedIds = legacyMeta.get(_messageRoomIdsKey)?['ids'];
-    if (trackedIds is List) roomIds.addAll(trackedIds.whereType<String>());
-
-    for (final name in _globalBoxNames) {
-      if (name == _boxMeta) continue;
-      final legacy = await _openUnscopedBox(name);
-      if (legacy == null) continue;
-      if (name == _boxOfflineQueue) {
-        await _discardUnscopedQueue(legacy);
-        continue;
-      }
-      if (name == _boxInvited) {
-        for (final entry in legacy.values) {
-          final roomId = entry['roomId'];
-          if (roomId is String) roomIds.add(roomId);
-        }
-      } else if (name != _boxUsers && name != _boxContacts) {
-        roomIds.addAll(legacy.keys.whereType<String>());
-      }
-      await _moveIntoScope(name, legacy);
-    }
-
-    for (final roomId in roomIds) {
-      for (final name in _perRoomBoxNames(roomId)) {
-        final legacy = await _openUnscopedBox(name);
-        if (legacy != null) await _moveIntoScope(name, legacy);
-      }
-    }
-
-    // Last, and that is the whole point: the unscoped meta box is what
-    // the next launch reads to find an unscoped store at all. Removing
-    // it first leaves a run that dies before [_recordMigration] with the
-    // remaining boxes on disk and nothing able to reach them — the next
-    // launch finds no unscoped meta, records `no_unscoped_cache`, and
-    // the reclaim only ever covers `no_owner`, so they would be
-    // unreachable and unreclaimable until someone called
-    // [purgeUnscopedCache] by hand. Removing it last makes an
-    // interrupted adoption resume instead: the boxes already moved are
-    // simply absent the second time round, and the merge fills the rest.
-    //
-    // The meta box is owned directly, not by the registry — routing it
-    // through `_box` would enlist it in `clearAll()` and wipe the
-    // identity keys `clear()` deliberately preserves.
-    await _moveIntoScope(_boxMeta, legacyMeta, target: _metaBox);
-    onMetric?.call('cache_unscoped_adopted', {'rooms': roomIds.length});
-  }
-
-  /// Destroys the pre-scoping send queue instead of adopting it.
-  ///
-  /// Every other box holds state, which is merely stale when it is old.
-  /// This one holds instructions, and adopting it hands them straight to
-  /// the transport to execute. An entry records nothing about when it was
-  /// enqueued, and on the [_assertionReopens] path the snapshot it comes
-  /// from can be a month older than the session adopting it — so there is
-  /// no age at which replaying it is safe. Dropping an unsent operation
-  /// costs the user one retry; sending a month-old one costs them a
-  /// message they did not write today.
-  Future<void> _discardUnscopedQueue(Box<Map<dynamic, dynamic>> legacy) async {
-    final dropped = legacy.length;
-    try {
-      await legacy.deleteFromDisk();
-    } catch (e) {
-      onWarning?.call('Failed to remove unscoped box "$_boxOfflineQueue": $e');
-    }
-    if (dropped > 0) {
-      onMetric?.call('cache_unscoped_queue_dropped', {'count': dropped});
-    }
-  }
-
-  /// Merges [legacy] into this user's namespace and removes it from disk.
-  ///
-  /// Adoption fills gaps; it never writes over what the scoped store
-  /// already holds. On the first scoped launch the target is empty and
-  /// the distinction is invisible — but [_assertionReopens] deliberately
-  /// runs this again over a store that has been live ever since the
-  /// scoping shipped. By then the legacy side is the older of the two
-  /// wherever they disagree, and a plain `putAll` would write weeks of
-  /// history back over the state that replaced it.
-  Future<void> _moveIntoScope(
-    String name,
-    Box<Map<dynamic, dynamic>> legacy, {
-    Box<Map<dynamic, dynamic>>? target,
-  }) async {
-    final data = legacy.toMap();
-    if (data.isNotEmpty) {
-      final box = target ?? await _box(name);
-      final writes = _adoptionWrites(name, box, data);
-      if (writes.isNotEmpty) {
-        await _safeWrite('adopt $name', () => box.putAll(writes));
-      }
-    }
-    try {
-      await legacy.deleteFromDisk();
-    } catch (e) {
-      onWarning?.call('Failed to remove adopted box "$name": $e');
-    }
-  }
-
-  Map<dynamic, Map<dynamic, dynamic>> _adoptionWrites(
-    String name,
-    Box<Map<dynamic, dynamic>> box,
-    Map<dynamic, Map<dynamic, dynamic>> legacy,
-  ) {
-    if (name == _boxMeta) return _metaAdoptionWrites(box, legacy);
-    if (_positionKeyedBoxes.contains(name)) {
-      return box.isEmpty ? legacy : const {};
-    }
-    return {
-      for (final entry in legacy.entries)
-        if (!box.containsKey(entry.key)) entry.key: entry.value,
-    };
-  }
-
-  /// The part of a legacy meta box that may reach the scoped one: keys it
-  /// does not carry yet, plus the union of the room-id registries.
-  ///
-  /// Every other key is answered by the live value, which is the newer of
-  /// the two — the schema version this store has already been migrated
-  /// to, its own `cacheOwner` and migration record, the per-room
-  /// `clearedAt_*` cutoffs, the cache freshness stamps. Taking the legacy
-  /// value for any of them would undo something: re-run a migration
-  /// against a live store, un-clear a room the user cleared, or present
-  /// month-old rows as fresh.
-  Map<dynamic, Map<dynamic, dynamic>> _metaAdoptionWrites(
-    Box<Map<dynamic, dynamic>> box,
-    Map<dynamic, Map<dynamic, dynamic>> legacy,
-  ) {
-    final writes = <dynamic, Map<dynamic, dynamic>>{};
-    for (final entry in legacy.entries) {
-      final key = entry.key;
-      if (!box.containsKey(key)) {
-        writes[key] = entry.value;
-      } else if (_unionMetaKeys.contains(key)) {
-        Map<dynamic, dynamic>? live;
-        // Same defensive read as `_readIdSet`: a corrupted live entry
-        // already reads as the empty set everywhere else, so the union
-        // degrades to the legacy ids instead of throwing mid-adoption.
-        try {
-          live = box.get(key);
-        } catch (_) {
-          live = null;
-        }
-        writes[key] = {
-          'ids': <String>{..._idsIn(live), ..._idsIn(entry.value)}.toList(),
-        };
-      }
-    }
-    return writes;
-  }
-
-  static Set<String> _idsIn(Map<dynamic, dynamic>? data) {
-    final ids = data?['ids'];
-    return ids is List ? ids.whereType<String>().toSet() : const {};
-  }
-
-  Future<void> _reclaimUnscopedCacheIfDue(Map<dynamic, dynamic> record) async {
-    if (record['adopted'] == true || record['reclaimed'] == true) return;
-    if (record['reason'] != 'no_owner') return;
-    final abandonedAt = DateTime.tryParse('${record['abandonedAt']}');
-    if (abandonedAt == null) return;
-    if (DateTime.now().toUtc().difference(abandonedAt) <
-        unscopedCacheRetention) {
-      return;
-    }
-    await _purgeUnscopedBoxes(_cipher, (m) => onWarning?.call(m));
-    await _safeWrite(
-      'unscopedMigration reclaim',
-      () => _metaBox.put(_unscopedMigrationKey, {
-        ...record,
-        'reclaimed': true,
-        'reclaimedAt': DateTime.now().toUtc().toIso8601String(),
-      }),
-    );
-    onMetric?.call('cache_unscoped_reclaimed', const {});
-  }
-
-  Map<dynamic, dynamic>? _readMigrationRecord() {
-    try {
-      return _metaBox.get(_unscopedMigrationKey);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  Future<void> _recordMigration({
-    required bool adopted,
-    required String reason,
-    DateTime? abandonedAt,
-  }) => _safeWrite(
-    'unscopedMigration',
-    () => _metaBox.put(_unscopedMigrationKey, {
-      'adopted': adopted,
-      'reason': reason,
-      'at': DateTime.now().toUtc().toIso8601String(),
-      // The assertion this answer was reached under, so the same one is
-      // not asked again on every launch — see [_assertionReopens].
-      if (_assertedUnscopedOwner != null) 'asserted': _assertedUnscopedOwner,
-      if (abandonedAt != null) 'abandonedAt': abandonedAt.toIso8601String(),
-    }),
-  );
-
-  /// Trims an identity and collapses a blank one to `null`, so ownership
-  /// comparisons cannot turn on surrounding whitespace.
-  static String? _normalizeId(String? value) {
-    final trimmed = value?.trim();
-    return trimmed == null || trimmed.isEmpty ? null : trimmed;
-  }
-
-  static String? _readOwnerUserId(Box<Map<dynamic, dynamic>> box) {
-    Map<dynamic, dynamic>? data;
-    try {
-      data = box.get(_cacheOwnerKey);
-    } catch (_) {
-      return null;
-    }
-    final id = data?['userId'];
-    return id is String && id.isNotEmpty ? id : null;
-  }
-
-  Future<Box<Map<dynamic, dynamic>>?> _openUnscopedBox(String name) =>
-      _openUnscoped(name, _cipher, (m) => onWarning?.call(m));
-
-  /// Opens a box of this user's namespace outside the registry, or `null`
-  /// when it does not exist or cannot be read. [_openUnscoped] takes a
-  /// physical name and does not care whose it is.
-  Future<Box<Map<dynamic, dynamic>>?> _openScopedBox(String name) =>
-      _openUnscoped(_physical(name), _cipher, (m) => onWarning?.call(m));
-
-  static Future<Box<Map<dynamic, dynamic>>?> _openUnscoped(
-    String name,
-    HiveCipher? cipher,
-    void Function(String message)? onWarning,
-  ) async {
-    try {
-      if (!await Hive.boxExists(name)) return null;
-      return await Hive.openBox<Map<dynamic, dynamic>>(
-        name,
-        encryptionCipher: cipher,
-      );
-    } catch (e) {
-      onWarning?.call('Unscoped box "$name" could not be opened: $e');
-      return null;
-    }
-  }
-
-  static List<String> _perRoomBoxNames(String roomId) => [
-    _messagesBoxName(roomId),
-    _pendingBoxName(roomId),
-    _reactionsBoxName(roomId),
-  ];
 
   /// Deletes the legacy device-wide (unscoped) cache from disk.
   ///
@@ -1129,45 +341,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
   }) async {
     if (basePath != null) Hive.init(basePath);
     await _purgeUnscopedBoxes(encryptionCipher, onWarning);
-  }
-
-  static Future<void> _purgeUnscopedBoxes(
-    HiveCipher? cipher,
-    void Function(String message)? onWarning,
-  ) async {
-    // Reading is best-effort — it only widens the set of per-room boxes
-    // we know about. Deleting never depends on it, so a box written
-    // under a cipher this session no longer holds is still removed
-    // instead of being left on disk forever.
-    final roomIds = <String>{};
-    for (final name in _globalBoxNames) {
-      final box = await _openUnscoped(name, cipher, onWarning);
-      if (box == null) continue;
-      if (name == _boxMeta) {
-        final trackedIds = box.get(_messageRoomIdsKey)?['ids'];
-        if (trackedIds is List) roomIds.addAll(trackedIds.whereType<String>());
-      } else if (name == _boxInvited) {
-        for (final entry in box.values) {
-          final roomId = entry['roomId'];
-          if (roomId is String) roomIds.add(roomId);
-        }
-      } else if (name != _boxUsers &&
-          name != _boxContacts &&
-          name != _boxOfflineQueue) {
-        roomIds.addAll(box.keys.whereType<String>());
-      }
-    }
-    final names = [
-      ..._globalBoxNames,
-      for (final roomId in roomIds) ..._perRoomBoxNames(roomId),
-    ];
-    for (final name in names) {
-      try {
-        await Hive.deleteBoxFromDisk(name);
-      } catch (e) {
-        onWarning?.call('Failed to delete unscoped box "$name": $e');
-      }
-    }
   }
 
   // Read defensively — this backs `_cleanOrphanedMessageBoxes()`, called
@@ -1228,30 +401,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
   /// Everything inside the class speaks logical names; the scope is
   /// applied at the registry / Hive boundary and nowhere else.
   String _physical(String logicalName) => '$_scopePrefix$logicalName';
-
-  /// The box-name namespace belonging to [userId], or `''` for the
-  /// legacy device-wide layout.
-  ///
-  /// The id is digested, never spelled out. Spelling it out has to fold
-  /// it into what a box name can hold, and every fold is many-to-one:
-  /// [_sanitizeForBoxName] maps everything outside `[a-zA-Z0-9_-]` onto
-  /// `_`, which merges `a.b@x.com`, `a_b@x_com` and `a b@x com`, and Hive
-  /// lower-cases the name before opening a box and before naming its
-  /// file, which merges `Alice` and `alice`. Any of those merges hands
-  /// one user another's store. A digest folds nothing.
-  ///
-  /// It is also what bounds the name: 35 characters whatever the id, so
-  /// the longest per-room box name stays far inside Hive's 255-character
-  /// limit and the filename limit of every platform, which an id pasted
-  /// in raw did not.
-  static String _scopePrefixFor(String? userId) {
-    if (userId == null) return '';
-    final trimmed = userId.trim();
-    if (trimmed.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'must not be blank');
-    }
-    return 'u_${scopeDigest(trimmed)}_';
-  }
 
   /// The physical name a logical box takes in [userId]'s namespace, or
   /// unscoped when [userId] is `null`. Exposed so tests can find a store
@@ -1345,9 +494,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
     }
     return result;
   }
-
-  static String _sanitizeForBoxName(String input) =>
-      input.replaceAll(RegExp(r'[^a-zA-Z0-9_\-]'), '_');
 
   Future<Box<Map<dynamic, dynamic>>> _messagesBox(String roomId) async {
     final name = _messagesBoxName(roomId);
@@ -1876,6 +1022,56 @@ class HiveChatDatasource implements ChatLocalDatasource {
     });
   }
 
+  // Host directory
+
+  @override
+  Future<ChatResult<void>> saveHostUsers(List<CachedHostUser> users) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      if (users.isEmpty) return;
+      final box = await _box(_boxHostUsers);
+      final entries = <String, Map<dynamic, dynamic>>{
+        for (final entry in users) entry.user.id: entry.toMap(),
+      };
+      await _safeWrite('saveHostUsers', () => box.putAll(entries));
+      await _evictHostUsersIfNeeded();
+    });
+  }
+
+  @override
+  Future<ChatResult<List<CachedHostUser>>> getHostUsers() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxHostUsers);
+      final out = <CachedHostUser>[];
+      for (final raw in box.values) {
+        final entry = CachedHostUser.fromMap(raw);
+        if (entry != null) out.add(entry);
+      }
+      return out;
+    });
+  }
+
+  @override
+  Future<ChatResult<CachedHostUser?>> getHostUser(String userId) {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxHostUsers);
+      final data = box.get(userId);
+      if (data == null) return null;
+      return CachedHostUser.fromMap(data);
+    });
+  }
+
+  @override
+  Future<ChatResult<void>> clearHostUsers() {
+    _checkNotDisposed();
+    return _wrap(() async {
+      final box = await _box(_boxHostUsers);
+      await _safeWrite('clearHostUsers', () => box.clear());
+    });
+  }
+
   // Contacts
 
   @override
@@ -2084,17 +1280,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
     );
   }
 
-  // Kicked-rooms registry — see [ChatLocalDatasource.markKicked].
-  // Stored in `_metaBox` (the same scratch box used for
-  // `messageRoomIds`, `schemaVersion`, etc.) under the key
-  // `kickedRoomIds`. Persists across cold starts so a user kicked
-  // from a group keeps the chat visible (read-only) after a
-  // restart — WhatsApp-parity. Cleared on admin re-add via
-  // `unmarkKicked` or by an explicit
-  // `ChatRoomOption.deleteKickedChat` tap from the room options
-  // menu (host wires that to `unmarkKicked` + `hideRoom`).
-  static const _kickedRoomIdsKey = 'kickedRoomIds';
-
   // Read defensively for the same reason as `_getMessageRoomIds`: this
   // feeds the orphan sweep on the `create()` path, and a corrupted meta
   // entry must degrade to "no kicked rooms" instead of throwing. A lazy
@@ -2132,15 +1317,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
     _checkNotDisposed();
     return _wrap(() async => _readKickedRoomIds());
   }
-
-  // Deleted-rooms registry — see [ChatLocalDatasource.addDeletedRoom].
-  // Stored in `_metaBox` under `deletedRoomIds`. Deliberately
-  // NEVER-EVICTABLE: `deleteRoom`'s cascade and `_evictRoomsIfNeeded`
-  // both leave this key (and the matching `clearedAt_*` cutoff)
-  // untouched, so a chat the user deleted does not silently reappear
-  // after room/message eviction. Cleared only by `clearDeletedRoom`
-  // (peer writes again / unarchive) or a full `clear()` (logout).
-  static const _deletedRoomIdsKey = 'deletedRoomIds';
 
   // Read and written strictly: this marker is the only thing keeping a
   // deleted chat off the room list, so a swallowed read error or a
@@ -2353,103 +1529,6 @@ class HiveChatDatasource implements ChatLocalDatasource {
     return _wrap(() async {
       final box = await _box(_boxMembers);
       await _safeWrite('deleteRoomMembers', () => box.delete(roomId));
-    });
-  }
-
-  // TTL expiration — delegates to the eviction policy. Kept as a
-  // private method so the create() factory can call it inline.
-  Future<void> _expireOldMessages() => _eviction.expireOldMessages(
-    trackedRoomIds: _getMessageRoomIds(),
-    boxFor: (roomId) => _box(_messagesBoxName(roomId)),
-  );
-
-  // Entity eviction
-
-  Future<void> _evictRoomsIfNeeded() async {
-    if (maxRooms == null) return;
-    final box = await _box(_boxRooms);
-    if (box.length <= maxRooms!) return;
-    final keys = box.keys.cast<String>().toList();
-    // `chat_rooms` keys are room ids, not insertion-ordered timestamps —
-    // Hive CE returns box.keys sorted lexicographically, so treating the
-    // front of that list as "oldest" evicted the alphabetically-first
-    // room regardless of actual activity. `ChatRoom` itself carries no
-    // recency field, so rank by the two signals already persisted
-    // per-room elsewhere: the unread cache's `lastMessageTime` (kept
-    // fresh by every inbound/outbound message), falling back to the
-    // room detail's `createdAt` for a room with no unread entry yet.
-    // Ties (neither signal present) sort as epoch 0, oldest-first.
-    final unreadsBox = await _box(_boxUnreads);
-    final detailsBox = await _box(_boxRoomDetails);
-    DateTime recencyOf(String roomId) {
-      final unreadIso = unreadsBox.get(roomId)?['lastMessageTime'] as String?;
-      if (unreadIso != null) {
-        final parsed = DateTime.tryParse(unreadIso);
-        if (parsed != null) return parsed;
-      }
-      final createdIso = detailsBox.get(roomId)?['createdAt'] as String?;
-      if (createdIso != null) {
-        final parsed = DateTime.tryParse(createdIso);
-        if (parsed != null) return parsed;
-      }
-      return DateTime.fromMillisecondsSinceEpoch(0);
-    }
-
-    keys.sort((a, b) => recencyOf(a).compareTo(recencyOf(b)));
-    final toRemove = keys.sublist(0, keys.length - maxRooms!);
-    await _safeWrite('evictRooms', () => box.deleteAll(toRemove));
-    // Cascade: clean orphaned data for evicted rooms (best-effort, no rollback)
-    final invitedBox = await _box(_boxInvited);
-    final pinsBox = await _box(_boxPins);
-    final receiptsBox = await _box(_boxReceipts);
-    final membersBox = await _box(_boxMembers);
-    for (final roomId in toRemove) {
-      await _withRoomLock(roomId, () async {
-        await _safeWrite('evictRooms details', () => detailsBox.delete(roomId));
-        await _safeWrite('evictRooms unreads', () => unreadsBox.delete(roomId));
-        await _clearMessagesUnlocked(roomId);
-        final reactionsBox = await _box(_reactionsBoxName(roomId));
-        await _safeWrite('evictRooms reactions', () => reactionsBox.clear());
-        await _safeWrite('evictRooms pins', () => pinsBox.delete(roomId));
-        await _safeWrite(
-          'evictRooms receipts',
-          () => receiptsBox.delete(roomId),
-        );
-        await _safeWrite('evictRooms members', () => membersBox.delete(roomId));
-        // The `clearedAt_$roomId` cutoff is intentionally preserved
-        // across eviction (never-evictable per-user marker, twin of
-        // `deletedRoomIds`) so a deleted chat reappears EMPTY rather
-        // than repopulated if the room is re-fetched later.
-        await clearPendingMessages(roomId);
-      });
-    }
-    // Remove invited entries for evicted rooms
-    final invitedEntries = invitedBox.toMap().entries.where((e) {
-      final map = Map<String, dynamic>.from(e.value);
-      return toRemove.contains(map['roomId']);
-    }).toList();
-    for (final entry in invitedEntries) {
-      await _safeWrite(
-        'evictRooms invited',
-        () => invitedBox.delete(entry.key),
-      );
-    }
-    onMetric?.call('cache_eviction', {
-      'entity': 'rooms',
-      'count': toRemove.length,
-    });
-  }
-
-  Future<void> _evictUsersIfNeeded() async {
-    if (maxUsers == null) return;
-    final box = await _box(_boxUsers);
-    if (box.length <= maxUsers!) return;
-    final keys = box.keys.cast<String>().toList();
-    final toRemove = keys.sublist(0, keys.length - maxUsers!);
-    await _safeWrite('evictUsers', () => box.deleteAll(toRemove));
-    onMetric?.call('cache_eviction', {
-      'entity': 'users',
-      'count': toRemove.length,
     });
   }
 
@@ -2697,31 +1776,4 @@ class HiveChatDatasource implements ChatLocalDatasource {
     await _registry.closeAll();
     if (_metaBox.isOpen) await _metaBox.close();
   }
-}
-
-/// Outcome of weighing the unscoped store's `cacheOwner` stamp against
-/// the host's ownership assertion. [reason] is recorded in the migration
-/// record; [reclaimable] marks a store nobody claims, the only kind whose
-/// disk is ever reclaimed.
-class _AdoptionDecision {
-  const _AdoptionDecision.adopt(this.reason)
-    : adopt = true,
-      reclaimable = false;
-
-  const _AdoptionDecision.refuse(this.reason, {this.reclaimable = false})
-    : adopt = false;
-
-  final bool adopt;
-  final String reason;
-  final bool reclaimable;
-}
-
-/// A room the server stopped listing while its message box is still
-/// tracked. [since] is when the first authoritative listing missed it and
-/// [confirmations] how many have missed it in total.
-class _OrphanCandidate {
-  const _OrphanCandidate({required this.since, required this.confirmations});
-
-  final DateTime since;
-  final int confirmations;
 }

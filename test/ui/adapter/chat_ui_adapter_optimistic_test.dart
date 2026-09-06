@@ -102,7 +102,8 @@ void main() {
       expect(sysMsg.metadata?['event'], 'user_joined');
       expect(sysMsg.metadata?['userId'], 'u2');
       expect(sysMsg.from, 'system');
-      expect(sysMsg.text, contains('u2'));
+      expect(sysMsg.text, isNot(contains('u2')));
+      expect(sysMsg.metadata?['userLabel'], isEmpty);
     });
 
     test('UserLeftEvent creates system message', () async {

@@ -13,6 +13,10 @@ class MemberEntry {
 
 /// Sorted list of members for a room; offers role badges and admin actions
 /// (kick/promote) gated on the caller's [currentUserRole].
+///
+/// A member nobody can name paints a blank title instead of its id: an id
+/// is an implementation detail, and a host that wants a placeholder there
+/// knows better than the SDK what it should say.
 class MemberListView extends StatefulWidget {
   const MemberListView({
     super.key,
@@ -128,7 +132,7 @@ class _MemberListViewState extends State<MemberListView> {
               theme: widget.theme,
             ),
             title: Text(
-              entry.user.displayName ?? entry.user.id,
+              entry.user.displayName ?? '',
               style:
                   widget.theme.roomList.nameStyle ??
                   const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),

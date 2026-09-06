@@ -25,6 +25,7 @@ class TypingStatusText extends StatelessWidget {
         if (typingIds.isEmpty) return const SizedBox.shrink();
 
         final text = _buildText(context, typingIds);
+        if (text.isEmpty) return const SizedBox.shrink();
         return Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
           child: Text(
@@ -44,9 +45,20 @@ class TypingStatusText extends StatelessWidget {
     );
   }
 
+  /// The label for [typingIds], or the empty string when there is nothing
+  /// honest to say.
+  ///
+  /// Only people the room can name are named. An id is not a name, so a
+  /// typist nobody has a name for is counted rather than spelled out: with
+  /// company that reads as "3 people are typing", and on their own the
+  /// indicator stays down until the name lands, which is a moment away —
+  /// every typing event schedules the lookup that fills it in.
   String _buildText(BuildContext context, List<String> typingIds) {
     final l10n = theme.l10nOf(context);
-    final names = typingIds.map(_resolveName).toList();
+    final names = typingIds.map(_resolveName).nonNulls.toList();
+    if (names.length != typingIds.length) {
+      return typingIds.length > 1 ? l10n.typingMany(typingIds.length) : '';
+    }
 
     return switch (names.length) {
       1 => l10n.typingOne(names[0]),
@@ -55,8 +67,9 @@ class TypingStatusText extends StatelessWidget {
     };
   }
 
-  String _resolveName(String userId) {
+  String? _resolveName(String userId) {
     final user = controller.otherUsers.where((u) => u.id == userId).firstOrNull;
-    return user?.displayName ?? userId;
+    final name = user?.displayName?.trim();
+    return name == null || name.isEmpty ? null : name;
   }
 }

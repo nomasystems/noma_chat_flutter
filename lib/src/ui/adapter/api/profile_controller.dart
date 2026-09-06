@@ -16,6 +16,47 @@ interface class ChatProfileController {
   /// [ChatUiAdapter.currentUser].
   ChatUser get currentUser => _a.currentUser;
 
+  /// Makes sure the current user exists in chat, creating them only when
+  /// the server says they do not.
+  ///
+  /// [ChatUiAdapter.connect] runs this — before the host loads its rooms —
+  /// when the adapter was built with `bootstrapCurrentUser: true`. A host
+  /// that provisions its chat users elsewhere leaves the flag off and can
+  /// still call this on its own.
+  ///
+  /// The read is what decides. Only a [NotFoundFailure] leads to a create:
+  /// any other failure (offline, an expired token, a server having a bad
+  /// minute) is logged and handed back untouched, because signing an
+  /// account up again on the strength of an error nobody read is how an
+  /// existing profile gets clobbered. The successful lookup, or whatever
+  /// the create answered, comes back to the caller either way — nothing
+  /// here throws, and nothing here aborts a connection.
+  Future<ChatResult<ChatUser>> ensureRegistered() async {
+    final lookup = await _a.client.users.get(_a.currentUser.id);
+    if (lookup.isSuccess) return lookup;
+
+    final failure = lookup.failureOrThrow;
+    if (failure is! NotFoundFailure) {
+      _a.logger?.call('warn', 'profile bootstrap: lookup failed: $failure');
+      return lookup;
+    }
+
+    final displayName = _a.currentUser.displayName;
+    final created = await _a.client.users.create(
+      displayName: displayName != null && displayName.isNotEmpty
+          ? displayName
+          : null,
+      avatarUrl: _a.currentUser.avatarUrl,
+    );
+    if (created.isFailure) {
+      _a.logger?.call(
+        'warn',
+        'profile bootstrap: create failed: ${created.failureOrThrow}',
+      );
+    }
+    return created;
+  }
+
   /// Uploads [bytes] as an avatar through
   /// [ChatUiAdapter.avatarStorage] and returns the resulting URL.
   /// [kind] tells the storage whether it's a user / group / etc.

@@ -94,6 +94,7 @@ void main() {
         ChatUiLocalizations.de: 'de',
         ChatUiLocalizations.it: 'it',
         ChatUiLocalizations.pt: 'pt',
+        ChatUiLocalizations.ca: 'ca',
       };
       for (final entry in locales.entries) {
         final l10n = entry.key;
@@ -339,6 +340,14 @@ void main() {
       expect(ChatUiLocalizations.pt.lastSeen('X'), 'visto por último há X');
     });
 
+    test('ca has its own lastSeen translation', () {
+      expect(
+        ChatUiLocalizations.ca.lastSeen('X'),
+        isNot(ChatUiLocalizations.en.lastSeen('X')),
+      );
+      expect(ChatUiLocalizations.ca.lastSeen('X'), 'última vegada fa X');
+    });
+
     test('copyWith overrides lastSeenTemplate', () {
       final l10n = ChatUiLocalizations.en.copyWith(
         lastSeenTemplate: 'seen {time} ago',
@@ -393,6 +402,44 @@ void main() {
       expect(l10n.send, 'Odeslat');
       expect(l10n.loadMore, 'Načíst další');
     });
+
+    test('every full-tier locale translates the accessibility retry action '
+        'and the generic load-failure copy', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(l10n.retry, isNot('Retry'));
+        expect(l10n.loadFailed, isNot('Could not load'));
+        expect(l10n.saveFailed, isNot('Could not save changes'));
+        expect(l10n.createGroupFailed, isNot('Could not create the group'));
+      }
+    });
+
+    test(
+      'the load-failure copy is overridable through both plumbing paths',
+      () {
+        expect(
+          ChatUiLocalizations.en.copyWith(loadFailed: 'X').loadFailed,
+          'X',
+        );
+        expect(ChatUiLocalizations.override(loadFailed: 'X'), isNotNull);
+        expect(
+          ChatUiLocalizations.en.copyWith(saveFailed: 'X').saveFailed,
+          'X',
+        );
+        expect(
+          ChatUiLocalizations.en
+              .copyWith(createGroupFailed: 'X')
+              .createGroupFailed,
+          'X',
+        );
+      },
+    );
 
     test('every full-tier locale translates the upload labels', () {
       for (final l10n in [

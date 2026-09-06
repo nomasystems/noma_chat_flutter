@@ -230,8 +230,16 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
     if (_query.isEmpty) return widget.rooms;
     return [
       for (final r in widget.rooms)
-        if (r.displayName.toLowerCase().contains(_query)) r,
+        if (_matches(r.displayName) || _matches(r.name)) r,
     ];
+  }
+
+  /// Same rule the room list itself applies: the resolved title *and* the
+  /// raw server name are searched, so a host title resolver that renames a
+  /// group never makes it unforwardable-to by the name everyone still sees.
+  bool _matches(String? value) {
+    if (value == null || value.isEmpty) return false;
+    return value.toLowerCase().contains(_query);
   }
 
   void _toggle(String id, bool value) {

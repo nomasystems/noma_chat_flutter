@@ -2,7 +2,9 @@ import 'package:freezed_annotation/freezed_annotation.dart';
 
 import '../../models/message.dart';
 import '../../models/presence.dart';
+import '../../models/room.dart' show RoomWritePolicy;
 import '../../models/room_user.dart';
+import '../widgets/chat_view_config.dart' show ReadOnlyReason;
 
 part 'room_list_item.freezed.dart';
 
@@ -88,6 +90,12 @@ abstract class RoomListItem with _$RoomListItem {
     /// room (distinct from [muted] = the user's own notification
     /// preference). Drives the read-only composer via [isReadOnly].
     @Default(false) bool selfMuted,
+
+    /// Mirrors [RoomConfig.writePolicy]: who may post into this room. Read
+    /// off the room's detail (or the `room_updated` refresh it triggers),
+    /// never from `custom`. Defaults to [RoomWritePolicy.members], which is
+    /// also what an unrecognised or absent value resolves to.
+    @Default(RoomWritePolicy.members) RoomWritePolicy writePolicy,
     @Default(false) bool isGroup,
     @Default(false) bool isAnnouncement,
     bool? isOnline,
@@ -145,7 +153,30 @@ abstract class RoomListItem with _$RoomListItem {
   bool get isInvitation => custom?['invited'] == true;
 
   /// Composer must be read-only when this is an announcement channel the
-  /// user doesn't own, OR the user has been moderation-muted here.
+  /// user doesn't own, the user has been moderation-muted here, or the
+  /// room's [writePolicy] has been closed to everyone but its owner.
   bool get isReadOnly =>
-      (isAnnouncement && userRole != RoomRole.owner) || selfMuted;
+      (isAnnouncement && userRole != RoomRole.owner) ||
+      selfMuted ||
+      (writePolicy == RoomWritePolicy.ownerOnly && userRole != RoomRole.owner);
+
+  /// Why the composer is closed, or `null` when [isReadOnly] is `false`.
+  ///
+  /// Feeds `ChatViewBehaviors.readOnlyReason`, which is what a host's
+  /// `readOnlyNoticeBuilder` receives. When more than one cause applies at
+  /// once the most specific to this person wins, because that is the one a
+  /// notice has to explain: a moderation mute ([ReadOnlyReason.selfMuted])
+  /// before what the room itself is ([ReadOnlyReason.announcement]) before a
+  /// setting the owner can turn off again ([ReadOnlyReason.ownerOnly]).
+  ReadOnlyReason? get readOnlyReason {
+    if (selfMuted) return ReadOnlyReason.selfMuted;
+    if (isAnnouncement && userRole != RoomRole.owner) {
+      return ReadOnlyReason.announcement;
+    }
+    if (writePolicy == RoomWritePolicy.ownerOnly &&
+        userRole != RoomRole.owner) {
+      return ReadOnlyReason.ownerOnly;
+    }
+    return null;
+  }
 }

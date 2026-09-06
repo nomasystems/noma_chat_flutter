@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../cache/cache_policy.dart';
-import '../../core/result.dart';
 import '../../models/room.dart';
 import '../../models/room_user.dart';
 import '../../storage/avatar_storage.dart';
@@ -69,7 +68,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   RoomDetail? _detail;
   bool _loading = true;
   bool _saving = false;
-  String? _error;
+  bool _failed = false;
 
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
@@ -97,10 +96,18 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     super.dispose();
   }
 
+  /// Name for [id] as every roster this page opens should see it: the
+  /// host's own directory first, the chat profile after, and `null` — not
+  /// the id — when neither can name the person.
+  String? _nameOrNull(String id) {
+    final name = widget.adapter.displayNameFor(id).trim();
+    return name.isEmpty ? null : name;
+  }
+
   Future<void> _loadDetail() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     final result = await widget.adapter.client.rooms.get(
       widget.roomId,
@@ -110,7 +117,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isFailure) {
       setState(() {
         _loading = false;
-        _error = result.failureOrNull?.message;
+        _failed = true;
       });
       return;
     }
@@ -144,7 +151,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showNotice(_failureMessage(result));
+      showNotice(_failureMessage);
     }
   }
 
@@ -159,6 +166,14 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Future<void> _onAddMembers() async {
     final membersRes = await widget.adapter.client.members.list(widget.roomId);
     if (!mounted) return;
+    final roster = membersRes.dataOrNull;
+    if (roster != null) {
+      widget.adapter.recordRoomRoster(
+        widget.roomId,
+        roster.items.map((m) => m.userId),
+        complete: !roster.hasMore,
+      );
+    }
     final excludeIds = <String>{
       widget.adapter.currentUser.id,
       ...?membersRes.dataOrNull?.items.map((m) => m.userId),
@@ -168,8 +183,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       client: widget.adapter.client,
       excludeIds: excludeIds,
       theme: widget.theme,
-      displayNameResolver: (id) =>
-          widget.adapter.findCachedUser(id)?.displayName,
+      displayNameResolver: (id) => _nameOrNull(id),
       avatarUrlResolver: (id) => widget.adapter.findCachedUser(id)?.avatarUrl,
       onConfirm: (selected) async {
         if (selected.isEmpty) return;
@@ -242,12 +256,11 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showNotice(_failureMessage(result));
+      showNotice(_failureMessage);
     }
   }
 
-  String _failureMessage(ChatResult<void> r) =>
-      r.failureOrNull?.message ?? noticeL10n.photoUploadFailed;
+  String get _failureMessage => noticeL10n.saveFailed;
 
   /// The edit fields stay mounted and are only hidden, so [Visibility]
   /// keeps them out of the focus tree until the row is on screen again.
@@ -265,8 +278,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       appBar: AppBar(title: Text(l10n.groupInfo)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
+          : _failed
+          ? Center(child: Text(l10n.loadFailed))
           : _detail == null
           ? const SizedBox.shrink()
           : ListView(
@@ -318,8 +331,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
                   currentUserRole: _detail!.userRole,
                   theme: widget.theme,
                   embedded: true,
-                  displayNameResolver: (id) =>
-                      widget.adapter.findCachedUser(id)?.displayName,
+                  displayNameResolver: _nameOrNull,
                   avatarUrlResolver: (id) =>
                       widget.adapter.findCachedUser(id)?.avatarUrl,
                   onMemberRemoved: (_) => _loadDetail(),

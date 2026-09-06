@@ -40,6 +40,7 @@ class RoomTile extends StatelessWidget {
     this.blockedSenderIds = const <String>{},
     this.blockedContentPolicy = BlockedContentPolicy.placeholder,
     this.swipeActions = const <RoomSwipeAction>[],
+    this.matchedParticipant,
   });
 
   final RoomListItem room;
@@ -49,6 +50,15 @@ class RoomTile extends StatelessWidget {
   final String? lastMessageSenderName;
   final String? currentUserId;
   final ChatTheme theme;
+
+  /// Name of the member whose name — not the room's own title or last
+  /// message — is why this row survived the active search filter (see
+  /// `RoomListController.matchedParticipantFor`). Painted as an extra line
+  /// under the room name, e.g. a group titled "Weekend trip" found by
+  /// typing "ali" shows "Alice" here so the match makes sense at a glance.
+  /// `null` paints nothing — the ordinary row for a title/last-message
+  /// match, or for no active filter at all.
+  final String? matchedParticipant;
   final Widget Function(BuildContext, RoomListItem)? leadingBuilder;
   final Widget Function(BuildContext, RoomListItem)? trailingBuilder;
 
@@ -233,6 +243,8 @@ class RoomTile extends StatelessWidget {
 
     final subtitleHeader = subtitleHeaderBuilder?.call(context, room);
 
+    final matchedParticipantLine = _buildMatchedParticipant(context);
+
     final mutedUntil = _buildMutedUntil(context);
 
     final tileColor = isSelected
@@ -288,6 +300,10 @@ class RoomTile extends StatelessWidget {
                           const SizedBox(height: 2),
                           subtitleHeader,
                         ],
+                        if (matchedParticipantLine != null) ...[
+                          const SizedBox(height: 2),
+                          matchedParticipantLine,
+                        ],
                         if (subtitle != null) ...[
                           const SizedBox(height: 2),
                           subtitle,
@@ -319,6 +335,26 @@ class RoomTile extends StatelessWidget {
       actions: swipeActions,
       restingColor: tileColor,
       child: tile,
+    );
+  }
+
+  /// Renders [matchedParticipant] as a small line under the room name, so
+  /// a search hit on a member rather than the title/last message still
+  /// reads as an obviously relevant result instead of a mystery match.
+  Widget? _buildMatchedParticipant(BuildContext context) {
+    final name = matchedParticipant;
+    if (name == null || name.isEmpty) return null;
+    return Text(
+      name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style:
+          theme.roomList.previewStyle?.copyWith(fontStyle: FontStyle.italic) ??
+          TextStyle(
+            fontSize: 13,
+            fontStyle: FontStyle.italic,
+            color: Colors.grey.shade600,
+          ),
     );
   }
 

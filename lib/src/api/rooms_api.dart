@@ -70,7 +70,8 @@ class RoomsApi implements ChatRoomsApi {
   /// Returns [ChatSuccess] holding the new [ChatRoom], or a [ChatFailureResult]
   /// on network or server errors.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`, never a thrown exception.
   ///
   /// Example:
   /// ```dart
@@ -169,8 +170,10 @@ class RoomsApi implements ChatRoomsApi {
   /// a response that does not carry the whole room set cannot prove that
   /// a room it omits no longer exists.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors when the cache is empty.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error on an empty cache surfaces
+  /// as `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -239,13 +242,7 @@ class RoomsApi implements ChatRoomsApi {
           // cached, so the consumer should refetch from network to paginate.
           return UserRooms(rooms: unreads, invitedRooms: invitedRooms);
         },
-        fromNetwork: () => safeApiCall(() async {
-          final json = await _rest.get(
-            '/rooms',
-            queryParams: {'type': type, ...?pagination?.toQueryParams()},
-          );
-          return RoomMapper.userRoomsFromJson(json);
-        }),
+        fromNetwork: () => safeApiCall(() => _fetchUserRooms(type, pagination)),
         saveToCache: (data) async {
           // 'all' is the authoritative full room set: replace the box so
           // rooms deleted or left on the server are evicted. A partial view
@@ -282,13 +279,114 @@ class RoomsApi implements ChatRoomsApi {
         const ChatFailureResult(NetworkFailure('No cached data available')),
       );
     }
-    return safeApiCall(() async {
-      final json = await _rest.get(
-        '/rooms',
-        queryParams: {'type': type, ...?pagination?.toQueryParams()},
+    return safeApiCall(() => _fetchUserRooms(type, pagination));
+  }
+
+  /// Page size used when [getUserRooms] is asked for the whole room set.
+  /// The backend caps `limit` at 100 and applies a default of 50 when the
+  /// parameter is missing, so asking for the maximum keeps the number of
+  /// round-trips as low as the contract allows.
+  static const int _roomsPageSize = 100;
+
+  /// Highest `offset` the backend honours. Anything above it is clamped back
+  /// down to this value, so a request past the cap answers with the page just
+  /// read instead of advancing: the walk below stops rather than issue one.
+  static const int _roomsMaxOffset = 10000;
+
+  /// Hard stop for the walk below. The last page it can reach starts at
+  /// [_roomsMaxOffset], so at [_roomsPageSize] rooms per page the walk covers
+  /// 10 100 rooms — far past any real account — and the cap exists only so a
+  /// backend that keeps answering `hasMore: true` cannot spin the client
+  /// forever.
+  static const int _roomsMaxPages = _roomsMaxOffset ~/ _roomsPageSize + 1;
+
+  /// Sort key the walk pins the listing to. `roomId` is carried by every row
+  /// of the conversations projection, and the backend sorts the whole set on
+  /// any row key before it slices the page, so this is what makes the page
+  /// boundaries below reproducible from one request to the next.
+  static const String _roomsSortKey = 'roomId';
+
+  /// Reads `GET /rooms`, either as the single page the caller asked for or,
+  /// when [pagination] is `null`, as every page there is.
+  ///
+  /// `GET /rooms` is paginated and applies a default `limit` even when the
+  /// request omits one, so a single request is a truncated view of the room
+  /// set, not the whole of it. `getUserRooms` documents the no-pagination
+  /// call as the complete listing — and the room list, the cache reconcile
+  /// and the refresh engine all rely on that — so the walk below restores it
+  /// by following `hasMore` to the end.
+  ///
+  /// Page boundaries only hold if every request sees the same order, and the
+  /// listing's natural order is not stable across requests, so the walk asks
+  /// the backend to sort by [_roomsSortKey]: it is present on every listing
+  /// row, so the sort is total and page N+1 resumes exactly where page N
+  /// ended. A room that moved between two unsorted requests would otherwise
+  /// be skipped outright, and the window for that widens with every extra
+  /// page fetched.
+  ///
+  /// Rooms and invitations are still de-duplicated by id as the pages arrive
+  /// — invitations ride along with every page, and a backend that ignores
+  /// `sort` must not turn a shifted room into two rows. The first position an
+  /// id was seen at wins.
+  Future<UserRooms> _fetchUserRooms(
+    String type,
+    ChatPaginationParams? pagination,
+  ) async {
+    if (pagination != null) return _fetchUserRoomsPage(type, pagination);
+
+    final rooms = <UnreadRoom>[];
+    final invitedRooms = <InvitedRoom>[];
+    final seenRooms = <String>{};
+    final seenInvitedRooms = <String>{};
+    var offset = 0;
+
+    for (var page = 0; page < _roomsMaxPages; page++) {
+      final chunk = await _fetchUserRoomsPage(
+        type,
+        ChatPaginationParams(
+          limit: _roomsPageSize,
+          offset: offset,
+          sort: _roomsSortKey,
+          order: ChatSortOrder.asc,
+        ),
       );
-      return RoomMapper.userRoomsFromJson(json);
-    });
+      for (final room in chunk.rooms) {
+        if (seenRooms.add(room.roomId)) rooms.add(room);
+      }
+      for (final invited in chunk.invitedRooms) {
+        if (seenInvitedRooms.add(invited.roomId)) invitedRooms.add(invited);
+      }
+      // An empty page ends the walk whatever `hasMore` claims: without rooms
+      // to advance past, the next request would repeat this one.
+      if (!chunk.hasMore || chunk.rooms.isEmpty) {
+        return UserRooms(rooms: rooms, invitedRooms: invitedRooms);
+      }
+      offset += chunk.rooms.length;
+      // Past the backend's offset cap every request repeats the page just
+      // read, so there is nothing left to walk towards.
+      if (offset > _roomsMaxOffset) break;
+    }
+
+    // Bailed out on the walk limit. `hasMore` stays `true` so the caller — and
+    // the cache reconcile in particular — treats this as the partial listing
+    // it is instead of evicting every room past the cap.
+    _logger?.call(
+      'warn',
+      'rooms.getUserRooms: stopped at the walk limit of $_roomsMaxPages pages '
+          'with more rooms still reported; returning a partial listing',
+    );
+    return UserRooms(rooms: rooms, invitedRooms: invitedRooms, hasMore: true);
+  }
+
+  Future<UserRooms> _fetchUserRoomsPage(
+    String type,
+    ChatPaginationParams? pagination,
+  ) async {
+    final json = await _rest.get(
+      '/rooms',
+      queryParams: {'type': type, ...?pagination?.toQueryParams()},
+    );
+    return RoomMapper.userRoomsFromJson(json);
   }
 
   @override
@@ -357,8 +455,10 @@ class RoomsApi implements ChatRoomsApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -410,8 +510,10 @@ class RoomsApi implements ChatRoomsApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart

@@ -69,10 +69,6 @@ class HiveBoxRegistry {
     return cached != null && cached.isOpen ? cached : null;
   }
 
-  /// Names of every box currently tracked by the registry — open or
-  /// in-flight. Caller iterates a stable snapshot.
-  Iterable<String> get trackedNames => _openBoxes.keys.toList();
-
   /// True when [name] is currently tracked. Cheap — doesn't force an
   /// open.
   bool isTracked(String name) => _openBoxes.containsKey(name);

@@ -115,7 +115,7 @@ class UserProfileView extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            u.displayName ?? u.id,
+            u.displayName ?? '',
             style:
                 theme.roomList.nameStyle ??
                 const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),

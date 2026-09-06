@@ -67,8 +67,9 @@ typedef MessageReceiptSubtitleBuilder =
 /// room's per-member read receipts (`adapter.messages.loadReceipts(roomId)`
 /// / `client.messages.getRoomReceipts`); the sheet classifies them against
 /// the message's timestamp using [readersFor] / [deliveredTo]. Names come
-/// from [displayNameFor] (defaults to the raw user id); pass [leadingBuilder]
-/// to render avatars.
+/// from [displayNameFor], which is expected to answer with an empty string
+/// for an id it cannot name — the row then carries no name rather than a
+/// raw id; pass [leadingBuilder] to render avatars.
 ///
 /// ```dart
 /// MessageInfoSheet.show(
@@ -114,7 +115,8 @@ class MessageInfoSheet extends StatelessWidget {
   /// "reads" their own message).
   final String currentUserId;
 
-  /// Resolves a user id to a display name. When `null`, the raw id is used.
+  /// Resolves a user id to a display name. When `null`, or when it answers
+  /// with an empty string, the row carries no name — never the raw id.
   final String Function(String userId)? displayNameFor;
 
   /// Visual theme. Defaults to [ChatTheme.defaults].
@@ -344,6 +346,13 @@ class MessageInfoSheet extends StatelessWidget {
     return l10n.receiptNoExactTime;
   }
 
+  /// Name for a receipt row. With no resolver wired the row is untitled:
+  /// the id is not a name, and a sheet full of UUIDs tells the reader less
+  /// than a sheet of blanks. A resolver that deliberately answers with the
+  /// id is taken at its word.
+  static String _nameFor(String Function(String)? resolve, String userId) =>
+      resolve == null ? '' : resolve(userId).trim();
+
   Widget _section(
     BuildContext context,
     IconData icon,
@@ -377,9 +386,7 @@ class MessageInfoSheet extends StatelessWidget {
           ListTile(
             dense: true,
             leading: leadingBuilder?.call(context, detail.userId),
-            title: Text(
-              resolve != null ? resolve(detail.userId) : detail.userId,
-            ),
+            title: Text(_nameFor(resolve, detail.userId)),
             subtitle:
                 receiptSubtitleBuilder?.call(context, detail) ??
                 Text(

@@ -51,7 +51,8 @@ class DeliveryReceiptClient {
   ///
   /// Returns [ChatSuccess] with a `void` value on success (`204`).
   ///
-  /// Throws [ChatNetworkException] on network errors.
+  /// A network error surfaces as `ChatFailureResult` holding
+  /// `NetworkFailure`, never a thrown exception.
   static Future<ChatResult<void>> confirmMessageDelivered({
     required ChatConfig config,
     required String idToken,

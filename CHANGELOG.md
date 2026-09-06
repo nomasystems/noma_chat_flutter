@@ -6,6 +6,232 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.34.0 - 2026-09-06
+
+A host application directory can now answer who a chat id belongs to,
+rooms can be closed by the backend down to "owner only", the room list
+searches by participant, the first send into a brand-new DM retries itself,
+and outgoing images are shrunk before upload by default. Read *Changed*
+before upgrading: an unresolved display name no longer falls back to the
+raw user id anywhere in the UI.
+
+### Added
+
+- **`ChatUiAdapter(userDirectoryResolver:)`** — a host-supplied,
+  batch-and-cache-friendly `Future<Map<String, HostUser>> Function(Set<String> ids)`
+  that lets a host's own users table answer a display name/avatar for an id
+  instead of (or ahead of) chat's own profile store. Answers are persisted
+  (see below) and refreshed every `userDirectoryTtl` (default 12h). See the
+  Developer Guide's *userDirectoryResolver* section.
+- **`HostUser`** (`id`, `displayName`, `avatarUrl`, `gone`, `hasDisplayName`,
+  and the `HostUser.missing(id)` constructor for "looked up, nobody there")
+  and, on the cache layer, `CachedHostUser` plus the `HostUserStore`
+  interface (`saveHostUsers` / `getHostUsers` / `getHostUser` /
+  `clearHostUsers`) that `HiveChatDatasource` implements alongside
+  `ChatLocalDatasource`, in an additive Hive box (`chat_host_users`; no
+  schema-version bump, so existing caches read unaffected).
+- **`ChatUiAdapter(bootstrapCurrentUser:)`** (default `false`) — when `true`,
+  `connect()` provisions the signed-in user's chat profile
+  (`users.get` → `users.create` only on `NotFoundFailure`) automatically.
+- **`ChatUiAdapter(sendRetryPolicy:)`** and **`SendRetryPolicy`**
+  (`firstSendOnly` — the new default — and `none`) — retries, up to three
+  times with backoff, the one message that raced its own DM room's creation
+  and came back "room not found", reusing the original optimistic id so a
+  send that actually landed is never sent twice. The send's log line now
+  reports the whole run and not just its verdict: `attempts` whenever the
+  message was posted more than once, `recoveredFrom` with the first
+  failure on a send that stumbled and landed anyway, and `firstFailure`
+  alongside the (possibly different) final failure when every attempt
+  failed, on every send path — text, attachment and voice note alike. A
+  host that migrates its own first-send retry to the SDK keeps the funnel
+  it used to report by hand.
+- **`AttachmentShrinker`, `NoAttachmentShrinker`, `DefaultAttachmentShrinker`,
+  `ShrunkAttachment` and `PolicyConfigurableShrinker`** — a pluggable engine
+  that re-encodes an outgoing image to fit a size cap. `AttachmentPolicy`
+  gains `shrinkEnabled` (default `true`) and `shrinkSteps` (default
+  `AttachmentPolicy.defaultShrinkSteps`, five steps from 3072px@q85 down to
+  1280px@q60), and `ChatUiAdapter(attachmentShrinker:)` sets the engine used
+  by `NomaChatView`'s own capture path. `AttachmentPolicy.deniedExtensions`
+  now also applies to the image/video picker paths, not only `pickFile`.
+- **`RoomWritePolicy` (`members` / `ownerOnly`)** on `RoomConfig.writePolicy`
+  (`RoomDetail`) and mirrored on `RoomListItem.writePolicy` /
+  `UnreadRoom.writePolicy` — a backend-set field (`config.writePolicy` in
+  the room document, read from both the detail and the listing, never from
+  `custom`) that closes a room's composer to everyone but its owner,
+  independent of the room's type. Feeds a third cause into
+  `RoomDetail.isReadOnly` / `RoomListItem.isReadOnly`, alongside a new
+  `RoomListItem.readOnlyReason` / `ChatViewBehaviors.readOnlyReason`
+  (`ReadOnlyReason { announcement, selfMuted, ownerOnly }`).
+- **`ChatViewBuilders.readOnlyNoticeBuilder`** — `Widget? Function(BuildContext, ReadOnlyReason)`,
+  consulted by `ChatView` with the room's `ReadOnlyReason` and falling back
+  to the SDK's own notice when it returns `null` or is unset (see *Changed*).
+- **`RoomListController(participantNameResolver:)` / `ParticipantNameResolver`**
+  and **`matchedParticipantFor(roomId)`** — extends the room list's text
+  filter to match a room by the people in it, not only its title and last
+  message, and reports which participant matched
+  (`RoomTile(matchedParticipant:)` paints it). `ChatUiAdapter` wires a
+  default resolver over `displayNameFor`; feed it a fuller roster with the
+  new `ChatUiAdapter.recordRoomRoster(roomId, userIds, {complete:})` /
+  `roomRosterOf(roomId)`.
+- **`MockChatClient.seedRoomMeta(..., writePolicy:)`** — seeds the write
+  policy on both the mock's room detail and its listing, for tests and
+  `example/` that need an owner-only room without a real backend.
+
+### Changed
+
+- **Breaking — an unresolved display name is never the raw user id
+  anymore.** `ChatUiAdapter.displayNameFor` and every UI surface built on it
+  (`MentionOverlay`, `UserProfileView`, `UserInfoPage`, `GroupMembersView`,
+  `MemberPickerSheet`, `BlockedUsersView`, `MessageInfoSheet`, the
+  reaction-detail sheet, `TypingStatusText`, `NomaChatView`'s default
+  `userFetcher`, and a DM's default title) now fall back to an empty string
+  instead of the id. Membership-banner metadata (`userLabel` /
+  `actorLabel`) on the persisted system message is blank rather than the id
+  once a name lookup gives up, and the banner itself does not go blank with
+  it: an empty label is drawn as the generic noun
+  `ChatUiLocalizations.member` ("Member joined", "Miembro"), so the line
+  still reads as a sentence in the user's language. The mention overlay no
+  longer inserts `@<uuid>` for someone with no resolvable name.
+  See MIGRATING.md.
+- The room list's text filter now matches a room's *resolved* `displayName`
+  (falling back to `name`), not just its raw `name` — a 1:1 whose title
+  comes from `RoomTitleResolver` or a member's profile was invisible to
+  search even when its on-screen title matched the query. The filter can
+  only match more rooms than before, never fewer.
+- `sendRetryPolicy` defaults to `SendRetryPolicy.firstSendOnly()` — see
+  *Added*. Opt out with `SendRetryPolicy.none()` for the 0.33 behaviour.
+- Outgoing images are reduced before upload by default. The five public
+  `AttachmentPickers` entry points default their `shrinker:` parameter to
+  `DefaultAttachmentShrinker` instead of sending the picked bytes untouched,
+  `AttachmentPolicy.shrinkEnabled` defaults to `true`, and
+  `ChatUiAdapter(attachmentShrinker:)` — which drives `NomaChatView`'s own
+  camera, gallery, multiple-media and file paths — defaults to the same
+  engine. A host that needs the original bytes passes
+  `const NoAttachmentShrinker()` or `AttachmentPolicy(shrinkEnabled: false)`.
+  See MIGRATING.md.
+- **A room whose backend `config.writePolicy` is `owner_only` closes its
+  composer for every member but the owner**, from the moment this version
+  runs and with no app change: `isReadOnly` gains that third cause on both
+  `RoomDetail` and `RoomListItem` (see *Added*). A room left at the default
+  `members` behaves exactly as before. See MIGRATING.md.
+- **The read-only notice is now the host's to replace.** `ChatView` routes it
+  through the new `ChatViewBuilders.readOnlyNoticeBuilder` (see *Added*) and
+  its own fallback notice carries `Semantics(identifier:
+  'chat_read_only_notice')` — a widget test that reached the notice by its
+  text alone can now match it by identifier instead.
+- **`rooms.getUserRooms()` with no `pagination` returns the rooms ordered by
+  `roomId` ascending**, not in the backend's natural order as in 0.33: the
+  full listing is now walked page by page and the walk pins `sort=roomId` so
+  the page boundaries are reproducible (see *Fixed*). The SDK's own room list
+  is unaffected — `RoomListController` sorts by pinned state and last message
+  either way — but a host that paints `UserRooms.rooms` in the order received
+  sorts it itself now. See MIGRATING.md.
+
+### Fixed
+
+- **Raw failure text no longer reaches the user.** The blocked-users screen,
+  the member picker, the group member list, the reaction detail sheet, the
+  media gallery, the group info page, the user info page and the group
+  creation page painted `ChatFailure.toString()` (`ForbiddenFailure:
+  Forbidden`) or the failure's English log `message` as user copy —
+  untranslated, with the Dart class name in it — and the localized string
+  next to it was unreachable. They now show localized copy, with a new
+  `ChatUiLocalizations.loadFailed` for the "list could not be loaded" state
+  plus `saveFailed` and `createGroupFailed` for the edit and group-creation
+  notices, translated in every full-tier locale. The copy is resolved on
+  every build, so an error already on screen follows a locale or string
+  override change instead of freezing in the previous language.
+- **The read-only notice was unreadable on dark themes.** Its text color was
+  picked from `systemMessageBackgroundColor`, a field unrelated to the
+  surface the notice is painted on, which left `ChatTheme.darkPreset()` at a
+  2.9:1 contrast ratio. The color is now derived from the notice's own
+  background and clears WCAG AA on both light and dark themes.
+- **`ChatUiLocalizations.retry`** — the accessibility action label for
+  retrying a failed send — was the only string missing from the six
+  full-tier locales, so screen readers announced it in English.
+- **An account with more than 50 rooms lost the rest of them.** `GET /rooms`
+  paginates and applies a default page size when the request omits `limit`,
+  so the listing came back truncated with `hasMore: true` and nothing ever
+  asked for the next page. `rooms.getUserRooms()` now walks every page (at
+  the wire maximum of 100 per request, de-duplicating by room id) whenever
+  the caller passes no `pagination`, which is what its documented "complete
+  listing" contract always promised; a call that does pass `pagination` is
+  still served that one page and nothing else. The walk pins the listing to
+  `sort=roomId` so the page boundaries are reproducible across its requests:
+  the natural order is not stable between calls, and a room that shifted
+  between two of them would be paged straight over. The backend clamps
+  `offset` at 10 000, so the walk stops at the last page it can reach — 10 100
+  rooms, far past any real account — instead of asking for pages it would only
+  be served twice, and reports `hasMore: true` when it does.
+- **A blocked list longer than 50 users was loaded short.** For the same
+  reason, `ChatUiAdapter.contacts.loadBlocked()` kept only the first page of
+  `GET /blocked`, so users blocked past it were treated as not blocked. It
+  now reads every page, and a page that fails leaves the previously loaded
+  set standing instead of committing a partial one. **`BlockedUsersView`**
+  read the same listing short: the screen whose only purpose is unblocking
+  people stopped at the first page, leaving everyone past it blocked with no
+  way left to reach them. It walks every page too. Like the room walk, both
+  stop at the 10 000 `offset` the backend clamps to instead of re-reading the
+  last page they can reach.
+- **The owner of an owner-only room saw a closed composer until the room
+  detail loaded.** The room list degraded `writePolicy` to the listing
+  projection but not `userRole`, and `isReadOnly` reads the two together —
+  so on a cold start from cache, or any pass with no detail, the room's own
+  owner got the read-only notice. `userRole` now degrades to the listing row
+  alongside the policy, on the room-list pass and on the stub a kicked room
+  is rebuilt from when the cache has no detail for it.
+- **A moderation mute was forgotten by the cache.** `RoomDetail.selfMuted`
+  was dropped on the way into the Hive room-detail box and read back as
+  `false`, so a room opened cold from cache came up writable for a muted
+  member and only closed its composer once the network detail arrived.
+  `selfMuted` now survives the round trip, which also means a stale `true` in
+  cache keeps the composer closed until the detail refreshes.
+  See MIGRATING.md.
+- **`MockChatClient` now paginates `getUserRooms` and `listBlocked`** exactly
+  as the backend does (default page, `limit` clamped to 100, honest
+  `hasMore`) when a call passes `pagination`, and still answers the complete
+  set when it does not. `MockContactsApi` gained a seedable `blocked` list
+  and a `failNextListBlocked` switch.
+- **`NomaChatView` was dropping `ChatViewBuilders.statusIconBuilder`.** A
+  host that passed a custom delivery-tick builder to `NomaChatView` (rather
+  than to a bare `ChatView`) saw no effect; `NomaChatView` now forwards it.
+- **Two quick taps on Send could post the same message twice.** With link
+  previews enabled, the composer waited up to 2.5s for the preview of a
+  freshly typed URL before clearing its field, so a second tap in that window
+  started a second send. The composer now refuses a send while one is still
+  being prepared.
+- **A failed load could lose the history cursor.** The cache phase of both
+  `load` and `loadMore` answers without honouring the cursor and reports none
+  of its own, and its answer was written straight into the room's pagination
+  state; when the network page then failed, the next pull asked for the newest
+  page instead of the older one and no older message appeared. Since chat
+  controllers outlive the room screen, reopening an already-paged room offline
+  hit the same loss. Neither cache phase narrows the pagination state now.
+- **A room search with no matches showed the "no chats yet" empty state.**
+  `RoomListView` could not tell an empty list from a filtered one, so a search
+  that matched nothing offered the "start a chat" call to action. Once the
+  list has loaded, it now shows the localised "no results" state instead.
+- **`ChatUiLocalizations.override` lost every override under a locale the SDK
+  does not translate.** The delegate declared itself unsupported for such a
+  locale, so the widgets fell back to the bundled English table without the
+  host's strings. Both delegates now accept any locale and resolve the closest
+  bundled table (English when there is none), keeping the overrides.
+- **22 SDK method dartdoc comments claimed "Throws `[ChatXException]`" on
+  methods that never throw.** Every one of those methods returns
+  `Future<ChatResult<...>>` through `safeApiCall`/`safeVoidCall`, which catch
+  every exception and return it as a `ChatFailureResult` — the documented
+  `Throws` claims (across `rooms_api.dart`, `members_api.dart`,
+  `messages_api_rest.dart`, and `delivery_receipt_client.dart`) were false
+  and, in one case, self-contradicting within the same docstring. Corrected
+  to describe the actual `ChatFailureResult` contract.
+- **`ErrorEvent.exception` named a type no barrel exported.** `ChatEvent.error`
+  is typed as `ChatException`, but `ChatException` and its 14 subclasses
+  (`ChatAuthException` included) lived only under `src/_internal/http/`, so a
+  host listening for `ErrorEvent` could not name, construct, or match on the
+  cause it carries without an `implementation_imports`-triggering import. The
+  advanced barrel (`package:noma_chat/noma_chat_advanced.dart`) now exports
+  them.
+
 ## 0.33.0 - 2026-09-03
 
 Camera improvements: front-lens stills now match the mirrored viewfinder, and

@@ -287,7 +287,7 @@ class _GroupSetupPageState extends State<GroupSetupPage>
     if (!mounted) return;
     setState(() => _creating = false);
     if (result.isFailure) {
-      showNotice(result.failureOrNull?.message ?? noticeL10n.photoUploadFailed);
+      showNotice(noticeL10n.createGroupFailed);
       return;
     }
     final roomId = result.dataOrThrow;
@@ -410,7 +410,10 @@ class _GroupSetupPageState extends State<GroupSetupPage>
                   displayName: member.displayName,
                   size: 40,
                 ),
-                title: Text(member.displayName ?? member.id),
+                title: Text(
+                  member.displayName ??
+                      widget.adapter.displayNameFor(member.id),
+                ),
                 trailing: IconButton(
                   icon: const Icon(Icons.close),
                   tooltip: l10n.cancel,
@@ -469,7 +472,10 @@ class _GroupSetupPageState extends State<GroupSetupPage>
                           displayName: candidate.displayName,
                           size: 40,
                         ),
-                        title: Text(candidate.displayName ?? candidate.id),
+                        title: Text(
+                          candidate.displayName ??
+                              widget.adapter.displayNameFor(candidate.id),
+                        ),
                         trailing: const Icon(Icons.add),
                         onTap: () => _addMember(candidate),
                       ),

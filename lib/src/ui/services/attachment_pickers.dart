@@ -3,10 +3,17 @@ import 'package:flutter/foundation.dart';
 import 'package:image_picker/image_picker.dart' as ip;
 
 import '../../_internal/cache/cache_manager.dart' show MetricCallback;
+import '../adapter/chat_ui_adapter.dart' show AttachmentShrinker;
 import '../models/attachment_policy.dart';
 import '../models/attachment_rejection.dart';
 import '../utils/platform_support.dart';
+import 'attachment_shrinker.dart';
 import 'image_metadata_scrubber.dart';
+
+/// Re-exported so the shrinking engine every picker below defaults to is
+/// reachable from `package:noma_chat/noma_chat.dart`, next to the pickers
+/// that use it.
+export 'attachment_shrinker.dart';
 
 /// ChatResult of an attachment picker call.
 ///
@@ -74,6 +81,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     if (!PlatformSupport.supportsCameraCapture) {
       logger?.call(
@@ -94,6 +102,7 @@ class AttachmentPickers {
         logger,
         onRejected,
         onMetric,
+        shrinker,
       );
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromCamera failed: $e');
@@ -108,6 +117,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     try {
       final file = await _imagePicker.pickImage(
@@ -121,6 +131,7 @@ class AttachmentPickers {
         logger,
         onRejected,
         onMetric,
+        shrinker,
       );
     } on Object catch (e) {
       logger?.call('warn', 'pickImageFromGallery failed: $e');
@@ -135,6 +146,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     try {
       final file = await _imagePicker.pickVideo(
@@ -147,6 +159,7 @@ class AttachmentPickers {
         logger,
         onRejected,
         onMetric,
+        shrinker,
         fallbackMime: 'video/mp4',
       );
     } on Object catch (e) {
@@ -169,6 +182,7 @@ class AttachmentPickers {
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     try {
       final files = await _imagePicker.pickMultipleMedia(
@@ -183,6 +197,7 @@ class AttachmentPickers {
           logger,
           onRejected,
           onMetric,
+          shrinker,
         );
         if (r != null) results.add(r);
       }
@@ -206,12 +221,19 @@ class AttachmentPickers {
   /// mappings). Either way [policy] is evaluated post-pick to catch mime-
   /// type, size and dangerous-extension violations. Returns null on
   /// cancellation or rejection.
+  ///
+  /// The deny-list and the mime whitelist are weighed on the file the user
+  /// picked, while the size cap is weighed on the payload that will actually
+  /// be uploaded: an [AttachmentShrinker] re-encodes and renames, and neither
+  /// a rename nor a re-labelled mime type may walk a rejected file past the
+  /// check.
   static Future<AttachmentPickResult?> pickFile({
     List<String> allowedExtensions = const [],
     AttachmentPolicy policy = AttachmentPolicy.unrestricted,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
     MetricCallback? onMetric,
+    AttachmentShrinker shrinker = const DefaultAttachmentShrinker(),
   }) async {
     if (!PlatformSupport.supportsFilePicker) {
       logger?.call('warn', 'pickFile unsupported on this platform; ignoring');
@@ -233,23 +255,24 @@ class AttachmentPickers {
         onRejected?.call(AttachmentRejection.unreadable(fileName: file.name));
         return null;
       }
-      final pick = AttachmentPickResult(
+      final original = AttachmentPickResult(
         bytes: await ImageMetadataScrubber.scrub(bytes, onMetric: onMetric),
         mimeType:
             _mimeFromExtension(file.extension) ?? 'application/octet-stream',
         fileName: file.name,
       );
-      final violation = policy.validate(
-        mimeType: pick.mimeType,
-        sizeBytes: pick.size,
-        fileName: pick.fileName,
+      final pick = await shrinkToPolicy(
+        original,
+        policy: policy,
+        shrinker: shrinker,
       );
+      final violation = violationFor(policy, original: original, payload: pick);
       if (violation != null) {
         logger?.call('warn', 'pickFile rejected: $violation');
         onRejected?.call(
           AttachmentRejection.fromPolicyViolation(
             violation,
-            fileName: pick.fileName,
+            fileName: original.fileName,
             sizeBytes: pick.size,
           ),
         );
@@ -263,12 +286,55 @@ class AttachmentPickers {
     }
   }
 
+  /// Runs [shrinker] over [pick] and returns the payload that will
+  /// actually be uploaded: the re-encoded one when the engine produced it,
+  /// [pick] itself when it declined or when [AttachmentPolicy.shrinkEnabled]
+  /// is `false` — in which case [shrinker] is never even called, so a host
+  /// that opts out gets exactly the bytes it picked, untouched.
+  ///
+  /// [policy] is the single source of the downscale ladder: a [shrinker]
+  /// that implements [PolicyConfigurableShrinker] is re-configured with
+  /// [AttachmentPolicy.shrinkSteps] before it runs, so
+  /// `copyWith(shrinkSteps: [...])` changes what actually happens here. A
+  /// shrinker that does not implement it keeps whatever cascade its own
+  /// encoder defines.
+  ///
+  /// Callers validate the result of this step, never [pick]: measuring the
+  /// size cap on bytes the shrinker is about to replace rejects photos that
+  /// would have fit once reduced.
+  @internal
+  static Future<AttachmentPickResult> shrinkToPolicy(
+    AttachmentPickResult pick, {
+    required AttachmentPolicy policy,
+    required AttachmentShrinker shrinker,
+  }) async {
+    if (!policy.shrinkEnabled) return pick;
+    final engine = shrinker is PolicyConfigurableShrinker
+        ? (shrinker as PolicyConfigurableShrinker).withShrinkSteps(
+            policy.shrinkSteps,
+          )
+        : shrinker;
+    final shrunk = await engine.fit(
+      pick.bytes,
+      mimeType: pick.mimeType,
+      maxBytes: policy.maxBytesFor(pick.mimeType),
+      fileName: pick.fileName ?? '',
+    );
+    if (shrunk == null) return pick;
+    return AttachmentPickResult(
+      bytes: shrunk.bytes,
+      mimeType: shrunk.mimeType,
+      fileName: shrunk.fileName,
+    );
+  }
+
   static Future<AttachmentPickResult?> _xfileToValidatedResult(
     ip.XFile? file,
     AttachmentPolicy policy,
     void Function(String level, String message)? logger,
     void Function(AttachmentRejection rejection)? onRejected,
-    MetricCallback? onMetric, {
+    MetricCallback? onMetric,
+    AttachmentShrinker shrinker, {
     String fallbackMime = 'application/octet-stream',
   }) async {
     if (file == null) return null;
@@ -276,7 +342,7 @@ class AttachmentPickers {
       await file.readAsBytes(),
       onMetric: onMetric,
     );
-    final pick = AttachmentPickResult(
+    final original = AttachmentPickResult(
       bytes: bytes,
       mimeType:
           file.mimeType ??
@@ -284,22 +350,62 @@ class AttachmentPickers {
           fallbackMime,
       fileName: file.name,
     );
-    final violation = policy.validate(
-      mimeType: pick.mimeType,
-      sizeBytes: pick.size,
+    final pick = await shrinkToPolicy(
+      original,
+      policy: policy,
+      shrinker: shrinker,
     );
+    final violation = violationFor(policy, original: original, payload: pick);
     if (violation != null) {
       logger?.call('warn', 'pick rejected: $violation');
       onRejected?.call(
         AttachmentRejection.fromPolicyViolation(
           violation,
-          fileName: pick.fileName,
+          fileName: original.fileName,
           sizeBytes: pick.size,
         ),
       );
       return null;
     }
     return pick;
+  }
+
+  /// Weighs [policy] the way an upload path has to: what the file *is* comes
+  /// from [original], the pick as the system handed it over, and how much of
+  /// it travels comes from [payload], whatever [shrinkToPolicy] left behind.
+  ///
+  /// Splitting the judgement in two closes a hole an [AttachmentShrinker]
+  /// would otherwise open. A shrinker re-encodes and renames — that is its
+  /// job — so judging the mime type or the extension on its output lets a
+  /// `report.pdf` relabelled `image/jpeg` through a policy that accepts
+  /// images only. Judging the size on the input is the mirror mistake: a
+  /// photo that fits once reduced would be refused for the bytes the picker
+  /// happened to hand over.
+  ///
+  /// The size cap is the one that applies to the original mime type, for the
+  /// same reason: a re-labelled payload must not be able to claim a roomier
+  /// bucket than the file the policy actually approved.
+  @internal
+  static AttachmentPolicyViolation? violationFor(
+    AttachmentPolicy policy, {
+    required AttachmentPickResult original,
+    required AttachmentPickResult payload,
+  }) {
+    final identity = policy.validate(
+      mimeType: original.mimeType,
+      sizeBytes: 0,
+      fileName: original.fileName,
+    );
+    if (identity != null) return identity;
+    final cap = policy.maxBytesFor(original.mimeType);
+    if (payload.size > cap) {
+      return AttachmentPolicyViolation.tooLarge(
+        mimeType: original.mimeType,
+        actualBytes: payload.size,
+        maxBytes: cap,
+      );
+    }
+    return null;
   }
 
   static String? _extensionOf(String path) {

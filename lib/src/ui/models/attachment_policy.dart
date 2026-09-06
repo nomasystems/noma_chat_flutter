@@ -20,6 +20,8 @@ class AttachmentPolicy {
     this.maxBytesByMimePrefix = const {},
     this.maxBytes = _defaultMaxBytes,
     this.deniedExtensions = defaultDeniedExtensions,
+    this.shrinkEnabled = true,
+    this.shrinkSteps = defaultShrinkSteps,
   });
 
   /// Set of accepted mime types. Wildcards are supported via the
@@ -59,7 +61,38 @@ class AttachmentPolicy {
   /// to disable the check entirely.
   final Set<String> deniedExtensions;
 
+  /// `false` turns off shrinking entirely for this policy: an
+  /// [AttachmentShrinker] the host injected is never consulted, and every
+  /// attachment travels with exactly the bytes it was picked with. `true`
+  /// (the default) lets the shrinker run — in practice this only ever
+  /// re-encodes `image/*` payloads, since the SDK's own shrinker declines
+  /// everything else without touching the bytes.
+  final bool shrinkEnabled;
+
+  /// Progressive downscale ladder an [AttachmentShrinker] tries, largest
+  /// [ShrinkStep] first, stopping at the first one whose re-encode fits the
+  /// cap [maxBytesFor] resolves for the image being sent. Defaults to
+  /// [defaultShrinkSteps]. This is the source of the cascade on every picker
+  /// path: `AttachmentPickers.shrinkToPolicy` hands it to any shrinker that
+  /// can be re-configured (the SDK's own can), so cloning a policy with
+  /// `copyWith(shrinkSteps: [...])` changes what is actually encoded. A host
+  /// whose shrinker wraps a native encoder with fixed presets keeps that
+  /// encoder's ladder and this list is ignored.
+  final List<ShrinkStep> shrinkSteps;
+
   static const int _defaultMaxBytes = 25 * 1024 * 1024; // 25 MB
+
+  /// The shrink ladder [shrinkSteps] starts from. Each step trades a lower
+  /// ceiling on the longest side for a lower JPEG quality, so a photo well
+  /// over the cap converges in one or two steps while a merely-oversized one
+  /// only pays for the first.
+  static const List<ShrinkStep> defaultShrinkSteps = [
+    ShrinkStep(maxDimension: 3072, quality: 85),
+    ShrinkStep(maxDimension: 2560, quality: 80),
+    ShrinkStep(maxDimension: 2048, quality: 75),
+    ShrinkStep(maxDimension: 1600, quality: 70),
+    ShrinkStep(maxDimension: 1280, quality: 60),
+  ];
 
   /// OS-executable droppers blocked by every [AttachmentPolicy] unless a
   /// host opts out via `copyWith(deniedExtensions: {...})`. Extensions are
@@ -208,14 +241,45 @@ class AttachmentPolicy {
     Map<String, int>? maxBytesByMimePrefix,
     int? maxBytes,
     Set<String>? deniedExtensions,
+    bool? shrinkEnabled,
+    List<ShrinkStep>? shrinkSteps,
   }) {
     return AttachmentPolicy(
       allowedMimeTypes: allowedMimeTypes ?? this.allowedMimeTypes,
       maxBytesByMimePrefix: maxBytesByMimePrefix ?? this.maxBytesByMimePrefix,
       maxBytes: maxBytes ?? this.maxBytes,
       deniedExtensions: deniedExtensions ?? this.deniedExtensions,
+      shrinkEnabled: shrinkEnabled ?? this.shrinkEnabled,
+      shrinkSteps: shrinkSteps ?? this.shrinkSteps,
     );
   }
+}
+
+/// One rung of an [AttachmentShrinker]'s downscale ladder: resize so the
+/// longer side is at most [maxDimension] pixels (never upscaled — an image
+/// already smaller keeps its dimensions), then re-encode as JPEG at
+/// [quality].
+@immutable
+class ShrinkStep {
+  const ShrinkStep({required this.maxDimension, required this.quality});
+
+  /// Cap, in pixels, on the longer of width/height after resize.
+  final int maxDimension;
+
+  /// JPEG quality (0-100) the resized image is encoded at.
+  final int quality;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ShrinkStep &&
+      other.maxDimension == maxDimension &&
+      other.quality == quality;
+
+  @override
+  int get hashCode => Object.hash(maxDimension, quality);
+
+  @override
+  String toString() => 'ShrinkStep($maxDimension px @ q$quality)';
 }
 
 /// Categorical reasons for an attachment policy rejection.

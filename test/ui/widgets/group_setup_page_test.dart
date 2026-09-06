@@ -98,6 +98,41 @@ void main() {
     });
   });
 
+  group('GroupSetupPage — names', () {
+    const namelessId = '9f2a1c44-0e7b-4d31-9a55-6b0f6f0a1c22';
+    const nameless = ChatUser(id: namelessId);
+
+    testWidgets('a member nobody can name paints no id', (tester) async {
+      await tester.pumpWidget(host(initialMembers: const [nameless]));
+      await tester.pumpAndSettle();
+
+      expect(find.text(namelessId), findsNothing);
+      expect(find.text('${l10n.groupMembers} (1)'), findsOneWidget);
+    });
+
+    testWidgets('a member the cache can name reads that name', (tester) async {
+      adapter.cacheUsers(const [
+        ChatUser(id: namelessId, displayName: 'Alice'),
+      ]);
+
+      await tester.pumpWidget(host(initialMembers: const [nameless]));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsOneWidget);
+      expect(find.text(namelessId), findsNothing);
+    });
+
+    testWidgets('a nameless suggestion paints no id either', (tester) async {
+      await client.contacts.add(namelessId);
+
+      await tester.pumpWidget(host());
+      await tester.pumpAndSettle();
+
+      expect(find.text(namelessId), findsNothing);
+      expect(find.byIcon(Icons.add), findsOneWidget);
+    });
+  });
+
   group('GroupSetupPage — create gating + submission', () {
     testWidgets('create is disabled with no name and no members', (
       tester,
@@ -119,6 +154,40 @@ void main() {
       await tester.pump();
 
       expect(createButton(tester).onPressed, isNotNull);
+    });
+
+    testWidgets('a failed creation shows localized copy, never the raw '
+        'failure', (tester) async {
+      final failingClient = _FailingRoomsClient(currentUserId: 'me');
+      final failingAdapter = ChatUiAdapter(
+        client: failingClient,
+        currentUser: me,
+      );
+      failingAdapter.start();
+      addTearDown(() async {
+        await failingAdapter.dispose();
+        await failingClient.dispose();
+      });
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: GroupSetupPage(
+            adapter: failingAdapter,
+            initialMembers: const [alice],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'Team');
+      await tester.pump();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.createGroupFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
     });
 
     testWidgets('a short name keeps create disabled', (tester) async {
@@ -320,6 +389,33 @@ void main() {
       expect(find.byIcon(Icons.close, skipOffstage: false), findsOneWidget);
     });
   });
+}
+
+/// A [MockRoomsApi] whose `create` always fails, so the page renders its
+/// creation-failure notice.
+class _FailingRoomsApi extends MockRoomsApi {
+  _FailingRoomsApi(super.client);
+
+  @override
+  Future<ChatResult<ChatRoom>> create({
+    required RoomAudience audience,
+    bool allowInvitations = false,
+    String? name,
+    String? subject,
+    List<String>? members,
+    String? avatarUrl,
+    Map<String, dynamic>? custom,
+    bool forceGroup = false,
+  }) async => const ChatFailureResult(ForbiddenFailure());
+}
+
+class _FailingRoomsClient extends MockChatClient {
+  _FailingRoomsClient({required super.currentUserId});
+
+  _FailingRoomsApi? _failingRooms;
+
+  @override
+  MockRoomsApi get rooms => _failingRooms ??= _FailingRoomsApi(this);
 }
 
 /// A [MockRoomsApi] whose `create` only completes after a delay, so the

@@ -56,9 +56,10 @@ class GroupMembersView extends StatefulWidget {
   final RoomRole currentUserRole;
   final ChatTheme theme;
 
-  /// Resolver from userId → display name. Return `null` to fall back to
-  /// the raw userId rendering. Typically wired to
-  /// `adapter.findCachedUser(id)?.displayName`.
+  /// Resolver from userId → display name. Return `null` for an id you
+  /// cannot name: the row then renders without a title rather than
+  /// spelling out the id. Typically wired to `adapter.displayNameFor(id)`,
+  /// mapping its empty answer to `null`.
   final String? Function(String userId)? displayNameResolver;
 
   /// Resolver from userId → avatar URL.
@@ -107,7 +108,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
   bool _loading = false;
   bool _loadingMore = false;
   bool _hasMore = false;
-  String? _error;
+  bool _failed = false;
   final _scrollController = ScrollController();
 
   static const double _loadMoreThresholdPx = 200;
@@ -176,7 +177,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (!mounted) return;
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     // Request the `users` expansion so the backend embeds each member's
     // displayName + avatarUrl in the list response. This is the modern
@@ -197,15 +198,16 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loading = false;
-        _error = failure.toString();
+        _failed = true;
       }),
       (paginated) {
         // Seed the adapter cache from the embedded fields BEFORE the first
         // render so the sync resolvers (which read the cache) already have
         // names + avatars on this same frame.
         _seedCacheFromExpanded(paginated.items);
+        _recordRoster(paginated.items, complete: !paginated.hasMore);
         setState(() {
           _loading = false;
           _hasMore = paginated.hasMore;
@@ -240,14 +242,15 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loadingMore = false;
         // Keep whatever page is already loaded; only surface the error via
-        // a snackbar since `_error` would otherwise blank the existing list.
-        showNotice(failure.toString());
+        // a snackbar since `_failed` would otherwise blank the existing list.
+        showNotice(noticeL10n.loadFailed);
       }),
       (paginated) {
         _seedCacheFromExpanded(paginated.items);
+        _recordRoster(paginated.items, complete: false);
         setState(() {
           _loadingMore = false;
           _hasMore = paginated.hasMore;
@@ -257,6 +260,17 @@ class _GroupMembersViewState extends State<GroupMembersView>
         });
         unawaited(_warmMissingUsers(paginated.items));
       },
+    );
+  }
+
+  /// Hands the ids of a roster page to the adapter so the room list can be
+  /// searched by member. Unlike the user-cache seed above this keeps every
+  /// id, named or not: naming is the adapter's job and can land later.
+  void _recordRoster(List<RoomUser> members, {required bool complete}) {
+    widget.adapter.recordRoomRoster(
+      widget.roomId,
+      members.map((m) => m.userId),
+      complete: complete,
     );
   }
 
@@ -415,9 +429,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showNotice(
-        result.failureOrNull?.toString() ?? noticeL10n.updateRoleFailed,
-      );
+      showNotice(noticeL10n.updateRoleFailed);
       return;
     }
     if (widget.onRoleChanged != null) {
@@ -433,9 +445,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showNotice(
-        result.failureOrNull?.toString() ?? noticeL10n.removeMemberFailed,
-      );
+      showNotice(noticeL10n.removeMemberFailed);
       return;
     }
     if (widget.onMemberRemoved != null) {
@@ -449,11 +459,14 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (_loading && _members == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_members == null || _members!.isEmpty)) {
+    if (_failed && (_members == null || _members!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(
+            widget.theme.l10nOf(context).loadFailed,
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }
@@ -508,7 +521,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()
-            : m.userId;
+            : '';
         final avatarUrl = widget.avatarUrlResolver?.call(m.userId);
         final badge = _badgeFor(m.role);
         final isSelf = m.userId == currentUserId;

@@ -96,7 +96,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Not found'), findsOneWidget);
+      expect(find.text(ChatTheme.defaults.l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+        expect(text.data ?? '', isNot(contains('Not found')));
+      }
     });
   });
 
@@ -266,6 +270,60 @@ void main() {
         identical(tester.state<TooltipState>(tooltipOf(saveAt(1))), save),
         isTrue,
       );
+    });
+  });
+
+  group('GroupInfoPage — save failures', () {
+    // What the user must read is the localized "could not save" line, never
+    // the failure's own wording.
+    Future<void> failNextSave() => client.rooms.delete('r1');
+
+    testWidgets('a failed name save shows the localized notice', (
+      tester,
+    ) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+      await failNextSave();
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Renamed Group');
+      await tester.pump();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.saveFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
+
+      await tester.pumpAndSettle(const Duration(seconds: 6));
+    });
+
+    testWidgets('a failed description save shows the localized notice', (
+      tester,
+    ) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+      await failNextSave();
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'New description');
+      await tester.pump();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.saveFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
+
+      await tester.pumpAndSettle(const Duration(seconds: 6));
     });
   });
 }

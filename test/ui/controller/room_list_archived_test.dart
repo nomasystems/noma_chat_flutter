@@ -32,6 +32,30 @@ void main() {
       );
       expect(controller.hasArchivedRooms, isFalse);
     });
+
+    test('an archived room stays out of Archived after it is deleted, even if '
+        'it resurfaces before clearDeleted runs', () {
+      final controller = RoomListController(
+        initialRooms: const [
+          RoomListItem(id: 'a', name: 'Archived', hidden: true),
+        ],
+      );
+      controller.markDeleted('a');
+      expect(controller.archivedRooms, isEmpty);
+      expect(controller.hasArchivedRooms, isFalse);
+
+      // markDeleted already drops the row from _rooms, so the assertions
+      // above hold regardless of whether archivedRooms/hasArchivedRooms
+      // themselves check deletedRoomIds. The real guard they provide is
+      // for the race window before clearDeleted runs: a stale snapshot
+      // or cache read can put the row back into _rooms while it is still
+      // flagged deleted, and it must still not resurface in Archived.
+      controller.addRoom(
+        const RoomListItem(id: 'a', name: 'Archived', hidden: true),
+      );
+      expect(controller.archivedRooms, isEmpty);
+      expect(controller.hasArchivedRooms, isFalse);
+    });
   });
 
   group('RoomListView — Archived section', () {

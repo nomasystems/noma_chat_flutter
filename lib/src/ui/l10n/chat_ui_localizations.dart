@@ -416,6 +416,9 @@ class ChatUiLocalizations {
     this.locationMessage = 'Location message',
     this.avatar = 'Avatar',
     this.loadMore = 'Load more',
+    this.loadFailed = 'Could not load',
+    this.saveFailed = 'Could not save changes',
+    this.createGroupFailed = 'Could not create the group',
   });
 
   /// IETF / ISO 639-1 primary language subtag of this instance
@@ -1103,6 +1106,17 @@ class ChatUiLocalizations {
   /// when more members remain beyond the current page.
   final String loadMore;
 
+  /// Generic copy shown in place of a list when its contents could not
+  /// be loaded. Replaces the raw failure text so the screen never shows
+  /// untranslated technical detail.
+  final String loadFailed;
+
+  /// Fallback snackbar text when saving a profile or group edit fails.
+  final String saveFailed;
+
+  /// Fallback snackbar text when creating a group fails.
+  final String createGroupFailed;
+
   String blockUserName(String name) =>
       blockUserNameTemplate.replaceAll('{name}', name);
   String unblockUserName(String name) =>
@@ -1505,6 +1519,9 @@ class ChatUiLocalizations {
     String? locationMessage,
     String? avatar,
     String? loadMore,
+    String? loadFailed,
+    String? saveFailed,
+    String? createGroupFailed,
   }) {
     return ChatUiLocalizations(
       localeCode: localeCode ?? this.localeCode,
@@ -1898,6 +1915,9 @@ class ChatUiLocalizations {
       locationMessage: locationMessage ?? this.locationMessage,
       avatar: avatar ?? this.avatar,
       loadMore: loadMore ?? this.loadMore,
+      loadFailed: loadFailed ?? this.loadFailed,
+      saveFailed: saveFailed ?? this.saveFailed,
+      createGroupFailed: createGroupFailed ?? this.createGroupFailed,
     );
   }
 
@@ -1980,6 +2000,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Subiendo {percent}%',
     cancelUploadLabel: 'Cancelar subida',
     retryUploadLabel: 'Reintentar subida',
+    retry: 'Reintentar',
     members: 'miembros',
     online: 'en línea',
     lastSeenTemplate: 'última vez hace {time}',
@@ -2307,6 +2328,9 @@ class ChatUiLocalizations {
     locationMessage: 'Mensaje de ubicación',
     avatar: 'Avatar',
     loadMore: 'Cargar más',
+    loadFailed: 'No se pudo cargar',
+    saveFailed: 'No se pudieron guardar los cambios',
+    createGroupFailed: 'No se pudo crear el grupo',
   );
 
   static const ChatUiLocalizations fr = ChatUiLocalizations(
@@ -2320,6 +2344,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Envoi {percent}%',
     cancelUploadLabel: "Annuler l'envoi",
     retryUploadLabel: "Réessayer l'envoi",
+    retry: 'Réessayer',
     blockUser: 'Bloquer',
     blockUserConfirmBody:
         'Vous ne recevrez plus de messages de cet utilisateur.',
@@ -2646,6 +2671,9 @@ class ChatUiLocalizations {
     locationMessage: 'Message de position',
     avatar: 'Avatar',
     loadMore: 'Charger plus',
+    loadFailed: 'Chargement impossible',
+    saveFailed: 'Impossible d\'enregistrer les modifications',
+    createGroupFailed: 'Impossible de créer le groupe',
   );
 
   static const ChatUiLocalizations de = ChatUiLocalizations(
@@ -2659,6 +2687,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Wird hochgeladen {percent}%',
     cancelUploadLabel: 'Upload abbrechen',
     retryUploadLabel: 'Upload wiederholen',
+    retry: 'Erneut versuchen',
     blockUser: 'Blockieren',
     blockUserConfirmBody:
         'Du erhältst keine Nachrichten mehr von diesem Benutzer.',
@@ -2987,6 +3016,9 @@ class ChatUiLocalizations {
     locationMessage: 'Standortnachricht',
     avatar: 'Avatar',
     loadMore: 'Mehr laden',
+    loadFailed: 'Laden fehlgeschlagen',
+    saveFailed: 'Änderungen konnten nicht gespeichert werden',
+    createGroupFailed: 'Gruppe konnte nicht erstellt werden',
   );
 
   static const ChatUiLocalizations it = ChatUiLocalizations(
@@ -3000,6 +3032,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Caricamento {percent}%',
     cancelUploadLabel: 'Annulla caricamento',
     retryUploadLabel: 'Riprova caricamento',
+    retry: 'Riprova',
     blockUser: 'Blocca',
     blockUserConfirmBody: 'Non riceverai più messaggi da questo utente.',
     blockUserConfirmTitle: 'Bloccare?',
@@ -3323,6 +3356,9 @@ class ChatUiLocalizations {
     locationMessage: 'Messaggio di posizione',
     avatar: 'Avatar',
     loadMore: 'Carica altro',
+    loadFailed: 'Impossibile caricare',
+    saveFailed: 'Impossibile salvare le modifiche',
+    createGroupFailed: 'Impossibile creare il gruppo',
   );
 
   static const ChatUiLocalizations pt = ChatUiLocalizations(
@@ -3336,6 +3372,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Enviando {percent}%',
     cancelUploadLabel: 'Cancelar envio',
     retryUploadLabel: 'Repetir envio',
+    retry: 'Tentar novamente',
     blockUser: 'Bloquear',
     blockUserConfirmBody: 'Você não receberá mais mensagens deste usuário.',
     blockUserConfirmTitle: 'Bloquear?',
@@ -3660,6 +3697,9 @@ class ChatUiLocalizations {
     locationMessage: 'Mensagem de localização',
     avatar: 'Avatar',
     loadMore: 'Carregar mais',
+    loadFailed: 'Não foi possível carregar',
+    saveFailed: 'Não foi possível guardar as alterações',
+    createGroupFailed: 'Não foi possível criar o grupo',
   );
 
   static const ChatUiLocalizations ca = ChatUiLocalizations(
@@ -3673,6 +3713,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Pujant {percent}%',
     cancelUploadLabel: 'Cancel·lar la pujada',
     retryUploadLabel: 'Tornar a provar la pujada',
+    retry: 'Torna-ho a provar',
     blockUser: 'Bloquejar',
     blockUserConfirmBody: 'Ja no rebràs missatges d\'aquest usuari.',
     blockUserConfirmTitle: 'Bloquejar?',
@@ -3745,6 +3786,7 @@ class ChatUiLocalizations {
     userRemovedByTemplate: '{actor} ha tret {user}',
     youRemovedTemplate: 'Has tret {user}',
     youWereRemovedByTemplate: '{actor} t\'ha tret',
+    lastSeenTemplate: 'última vegada fa {time}',
     localeCode: 'ca',
     today: 'Avui',
     yesterday: 'Ahir',
@@ -3798,6 +3840,9 @@ class ChatUiLocalizations {
     loading: 'Carregant...',
     noMessages: 'Encara no hi ha missatges',
     attachmentPreview: '📎 Adjunt',
+    attachmentTooLarge: 'El fitxer és massa gran per enviar-lo.',
+    attachmentTypeNotAllowed: 'Aquest tipus de fitxer no està permès.',
+    attachmentUnreadable: 'No s\'ha pogut llegir el fitxer seleccionat.',
     imagePreview: 'Foto',
     videoPreview: 'Vídeo',
     audioPreview: '🎤 Missatge de veu',
@@ -3992,6 +4037,9 @@ class ChatUiLocalizations {
     locationMessage: 'Missatge d\'ubicació',
     avatar: 'Avatar',
     loadMore: 'Carrega\'n més',
+    loadFailed: "No s'ha pogut carregar",
+    saveFailed: "No s'han pogut desar els canvis",
+    createGroupFailed: "No s'ha pogut crear el grup",
   );
 
   // ----------------------------------------------------------------
@@ -5496,6 +5544,9 @@ class ChatUiLocalizations {
     String? locationMessage,
     String? avatar,
     String? loadMore,
+    String? loadFailed,
+    String? saveFailed,
+    String? createGroupFailed,
   }) {
     return _OverrideChatUiLocalizationsDelegate(
       onlyLocale: locale,
@@ -5817,6 +5868,9 @@ class ChatUiLocalizations {
         locationMessage: locationMessage,
         avatar: avatar,
         loadMore: loadMore,
+        loadFailed: loadFailed,
+        saveFailed: saveFailed,
+        createGroupFailed: createGroupFailed,
       ),
     );
   }
@@ -5827,8 +5881,7 @@ class _ChatUiLocalizationsDelegate
   const _ChatUiLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      ChatUiLocalizations.supportedLanguageCodes.contains(locale.languageCode);
+  bool isSupported(Locale locale) => true;
 
   @override
   Future<ChatUiLocalizations> load(Locale locale) async =>
@@ -5859,9 +5912,7 @@ class _OverrideChatUiLocalizationsDelegate
   bool isSupported(Locale locale) {
     final only = onlyLocale;
     if (only != null) return locale.languageCode == only.languageCode;
-    return ChatUiLocalizations.supportedLanguageCodes.contains(
-      locale.languageCode,
-    );
+    return true;
   }
 
   @override
