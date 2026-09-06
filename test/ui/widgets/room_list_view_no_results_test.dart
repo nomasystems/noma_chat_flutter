@@ -11,16 +11,18 @@ void main() {
     RoomListItem(id: 'c', name: 'Carol'),
   ];
 
-  Widget wrap({bool isLoading = false}) => MaterialApp(
-    home: Scaffold(
-      body: RoomListView(
-        controller: controller,
-        isLoading: isLoading,
-        showHeader: false,
-        showSearch: false,
-      ),
-    ),
-  );
+  Widget wrap({bool isLoading = false, Future<void> Function()? onRefresh}) =>
+      MaterialApp(
+        home: Scaffold(
+          body: RoomListView(
+            controller: controller,
+            isLoading: isLoading,
+            showHeader: false,
+            showSearch: false,
+            onRefresh: onRefresh,
+          ),
+        ),
+      );
 
   setUp(() {
     controller = RoomListController()..setRooms(rooms);
@@ -52,6 +54,24 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
     expect(find.text(ChatUiLocalizations.en.noResults), findsNothing);
   });
+
+  testWidgets(
+    'the first-load spinner while filtering is not wrapped in a RefreshIndicator',
+    (tester) async {
+      await tester.pumpWidget(wrap(isLoading: true, onRefresh: () async {}));
+      controller.setFilter('zzz');
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(
+        find.ancestor(
+          of: find.byType(CircularProgressIndicator),
+          matching: find.byType(RefreshIndicator),
+        ),
+        findsNothing,
+      );
+    },
+  );
 
   testWidgets('a whitespace-only filter counts as a filter', (tester) async {
     await tester.pumpWidget(wrap());

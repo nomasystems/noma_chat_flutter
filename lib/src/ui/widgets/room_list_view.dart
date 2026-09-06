@@ -316,7 +316,7 @@ class RoomListView extends StatelessWidget {
         }
 
         if (onRefresh != null) {
-          if (!showList && (!isLoading || isFiltering)) {
+          if (!showList && !isLoading) {
             list = RefreshIndicator(
               onRefresh: onRefresh!,
               child: CustomScrollView(
