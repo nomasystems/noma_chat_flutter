@@ -117,7 +117,10 @@ raw user id anywhere in the UI.
   reason, `ChatUiAdapter.contacts.loadBlocked()` kept only the first page of
   `GET /blocked`, so users blocked past it were treated as not blocked. It
   now reads every page, and a page that fails leaves the previously loaded
-  set standing instead of committing a partial one.
+  set standing instead of committing a partial one. **`BlockedUsersView`**
+  read the same listing short: the screen whose only purpose is unblocking
+  people stopped at the first page, leaving everyone past it blocked with no
+  way left to reach them. It walks every page too.
 - **The owner of an owner-only room saw a closed composer until the room
   detail loaded.** The room list degraded `writePolicy` to the listing
   projection but not `userRole`, and `isReadOnly` reads the two together —

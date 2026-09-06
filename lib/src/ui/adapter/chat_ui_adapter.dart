@@ -13,6 +13,7 @@ import '../../client/chat_client.dart';
 import '../../client/noma_chat_facade.dart';
 import '../../config/lifecycle_policy.dart';
 import '../../core/pagination.dart';
+import '../../core/pagination_walk.dart';
 import '../../core/result.dart';
 import '../../events/chat_event.dart';
 import '../../models/attachment.dart';

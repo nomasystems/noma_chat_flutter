@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../client/chat_client.dart';
+import '../../core/pagination_walk.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
 import 'chat_room_options_menu.dart';
@@ -13,10 +14,15 @@ import 'user_avatar.dart';
 /// raw userId. Consumers typically resolve the name from their own user
 /// directory or from `ChatUiAdapter.findCachedUser(userId)?.displayName`.
 ///
-/// The widget owns its own loading + refresh cycle: pulls
+/// The widget owns its own loading + refresh cycle: reads
 /// `client.contacts.listBlocked()` on mount and after each successful
 /// unblock. Wrap in a [Scaffold] (with `AppBar(title: l10n.blockedUsers)`)
 /// at the consumer side.
+///
+/// `GET /blocked` is paginated and truncates to a default page size when the
+/// request omits `limit`, so the read below walks every page: a screen whose
+/// only purpose is unblocking people must not hide the people it cannot show
+/// — there would be no way left to reach them.
 class BlockedUsersView extends StatefulWidget {
   const BlockedUsersView({
     super.key,
@@ -62,18 +68,27 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
       _loading = true;
       _error = null;
     });
-    final result = await widget.client.contacts.listBlocked();
-    if (!mounted) return;
-    result.fold(
+    final walk = await readAllPages<String>(
+      (pagination) =>
+          widget.client.contacts.listBlocked(pagination: pagination),
+      isCancelled: () => !mounted,
+    );
+    if (walk == null || !mounted) return;
+    walk.fold(
       (failure) => setState(() {
         _loading = false;
         _error = failure.toString();
       }),
-      (paginated) => setState(() {
-        _loading = false;
-        _blocked = paginated.items;
-        _rendered = _pinHiddenRows(paginated.items);
-      }),
+      (ids) {
+        // Page boundaries can shift between the walk's requests, so an id
+        // seen twice is kept once, in the position it first appeared at.
+        final unique = ids.toSet().toList();
+        setState(() {
+          _loading = false;
+          _blocked = unique;
+          _rendered = _pinHiddenRows(unique);
+        });
+      },
     );
   }
 

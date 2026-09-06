@@ -38,6 +38,48 @@ class _FakeBlockedContacts implements ChatContactsApi {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// A `GET /blocked` that paginates exactly as the backend does: the default
+/// page when the request carries no `limit`, a larger one clamped to the wire
+/// ceiling, and an honest `hasMore`. A screen that reads a single response is
+/// therefore as truncated here as it would be against a real server.
+class _PagingBlockedContacts implements ChatContactsApi {
+  _PagingBlockedContacts(this._blocked);
+
+  static const int _defaultLimit = 50;
+  static const int _maxLimit = 100;
+
+  List<String> _blocked;
+
+  /// Pagination of every `listBlocked` served, in order.
+  final List<ChatPaginationParams?> requests = [];
+
+  @override
+  Future<ChatResult<ChatPaginatedResponse<String>>> listBlocked({
+    ChatPaginationParams? pagination,
+  }) async {
+    requests.add(pagination);
+    final limit = (pagination?.limit ?? _defaultLimit).clamp(1, _maxLimit);
+    final start = (pagination?.offset ?? 0).clamp(0, _blocked.length);
+    final end = (start + limit).clamp(0, _blocked.length);
+    return ChatSuccess(
+      ChatPaginatedResponse(
+        items: _blocked.sublist(start, end),
+        hasMore: end < _blocked.length,
+        totalCount: _blocked.length,
+      ),
+    );
+  }
+
+  @override
+  Future<ChatResult<void>> unblock(String userId) async {
+    _blocked = _blocked.where((id) => id != userId).toList();
+    return const ChatSuccess(null);
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 class _FakeClient implements ChatClient {
   _FakeClient(this._contacts);
 
@@ -231,6 +273,50 @@ void main() {
         ),
         isTrue,
       );
+    });
+  });
+
+  group('BlockedUsersView — paginated backend', () {
+    testWidgets('a blocked list longer than one page is shown whole', (
+      tester,
+    ) async {
+      final contacts = _PagingBlockedContacts([
+        for (var i = 0; i < 120; i++) 'u$i',
+      ]);
+      final client = _FakeClient(contacts);
+
+      await tester.pumpWidget(
+        wrap(client, names: (id) => 'User ${id.substring(1)}'),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        contacts.requests.length,
+        2,
+        reason: '120 blocked users at the wire maximum of 100 is two reads',
+      );
+      expect(contacts.requests.first?.limit, 100);
+      expect(contacts.requests.first?.offset, 0);
+      expect(contacts.requests[1]?.offset, 100);
+
+      // The row past the first backend page exists and is reachable, so
+      // the user can still unblock the people the first page left out.
+      expect(find.text('User 0'), findsOneWidget);
+      await tester.scrollUntilVisible(find.text('User 119'), 400);
+      expect(find.text('User 119'), findsOneWidget);
+    });
+
+    testWidgets('a page that fails leaves the screen on the error state', (
+      tester,
+    ) async {
+      final contacts = _FakeBlockedContacts(['u1'])..listFails = true;
+      final client = _FakeClient(contacts);
+
+      await tester.pumpWidget(wrap(client));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNothing);
+      expect(find.text(l10n.blockedUsersEmpty), findsNothing);
     });
   });
 }
