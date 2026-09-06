@@ -115,6 +115,12 @@ raw user id anywhere in the UI.
   freshly typed URL before clearing its field, so a second tap in that window
   started a second send — and, in a not-yet-created DM, created a second
   room. The composer now refuses a send while one is still being prepared.
+- **A failed "load older messages" could lose the history cursor.** The cache
+  phase of `loadMore` answers without honouring the cursor and reports none of
+  its own, and its answer was written straight into the room's pagination
+  state; when the network page then failed, the next pull asked for the newest
+  page instead of the older one and no older message appeared. The cache phase
+  no longer narrows the pagination state.
 
 ## 0.33.0 - 2026-09-03
 

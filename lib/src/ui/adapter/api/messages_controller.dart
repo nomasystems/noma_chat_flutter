@@ -208,9 +208,11 @@ interface class ChatMessagesController {
         final cachedData = cachedResult.dataOrThrow;
         controller.addMessages(cachedData.items);
         _a._loadReactionsFromMessages(controller, cachedData.items);
+        final cachedCursor =
+            cachedData.prevCursor ?? controller.oldestMessageCursor;
         controller.setPaginationState(
-          hasMore: cachedData.hasMore,
-          cursor: cachedData.prevCursor,
+          hasMore: cachedData.hasMore || cachedCursor != null,
+          cursor: cachedCursor,
         );
       }
 
