@@ -126,6 +126,11 @@ raw user id anywhere in the UI.
   that matched nothing offered the "start a chat" call to action — or, while
   the list was still loading, an endless spinner. It now shows the localised
   "no results" state instead.
+- **`ChatUiLocalizations.override` lost every override under a locale the SDK
+  does not translate.** The delegate declared itself unsupported for such a
+  locale, so the widgets fell back to the bundled English table without the
+  host's strings. Both delegates now accept any locale and resolve the closest
+  bundled table (English when there is none), keeping the overrides.
 
 ## 0.33.0 - 2026-09-03
 

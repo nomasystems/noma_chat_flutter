@@ -5827,8 +5827,7 @@ class _ChatUiLocalizationsDelegate
   const _ChatUiLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      ChatUiLocalizations.supportedLanguageCodes.contains(locale.languageCode);
+  bool isSupported(Locale locale) => true;
 
   @override
   Future<ChatUiLocalizations> load(Locale locale) async =>
@@ -5859,9 +5858,7 @@ class _OverrideChatUiLocalizationsDelegate
   bool isSupported(Locale locale) {
     final only = onlyLocale;
     if (only != null) return locale.languageCode == only.languageCode;
-    return ChatUiLocalizations.supportedLanguageCodes.contains(
-      locale.languageCode,
-    );
+    return true;
   }
 
   @override
