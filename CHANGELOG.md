@@ -167,7 +167,9 @@ raw user id anywhere in the UI.
   set standing instead of committing a partial one. **`BlockedUsersView`**
   read the same listing short: the screen whose only purpose is unblocking
   people stopped at the first page, leaving everyone past it blocked with no
-  way left to reach them. It walks every page too.
+  way left to reach them. It walks every page too. Like the room walk, both
+  stop at the 10 000 `offset` the backend clamps to instead of re-reading the
+  last page they can reach.
 - **The owner of an owner-only room saw a closed composer until the room
   detail loaded.** The room list degraded `writePolicy` to the listing
   projection but not `userRole`, and `isReadOnly` reads the two together —
