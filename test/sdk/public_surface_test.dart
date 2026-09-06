@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_advanced.dart';
@@ -48,4 +50,38 @@ void main() {
       expect(exception, isA<ChatException>());
     }
   });
+
+  test(
+    'lib/src/api dartdoc never claims a thrown exception for a '
+    'ChatResult-returning method',
+    () {
+      final dir = Directory('lib/src/api');
+      expect(
+        dir.existsSync(),
+        isTrue,
+        reason: 'flutter test must run from the package root',
+      );
+
+      final offenders = <String>[];
+      final throwsClaim = RegExp(r'Throws \[Chat\w+Exception\]');
+      for (final entity in dir.listSync()) {
+        if (entity is! File || !entity.path.endsWith('.dart')) continue;
+        final lines = entity.readAsLinesSync();
+        for (var i = 0; i < lines.length; i++) {
+          if (throwsClaim.hasMatch(lines[i])) {
+            offenders.add('${entity.path}:${i + 1}');
+          }
+        }
+      }
+
+      expect(
+        offenders,
+        isEmpty,
+        reason:
+            'safeApiCall/safeVoidCall never let a ChatException escape — '
+            'every failure surfaces as ChatFailureResult, so dartdoc must '
+            'not claim otherwise. Offending lines: $offenders',
+      );
+    },
+  );
 }

@@ -70,7 +70,8 @@ class RoomsApi implements ChatRoomsApi {
   /// Returns [ChatSuccess] holding the new [ChatRoom], or a [ChatFailureResult]
   /// on network or server errors.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`, never a thrown exception.
   ///
   /// Example:
   /// ```dart
@@ -169,8 +170,10 @@ class RoomsApi implements ChatRoomsApi {
   /// a response that does not carry the whole room set cannot prove that
   /// a room it omits no longer exists.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors when the cache is empty.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error on an empty cache surfaces
+  /// as `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -443,8 +446,10 @@ class RoomsApi implements ChatRoomsApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -496,8 +501,10 @@ class RoomsApi implements ChatRoomsApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart

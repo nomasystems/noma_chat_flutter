@@ -162,6 +162,14 @@ raw user id anywhere in the UI.
   locale, so the widgets fell back to the bundled English table without the
   host's strings. Both delegates now accept any locale and resolve the closest
   bundled table (English when there is none), keeping the overrides.
+- **22 SDK method dartdoc comments claimed "Throws `[ChatXException]`" on
+  methods that never throw.** Every one of those methods returns
+  `Future<ChatResult<...>>` through `safeApiCall`/`safeVoidCall`, which catch
+  every exception and return it as a `ChatFailureResult` — the documented
+  `Throws` claims (across `rooms_api.dart`, `members_api.dart`,
+  `messages_api_rest.dart`, and `delivery_receipt_client.dart`) were false
+  and, in one case, self-contradicting within the same docstring. Corrected
+  to describe the actual `ChatFailureResult` contract.
 - **`ErrorEvent.exception` named a type no barrel exported.** `ChatEvent.error`
   is typed as `ChatException`, but `ChatException` and its 14 subclasses
   (`ChatAuthException` included) lived only under `src/_internal/http/`, so a
