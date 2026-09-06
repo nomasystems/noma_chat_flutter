@@ -2,10 +2,12 @@
 
 ## 0.33.x → 0.34.0
 
-Nothing is removed. Two defaults change what they do at runtime (each with
-an opt-out), one field is added to `ChatViewBuilders`, and — the change with
-the widest reach — an unresolved display name stops falling back to the raw
-id anywhere in the UI layer.
+Nothing is removed. Several defaults change what they do at runtime (each
+with an opt-out), one field is added to `ChatViewBuilders`, three keys are
+added to `ChatUiLocalizations`, `rooms.getUserRooms()` answers in a different
+order, a cached room now remembers a moderation mute — and, the change with
+the widest reach, an unresolved display name stops falling back to the raw id
+anywhere in the UI layer.
 
 ### No id is ever painted as a name
 
@@ -39,6 +41,11 @@ on to know a name has not arrived yet:
   it resolves — but `metadata['userLabel']` / `metadata['actorLabel']` on
   the persisted system message are now blank, not the id, once the lookup
   gives up. `metadata['userId']` still carries the id itself, unchanged.
+  The banner itself does not go blank with the label: an empty one is drawn
+  with the generic noun `ChatUiLocalizations.member` — "Member joined",
+  "Miembro" — so the line reads as a sentence in the user's language rather
+  than disappearing or showing a UUID. Override `member` if you want a
+  different word there.
 - `MessageInput`'s @mention autocomplete no longer inserts `@<uuid>` into
   the message text when the mentioned person has no resolvable name; it
   closes the overlay and leaves the composer text as the user typed it.
@@ -125,6 +132,69 @@ See [Developer Guide — attachmentShrinker](./doc/DEVELOPER_GUIDE.md#attachment
 picker paths, not only on `pickFile` as before — a policy relying on that
 list to block a specific extension now blocks it everywhere, not only on
 generic file picks.
+
+### `rooms.getUserRooms()` without pagination now comes back sorted by room id
+
+The no-pagination call used to be a single `GET /rooms`, served in whatever
+order the backend happened to hold the set in — which in practice read as
+recency. It now walks every page to the end (that is the fix for the
+"account with more than 50 rooms" bug), and paging only holds if every
+request sees the same order, so the walk pins the listing to `sort=roomId`,
+ascending. The rooms you get back are therefore ordered by id, not by
+recency.
+
+Nothing in the SDK's own UI notices: `RoomListController` sorts what it
+receives by pinned state and last message time before painting it. But **a
+host that renders `UserRooms.rooms` in the order it arrives sorts it
+itself now**:
+
+```dart
+final rooms = [...result.dataOrThrow.rooms]..sort((a, b) {
+  final at = a.lastMessageTime;
+  final bt = b.lastMessageTime;
+  if (at == null) return bt == null ? 0 : 1;
+  if (bt == null) return -1;
+  return bt.compareTo(at);
+});
+```
+
+A call that does pass `pagination` is unchanged — one page, in the order the
+parameters ask for.
+
+The walk also stops where the backend does: `offset` is clamped at 10 000
+server-side, so an account past ~10 100 rooms comes back with the pages that
+are reachable and `hasMore: true`, never with a repeated page.
+
+### A cached room now remembers a moderation mute
+
+`RoomDetail.selfMuted` was lost on the way through the Hive cache and read
+back as `false`. It is persisted now, and `RoomDetail.isReadOnly` reads it,
+so the first frame of a room opened from cache changes for muted members:
+where 0.33 opened the composer and closed it a moment later when the network
+detail landed, 0.34 opens it already closed. The reverse also holds — a
+`selfMuted: true` left in cache keeps the composer closed until the detail
+refreshes it away. A host that paints its own affordance off `isReadOnly` or
+`readOnlyReason` sees the state one round-trip earlier than it used to; no
+API changes.
+
+### `ChatUiLocalizations` gains three keys
+
+`loadFailed` ("Could not load"), `saveFailed` ("Could not save changes") and
+`createGroupFailed` ("Could not create the group") are new, and they are what
+the blocked-users screen, the member picker, the group member list, the
+reaction detail sheet, the media gallery, group info, user info and the group
+creation page now paint where they used to leak a `ChatFailure.toString()`.
+Nothing is removed and every bundled locale translates them, so a host that
+uses the packaged tables or `ChatUiLocalizations.override` has nothing to do.
+
+**A host that builds its own `ChatUiLocalizations(...)` for a locale the SDK
+does not bundle must add the three**, or those eight screens fall back to
+English on exactly the copy this release fixed. They are named parameters
+with English defaults, so the constructor still compiles either way — the
+gap is silent.
+
+(`retry`, the accessibility label for retrying a failed send, is not new: it
+existed in 0.33 and only gained its six missing translations here.)
 
 ## 0.31.x → 0.32.0
 
