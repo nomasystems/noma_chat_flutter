@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_advanced.dart';
-import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/cache/offline_queue.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 import 'package:noma_chat/src/_internal/transport/ws_transport.dart';
