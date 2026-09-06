@@ -53,6 +53,51 @@ class _PagingRestClient implements RestClient {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// A `GET /rooms` whose natural order changes from request to request, as an
+/// unsorted listing backed by a hash map does. It honours `sort=roomId` by
+/// ordering on the id, and rotates the set by one position per request when
+/// the parameter is missing, so a walk that pages without a sort reads the
+/// same room twice and never reads another.
+class _ReshufflingRestClient implements RestClient {
+  _ReshufflingRestClient({required this.roomCount});
+
+  static const int _maxLimit = 100;
+
+  final int roomCount;
+  int _served = 0;
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? queryParams,
+    Map<String, String>? headers,
+  }) async {
+    final sorted = queryParams?['sort'] == 'roomId';
+    final ids = [for (var i = 0; i < roomCount; i++) 'room-$i'];
+    final ordered = sorted
+        ? ids
+        : [...ids.skip(_served + 1), ...ids.take(_served + 1)];
+    _served++;
+
+    final limit = ((queryParams?['limit'] as int?) ?? 50).clamp(1, _maxLimit);
+    final offset = (queryParams?['offset'] as int?) ?? 0;
+    final start = offset.clamp(0, roomCount);
+    final end = (start + limit).clamp(0, roomCount);
+
+    return {
+      'rooms': [
+        for (final id in ordered.sublist(start, end))
+          {'roomId': id, 'unreadMessages': 0, 'name': id},
+      ],
+      'invitedRooms': const [],
+      'hasMore': end < roomCount,
+    };
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   group('RoomsApi.getUserRooms without pagination', () {
     test('walks every page so the listing is the whole room set', () async {
@@ -84,6 +129,35 @@ void main() {
       expect(rest.requests.first['limit'], 100);
       expect(rest.requests.first['offset'], 0);
       expect(rest.requests[1]['offset'], 100);
+    });
+
+    test('every page asks for the same order so the offsets line up', () async {
+      final rest = _PagingRestClient(roomCount: 120);
+      final api = RoomsApi(rest: rest);
+
+      await api.getUserRooms();
+
+      expect(rest.requests.length, 2);
+      for (final request in rest.requests) {
+        expect(request['sort'], 'roomId');
+        expect(request['order'], 'asc');
+      }
+    });
+
+    test('a listing that reshuffles between requests loses no room', () async {
+      final rest = _ReshufflingRestClient(roomCount: 120);
+      final api = RoomsApi(rest: rest);
+
+      final result = await api.getUserRooms();
+
+      final ids = result.dataOrThrow.rooms.map((r) => r.roomId).toList();
+      expect(ids.toSet().length, 120);
+      expect(
+        ids.toSet(),
+        {for (var i = 0; i < 120; i++) 'room-$i'},
+        reason: 'the sorted order is what keeps page 2 resuming where page 1 '
+            'ended; without it the reshuffle drops rooms',
+      );
     });
 
     test('a single short page costs a single request', () async {

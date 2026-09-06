@@ -292,6 +292,12 @@ class RoomsApi implements ChatRoomsApi {
   /// forever.
   static const int _roomsMaxPages = 200;
 
+  /// Sort key the walk pins the listing to. `roomId` is carried by every row
+  /// of the conversations projection, and the backend sorts the whole set on
+  /// any row key before it slices the page, so this is what makes the page
+  /// boundaries below reproducible from one request to the next.
+  static const String _roomsSortKey = 'roomId';
+
   /// Reads `GET /rooms`, either as the single page the caller asked for or,
   /// when [pagination] is `null`, as every page there is.
   ///
@@ -302,10 +308,18 @@ class RoomsApi implements ChatRoomsApi {
   /// and the refresh engine all rely on that — so the walk below restores it
   /// by following `hasMore` to the end.
   ///
-  /// The listing is not guaranteed to be stably ordered across requests, so
-  /// rooms and invitations are de-duplicated by id as the pages arrive: an
-  /// entry that shifts between pages is kept once instead of twice, and the
-  /// first position it was seen at wins.
+  /// Page boundaries only hold if every request sees the same order, and the
+  /// listing's natural order is not stable across requests, so the walk asks
+  /// the backend to sort by [_roomsSortKey]: it is present on every listing
+  /// row, so the sort is total and page N+1 resumes exactly where page N
+  /// ended. A room that moved between two unsorted requests would otherwise
+  /// be skipped outright, and the window for that widens with every extra
+  /// page fetched.
+  ///
+  /// Rooms and invitations are still de-duplicated by id as the pages arrive
+  /// — invitations ride along with every page, and a backend that ignores
+  /// `sort` must not turn a shifted room into two rows. The first position an
+  /// id was seen at wins.
   Future<UserRooms> _fetchUserRooms(
     String type,
     ChatPaginationParams? pagination,
@@ -321,7 +335,12 @@ class RoomsApi implements ChatRoomsApi {
     for (var page = 0; page < _roomsMaxPages; page++) {
       final chunk = await _fetchUserRoomsPage(
         type,
-        ChatPaginationParams(limit: _roomsPageSize, offset: offset),
+        ChatPaginationParams(
+          limit: _roomsPageSize,
+          offset: offset,
+          sort: _roomsSortKey,
+          order: ChatSortOrder.asc,
+        ),
       );
       for (final room in chunk.rooms) {
         if (seenRooms.add(room.roomId)) rooms.add(room);

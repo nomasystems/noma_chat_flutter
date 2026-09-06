@@ -109,7 +109,10 @@ raw user id anywhere in the UI.
   the wire maximum of 100 per request, de-duplicating by room id) whenever
   the caller passes no `pagination`, which is what its documented "complete
   listing" contract always promised; a call that does pass `pagination` is
-  still served that one page and nothing else.
+  still served that one page and nothing else. The walk pins the listing to
+  `sort=roomId` so the page boundaries are reproducible across its requests:
+  the natural order is not stable between calls, and a room that shifted
+  between two of them would be paged straight over.
 - **A blocked list longer than 50 users was loaded short.** For the same
   reason, `ChatUiAdapter.contacts.loadBlocked()` kept only the first page of
   `GET /blocked`, so users blocked past it were treated as not blocked. It
