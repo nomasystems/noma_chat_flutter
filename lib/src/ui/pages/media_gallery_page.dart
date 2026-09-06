@@ -94,7 +94,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   bool _loading = true;
-  String? _errorMessage;
+  bool _failed = false;
   List<MediaItem> _media = const [];
   List<MediaItem> _docs = const [];
 
@@ -205,16 +205,16 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
               _media = media;
               _docs = docs;
               _loading = false;
-              _errorMessage = null;
+              _failed = false;
             });
             return;
           }
           olderCursor = nextOlderCursor;
           pages += 1;
-        case ChatFailureResult(:final failure):
+        case ChatFailureResult():
           setState(() {
             _loading = false;
-            _errorMessage = failure.toString();
+            _failed = true;
           });
           return;
       }
@@ -227,7 +227,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
       _media = media;
       _docs = docs;
       _loading = false;
-      _errorMessage = null;
+      _failed = false;
     });
   }
 
@@ -359,14 +359,14 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
                 child: const CircularProgressIndicator(),
               ),
             )
-          : _errorMessage != null
+          : _failed
           ? Semantics(
               identifier: 'chat_gallery_error',
               child: EmptyState(
                 key: const ValueKey('chat_gallery_error'),
                 icon: Icons.error_outline,
                 title: l10n.connectionError,
-                subtitle: _errorMessage,
+                subtitle: l10n.loadFailed,
                 theme: widget.theme,
               ),
             )

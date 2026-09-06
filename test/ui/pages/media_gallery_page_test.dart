@@ -16,11 +16,13 @@ class _FakeAttachmentsApi implements ChatAttachmentsApi {
   _FakeAttachmentsApi(
     this._delegate, {
     this.roomItems = const [],
+    this.listFails = false,
     Uint8List? downloadBytes,
   }) : _downloadBytes = downloadBytes;
 
   final ChatAttachmentsApi _delegate;
   final List<ChatMessage> roomItems;
+  final bool listFails;
   final Uint8List? _downloadBytes;
   final List<String> downloadedIds = [];
 
@@ -28,8 +30,9 @@ class _FakeAttachmentsApi implements ChatAttachmentsApi {
   Future<ChatResult<ChatPaginatedResponse<ChatMessage>>> listInRoom(
     String roomId, {
     ChatCursorPaginationParams? pagination,
-  }) async =>
-      ChatSuccess(ChatPaginatedResponse(items: roomItems, hasMore: false));
+  }) async => listFails
+      ? const ChatFailureResult(ForbiddenFailure())
+      : ChatSuccess(ChatPaginatedResponse(items: roomItems, hasMore: false));
 
   @override
   Future<ChatResult<AttachmentUploadResult>> upload(
@@ -86,10 +89,12 @@ class _GalleryClient implements ChatClient {
   _GalleryClient(
     this._delegate, {
     List<ChatMessage> roomItems = const [],
+    bool listFails = false,
     Uint8List? downloadBytes,
   }) : attachments = _FakeAttachmentsApi(
          _delegate.attachments,
          roomItems: roomItems,
+         listFails: listFails,
          downloadBytes: downloadBytes,
        );
 
@@ -227,6 +232,26 @@ void main() {
     // The page runs `_load` in initState; pumpAndSettle drains it.
     await tester.pumpAndSettle();
   }
+
+  testWidgets('a failed listing shows localized copy, never the raw failure', (
+    tester,
+  ) async {
+    final galleryClient = _GalleryClient(client, listFails: true);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MediaGalleryPage(client: galleryClient, roomId: 'room-1'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final l10n = ChatTheme.defaults.l10n;
+    expect(find.byKey(const ValueKey('chat_gallery_error')), findsOneWidget);
+    expect(find.text(l10n.loadFailed), findsOneWidget);
+    for (final text in tester.widgetList<Text>(find.byType(Text))) {
+      expect(text.data ?? '', isNot(contains('Failure')));
+    }
+  });
 
   testWidgets('renders the gallery scaffold with three tabs', (tester) async {
     await pumpPage(tester);

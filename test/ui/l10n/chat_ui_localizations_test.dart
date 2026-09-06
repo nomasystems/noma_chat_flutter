@@ -415,6 +415,8 @@ void main() {
       ]) {
         expect(l10n.retry, isNot('Retry'));
         expect(l10n.loadFailed, isNot('Could not load'));
+        expect(l10n.saveFailed, isNot('Could not save changes'));
+        expect(l10n.createGroupFailed, isNot('Could not create the group'));
       }
     });
 
@@ -426,6 +428,16 @@ void main() {
           'X',
         );
         expect(ChatUiLocalizations.override(loadFailed: 'X'), isNotNull);
+        expect(
+          ChatUiLocalizations.en.copyWith(saveFailed: 'X').saveFailed,
+          'X',
+        );
+        expect(
+          ChatUiLocalizations.en
+              .copyWith(createGroupFailed: 'X')
+              .createGroupFailed,
+          'X',
+        );
       },
     );
 

@@ -536,6 +536,34 @@ void main() {
       expect(find.byType(ListTile), findsNWidgets(11));
     });
 
+    testWidgets('a failed load-more keeps the roster and notices in localized '
+        'copy, never the raw failure', (tester) async {
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            embedded: true,
+            pageSize: 5,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(6));
+      pagingMembers.listFails = true;
+
+      await tester.tap(find.text(ChatTheme.defaults.l10n.loadMore));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(6));
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
+    });
+
     testWidgets('load-more row disappears once every member has been fetched', (
       tester,
     ) async {

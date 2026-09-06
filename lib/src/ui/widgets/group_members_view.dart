@@ -108,7 +108,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
   bool _loading = false;
   bool _loadingMore = false;
   bool _hasMore = false;
-  String? _error;
+  bool _failed = false;
   final _scrollController = ScrollController();
 
   static const double _loadMoreThresholdPx = 200;
@@ -177,7 +177,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (!mounted) return;
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     // Request the `users` expansion so the backend embeds each member's
     // displayName + avatarUrl in the list response. This is the modern
@@ -200,7 +200,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     result.fold(
       (_) => setState(() {
         _loading = false;
-        _error = widget.theme.l10nOf(context).loadFailed;
+        _failed = true;
       }),
       (paginated) {
         // Seed the adapter cache from the embedded fields BEFORE the first
@@ -245,7 +245,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
       (_) => setState(() {
         _loadingMore = false;
         // Keep whatever page is already loaded; only surface the error via
-        // a snackbar since `_error` would otherwise blank the existing list.
+        // a snackbar since `_failed` would otherwise blank the existing list.
         showNotice(noticeL10n.loadFailed);
       }),
       (paginated) {
@@ -459,11 +459,14 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (_loading && _members == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_members == null || _members!.isEmpty)) {
+    if (_failed && (_members == null || _members!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(
+            widget.theme.l10nOf(context).loadFailed,
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }

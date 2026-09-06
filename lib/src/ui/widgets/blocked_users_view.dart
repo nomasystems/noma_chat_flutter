@@ -55,7 +55,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
   List<String>? _blocked;
   List<String> _rendered = const [];
   bool _loading = false;
-  String? _error;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -66,7 +66,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     final walk = await readAllPages<String>(
       (pagination) =>
@@ -77,7 +77,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
     walk.fold(
       (_) => setState(() {
         _loading = false;
-        _error = widget.theme.l10nOf(context).loadFailed;
+        _failed = true;
       }),
       (ids) {
         // Page boundaries can shift between the walk's requests, so an id
@@ -149,11 +149,11 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
     if (_loading && _blocked == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_blocked == null || _blocked!.isEmpty)) {
+    if (_failed && (_blocked == null || _blocked!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(l10n.loadFailed, textAlign: TextAlign.center),
         ),
       );
     }

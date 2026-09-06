@@ -45,7 +45,7 @@ class UserInfoPage extends StatefulWidget {
 class _UserInfoPageState extends State<UserInfoPage> {
   ChatUser? _user;
   bool _loading = true;
-  String? _error;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -71,7 +71,7 @@ class _UserInfoPageState extends State<UserInfoPage> {
       if (_user == null) {
         setState(() {
           _loading = false;
-          _error = result.failureOrNull?.message;
+          _failed = true;
         });
       }
       return;
@@ -107,12 +107,14 @@ class _UserInfoPageState extends State<UserInfoPage> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    final err = _error;
-    if (err != null) {
+    if (_failed) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(err, textAlign: TextAlign.center),
+          child: Text(
+            widget.theme.l10nOf(context).loadFailed,
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }

@@ -417,6 +417,8 @@ class ChatUiLocalizations {
     this.avatar = 'Avatar',
     this.loadMore = 'Load more',
     this.loadFailed = 'Could not load',
+    this.saveFailed = 'Could not save changes',
+    this.createGroupFailed = 'Could not create the group',
   });
 
   /// IETF / ISO 639-1 primary language subtag of this instance
@@ -1109,6 +1111,12 @@ class ChatUiLocalizations {
   /// untranslated technical detail.
   final String loadFailed;
 
+  /// Fallback snackbar text when saving a profile or group edit fails.
+  final String saveFailed;
+
+  /// Fallback snackbar text when creating a group fails.
+  final String createGroupFailed;
+
   String blockUserName(String name) =>
       blockUserNameTemplate.replaceAll('{name}', name);
   String unblockUserName(String name) =>
@@ -1512,6 +1520,8 @@ class ChatUiLocalizations {
     String? avatar,
     String? loadMore,
     String? loadFailed,
+    String? saveFailed,
+    String? createGroupFailed,
   }) {
     return ChatUiLocalizations(
       localeCode: localeCode ?? this.localeCode,
@@ -1906,6 +1916,8 @@ class ChatUiLocalizations {
       avatar: avatar ?? this.avatar,
       loadMore: loadMore ?? this.loadMore,
       loadFailed: loadFailed ?? this.loadFailed,
+      saveFailed: saveFailed ?? this.saveFailed,
+      createGroupFailed: createGroupFailed ?? this.createGroupFailed,
     );
   }
 
@@ -2317,6 +2329,8 @@ class ChatUiLocalizations {
     avatar: 'Avatar',
     loadMore: 'Cargar más',
     loadFailed: 'No se pudo cargar',
+    saveFailed: 'No se pudieron guardar los cambios',
+    createGroupFailed: 'No se pudo crear el grupo',
   );
 
   static const ChatUiLocalizations fr = ChatUiLocalizations(
@@ -2658,6 +2672,8 @@ class ChatUiLocalizations {
     avatar: 'Avatar',
     loadMore: 'Charger plus',
     loadFailed: 'Chargement impossible',
+    saveFailed: 'Impossible d\'enregistrer les modifications',
+    createGroupFailed: 'Impossible de créer le groupe',
   );
 
   static const ChatUiLocalizations de = ChatUiLocalizations(
@@ -3001,6 +3017,8 @@ class ChatUiLocalizations {
     avatar: 'Avatar',
     loadMore: 'Mehr laden',
     loadFailed: 'Laden fehlgeschlagen',
+    saveFailed: 'Änderungen konnten nicht gespeichert werden',
+    createGroupFailed: 'Gruppe konnte nicht erstellt werden',
   );
 
   static const ChatUiLocalizations it = ChatUiLocalizations(
@@ -3339,6 +3357,8 @@ class ChatUiLocalizations {
     avatar: 'Avatar',
     loadMore: 'Carica altro',
     loadFailed: 'Impossibile caricare',
+    saveFailed: 'Impossibile salvare le modifiche',
+    createGroupFailed: 'Impossibile creare il gruppo',
   );
 
   static const ChatUiLocalizations pt = ChatUiLocalizations(
@@ -3678,6 +3698,8 @@ class ChatUiLocalizations {
     avatar: 'Avatar',
     loadMore: 'Carregar mais',
     loadFailed: 'Não foi possível carregar',
+    saveFailed: 'Não foi possível guardar as alterações',
+    createGroupFailed: 'Não foi possível criar o grupo',
   );
 
   static const ChatUiLocalizations ca = ChatUiLocalizations(
@@ -4016,6 +4038,8 @@ class ChatUiLocalizations {
     avatar: 'Avatar',
     loadMore: 'Carrega\'n més',
     loadFailed: "No s'ha pogut carregar",
+    saveFailed: "No s'han pogut desar els canvis",
+    createGroupFailed: "No s'ha pogut crear el grup",
   );
 
   // ----------------------------------------------------------------
@@ -5521,6 +5545,8 @@ class ChatUiLocalizations {
     String? avatar,
     String? loadMore,
     String? loadFailed,
+    String? saveFailed,
+    String? createGroupFailed,
   }) {
     return _OverrideChatUiLocalizationsDelegate(
       onlyLocale: locale,
@@ -5843,6 +5869,8 @@ class ChatUiLocalizations {
         avatar: avatar,
         loadMore: loadMore,
         loadFailed: loadFailed,
+        saveFailed: saveFailed,
+        createGroupFailed: createGroupFailed,
       ),
     );
   }

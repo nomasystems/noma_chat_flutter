@@ -287,7 +287,7 @@ class _GroupSetupPageState extends State<GroupSetupPage>
     if (!mounted) return;
     setState(() => _creating = false);
     if (result.isFailure) {
-      showNotice(result.failureOrNull?.message ?? noticeL10n.photoUploadFailed);
+      showNotice(noticeL10n.createGroupFailed);
       return;
     }
     final roomId = result.dataOrThrow;

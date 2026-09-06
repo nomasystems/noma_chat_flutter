@@ -103,12 +103,17 @@ raw user id anywhere in the UI.
 ### Fixed
 
 - **Raw failure text no longer reaches the user.** The blocked-users screen,
-  the member picker, the group member list and the reaction detail sheet
-  painted `ChatFailure.toString()` (`ForbiddenFailure: Forbidden`) as user
-  copy — untranslated, with the Dart class name in it — and the localized
-  string next to it was unreachable. They now show localized copy, with a
-  new `ChatUiLocalizations.loadFailed` for the "list could not be loaded"
-  state, translated in every full-tier locale.
+  the member picker, the group member list, the reaction detail sheet, the
+  media gallery, the group info page, the user info page and the group
+  creation page painted `ChatFailure.toString()` (`ForbiddenFailure:
+  Forbidden`) or the failure's English log `message` as user copy —
+  untranslated, with the Dart class name in it — and the localized string
+  next to it was unreachable. They now show localized copy, with a new
+  `ChatUiLocalizations.loadFailed` for the "list could not be loaded" state
+  plus `saveFailed` and `createGroupFailed` for the edit and group-creation
+  notices, translated in every full-tier locale. The copy is resolved on
+  every build, so an error already on screen follows a locale or string
+  override change instead of freezing in the previous language.
 - **The read-only notice was unreadable on dark themes.** Its text color was
   picked from `systemMessageBackgroundColor`, a field unrelated to the
   surface the notice is painted on, which left `ChatTheme.darkPreset()` at a

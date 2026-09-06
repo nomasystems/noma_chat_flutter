@@ -88,7 +88,7 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
   List<ChatContact>? _contacts;
   bool _loading = false;
   bool _submitting = false;
-  String? _error;
+  bool _failed = false;
   final Set<String> _selected = <String>{};
   // Local fallback cache: user profiles we fetched after loading the
   // contact list (because the host resolver couldn't name them). Reads
@@ -106,7 +106,7 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     final result = await widget.client.contacts.list(
       pagination: const ChatPaginationParams(limit: 100),
@@ -115,7 +115,7 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
     result.fold(
       (_) => setState(() {
         _loading = false;
-        _error = widget.theme.l10nOf(context).loadFailed;
+        _failed = true;
       }),
       (paginated) {
         setState(() {
@@ -230,11 +230,11 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
     if (_loading && _contacts == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_contacts == null || _contacts!.isEmpty)) {
+    if (_failed && (_contacts == null || _contacts!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(l10n.loadFailed, textAlign: TextAlign.center),
         ),
       );
     }

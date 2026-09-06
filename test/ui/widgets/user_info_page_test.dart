@@ -59,7 +59,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Not found'), findsOneWidget);
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+        expect(text.data ?? '', isNot(contains('Not found')));
+      }
     });
 
     testWidgets('leaves the name blank when nobody can name the peer', (

@@ -178,6 +178,33 @@ void main() {
         expect(text.data ?? '', isNot(contains('Failure')));
       }
     });
+
+    testWidgets('the load error follows a copy change without reloading', (
+      tester,
+    ) async {
+      const swapped = 'Impossible de charger';
+      final client = _FakeClient(
+        _FakeBlockedContacts(['u1'])..listFails = true,
+      );
+
+      Widget host(LocalizationsDelegate<ChatUiLocalizations> delegate) =>
+          MaterialApp(
+            localizationsDelegates: [delegate],
+            home: Scaffold(body: BlockedUsersView(client: client)),
+          );
+
+      await tester.pumpWidget(host(ChatUiLocalizations.delegate));
+      await tester.pumpAndSettle();
+      expect(find.text(ChatUiLocalizations.en.loadFailed), findsOneWidget);
+
+      await tester.pumpWidget(
+        host(ChatUiLocalizations.override(loadFailed: swapped)),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(swapped), findsOneWidget);
+      expect(find.text(ChatUiLocalizations.en.loadFailed), findsNothing);
+    });
   });
 
   group('BlockedUsersView — unblock flow', () {

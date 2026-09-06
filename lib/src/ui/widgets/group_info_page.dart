@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../cache/cache_policy.dart';
-import '../../core/result.dart';
 import '../../models/room.dart';
 import '../../models/room_user.dart';
 import '../../storage/avatar_storage.dart';
@@ -69,7 +68,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   RoomDetail? _detail;
   bool _loading = true;
   bool _saving = false;
-  String? _error;
+  bool _failed = false;
 
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
@@ -108,7 +107,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Future<void> _loadDetail() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     final result = await widget.adapter.client.rooms.get(
       widget.roomId,
@@ -118,7 +117,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isFailure) {
       setState(() {
         _loading = false;
-        _error = result.failureOrNull?.message;
+        _failed = true;
       });
       return;
     }
@@ -152,7 +151,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showNotice(_failureMessage(result));
+      showNotice(_failureMessage);
     }
   }
 
@@ -257,12 +256,11 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showNotice(_failureMessage(result));
+      showNotice(_failureMessage);
     }
   }
 
-  String _failureMessage(ChatResult<void> r) =>
-      r.failureOrNull?.message ?? noticeL10n.photoUploadFailed;
+  String get _failureMessage => noticeL10n.saveFailed;
 
   /// The edit fields stay mounted and are only hidden, so [Visibility]
   /// keeps them out of the focus tree until the row is on screen again.
@@ -280,8 +278,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       appBar: AppBar(title: Text(l10n.groupInfo)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
+          : _failed
+          ? Center(child: Text(l10n.loadFailed))
           : _detail == null
           ? const SizedBox.shrink()
           : ListView(
