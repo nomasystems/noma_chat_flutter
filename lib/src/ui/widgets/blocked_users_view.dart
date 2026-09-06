@@ -75,9 +75,9 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
     );
     if (walk == null || !mounted) return;
     walk.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loading = false;
-        _error = failure.toString();
+        _error = widget.theme.l10nOf(context).loadFailed;
       }),
       (ids) {
         // Page boundaries can shift between the walk's requests, so an id
@@ -139,7 +139,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
       // Surface a basic error message; the consumer can wrap the widget
       // with their own SnackBar pipeline (via operationErrors) for richer
       // handling.
-      showNotice(result.failureOrNull?.toString() ?? l10n.unblockFailed);
+      showNotice(l10n.unblockFailed);
     }
   }
 

@@ -113,9 +113,9 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loading = false;
-        _error = failure.toString();
+        _error = widget.theme.l10nOf(context).loadFailed;
       }),
       (paginated) {
         setState(() {

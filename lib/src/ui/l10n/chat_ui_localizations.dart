@@ -416,6 +416,7 @@ class ChatUiLocalizations {
     this.locationMessage = 'Location message',
     this.avatar = 'Avatar',
     this.loadMore = 'Load more',
+    this.loadFailed = 'Could not load',
   });
 
   /// IETF / ISO 639-1 primary language subtag of this instance
@@ -1103,6 +1104,11 @@ class ChatUiLocalizations {
   /// when more members remain beyond the current page.
   final String loadMore;
 
+  /// Generic copy shown in place of a list when its contents could not
+  /// be loaded. Replaces the raw failure text so the screen never shows
+  /// untranslated technical detail.
+  final String loadFailed;
+
   String blockUserName(String name) =>
       blockUserNameTemplate.replaceAll('{name}', name);
   String unblockUserName(String name) =>
@@ -1505,6 +1511,7 @@ class ChatUiLocalizations {
     String? locationMessage,
     String? avatar,
     String? loadMore,
+    String? loadFailed,
   }) {
     return ChatUiLocalizations(
       localeCode: localeCode ?? this.localeCode,
@@ -1898,6 +1905,7 @@ class ChatUiLocalizations {
       locationMessage: locationMessage ?? this.locationMessage,
       avatar: avatar ?? this.avatar,
       loadMore: loadMore ?? this.loadMore,
+      loadFailed: loadFailed ?? this.loadFailed,
     );
   }
 
@@ -1980,6 +1988,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Subiendo {percent}%',
     cancelUploadLabel: 'Cancelar subida',
     retryUploadLabel: 'Reintentar subida',
+    retry: 'Reintentar',
     members: 'miembros',
     online: 'en línea',
     lastSeenTemplate: 'última vez hace {time}',
@@ -2307,6 +2316,7 @@ class ChatUiLocalizations {
     locationMessage: 'Mensaje de ubicación',
     avatar: 'Avatar',
     loadMore: 'Cargar más',
+    loadFailed: 'No se pudo cargar',
   );
 
   static const ChatUiLocalizations fr = ChatUiLocalizations(
@@ -2320,6 +2330,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Envoi {percent}%',
     cancelUploadLabel: "Annuler l'envoi",
     retryUploadLabel: "Réessayer l'envoi",
+    retry: 'Réessayer',
     blockUser: 'Bloquer',
     blockUserConfirmBody:
         'Vous ne recevrez plus de messages de cet utilisateur.',
@@ -2646,6 +2657,7 @@ class ChatUiLocalizations {
     locationMessage: 'Message de position',
     avatar: 'Avatar',
     loadMore: 'Charger plus',
+    loadFailed: 'Chargement impossible',
   );
 
   static const ChatUiLocalizations de = ChatUiLocalizations(
@@ -2659,6 +2671,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Wird hochgeladen {percent}%',
     cancelUploadLabel: 'Upload abbrechen',
     retryUploadLabel: 'Upload wiederholen',
+    retry: 'Erneut versuchen',
     blockUser: 'Blockieren',
     blockUserConfirmBody:
         'Du erhältst keine Nachrichten mehr von diesem Benutzer.',
@@ -2987,6 +3000,7 @@ class ChatUiLocalizations {
     locationMessage: 'Standortnachricht',
     avatar: 'Avatar',
     loadMore: 'Mehr laden',
+    loadFailed: 'Laden fehlgeschlagen',
   );
 
   static const ChatUiLocalizations it = ChatUiLocalizations(
@@ -3000,6 +3014,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Caricamento {percent}%',
     cancelUploadLabel: 'Annulla caricamento',
     retryUploadLabel: 'Riprova caricamento',
+    retry: 'Riprova',
     blockUser: 'Blocca',
     blockUserConfirmBody: 'Non riceverai più messaggi da questo utente.',
     blockUserConfirmTitle: 'Bloccare?',
@@ -3323,6 +3338,7 @@ class ChatUiLocalizations {
     locationMessage: 'Messaggio di posizione',
     avatar: 'Avatar',
     loadMore: 'Carica altro',
+    loadFailed: 'Impossibile caricare',
   );
 
   static const ChatUiLocalizations pt = ChatUiLocalizations(
@@ -3336,6 +3352,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Enviando {percent}%',
     cancelUploadLabel: 'Cancelar envio',
     retryUploadLabel: 'Repetir envio',
+    retry: 'Tentar novamente',
     blockUser: 'Bloquear',
     blockUserConfirmBody: 'Você não receberá mais mensagens deste usuário.',
     blockUserConfirmTitle: 'Bloquear?',
@@ -3660,6 +3677,7 @@ class ChatUiLocalizations {
     locationMessage: 'Mensagem de localização',
     avatar: 'Avatar',
     loadMore: 'Carregar mais',
+    loadFailed: 'Não foi possível carregar',
   );
 
   static const ChatUiLocalizations ca = ChatUiLocalizations(
@@ -3673,6 +3691,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Pujant {percent}%',
     cancelUploadLabel: 'Cancel·lar la pujada',
     retryUploadLabel: 'Tornar a provar la pujada',
+    retry: 'Torna-ho a provar',
     blockUser: 'Bloquejar',
     blockUserConfirmBody: 'Ja no rebràs missatges d\'aquest usuari.',
     blockUserConfirmTitle: 'Bloquejar?',
@@ -3996,6 +4015,7 @@ class ChatUiLocalizations {
     locationMessage: 'Missatge d\'ubicació',
     avatar: 'Avatar',
     loadMore: 'Carrega\'n més',
+    loadFailed: "No s'ha pogut carregar",
   );
 
   // ----------------------------------------------------------------
@@ -5500,6 +5520,7 @@ class ChatUiLocalizations {
     String? locationMessage,
     String? avatar,
     String? loadMore,
+    String? loadFailed,
   }) {
     return _OverrideChatUiLocalizationsDelegate(
       onlyLocale: locale,
@@ -5821,6 +5842,7 @@ class ChatUiLocalizations {
         locationMessage: locationMessage,
         avatar: avatar,
         loadMore: loadMore,
+        loadFailed: loadFailed,
       ),
     );
   }

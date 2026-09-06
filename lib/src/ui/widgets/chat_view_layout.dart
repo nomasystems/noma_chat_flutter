@@ -234,6 +234,8 @@ extension _ChatViewLayout on _ChatViewState {
     final label =
         widget.behaviors.readOnlyLabel ??
         widget.theme.l10nOf(context).readOnlyChannel;
+    final background =
+        widget.theme.input.backgroundColor ?? DefaultPalette.mutedSurface;
     return Semantics(
       identifier: 'chat_read_only_notice',
       label: label,
@@ -243,8 +245,7 @@ extension _ChatViewLayout on _ChatViewState {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         decoration: BoxDecoration(
-          color:
-              widget.theme.input.backgroundColor ?? DefaultPalette.mutedSurface,
+          color: background,
           border: Border(
             top: BorderSide(
               color:
@@ -258,14 +259,31 @@ extension _ChatViewLayout on _ChatViewState {
           label,
           textAlign: TextAlign.center,
           style: TextStyle(
-            color: widget.theme.systemMessageBackgroundColor != null
-                ? null
-                : Colors.grey[600],
+            color: _readOnlyNoticeTextColor(background),
             fontSize: 14,
           ),
         ),
       ),
     );
+  }
+
+  /// Text color for the read-only notice, picked against the surface the
+  /// notice is actually painted on — the light and the dark candidate are
+  /// scored and the more readable one wins — so the copy keeps a WCAG AA
+  /// contrast ratio under both light and dark themes.
+  Color _readOnlyNoticeTextColor(Color background) {
+    const onDark = Color(0xFFE0E0E0);
+    final light = _contrastRatio(DefaultPalette.mutedSurfaceText, background);
+    final dark = _contrastRatio(onDark, background);
+    return light >= dark ? DefaultPalette.mutedSurfaceText : onDark;
+  }
+
+  double _contrastRatio(Color a, Color b) {
+    final first = a.computeLuminance();
+    final second = b.computeLuminance();
+    final lighter = first > second ? first : second;
+    final darker = first > second ? second : first;
+    return (lighter + 0.05) / (darker + 0.05);
   }
 
   Widget _buildMessageInput() {

@@ -198,9 +198,9 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loading = false;
-        _error = failure.toString();
+        _error = widget.theme.l10nOf(context).loadFailed;
       }),
       (paginated) {
         // Seed the adapter cache from the embedded fields BEFORE the first
@@ -242,11 +242,11 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loadingMore = false;
         // Keep whatever page is already loaded; only surface the error via
         // a snackbar since `_error` would otherwise blank the existing list.
-        showNotice(failure.toString());
+        showNotice(noticeL10n.loadFailed);
       }),
       (paginated) {
         _seedCacheFromExpanded(paginated.items);
@@ -429,9 +429,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showNotice(
-        result.failureOrNull?.toString() ?? noticeL10n.updateRoleFailed,
-      );
+      showNotice(noticeL10n.updateRoleFailed);
       return;
     }
     if (widget.onRoleChanged != null) {
@@ -447,9 +445,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showNotice(
-        result.failureOrNull?.toString() ?? noticeL10n.removeMemberFailed,
-      );
+      showNotice(noticeL10n.removeMemberFailed);
       return;
     }
     if (widget.onMemberRemoved != null) {

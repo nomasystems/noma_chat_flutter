@@ -24,8 +24,10 @@ void main() {
   Widget viewFor(
     RoomListItem room, {
     ReadOnlyNoticeBuilder? readOnlyNoticeBuilder,
+    ChatTheme theme = ChatTheme.defaults,
   }) => ChatView(
     controller: controller,
+    theme: theme,
     callbacks: ChatViewCallbacks(onSendMessageRequest: (_) => true),
     builders: ChatViewBuilders(readOnlyNoticeBuilder: readOnlyNoticeBuilder),
     behaviors: const ChatViewBehaviors().withRoomState(
@@ -73,6 +75,32 @@ void main() {
         handle.dispose();
       },
     );
+
+    testWidgets('the notice copy keeps AA contrast against the surface it '
+        'is painted on, under both the default and the dark theme', (
+      tester,
+    ) async {
+      double luminanceRatio(Color a, Color b) {
+        final first = a.computeLuminance();
+        final second = b.computeLuminance();
+        final lighter = first > second ? first : second;
+        final darker = first > second ? second : first;
+        return (lighter + 0.05) / (darker + 0.05);
+      }
+
+      for (final theme in [const ChatTheme(), ChatTheme.darkPreset()]) {
+        await tester.pumpWidget(wrap(viewFor(room, theme: theme)));
+        final text = tester.widget<Text>(
+          find.text(ChatUiLocalizations.en.readOnlyChannel),
+        );
+        final color = text.style?.color;
+        expect(color, isNotNull);
+        expect(color, isNot(Colors.grey[600]));
+        final background =
+            theme.input.backgroundColor ?? const Color(0xFFF5F5F5);
+        expect(luminanceRatio(color!, background), greaterThanOrEqualTo(4.5));
+      }
+    });
 
     testWidgets('a host readOnlyNoticeBuilder replaces the default notice', (
       tester,

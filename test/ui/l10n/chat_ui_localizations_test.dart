@@ -403,6 +403,32 @@ void main() {
       expect(l10n.loadMore, 'Načíst další');
     });
 
+    test('every full-tier locale translates the accessibility retry action '
+        'and the generic load-failure copy', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(l10n.retry, isNot('Retry'));
+        expect(l10n.loadFailed, isNot('Could not load'));
+      }
+    });
+
+    test(
+      'the load-failure copy is overridable through both plumbing paths',
+      () {
+        expect(
+          ChatUiLocalizations.en.copyWith(loadFailed: 'X').loadFailed,
+          'X',
+        );
+        expect(ChatUiLocalizations.override(loadFailed: 'X'), isNotNull);
+      },
+    );
+
     test('every full-tier locale translates the upload labels', () {
       for (final l10n in [
         ChatUiLocalizations.es,

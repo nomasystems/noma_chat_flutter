@@ -15,6 +15,7 @@ class _FakeBlockedContacts implements ChatContactsApi {
 
   List<String> _blocked;
   bool listFails = false;
+  bool unblockFails = false;
   final List<String> unblocked = <String>[];
 
   @override
@@ -29,6 +30,7 @@ class _FakeBlockedContacts implements ChatContactsApi {
 
   @override
   Future<ChatResult<void>> unblock(String userId) async {
+    if (unblockFails) return const ChatFailureResult(ForbiddenFailure());
     unblocked.add(userId);
     _blocked = _blocked.where((id) => id != userId).toList();
     return const ChatSuccess(null);
@@ -160,6 +162,22 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets('the load error is localized copy, never the raw failure', (
+      tester,
+    ) async {
+      final client = _FakeClient(
+        _FakeBlockedContacts(['u1'])..listFails = true,
+      );
+
+      await tester.pumpWidget(wrap(client));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
+    });
   });
 
   group('BlockedUsersView — unblock flow', () {
@@ -182,6 +200,25 @@ void main() {
 
       expect(contacts.unblocked, ['u1']);
       expect(find.text(l10n.blockedUsersEmpty), findsOneWidget);
+    });
+
+    testWidgets('a failing unblock shows the localized notice, not the raw '
+        'failure', (tester) async {
+      final contacts = _FakeBlockedContacts(['u1'])..unblockFails = true;
+      final client = _FakeClient(contacts);
+
+      await tester.pumpWidget(wrap(client, names: (_) => 'Alice'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text(l10n.unblock));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.unblockUserName('Alice')));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.unblockFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
     });
 
     testWidgets('cancelling the dialog leaves the user blocked', (

@@ -96,6 +96,7 @@ class _PaginatingMembersApi implements ChatMembersApi {
   final ChatMembersApi _base;
   final List<String> _allMemberIds;
   int listCallCount = 0;
+  bool listFails = false;
   List<ChatPaginationParams?> receivedPagination = [];
 
   @override
@@ -107,6 +108,7 @@ class _PaginatingMembersApi implements ChatMembersApi {
   }) async {
     listCallCount++;
     receivedPagination.add(pagination);
+    if (listFails) return const ChatFailureResult(ForbiddenFailure());
     final offset = pagination?.offset ?? 0;
     final limit = pagination?.limit ?? _allMemberIds.length;
     final page = _allMemberIds.skip(offset).take(limit).toList();
@@ -466,6 +468,27 @@ void main() {
     tearDown(() async {
       await pagingAdapter.dispose();
       await baseClient.dispose();
+    });
+
+    testWidgets('a failed roster load shows localized copy, never the raw '
+        'failure', (tester) async {
+      pagingMembers.listFails = true;
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            pageSize: 5,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
     });
 
     testWidgets('requests only pageSize members on first load', (tester) async {

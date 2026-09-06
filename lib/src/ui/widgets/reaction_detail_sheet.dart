@@ -87,7 +87,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
   List<AggregatedReaction>? _reactions;
   Map<String, ReactionUser> _resolvedUsers = {};
   bool _loading = true;
-  String? _error;
+  bool _failed = false;
   TabController? _tabController;
 
   @override
@@ -143,10 +143,10 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
         _resolvedUsers = resolved;
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _failed = true;
         _loading = false;
       });
     }
@@ -163,12 +163,12 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
       );
     }
 
-    if (_error != null || _reactions == null) {
+    if (_failed || _reactions == null) {
       return SizedBox(
         height: height,
         child: Center(
           child: Text(
-            _error ?? widget.theme.l10nOf(context).error,
+            widget.theme.l10nOf(context).loadFailed,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),

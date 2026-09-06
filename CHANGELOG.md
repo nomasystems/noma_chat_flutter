@@ -102,6 +102,22 @@ raw user id anywhere in the UI.
 
 ### Fixed
 
+- **Raw failure text no longer reaches the user.** The blocked-users screen,
+  the member picker, the group member list and the reaction detail sheet
+  painted `ChatFailure.toString()` (`ForbiddenFailure: Forbidden`) as user
+  copy — untranslated, with the Dart class name in it — and the localized
+  string next to it was unreachable. They now show localized copy, with a
+  new `ChatUiLocalizations.loadFailed` for the "list could not be loaded"
+  state, translated in every full-tier locale.
+- **The read-only notice was unreadable on dark themes.** Its text color was
+  picked from `systemMessageBackgroundColor`, a field unrelated to the
+  surface the notice is painted on, which left `ChatTheme.darkPreset()` at a
+  2.9:1 contrast ratio. The color is now derived from the notice's own
+  background and clears WCAG AA on both light and dark themes.
+- **`ChatUiLocalizations.retry`** — the accessibility action label for
+  retrying a failed send — was the only string missing from the six
+  full-tier locales, so screen readers announced it in English.
+
 - **An account with more than 50 rooms lost the rest of them.** `GET /rooms`
   paginates and applies a default page size when the request omits `limit`,
   so the listing came back truncated with `hasMore: true` and nothing ever
