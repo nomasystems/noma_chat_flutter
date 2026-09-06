@@ -288,11 +288,17 @@ class RoomsApi implements ChatRoomsApi {
   /// round-trips as low as the contract allows.
   static const int _roomsPageSize = 100;
 
-  /// Hard stop for the walk below. At [_roomsPageSize] rooms per page this
-  /// covers 20 000 rooms — far past any real account — and exists only so a
+  /// Highest `offset` the backend honours. Anything above it is clamped back
+  /// down to this value, so a request past the cap answers with the page just
+  /// read instead of advancing: the walk below stops rather than issue one.
+  static const int _roomsMaxOffset = 10000;
+
+  /// Hard stop for the walk below. The last page it can reach starts at
+  /// [_roomsMaxOffset], so at [_roomsPageSize] rooms per page the walk covers
+  /// 10 100 rooms — far past any real account — and the cap exists only so a
   /// backend that keeps answering `hasMore: true` cannot spin the client
   /// forever.
-  static const int _roomsMaxPages = 200;
+  static const int _roomsMaxPages = _roomsMaxOffset ~/ _roomsPageSize + 1;
 
   /// Sort key the walk pins the listing to. `roomId` is carried by every row
   /// of the conversations projection, and the backend sorts the whole set on
@@ -356,15 +362,18 @@ class RoomsApi implements ChatRoomsApi {
         return UserRooms(rooms: rooms, invitedRooms: invitedRooms);
       }
       offset += chunk.rooms.length;
+      // Past the backend's offset cap every request repeats the page just
+      // read, so there is nothing left to walk towards.
+      if (offset > _roomsMaxOffset) break;
     }
 
-    // Bailed out on the page cap. `hasMore` stays `true` so the caller — and
+    // Bailed out on the walk limit. `hasMore` stays `true` so the caller — and
     // the cache reconcile in particular — treats this as the partial listing
     // it is instead of evicting every room past the cap.
     _logger?.call(
       'warn',
-      'rooms.getUserRooms: stopped after $_roomsMaxPages pages with more '
-          'rooms still reported; returning a partial listing',
+      'rooms.getUserRooms: stopped at the walk limit of $_roomsMaxPages pages '
+          'with more rooms still reported; returning a partial listing',
     );
     return UserRooms(rooms: rooms, invitedRooms: invitedRooms, hasMore: true);
   }

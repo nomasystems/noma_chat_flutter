@@ -98,6 +98,47 @@ class _ReshufflingRestClient implements RestClient {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// A `GET /rooms` that clamps `offset` the way the backend does: anything
+/// above [_maxOffset] is served as if it were [_maxOffset], so a walk that
+/// keeps asking past the cap reads the same page over and over while
+/// `hasMore` stays `true`.
+class _OffsetClampingRestClient implements RestClient {
+  _OffsetClampingRestClient({required this.roomCount});
+
+  static const int _maxOffset = 10000;
+  static const int _maxLimit = 100;
+
+  final int roomCount;
+
+  final List<Map<String, dynamic>> requests = [];
+
+  @override
+  Future<Map<String, dynamic>> get(
+    String path, {
+    Map<String, dynamic>? queryParams,
+    Map<String, String>? headers,
+  }) async {
+    requests.add({...?queryParams});
+
+    final limit = ((queryParams?['limit'] as int?) ?? 50).clamp(1, _maxLimit);
+    final asked = (queryParams?['offset'] as int?) ?? 0;
+    final start = asked.clamp(0, _maxOffset).clamp(0, roomCount);
+    final end = (start + limit).clamp(0, roomCount);
+
+    return {
+      'rooms': [
+        for (var i = start; i < end; i++)
+          {'roomId': 'room-$i', 'unreadMessages': 0, 'name': 'Room $i'},
+      ],
+      'invitedRooms': const [],
+      'hasMore': end < roomCount,
+    };
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 void main() {
   group('RoomsApi.getUserRooms without pagination', () {
     test('walks every page so the listing is the whole room set', () async {
@@ -194,6 +235,32 @@ void main() {
 
       expect(result.dataOrThrow.rooms, isEmpty);
       expect(rest.requests.length, 1);
+    });
+
+    test('the walk stops at the offset cap instead of repeating it', () async {
+      final rest = _OffsetClampingRestClient(roomCount: 10150);
+      final api = RoomsApi(rest: rest);
+
+      final result = await api.getUserRooms();
+
+      final offsets = rest.requests.map((r) => r['offset']).toList();
+      expect(
+        offsets.length,
+        101,
+        reason: 'offsets 0 to 10000 in steps of 100 is every page there is',
+      );
+      expect(offsets.last, 10000);
+      expect(
+        offsets.toSet().length,
+        offsets.length,
+        reason: 'no offset is asked for twice',
+      );
+      expect(result.dataOrThrow.rooms.length, 10100);
+      expect(
+        result.dataOrThrow.hasMore,
+        isTrue,
+        reason: 'the rooms past the cap are unreachable, not absent',
+      );
     });
   });
 
