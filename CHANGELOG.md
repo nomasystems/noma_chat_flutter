@@ -37,7 +37,13 @@ raw user id anywhere in the UI.
   (`firstSendOnly` — the new default — and `none`) — retries, up to three
   times with backoff, the one message that raced its own DM room's creation
   and came back "room not found", reusing the original optimistic id so a
-  send that actually landed is never sent twice.
+  send that actually landed is never sent twice. The send's log line now
+  reports the whole run and not just its verdict: `attempts` whenever the
+  message was posted more than once, `recoveredFrom` with the first
+  failure on a send that stumbled and landed anyway, and `firstFailure`
+  alongside the (possibly different) final failure when every attempt
+  failed. A host that migrates its own first-send retry to the SDK keeps
+  the funnel it used to report by hand.
 - **`AttachmentShrinker`, `NoAttachmentShrinker`, `DefaultAttachmentShrinker`,
   `ShrunkAttachment` and `PolicyConfigurableShrinker`** — a pluggable engine
   that re-encodes an outgoing image to fit a size cap. `AttachmentPolicy`

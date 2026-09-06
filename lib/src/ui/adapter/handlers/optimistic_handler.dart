@@ -175,6 +175,40 @@ class OptimisticHandler {
     String? attachmentUrl,
     String? attachmentId,
     Map<String, dynamic>? metadata,
+  }) async => (await postWithFirstSendRetryReported(
+    roomId: roomId,
+    tempId: tempId,
+    cameFromDraft: cameFromDraft,
+    controller: controller,
+    text: text,
+    messageType: messageType,
+    referencedMessageId: referencedMessageId,
+    sourceRoomId: sourceRoomId,
+    attachmentUrl: attachmentUrl,
+    attachmentId: attachmentId,
+    metadata: metadata,
+  )).result;
+
+  /// [postWithFirstSendRetry] with the retry's own story attached — see
+  /// [SendRetryOutcome].
+  ///
+  /// The [ChatResult] alone only ever carries the LAST attempt, so a send
+  /// that failed once and landed on the repost is indistinguishable from
+  /// one that never stumbled, and a send that failed for two different
+  /// reasons reports only the second. Callers that report on their send
+  /// funnel take this shape instead and get both ends of the run.
+  Future<SendRetryOutcome> postWithFirstSendRetryReported({
+    required String roomId,
+    required String tempId,
+    required bool cameFromDraft,
+    ChatController? controller,
+    String? text,
+    MessageType messageType = MessageType.regular,
+    String? referencedMessageId,
+    String? sourceRoomId,
+    String? attachmentUrl,
+    String? attachmentId,
+    Map<String, dynamic>? metadata,
   }) async {
     Future<ChatResult<ChatMessage>> post() => client.messages.send(
       roomId,
@@ -190,12 +224,19 @@ class OptimisticHandler {
     );
 
     var result = await post();
-    if (!cameFromDraft) return result;
+    var posts = 1;
+    final firstFailure = result.failureOrNull;
+    SendRetryOutcome outcome() => SendRetryOutcome(
+      result: result,
+      attempts: posts,
+      firstFailure: firstFailure,
+    );
+    if (!cameFromDraft) return outcome();
 
     final attempts = sendRetryPolicy.maxAttempts;
     for (var attempt = 0; attempt < attempts; attempt++) {
-      if (result.isSuccess) return result;
-      if (result.failureOrNull is! NotFoundFailure) return result;
+      if (result.isSuccess) return outcome();
+      if (result.failureOrNull is! NotFoundFailure) return outcome();
 
       controller?.markPending(tempId);
       final delay = sendRetryPolicy.delayFor(attempt);
@@ -210,8 +251,9 @@ class OptimisticHandler {
         await client.rooms.get(roomId, cachePolicy: CachePolicy.networkOnly);
       } on Object catch (_) {}
       result = await post();
+      posts++;
     }
-    return result;
+    return outcome();
   }
 
   Future<ChatResult<ChatMessage>> sendMessage(
@@ -285,7 +327,7 @@ class OptimisticHandler {
 
     _updateRoomLastMessage(effectiveRoomId, optimistic);
 
-    final result = await postWithFirstSendRetry(
+    final sendOutcome = await postWithFirstSendRetryReported(
       roomId: effectiveRoomId,
       tempId: tempId,
       cameFromDraft: cameFromDraft,
@@ -297,6 +339,7 @@ class OptimisticHandler {
       attachmentUrl: attachmentUrl,
       attachmentId: attachmentId,
     );
+    final result = sendOutcome.result;
 
     if (result.isFailure && _isBlockedError(result.failureOrNull)) {
       return swallowBlockedAsSent(
@@ -309,17 +352,29 @@ class OptimisticHandler {
 
     final logs = _logs;
     if (logs != null) {
+      // Both ends of the run, not just the verdict: a host counting its
+      // own send funnel cannot tell a send that stumbled and recovered
+      // from one that went through first time unless the first failure
+      // is named as well.
+      final fields = <String, Object?>{
+        'roomId': effectiveRoomId,
+        'tempId': tempId,
+        if (sendOutcome.attempts > 1) 'attempts': sendOutcome.attempts,
+        if (sendOutcome.recovered) 'recoveredFrom': sendOutcome.firstFailure,
+        if (!sendOutcome.recovered && sendOutcome.attempts > 1)
+          'firstFailure': sendOutcome.firstFailure,
+      };
       if (result.isSuccess) {
         logs.message(
           ChatLogLevel.debug,
           'sendMessage confirmed: ${logs.content(text)}',
-          fields: {'roomId': effectiveRoomId, 'tempId': tempId},
+          fields: fields,
         );
       } else {
         logs.message(
           ChatLogLevel.warn,
-          'sendMessage failed: ${result.failureOrNull}',
-          fields: {'roomId': effectiveRoomId, 'tempId': tempId},
+          'sendMessage failed: ${sendOutcome.finalFailure}',
+          fields: fields,
         );
       }
     }
@@ -980,4 +1035,42 @@ class OptimisticHandler {
       messageId: messageId,
     );
   }
+}
+
+/// What one run of [OptimisticHandler.postWithFirstSendRetryReported] did:
+/// the [result] the caller acts on, plus the retry's own story — how many
+/// posts it took, what the FIRST post answered and what the LAST one did.
+///
+/// [result] is, and stays, the last attempt: that is the verdict the user
+/// is shown. [firstFailure] is the half a [ChatResult] cannot carry, and
+/// without it a send that failed once and landed on the repost reads
+/// exactly like a send that never stumbled.
+class SendRetryOutcome {
+  const SendRetryOutcome({
+    required this.result,
+    required this.attempts,
+    required this.firstFailure,
+  });
+
+  /// The last attempt — success or failure — and the only thing callers
+  /// hand back to the UI.
+  final ChatResult<ChatMessage> result;
+
+  /// Posts made, reposts included. `1` when nothing was ever retried.
+  final int attempts;
+
+  /// What the first post answered, or `null` when it landed straight away.
+  final ChatFailure? firstFailure;
+
+  /// What the last post answered, or `null` when the send ended up
+  /// landing. Equal to [firstFailure] when there was a single attempt.
+  ChatFailure? get finalFailure => result.failureOrNull;
+
+  /// A send that failed at least once and landed anyway.
+  bool get recovered => firstFailure != null && result.isSuccess;
+
+  @override
+  String toString() =>
+      'SendRetryOutcome(attempts: $attempts, firstFailure: $firstFailure, '
+      'finalFailure: $finalFailure, recovered: $recovered)';
 }

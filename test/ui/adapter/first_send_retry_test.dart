@@ -20,6 +20,10 @@ class _ScriptedMessagesApi extends MockMessagesApi {
 
   ChatFailure failWith = const NotFoundFailure();
 
+  /// Failures handed out one per send, in order, before [failingSends] is
+  /// consulted — so a run can fail for one reason and then another.
+  final List<ChatFailure> failureScript = [];
+
   /// When `true` the first failing send still lands server-side, and every
   /// later attempt answers with the message it stored — an idempotent
   /// server keyed on `clientMessageId`, which is what makes the retry safe.
@@ -62,6 +66,10 @@ class _ScriptedMessagesApi extends MockMessagesApi {
       tempId: tempId,
       clientMessageId: clientMessageId,
     );
+
+    if (failureScript.isNotEmpty) {
+      return ChatFailureResult(failureScript.removeAt(0));
+    }
 
     if (failingSends > 0) {
       failingSends--;
@@ -347,6 +355,86 @@ void main() {
       expect(result.isSuccess, isTrue);
       expect(client.scriptedMessages.attempts, hasLength(2));
       expect(client.attachments.uploadCount, 1);
+    });
+  });
+
+  group('what the run reports about itself', () {
+    /// The same adapter wired to a recording callback logger at debug, so
+    /// both the confirmed and the failed line can be read back.
+    (ChatUiAdapter, List<String>) loggingAdapter([
+      SendRetryPolicy policy = instant,
+    ]) {
+      final lines = <String>[];
+      final adapter = ChatUiAdapter(
+        client: client,
+        currentUser: me,
+        manageAppLifecycle: false,
+        sendRetryPolicy: policy,
+        logLevel: ChatLogLevel.debug,
+      )..logger = (level, message) => lines.add(message);
+      adapter.start();
+      addTearDown(adapter.dispose);
+      return (adapter, lines);
+    }
+
+    test('names the failure the send recovered from', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+      client.scriptedMessages.failingSends = 1;
+
+      final result = await adapter.messages.send(key, text: 'hi');
+
+      expect(result.isSuccess, isTrue);
+      final confirmed = lines.singleWhere(
+        (line) => line.contains('sendMessage confirmed'),
+      );
+      expect(confirmed, contains('attempts: 2'));
+      expect(
+        confirmed,
+        contains('recoveredFrom: NotFoundFailure'),
+        reason:
+            'a send that stumbled and landed must not read like one that '
+            'went through first time',
+      );
+    });
+
+    test('keeps the first failure apart from the last one', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+      client.scriptedMessages.failureScript.addAll(const [
+        NotFoundFailure(),
+        NotFoundFailure(),
+        NetworkFailure('offline'),
+      ]);
+
+      final result = await adapter.messages.send(key, text: 'hi');
+
+      expect(result.isFailure, isTrue);
+      final failed = lines.singleWhere(
+        (line) => line.contains('sendMessage failed'),
+      );
+      expect(
+        failed,
+        contains('sendMessage failed: NetworkFailure: offline'),
+        reason: 'the verdict is still the last attempt',
+      );
+      expect(failed, contains('firstFailure: NotFoundFailure'));
+      expect(failed, contains('attempts: 3'));
+    });
+
+    test('says nothing extra about a send that never stumbled', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+
+      final result = await adapter.messages.send(key, text: 'hi');
+
+      expect(result.isSuccess, isTrue);
+      final confirmed = lines.singleWhere(
+        (line) => line.contains('sendMessage confirmed'),
+      );
+      expect(confirmed, isNot(contains('attempts')));
+      expect(confirmed, isNot(contains('recoveredFrom')));
+      expect(confirmed, isNot(contains('firstFailure')));
     });
   });
 }
