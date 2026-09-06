@@ -42,8 +42,9 @@ raw user id anywhere in the UI.
   message was posted more than once, `recoveredFrom` with the first
   failure on a send that stumbled and landed anyway, and `firstFailure`
   alongside the (possibly different) final failure when every attempt
-  failed. A host that migrates its own first-send retry to the SDK keeps
-  the funnel it used to report by hand.
+  failed, on every send path — text, attachment and voice note alike. A
+  host that migrates its own first-send retry to the SDK keeps the funnel
+  it used to report by hand.
 - **`AttachmentShrinker`, `NoAttachmentShrinker`, `DefaultAttachmentShrinker`,
   `ShrunkAttachment` and `PolicyConfigurableShrinker`** — a pluggable engine
   that re-encodes an outgoing image to fit a size cap. `AttachmentPolicy`

@@ -422,6 +422,101 @@ void main() {
       expect(failed, contains('attempts: 3'));
     });
 
+    test('names the failure an attachment recovered from', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+      client.scriptedMessages.failingSends = 1;
+
+      final result = await adapter.messages.sendAttachment(
+        key,
+        bytes: Uint8List.fromList(const [1, 2, 3]),
+        mimeType: 'image/png',
+        fileName: 'shot.png',
+      );
+
+      expect(result.isSuccess, isTrue);
+      final confirmed = lines.singleWhere(
+        (line) => line.contains('sendAttachment confirmed'),
+      );
+      expect(confirmed, contains('attempts: 2'));
+      expect(confirmed, contains('recoveredFrom: NotFoundFailure'));
+    });
+
+    test('names the failure a voice note recovered from', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+      client.scriptedMessages.failingSends = 1;
+
+      final result = await adapter.messages.sendVoice(
+        key,
+        audioBytes: Uint8List.fromList(const [1, 2, 3]),
+        mimeType: 'audio/mp4',
+        duration: const Duration(milliseconds: 1200),
+        waveform: const [1, 2, 3],
+      );
+
+      expect(result.isSuccess, isTrue);
+      final confirmed = lines.singleWhere(
+        (line) => line.contains('sendVoice confirmed'),
+      );
+      expect(confirmed, contains('attempts: 2'));
+      expect(confirmed, contains('recoveredFrom: NotFoundFailure'));
+    });
+
+    test('keeps both ends of an attachment that never landed', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+      client.scriptedMessages.failureScript.addAll(const [
+        NotFoundFailure(),
+        NotFoundFailure(),
+        NetworkFailure('offline'),
+      ]);
+
+      final result = await adapter.messages.sendAttachment(
+        key,
+        bytes: Uint8List.fromList(const [1, 2, 3]),
+        mimeType: 'image/png',
+        fileName: 'shot.png',
+      );
+
+      expect(result.isFailure, isTrue);
+      final failed = lines.singleWhere(
+        (line) => line.contains('sendAttachment failed'),
+      );
+      expect(
+        failed,
+        contains('sendAttachment failed: NetworkFailure: offline'),
+      );
+      expect(failed, contains('firstFailure: NotFoundFailure'));
+      expect(failed, contains('attempts: 3'));
+    });
+
+    test('keeps both ends of a voice note that never landed', () async {
+      final (adapter, lines) = loggingAdapter();
+      final (_, key) = await draftWithAlice(adapter);
+      client.scriptedMessages.failureScript.addAll(const [
+        NotFoundFailure(),
+        NotFoundFailure(),
+        NetworkFailure('offline'),
+      ]);
+
+      final result = await adapter.messages.sendVoice(
+        key,
+        audioBytes: Uint8List.fromList(const [1, 2, 3]),
+        mimeType: 'audio/mp4',
+        duration: const Duration(milliseconds: 1200),
+        waveform: const [1, 2, 3],
+      );
+
+      expect(result.isFailure, isTrue);
+      final failed = lines.singleWhere(
+        (line) => line.contains('sendVoice failed'),
+      );
+      expect(failed, contains('sendVoice failed: NetworkFailure: offline'));
+      expect(failed, contains('firstFailure: NotFoundFailure'));
+      expect(failed, contains('attempts: 3'));
+    });
+
     test('says nothing extra about a send that never stumbled', () async {
       final (adapter, lines) = loggingAdapter();
       final (_, key) = await draftWithAlice(adapter);

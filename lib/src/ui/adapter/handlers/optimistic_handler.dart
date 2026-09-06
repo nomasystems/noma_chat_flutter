@@ -359,10 +359,7 @@ class OptimisticHandler {
       final fields = <String, Object?>{
         'roomId': effectiveRoomId,
         'tempId': tempId,
-        if (sendOutcome.attempts > 1) 'attempts': sendOutcome.attempts,
-        if (sendOutcome.recovered) 'recoveredFrom': sendOutcome.firstFailure,
-        if (!sendOutcome.recovered && sendOutcome.attempts > 1)
-          'firstFailure': sendOutcome.firstFailure,
+        ...sendOutcome.retryFields,
       };
       if (result.isSuccess) {
         logs.message(
@@ -1068,6 +1065,16 @@ class SendRetryOutcome {
 
   /// A send that failed at least once and landed anyway.
   bool get recovered => firstFailure != null && result.isSuccess;
+
+  /// The retry's story as structured log fields, ready to be spread into
+  /// the `fields` of a send's own log line. Empty when the send landed on
+  /// its first post, so a host reading the funnel sees these keys only on
+  /// the sends that actually stumbled.
+  Map<String, Object?> get retryFields => <String, Object?>{
+    if (attempts > 1) 'attempts': attempts,
+    if (recovered) 'recoveredFrom': firstFailure,
+    if (!recovered && attempts > 1) 'firstFailure': firstFailure,
+  };
 
   @override
   String toString() =>

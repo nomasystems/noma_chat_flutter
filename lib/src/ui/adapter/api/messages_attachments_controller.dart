@@ -338,7 +338,7 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
           Future.value(),
     );
 
-    final sendResult = await _a._optimistic.postWithFirstSendRetry(
+    final sendOutcome = await _a._optimistic.postWithFirstSendRetryReported(
       roomId: roomId,
       tempId: tempId,
       cameFromDraft: cameFromDraft,
@@ -350,6 +350,7 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       attachmentId: attachment.attachmentId,
       metadata: metadata,
     );
+    final sendResult = sendOutcome.result;
     if (_a._sessionEndedSince(epoch)) {
       return ChatFailureResult(
         sendResult.failureOrNull ??
@@ -398,7 +399,11 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       _a.logs?.message(
         ChatLogLevel.debug,
         'sendAttachment confirmed',
-        fields: {'roomId': roomId, 'attachmentId': attachment.attachmentId},
+        fields: {
+          'roomId': roomId,
+          'attachmentId': attachment.attachmentId,
+          ...sendOutcome.retryFields,
+        },
       );
     } else {
       unawaited(
@@ -409,8 +414,8 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       );
       _a.logs?.message(
         ChatLogLevel.warn,
-        'sendAttachment failed: ${sendResult.failureOrNull}',
-        fields: {'roomId': roomId},
+        'sendAttachment failed: ${sendOutcome.finalFailure}',
+        fields: {'roomId': roomId, ...sendOutcome.retryFields},
       );
     }
 
@@ -778,7 +783,7 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
           Future.value(),
     );
 
-    final sendResult = await _a._optimistic.postWithFirstSendRetry(
+    final sendOutcome = await _a._optimistic.postWithFirstSendRetryReported(
       roomId: roomId,
       tempId: tempId,
       cameFromDraft: cameFromDraft,
@@ -789,6 +794,7 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       attachmentId: attachment.attachmentId,
       metadata: metadata,
     );
+    final sendResult = sendOutcome.result;
     if (_a._sessionEndedSince(epoch)) {
       // The send is a round trip too. Past this point everything below
       // writes: the controller the teardown just disposed, and the cache it
@@ -837,7 +843,11 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       _a.logs?.message(
         ChatLogLevel.debug,
         'sendVoice confirmed',
-        fields: {'roomId': roomId, 'attachmentId': attachment.attachmentId},
+        fields: {
+          'roomId': roomId,
+          'attachmentId': attachment.attachmentId,
+          ...sendOutcome.retryFields,
+        },
       );
     } else {
       unawaited(
@@ -848,8 +858,8 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       );
       _a.logs?.message(
         ChatLogLevel.warn,
-        'sendVoice failed: ${sendResult.failureOrNull}',
-        fields: {'roomId': roomId},
+        'sendVoice failed: ${sendOutcome.finalFailure}',
+        fields: {'roomId': roomId, ...sendOutcome.retryFields},
       );
     }
 
