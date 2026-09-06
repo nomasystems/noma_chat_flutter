@@ -30,6 +30,12 @@ part 'mock_contacts_api.dart';
 part 'mock_messages_api.dart';
 part 'mock_presence_api.dart';
 
+/// Page size the backend applies to a listing whose request carries no
+/// `limit`, and the ceiling it clamps a larger one to. Mirrored here so a
+/// paginated call against the mock truncates exactly where the wire would.
+const int _mockPageSize = 50;
+const int _mockMaxLimit = 100;
+
 /// In-memory [ChatClient] for testing and prototyping without a backend.
 ///
 /// Stores rooms, users, and messages locally. Events are emitted synchronously
@@ -519,7 +525,21 @@ class MockRoomsApi implements ChatRoomsApi {
         lastMessageIsSystem: last?.isSystem ?? false,
       );
     }).toList();
-    return ChatSuccess(UserRooms(rooms: rooms));
+    // Same pagination contract the REST implementation exposes: a request
+    // that carries `pagination` gets exactly that slice plus an honest
+    // `hasMore`, and one that carries none gets the complete room set. The
+    // backend's own `limit` cap (100) is applied to the slice so a consumer
+    // that asks for more than the wire allows sees what the wire would
+    // really answer.
+    if (pagination == null) {
+      return ChatSuccess(UserRooms(rooms: rooms));
+    }
+    final limit = (pagination.limit ?? _mockPageSize).clamp(1, _mockMaxLimit);
+    final start = (pagination.offset ?? 0).clamp(0, rooms.length);
+    final end = (start + limit).clamp(0, rooms.length);
+    return ChatSuccess(
+      UserRooms(rooms: rooms.sublist(start, end), hasMore: end < rooms.length),
+    );
   }
 
   @override

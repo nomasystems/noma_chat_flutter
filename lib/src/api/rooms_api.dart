@@ -239,13 +239,8 @@ class RoomsApi implements ChatRoomsApi {
           // cached, so the consumer should refetch from network to paginate.
           return UserRooms(rooms: unreads, invitedRooms: invitedRooms);
         },
-        fromNetwork: () => safeApiCall(() async {
-          final json = await _rest.get(
-            '/rooms',
-            queryParams: {'type': type, ...?pagination?.toQueryParams()},
-          );
-          return RoomMapper.userRoomsFromJson(json);
-        }),
+        fromNetwork: () =>
+            safeApiCall(() => _fetchUserRooms(type, pagination)),
         saveToCache: (data) async {
           // 'all' is the authoritative full room set: replace the box so
           // rooms deleted or left on the server are evicted. A partial view
@@ -282,13 +277,90 @@ class RoomsApi implements ChatRoomsApi {
         const ChatFailureResult(NetworkFailure('No cached data available')),
       );
     }
-    return safeApiCall(() async {
-      final json = await _rest.get(
-        '/rooms',
-        queryParams: {'type': type, ...?pagination?.toQueryParams()},
+    return safeApiCall(() => _fetchUserRooms(type, pagination));
+  }
+
+  /// Page size used when [getUserRooms] is asked for the whole room set.
+  /// The backend caps `limit` at 100 and applies a default of 50 when the
+  /// parameter is missing, so asking for the maximum keeps the number of
+  /// round-trips as low as the contract allows.
+  static const int _roomsPageSize = 100;
+
+  /// Hard stop for the walk below. At [_roomsPageSize] rooms per page this
+  /// covers 20 000 rooms — far past any real account — and exists only so a
+  /// backend that keeps answering `hasMore: true` cannot spin the client
+  /// forever.
+  static const int _roomsMaxPages = 200;
+
+  /// Reads `GET /rooms`, either as the single page the caller asked for or,
+  /// when [pagination] is `null`, as every page there is.
+  ///
+  /// `GET /rooms` is paginated and applies a default `limit` even when the
+  /// request omits one, so a single request is a truncated view of the room
+  /// set, not the whole of it. `getUserRooms` documents the no-pagination
+  /// call as the complete listing — and the room list, the cache reconcile
+  /// and the refresh engine all rely on that — so the walk below restores it
+  /// by following `hasMore` to the end.
+  ///
+  /// The listing is not guaranteed to be stably ordered across requests, so
+  /// rooms and invitations are de-duplicated by id as the pages arrive: an
+  /// entry that shifts between pages is kept once instead of twice, and the
+  /// first position it was seen at wins.
+  Future<UserRooms> _fetchUserRooms(
+    String type,
+    ChatPaginationParams? pagination,
+  ) async {
+    if (pagination != null) return _fetchUserRoomsPage(type, pagination);
+
+    final rooms = <UnreadRoom>[];
+    final invitedRooms = <InvitedRoom>[];
+    final seenRooms = <String>{};
+    final seenInvitedRooms = <String>{};
+    var offset = 0;
+
+    for (var page = 0; page < _roomsMaxPages; page++) {
+      final chunk = await _fetchUserRoomsPage(
+        type,
+        ChatPaginationParams(limit: _roomsPageSize, offset: offset),
       );
-      return RoomMapper.userRoomsFromJson(json);
-    });
+      for (final room in chunk.rooms) {
+        if (seenRooms.add(room.roomId)) rooms.add(room);
+      }
+      for (final invited in chunk.invitedRooms) {
+        if (seenInvitedRooms.add(invited.roomId)) invitedRooms.add(invited);
+      }
+      // An empty page ends the walk whatever `hasMore` claims: without rooms
+      // to advance past, the next request would repeat this one.
+      if (!chunk.hasMore || chunk.rooms.isEmpty) {
+        return UserRooms(rooms: rooms, invitedRooms: invitedRooms);
+      }
+      offset += chunk.rooms.length;
+    }
+
+    // Bailed out on the page cap. `hasMore` stays `true` so the caller — and
+    // the cache reconcile in particular — treats this as the partial listing
+    // it is instead of evicting every room past the cap.
+    _logger?.call(
+      'warn',
+      'rooms.getUserRooms: stopped after $_roomsMaxPages pages with more '
+          'rooms still reported; returning a partial listing',
+    );
+    return UserRooms(
+      rooms: rooms,
+      invitedRooms: invitedRooms,
+      hasMore: true,
+    );
+  }
+
+  Future<UserRooms> _fetchUserRoomsPage(
+    String type,
+    ChatPaginationParams? pagination,
+  ) async {
+    final json = await _rest.get(
+      '/rooms',
+      queryParams: {'type': type, ...?pagination?.toQueryParams()},
+    );
+    return RoomMapper.userRoomsFromJson(json);
   }
 
   @override
