@@ -85,9 +85,13 @@ raw user id anywhere in the UI.
   `MemberPickerSheet`, `BlockedUsersView`, `MessageInfoSheet`, the
   reaction-detail sheet, `TypingStatusText`, `NomaChatView`'s default
   `userFetcher`, and a DM's default title) now fall back to an empty string
-  instead of the id. Membership-banner metadata (`userLabel` / `actorLabel`)
-  is blank rather than the id once a name lookup gives up; the mention
-  overlay no longer inserts `@<uuid>` for someone with no resolvable name.
+  instead of the id. Membership-banner metadata (`userLabel` /
+  `actorLabel`) on the persisted system message is blank rather than the id
+  once a name lookup gives up, and the banner itself does not go blank with
+  it: an empty label is drawn as the generic noun
+  `ChatUiLocalizations.member` ("Member joined", "Miembro"), so the line
+  still reads as a sentence in the user's language. The mention overlay no
+  longer inserts `@<uuid>` for someone with no resolvable name.
   See MIGRATING.md.
 - The room list's text filter now matches a room's *resolved* `displayName`
   (falling back to `name`), not just its raw `name` — a 1:1 whose title
@@ -145,7 +149,6 @@ raw user id anywhere in the UI.
 - **`ChatUiLocalizations.retry`** — the accessibility action label for
   retrying a failed send — was the only string missing from the six
   full-tier locales, so screen readers announced it in English.
-
 - **An account with more than 50 rooms lost the rest of them.** `GET /rooms`
   paginates and applies a default page size when the request omits `limit`,
   so the listing came back truncated with `hasMore: true` and nothing ever
