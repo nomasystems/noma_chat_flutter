@@ -480,6 +480,7 @@ The Nomasystems chat backend is **planned to be open-sourced, but is not public 
 | [TELEMETRY.md](./TELEMETRY.md) | SDK observability metrics (`metricCallback`) — every metric name, fields, and when it fires |
 | [ANALYTICS.md](./ANALYTICS.md) | Product-analytics events (`analyticsSink`) — separate from telemetry, carries room/message identifiers |
 | [MIGRATING.md](./MIGRATING.md) | Step-by-step upgrade guide for every breaking release |
+| [ACCESSIBILITY.md](./doc/ACCESSIBILITY.md) | Screen-reader semantic labels for message bubbles, by message state |
 | [CHANGELOG.md](./CHANGELOG.md) | Version history |
 
 ---

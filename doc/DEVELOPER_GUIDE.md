@@ -3271,6 +3271,14 @@ land on the server is never delivered twice; the bubble shows `pending`
 while the retry runs and only flips to `failed` once every attempt in the
 policy is exhausted.
 
+The send's log line — `sendMessage`, `sendAttachment` and `sendVoice`, both
+the `confirmed` and the `failed` one — now carries `attempts` when more than
+one post was made, `recoveredFrom: <first attempt's failure>` when the send
+stumbled and landed anyway, and `firstFailure` next to the final failure
+when every attempt failed. The message text still names the LAST attempt's
+failure, which is the verdict the user is shown. A send that landed on its
+first post carries none of these keys.
+
 ### attachmentShrinker — outgoing image reduction
 
 Every `AttachmentPickers` entry point (`pickImageFromCamera`,
