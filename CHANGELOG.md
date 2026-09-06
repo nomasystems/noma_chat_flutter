@@ -162,6 +162,13 @@ raw user id anywhere in the UI.
   locale, so the widgets fell back to the bundled English table without the
   host's strings. Both delegates now accept any locale and resolve the closest
   bundled table (English when there is none), keeping the overrides.
+- **`ErrorEvent.exception` named a type no barrel exported.** `ChatEvent.error`
+  is typed as `ChatException`, but `ChatException` and its 14 subclasses
+  (`ChatAuthException` included) lived only under `src/_internal/http/`, so a
+  host listening for `ErrorEvent` could not name, construct, or match on the
+  cause it carries without an `implementation_imports`-triggering import. The
+  advanced barrel (`package:noma_chat/noma_chat_advanced.dart`) now exports
+  them.
 
 ## 0.33.0 - 2026-09-03
 
