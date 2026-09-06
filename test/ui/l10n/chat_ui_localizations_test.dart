@@ -94,6 +94,7 @@ void main() {
         ChatUiLocalizations.de: 'de',
         ChatUiLocalizations.it: 'it',
         ChatUiLocalizations.pt: 'pt',
+        ChatUiLocalizations.ca: 'ca',
       };
       for (final entry in locales.entries) {
         final l10n = entry.key;
@@ -337,6 +338,14 @@ void main() {
       expect(ChatUiLocalizations.de.lastSeen('X'), 'zuletzt online vor X');
       expect(ChatUiLocalizations.it.lastSeen('X'), 'ultimo accesso X fa');
       expect(ChatUiLocalizations.pt.lastSeen('X'), 'visto por último há X');
+    });
+
+    test('ca has its own lastSeen translation', () {
+      expect(
+        ChatUiLocalizations.ca.lastSeen('X'),
+        isNot(ChatUiLocalizations.en.lastSeen('X')),
+      );
+      expect(ChatUiLocalizations.ca.lastSeen('X'), 'última vegada fa X');
     });
 
     test('copyWith overrides lastSeenTemplate', () {
