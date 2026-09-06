@@ -126,7 +126,8 @@ raw user id anywhere in the UI.
   projection but not `userRole`, and `isReadOnly` reads the two together —
   so on a cold start from cache, or any pass with no detail, the room's own
   owner got the read-only notice. `userRole` now degrades to the listing row
-  alongside the policy.
+  alongside the policy, on the room-list pass and on the stub a kicked room
+  is rebuilt from when the cache has no detail for it.
 - **`MockChatClient` now paginates `getUserRooms` and `listBlocked`** exactly
   as the backend does (default page, `limit` clamped to 100, honest
   `hasMore`) when a call passes `pagination`, and still answers the complete

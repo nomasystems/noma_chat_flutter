@@ -155,7 +155,8 @@ void main() {
       expect(
         ids.toSet(),
         {for (var i = 0; i < 120; i++) 'room-$i'},
-        reason: 'the sorted order is what keeps page 2 resuming where page 1 '
+        reason:
+            'the sorted order is what keeps page 2 resuming where page 1 '
             'ended; without it the reshuffle drops rooms',
       );
     });
@@ -178,10 +179,11 @@ void main() {
 
       expect(rest.requests.length, 2);
       expect(result.dataOrThrow.invitedRooms.length, 3);
-      expect(
-        result.dataOrThrow.invitedRooms.map((r) => r.roomId),
-        ['invite-0', 'invite-1', 'invite-2'],
-      );
+      expect(result.dataOrThrow.invitedRooms.map((r) => r.roomId), [
+        'invite-0',
+        'invite-1',
+        'invite-2',
+      ]);
     });
 
     test('an empty room set is one request and an empty answer', () async {

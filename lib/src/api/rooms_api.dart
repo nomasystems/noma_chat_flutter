@@ -239,8 +239,7 @@ class RoomsApi implements ChatRoomsApi {
           // cached, so the consumer should refetch from network to paginate.
           return UserRooms(rooms: unreads, invitedRooms: invitedRooms);
         },
-        fromNetwork: () =>
-            safeApiCall(() => _fetchUserRooms(type, pagination)),
+        fromNetwork: () => safeApiCall(() => _fetchUserRooms(type, pagination)),
         saveToCache: (data) async {
           // 'all' is the authoritative full room set: replace the box so
           // rooms deleted or left on the server are evicted. A partial view
@@ -364,11 +363,7 @@ class RoomsApi implements ChatRoomsApi {
       'rooms.getUserRooms: stopped after $_roomsMaxPages pages with more '
           'rooms still reported; returning a partial listing',
     );
-    return UserRooms(
-      rooms: rooms,
-      invitedRooms: invitedRooms,
-      hasMore: true,
-    );
+    return UserRooms(rooms: rooms, invitedRooms: invitedRooms, hasMore: true);
   }
 
   Future<UserRooms> _fetchUserRoomsPage(
