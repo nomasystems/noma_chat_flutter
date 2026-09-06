@@ -491,15 +491,17 @@ void main() {
   });
 
   test('UserJoinedEvent + UserLeftEvent affect the controller', () async {
+    client.seedUser(const ChatUser(id: 'u3', displayName: 'Three'));
     final controller = adapter.getChatController('r1');
-    final before = controller.otherUsers.length;
+    expect(controller.otherUsers.map((u) => u.id), isNot(contains('u3')));
 
     client.emitEvent(const UserJoinedEvent(roomId: 'r1', userId: 'u3'));
     await drain();
-    expect(controller.otherUsers.length, greaterThanOrEqualTo(before));
+    expect(controller.otherUsers.map((u) => u.id), contains('u3'));
 
     client.emitEvent(const UserLeftEvent(roomId: 'r1', userId: 'u3'));
     await drain();
+    expect(controller.otherUsers.map((u) => u.id), isNot(contains('u3')));
   });
 
   test('MessageUpdatedEvent triggers a refresh that applies the new text', () async {
