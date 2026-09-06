@@ -102,6 +102,30 @@ raw user id anywhere in the UI.
 
 ### Fixed
 
+- **An account with more than 50 rooms lost the rest of them.** `GET /rooms`
+  paginates and applies a default page size when the request omits `limit`,
+  so the listing came back truncated with `hasMore: true` and nothing ever
+  asked for the next page. `rooms.getUserRooms()` now walks every page (at
+  the wire maximum of 100 per request, de-duplicating by room id) whenever
+  the caller passes no `pagination`, which is what its documented "complete
+  listing" contract always promised; a call that does pass `pagination` is
+  still served that one page and nothing else.
+- **A blocked list longer than 50 users was loaded short.** For the same
+  reason, `ChatUiAdapter.contacts.loadBlocked()` kept only the first page of
+  `GET /blocked`, so users blocked past it were treated as not blocked. It
+  now reads every page, and a page that fails leaves the previously loaded
+  set standing instead of committing a partial one.
+- **The owner of an owner-only room saw a closed composer until the room
+  detail loaded.** The room list degraded `writePolicy` to the listing
+  projection but not `userRole`, and `isReadOnly` reads the two together —
+  so on a cold start from cache, or any pass with no detail, the room's own
+  owner got the read-only notice. `userRole` now degrades to the listing row
+  alongside the policy.
+- **`MockChatClient` now paginates `getUserRooms` and `listBlocked`** exactly
+  as the backend does (default page, `limit` clamped to 100, honest
+  `hasMore`) when a call passes `pagination`, and still answers the complete
+  set when it does not. `MockContactsApi` gained a seedable `blocked` list
+  and a `failNextListBlocked` switch.
 - **`NomaChatView` was dropping `ChatViewBuilders.statusIconBuilder`.** A
   host that passed a custom delivery-tick builder to `NomaChatView` (rather
   than to a bare `ChatView`) saw no effect; `NomaChatView` now forwards it.

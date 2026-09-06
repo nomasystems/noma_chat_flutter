@@ -229,7 +229,14 @@ extension _RoomEnrichment on RoomEnricher {
             detail?.type == RoomType.group ||
             detail?.type == RoomType.announcement,
         isAnnouncement: detail?.type == RoomType.announcement,
-        userRole: detail?.userRole,
+        // Degrades to the listing for the same reason `writePolicy` above
+        // does, and it has to degrade with it: the two are read together by
+        // `isReadOnly`, so a row that knows the room is owner-only but not
+        // that this user owns it closes the composer on the owner. The
+        // listing projection carries `userRole` on every row, so the pair is
+        // always complete on a pass with no detail — a cold start off the
+        // cache, or any offline pass.
+        userRole: detail?.userRole ?? unread.userRole,
         memberCount: detail?.memberCount,
         otherUserId: knownPeerId,
         custom: detail?.custom,

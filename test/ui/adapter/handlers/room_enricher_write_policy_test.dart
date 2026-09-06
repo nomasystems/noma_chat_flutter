@@ -130,11 +130,13 @@ void main() {
     String id, {
     RoomWritePolicy writePolicy = RoomWritePolicy.members,
     bool selfMuted = false,
+    RoomRole? userRole,
   }) => UnreadRoom(
     roomId: id,
     unreadMessages: 0,
     writePolicy: writePolicy,
     selfMuted: selfMuted,
+    userRole: userRole,
   );
 
   test('the detail read is what the row believes when it lands', () async {
@@ -177,6 +179,68 @@ void main() {
     expect(item!.writePolicy, RoomWritePolicy.members);
     expect(item.isReadOnly, isFalse);
     expect(item.readOnlyReason, isNull);
+  });
+
+  test(
+    'the owner of an owner-only room still writes when no detail lands',
+    () async {
+      client.rooms.listing = [
+        row(
+          'r1',
+          writePolicy: RoomWritePolicy.ownerOnly,
+          userRole: RoomRole.owner,
+        ),
+      ];
+      client.rooms.detailPolicy = null;
+
+      await adapter.loadRooms(forceNetwork: true);
+
+      final item = adapter.roomListController.getRoomById('r1');
+      expect(item, isNotNull);
+      expect(item!.userRole, RoomRole.owner);
+      expect(item.writePolicy, RoomWritePolicy.ownerOnly);
+      expect(
+        item.isReadOnly,
+        isFalse,
+        reason: 'the policy and the role come off the same listing row: '
+            'degrading one without the other shuts the owner out of a room '
+            'they own',
+      );
+      expect(item.readOnlyReason, isNull);
+    },
+  );
+
+  test(
+    'a member of an owner-only room stays read-only when no detail lands',
+    () async {
+      client.rooms.listing = [
+        row(
+          'r1',
+          writePolicy: RoomWritePolicy.ownerOnly,
+          userRole: RoomRole.member,
+        ),
+      ];
+      client.rooms.detailPolicy = null;
+
+      await adapter.loadRooms(forceNetwork: true);
+
+      final item = adapter.roomListController.getRoomById('r1');
+      expect(item!.userRole, RoomRole.member);
+      expect(item.isReadOnly, isTrue);
+      expect(item.readOnlyReason, ReadOnlyReason.ownerOnly);
+    },
+  );
+
+  test('the detail role wins over the listing role when it lands', () async {
+    client.rooms.listing = [row('r1', userRole: RoomRole.owner)];
+    client.rooms.detailPolicy = RoomWritePolicy.ownerOnly;
+    client.rooms.detailRole = RoomRole.member;
+
+    await adapter.loadRooms(forceNetwork: true);
+
+    final item = adapter.roomListController.getRoomById('r1');
+    expect(item!.userRole, RoomRole.member);
+    expect(item.isReadOnly, isTrue);
   });
 
   test('the owner of an owner-only room still writes', () async {
