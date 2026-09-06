@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
-## 0.34.0 - 2026-09-05
+## 0.34.0 - 2026-09-06
 
 A host application directory can now answer who a chat id belongs to,
 rooms can be closed by the backend down to "owner only", the room list
@@ -63,8 +63,8 @@ raw user id anywhere in the UI.
   `RoomListItem.readOnlyReason` / `ChatViewBehaviors.readOnlyReason`
   (`ReadOnlyReason { announcement, selfMuted, ownerOnly }`).
 - **`ChatViewBuilders.readOnlyNoticeBuilder`** — `Widget? Function(BuildContext, ReadOnlyReason)`,
-  now actually consulted by `ChatView` (see *Fixed*); the SDK's own fallback
-  notice carries the semantic identifier `chat_read_only_notice`.
+  consulted by `ChatView` with the room's `ReadOnlyReason` and falling back
+  to the SDK's own notice when it returns `null` or is unset (see *Changed*).
 - **`RoomListController(participantNameResolver:)` / `ParticipantNameResolver`**
   and **`matchedParticipantFor(roomId)`** — extends the room list's text
   filter to match a room by the people in it, not only its title and last
@@ -96,9 +96,32 @@ raw user id anywhere in the UI.
   only match more rooms than before, never fewer.
 - `sendRetryPolicy` defaults to `SendRetryPolicy.firstSendOnly()` — see
   *Added*. Opt out with `SendRetryPolicy.none()` for the 0.33 behaviour.
-- The five public `AttachmentPickers` entry points default their `shrinker:`
-  parameter to `DefaultAttachmentShrinker` instead of sending the picked
-  bytes untouched.
+- Outgoing images are reduced before upload by default. The five public
+  `AttachmentPickers` entry points default their `shrinker:` parameter to
+  `DefaultAttachmentShrinker` instead of sending the picked bytes untouched,
+  `AttachmentPolicy.shrinkEnabled` defaults to `true`, and
+  `ChatUiAdapter(attachmentShrinker:)` — which drives `NomaChatView`'s own
+  camera, gallery, multiple-media and file paths — defaults to the same
+  engine. A host that needs the original bytes passes
+  `const NoAttachmentShrinker()` or `AttachmentPolicy(shrinkEnabled: false)`.
+  See MIGRATING.md.
+- **A room whose backend `config.writePolicy` is `owner_only` closes its
+  composer for every member but the owner**, from the moment this version
+  runs and with no app change: `isReadOnly` gains that third cause on both
+  `RoomDetail` and `RoomListItem` (see *Added*). A room left at the default
+  `members` behaves exactly as before. See MIGRATING.md.
+- **The read-only notice is now the host's to replace.** `ChatView` routes it
+  through the new `ChatViewBuilders.readOnlyNoticeBuilder` (see *Added*) and
+  its own fallback notice carries `Semantics(identifier:
+  'chat_read_only_notice')` — a widget test that reached the notice by its
+  text alone can now match it by identifier instead.
+- **`rooms.getUserRooms()` with no `pagination` returns the rooms ordered by
+  `roomId` ascending**, not in the backend's natural order as in 0.33: the
+  full listing is now walked page by page and the walk pins `sort=roomId` so
+  the page boundaries are reproducible (see *Fixed*). The SDK's own room list
+  is unaffected — `RoomListController` sorts by pinned state and last message
+  either way — but a host that paints `UserRooms.rooms` in the order received
+  sorts it itself now. See MIGRATING.md.
 
 ### Fixed
 
@@ -133,7 +156,10 @@ raw user id anywhere in the UI.
   still served that one page and nothing else. The walk pins the listing to
   `sort=roomId` so the page boundaries are reproducible across its requests:
   the natural order is not stable between calls, and a room that shifted
-  between two of them would be paged straight over.
+  between two of them would be paged straight over. The backend clamps
+  `offset` at 10 000, so the walk stops at the last page it can reach — 10 100
+  rooms, far past any real account — instead of asking for pages it would only
+  be served twice, and reports `hasMore: true` when it does.
 - **A blocked list longer than 50 users was loaded short.** For the same
   reason, `ChatUiAdapter.contacts.loadBlocked()` kept only the first page of
   `GET /blocked`, so users blocked past it were treated as not blocked. It
@@ -149,6 +175,13 @@ raw user id anywhere in the UI.
   owner got the read-only notice. `userRole` now degrades to the listing row
   alongside the policy, on the room-list pass and on the stub a kicked room
   is rebuilt from when the cache has no detail for it.
+- **A moderation mute was forgotten by the cache.** `RoomDetail.selfMuted`
+  was dropped on the way into the Hive room-detail box and read back as
+  `false`, so a room opened cold from cache came up writable for a muted
+  member and only closed its composer once the network detail arrived.
+  `selfMuted` now survives the round trip, which also means a stale `true` in
+  cache keeps the composer closed until the detail refreshes.
+  See MIGRATING.md.
 - **`MockChatClient` now paginates `getUserRooms` and `listBlocked`** exactly
   as the backend does (default page, `limit` clamped to 100, honest
   `hasMore`) when a call passes `pagination`, and still answers the complete
@@ -157,11 +190,6 @@ raw user id anywhere in the UI.
 - **`NomaChatView` was dropping `ChatViewBuilders.statusIconBuilder`.** A
   host that passed a custom delivery-tick builder to `NomaChatView` (rather
   than to a bare `ChatView`) saw no effect; `NomaChatView` now forwards it.
-- **`ChatViewBuilders.readOnlyNoticeBuilder` existed but `ChatView` never
-  called it.** The field was inert since it was introduced; `ChatView` now
-  invokes it with the room's `ReadOnlyReason` and falls back to the SDK's
-  own notice (now carrying `Semantics(identifier: 'chat_read_only_notice')`)
-  when it returns `null` or is unset.
 - **Two quick taps on Send could post the same message twice.** With link
   previews enabled, the composer waited up to 2.5s for the preview of a
   freshly typed URL before clearing its field, so a second tap in that window
