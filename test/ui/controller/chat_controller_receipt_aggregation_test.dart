@@ -194,6 +194,247 @@ void main() {
       // The foreign message has a different sender → untouched.
       expect(c.receiptStatuses['m-foreign'], isNull);
     });
+
+    test('a read never reaches messages NEWER than the one it names', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+          own('m3', offset: const Duration(seconds: 3)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m2', ReceiptStatus.read, fromUserId: 'u1');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+      expect(c.receiptStatuses['m2'], ReceiptStatus.read);
+      expect(c.receiptStatuses['m3'], isNull);
+    });
+  });
+
+  group("The user's own receipts are not evidence about the audience", () {
+    test('a read attributed to the current user marks neither the message '
+        'it names nor the older ones', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.delivered, fromUserId: 'u1');
+      c.updateReceipt('m2', ReceiptStatus.read, fromUserId: me.id);
+
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m2'], isNull);
+    });
+
+    test('sending a message and reading the room back does not move the '
+        'receipt of any earlier message', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      c.updateReceipt('m2', ReceiptStatus.delivered, fromUserId: 'u1');
+
+      c.addMessage(own('m3', offset: const Duration(seconds: 3)));
+      // The echo of the user's own `markAsRead`, which names the message
+      // just sent and covers the whole room behind it.
+      c.updateReceipt('m3', ReceiptStatus.read, fromUserId: me.id);
+
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+      expect(c.receiptStatuses['m2'], ReceiptStatus.delivered);
+      expect(c.receiptStatuses['m3'], isNull);
+    });
+
+    test('an own read does not skew a group aggregate either', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+        ],
+      );
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+  });
+
+  group('Self conversation ("message yourself")', () {
+    test('an own read counts once the roster came back empty', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setOtherUsers(const []);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('a roster that was never reported is not an empty room', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+    });
+
+    test('a known group whose roster came back empty is not one either', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(true);
+      c.setOtherUsers(const []);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+    });
+
+    test('a peer landing on the roster ends it', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+        ],
+        currentUser: me,
+      );
+      addTearDown(c.dispose);
+      c.setOtherUsers(const []);
+      c.setOtherUsers(const [ChatUser(id: 'u1', displayName: 'Alice')]);
+
+      c.updateReceipt('m2', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+      expect(c.receiptStatuses['m2'], isNull);
+    });
+
+    test('the mark is shown but never queued for the cache', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setOtherUsers(const []);
+
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+      expect(c.drainReceiptUpdates(), isEmpty);
+    });
+
+    test('a reported member count of one is evidence on its own, with no '
+        'roster ever listed', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+      c.setMemberCount(1);
+
+      expect(c.isSelfConversation, isTrue);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('a member count of two is a DM whose peer has not landed yet', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+      c.setMemberCount(2);
+
+      expect(c.isSelfConversation, isFalse);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+    });
+
+    test('a later row with no count does not erase the count already '
+        'reported', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setMemberCount(1);
+      c.setMemberCount(null);
+
+      expect(c.isSelfConversation, isTrue);
+    });
+
+    test('the room the user is alone in remembers no peer at all', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+      c.setMemberCount(1);
+      c.setRememberedPeerId(null);
+
+      expect(c.isSelfConversation, isTrue);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
+    });
+
+    test('a DM whose peer is still in the room is not one', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+      c.setMemberCount(2);
+      c.setRememberedPeerId('u1');
+
+      expect(c.isSelfConversation, isFalse);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+    });
+
+    test('a DM the other side walked out of counts a single member and is '
+        'still not one', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setIsGroup(false);
+      c.setMemberCount(1);
+      c.setRememberedPeerId('u1');
+
+      expect(c.isSelfConversation, isFalse);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+    });
+
+    test('a roster reported empty is not evidence either while the row still '
+        'names a peer', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setRememberedPeerId('u1');
+      c.setOtherUsers(const []);
+
+      expect(c.isSelfConversation, isFalse);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: me.id);
+      expect(c.receiptStatuses['m1'], isNull);
+    });
+
+    test('the user themselves is not a peer', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setMemberCount(1);
+      c.setRememberedPeerId(me.id);
+
+      expect(c.isSelfConversation, isTrue);
+    });
+
+    test('a later row with no peer does not erase the peer already '
+        'reported', () {
+      final c = ChatController(initialMessages: [own('m1')], currentUser: me);
+      addTearDown(c.dispose);
+      c.setMemberCount(1);
+      c.setRememberedPeerId('u1');
+      c.setRememberedPeerId(null);
+
+      expect(c.isSelfConversation, isFalse);
+    });
   });
 
   group('Delivered cursors (applyDeliveryCursor / recordMessageSeq)', () {
@@ -292,6 +533,44 @@ void main() {
       expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
       expect(c.receiptStatuses['m2'], ReceiptStatus.delivered);
       expect(c.receiptStatuses['m3'], isNull);
+    });
+  });
+
+  group('Delivered cursors ignore the user themselves', () {
+    test('a cursor attributed to the current user moves nothing', () {
+      final c = ChatController(
+        initialMessages: [
+          own('m1', offset: const Duration(seconds: 1)),
+          own('m2', offset: const Duration(seconds: 2)),
+        ],
+        currentUser: me,
+        otherUsers: const [ChatUser(id: 'u1', displayName: 'Alice')],
+      );
+      addTearDown(c.dispose);
+
+      c.applyDeliveryCursor(userId: me.id, messageId: 'm2');
+
+      expect(c.receiptStatuses['m1'], isNull);
+      expect(c.receiptStatuses['m2'], isNull);
+    });
+
+    test('and it does not join the acknowledging-members divisor', () {
+      final c = ChatController(
+        initialMessages: [own('m1')],
+        currentUser: me,
+        otherUsers: const [
+          ChatUser(id: 'u1', displayName: 'Alice'),
+          ChatUser(id: 'u2', displayName: 'Bob'),
+        ],
+      );
+      addTearDown(c.dispose);
+
+      c.applyDeliveryCursor(userId: me.id, messageId: 'm1');
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u1');
+
+      expect(c.receiptStatuses['m1'], ReceiptStatus.delivered);
+      c.updateReceipt('m1', ReceiptStatus.read, fromUserId: 'u2');
+      expect(c.receiptStatuses['m1'], ReceiptStatus.read);
     });
   });
 

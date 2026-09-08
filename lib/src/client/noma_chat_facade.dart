@@ -16,9 +16,11 @@ import '../events/chat_event.dart';
 import '../models/user.dart';
 import '../ui/adapter/chat_ui_adapter.dart';
 import '../ui/adapter/room_title_resolver.dart';
+import '../ui/adapter/user_directory_resolver.dart';
 import '../ui/controller/chat_controller.dart';
 import '../ui/controller/room_list_controller.dart';
 import '../ui/l10n/chat_ui_localizations.dart';
+import '../ui/models/send_retry_policy.dart';
 import '../ui/services/video_thumbnailer.dart';
 import '../core/result.dart';
 import '../models/room.dart';
@@ -158,6 +160,10 @@ class NomaChat {
     IsDmRoomPredicate? isDmRoom,
     MembershipBannerFilter? membershipBannerFilter,
     RoomTitleResolver? roomTitleResolver,
+    UserDirectoryResolver? userDirectoryResolver,
+    Duration userDirectoryTtl = const Duration(hours: 12),
+    bool bootstrapCurrentUser = false,
+    SendRetryPolicy sendRetryPolicy = const SendRetryPolicy.firstSendOnly(),
     bool autoMarkAsRead = true,
     // Lifecycle
     bool manageAppLifecycle = true,
@@ -167,6 +173,7 @@ class NomaChat {
     AvatarStorage? avatarStorage,
     // Media
     VideoThumbnailer? videoThumbnailer,
+    AttachmentShrinker? attachmentShrinker,
     // Advanced
     ChatConfig? config,
     ChatLocalDatasource? localDatasource,
@@ -237,6 +244,10 @@ class NomaChat {
       isDmRoom: isDmRoom,
       membershipBannerFilter: membershipBannerFilter,
       roomTitleResolver: roomTitleResolver,
+      userDirectoryResolver: userDirectoryResolver,
+      userDirectoryTtl: userDirectoryTtl,
+      bootstrapCurrentUser: bootstrapCurrentUser,
+      sendRetryPolicy: sendRetryPolicy,
       autoMarkAsRead: autoMarkAsRead,
       manageAppLifecycle: manageAppLifecycle,
       lifecyclePolicy: lifecyclePolicy,
@@ -247,6 +258,7 @@ class NomaChat {
       analyticsSink: effectiveConfig.analyticsSink,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
+      attachmentShrinker: attachmentShrinker,
     );
 
     return NomaChat._(client: client, adapter: adapter, cache: hiveCache);
@@ -300,6 +312,10 @@ class NomaChat {
     IsDmRoomPredicate? isDmRoom,
     MembershipBannerFilter? membershipBannerFilter,
     RoomTitleResolver? roomTitleResolver,
+    UserDirectoryResolver? userDirectoryResolver,
+    Duration userDirectoryTtl = const Duration(hours: 12),
+    bool bootstrapCurrentUser = false,
+    SendRetryPolicy sendRetryPolicy = const SendRetryPolicy.firstSendOnly(),
     bool autoMarkAsRead = true,
     // Lifecycle
     bool manageAppLifecycle = true,
@@ -309,6 +325,7 @@ class NomaChat {
     AvatarStorage? avatarStorage,
     // Media
     VideoThumbnailer? videoThumbnailer,
+    AttachmentShrinker? attachmentShrinker,
   }) async {
     final client = NomaChatClient(config: config);
     await client.restoreCacheTimestamps();
@@ -325,6 +342,10 @@ class NomaChat {
       isDmRoom: isDmRoom,
       membershipBannerFilter: membershipBannerFilter,
       roomTitleResolver: roomTitleResolver,
+      userDirectoryResolver: userDirectoryResolver,
+      userDirectoryTtl: userDirectoryTtl,
+      bootstrapCurrentUser: bootstrapCurrentUser,
+      sendRetryPolicy: sendRetryPolicy,
       autoMarkAsRead: autoMarkAsRead,
       manageAppLifecycle: manageAppLifecycle,
       lifecyclePolicy: lifecyclePolicy,
@@ -335,6 +356,7 @@ class NomaChat {
       analyticsSink: config.analyticsSink,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
+      attachmentShrinker: attachmentShrinker,
     );
 
     return NomaChat._(client: client, adapter: adapter);
@@ -395,6 +417,10 @@ class NomaChat {
     IsDmRoomPredicate? isDmRoom,
     MembershipBannerFilter? membershipBannerFilter,
     RoomTitleResolver? roomTitleResolver,
+    UserDirectoryResolver? userDirectoryResolver,
+    Duration userDirectoryTtl = const Duration(hours: 12),
+    bool bootstrapCurrentUser = false,
+    SendRetryPolicy sendRetryPolicy = const SendRetryPolicy.firstSendOnly(),
     bool autoMarkAsRead = true,
     bool manageAppLifecycle = true,
     ChatLifecyclePolicy lifecyclePolicy = const ChatLifecyclePolicy.standard(),
@@ -405,6 +431,7 @@ class NomaChat {
     ChatAnalyticsSink? analyticsSink,
     AvatarStorage? avatarStorage,
     VideoThumbnailer? videoThumbnailer,
+    AttachmentShrinker? attachmentShrinker,
   }) {
     final adapter = ChatUiAdapter(
       client: client,
@@ -414,6 +441,10 @@ class NomaChat {
       isDmRoom: isDmRoom,
       membershipBannerFilter: membershipBannerFilter,
       roomTitleResolver: roomTitleResolver,
+      userDirectoryResolver: userDirectoryResolver,
+      userDirectoryTtl: userDirectoryTtl,
+      bootstrapCurrentUser: bootstrapCurrentUser,
+      sendRetryPolicy: sendRetryPolicy,
       autoMarkAsRead: autoMarkAsRead,
       manageAppLifecycle: manageAppLifecycle,
       lifecyclePolicy: lifecyclePolicy,
@@ -424,6 +455,7 @@ class NomaChat {
       analyticsSink: analyticsSink,
       avatarStorage: avatarStorage ?? DefaultAvatarStorage(client),
       videoThumbnailer: videoThumbnailer,
+      attachmentShrinker: attachmentShrinker,
     );
     return NomaChat._(client: client, adapter: adapter);
   }

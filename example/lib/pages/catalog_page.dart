@@ -28,6 +28,8 @@ class CatalogPage extends StatelessWidget {
           _UnreadDividerSection(),
           _SectionHeader('UserAvatar'),
           _UserAvatarSection(),
+          _SectionHeader('RoomTile — subtitleHeaderBuilder & swipeActions'),
+          _RoomTileSection(),
           _SectionHeader('MessageBubble — outgoing'),
           _OutgoingBubblesSection(),
           _SectionHeader('MessageBubble — incoming'),
@@ -300,6 +302,73 @@ class _UserAvatarSection extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// RoomTile — subtitleHeaderBuilder & swipeActions
+// ---------------------------------------------------------------------------
+
+class _RoomTileSection extends StatelessWidget {
+  const _RoomTileSection();
+
+  @override
+  Widget build(BuildContext context) {
+    const theme = ChatTheme.defaults;
+    final room = RoomListItem(
+      id: 'catalog-room-trip',
+      name: 'Weekend trip',
+      lastMessage: 'Packing list is in the pinned message',
+      lastMessageTime: _kTs,
+      isGroup: true,
+      memberCount: 4,
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        RoomTile(
+          room: room,
+          theme: theme,
+          // Extra line above the ordinary preview — additive, so the
+          // "Packing list…" preview below still renders untouched.
+          subtitleHeaderBuilder: (context, room) => const Padding(
+            padding: EdgeInsets.only(bottom: 2),
+            child: Text(
+              'Departs Friday 7:00 AM',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.deepOrange,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          swipeActions: const [
+            RoomSwipeAction(
+              icon: Icons.push_pin,
+              label: 'Pin',
+              side: RoomSwipeSide.start,
+              onPressed: _noop,
+              identifier: 'catalog_room_swipe_pin',
+            ),
+            RoomSwipeAction(
+              icon: Icons.archive_outlined,
+              label: 'Archive',
+              onPressed: _noop,
+              identifier: 'catalog_room_swipe_archive',
+            ),
+          ],
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          child: Text(
+            'Swipe the row to reveal Pin / Archive.',
+            style: TextStyle(fontSize: 11, color: Colors.grey),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+void _noop() {}
 
 // ---------------------------------------------------------------------------
 // MessageBubble — outgoing

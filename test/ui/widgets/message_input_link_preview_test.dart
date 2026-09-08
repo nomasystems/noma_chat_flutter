@@ -166,6 +166,56 @@ void main() {
     expect(fake.callCount, greaterThanOrEqualTo(2));
   });
 
+  testWidgets('the fetched preview publishes chat_link_preview_close_button on '
+      'both halves, and takes it away with the banner', (tester) async {
+    final handle = WidgetsBinding.instance.ensureSemantics();
+    final fake = _FakeFetcher(
+      const LinkPreviewMetadata(url: 'https://example.com', title: 'Example'),
+    );
+
+    await tester.pumpWidget(
+      wrap(
+        MessageInput(
+          controller: controller,
+          onSendMessageRequest: (_) => true,
+          linkPreviewFetcher: fake,
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('chat_link_preview_close_button')),
+      findsNothing,
+    );
+
+    await tester.enterText(find.byType(TextField), 'visit https://example.com');
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.pump();
+
+    expect(
+      find.semantics.byPredicate(
+        (node) => node.identifier == 'chat_link_preview_close_button',
+      ),
+      findsOne,
+    );
+    expect(
+      find.byKey(const ValueKey('chat_link_preview_close_button')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('chat_link_preview_close_button')),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('chat_link_preview_close_button')),
+      findsNothing,
+    );
+
+    handle.dispose();
+  });
+
   testWidgets('sending a message with a fetched preview includes metadata', (
     tester,
   ) async {

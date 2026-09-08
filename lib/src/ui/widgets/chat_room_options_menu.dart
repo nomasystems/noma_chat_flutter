@@ -450,9 +450,10 @@ class ChatRoomOptionsMenu {
     required List<ChatRoomOption> options,
     ChatTheme theme = ChatTheme.defaults,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
+    return theme.showSheet<void>(
+      context,
       showDragHandle: true,
+      useRootNavigator: false,
       // `isScrollControlled: true` lets the sheet stretch up to
       // the full available height before overflowing, and the inner
       // `SingleChildScrollView` lets long option lists scroll instead of

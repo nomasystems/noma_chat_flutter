@@ -22,6 +22,12 @@
 ///   wrap yet) and want the same jittered backoff and per-path circuit
 ///   breaking the SDK already applies internally, instead of
 ///   reimplementing a weaker version of it.
+/// - **[ChatException] and its subclasses** for apps that need to name a
+///   specific failure cause — e.g. matching on `ErrorEvent.exception` from
+///   the realtime event stream, or asserting on a cause in tests. Every
+///   SDK method that can fail returns a `ChatResult` and never lets one of
+///   these escape as a thrown exception; only the realtime layer surfaces
+///   them as data, inside `ErrorEvent`.
 ///
 /// **Use this barrel only when you need it.** Importing it pulls in
 /// types that are intentionally low-level and may evolve faster than
@@ -67,3 +73,6 @@ export 'src/_internal/http/circuit_breaker.dart'
     show CircuitBreaker, CircuitState;
 export 'src/_internal/http/circuit_breaker_registry.dart'
     show CircuitBreakerRegistry;
+
+// === Errors: ChatException and subclasses ===
+export 'src/_internal/http/chat_exception.dart';

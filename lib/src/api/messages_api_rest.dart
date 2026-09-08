@@ -97,8 +97,10 @@ class RestMessagesApi implements ChatMessagesApi {
   /// items, newest-first. [ChatPaginatedResponse.hasMore] indicates whether
   /// an older page exists.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -202,8 +204,10 @@ class RestMessagesApi implements ChatMessagesApi {
   /// provisional id for follow-up operations (react / edit / delete /
   /// pin). Under `ack_mode = sync` the echo is the stored message.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -349,8 +353,10 @@ class RestMessagesApi implements ChatMessagesApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart

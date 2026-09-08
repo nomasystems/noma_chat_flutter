@@ -153,4 +153,113 @@ void main() {
       expect(s.url, isNull);
     });
   });
+
+  group('the four things a message can point at', () {
+    /// The message QA typed, verbatim from the D89 repro.
+    const repro =
+        'Guarda qui https://www.wannabeer.beer/piani e anche www.google.it '
+        'oppure scrivimi a chiara@example.com o chiama +34655000011';
+
+    test('a schemed URL, a bare host, an email and a phone are all links', () {
+      final urls = <String>[];
+      final spans = parse(repro, onTapLink: urls.add);
+      final links = spans
+          .where((s) => s.recognizer != null)
+          .map((s) => s.text)
+          .toList();
+      expect(links, [
+        'https://www.wannabeer.beer/piani',
+        'www.google.it',
+        'chiara@example.com',
+        '+34655000011',
+      ]);
+      for (final s in spans.where((s) => s.recognizer != null)) {
+        (s.recognizer! as TapGestureRecognizer).onTap?.call();
+      }
+      expect(urls, [
+        'https://www.wannabeer.beer/piani',
+        'https://www.google.it',
+        'mailto:chiara@example.com',
+        'tel:+34655000011',
+      ]);
+    });
+
+    test('a bare host is handed over absolute, not as typed', () {
+      String? tapped;
+      final spans = parse(
+        'mira www.google.it hoy',
+        onTapLink: (u) => tapped = u,
+      );
+      final link = spans.firstWhere((s) => s.text == 'www.google.it');
+      expect(link.style?.decoration, TextDecoration.underline);
+      (link.recognizer! as TapGestureRecognizer).onTap?.call();
+      expect(tapped, 'https://www.google.it');
+    });
+
+    test('a grouped phone number is dialled without its separators', () {
+      String? tapped;
+      final spans = parse(
+        'llama al +34 655 000 011 cuando puedas',
+        onTapLink: (u) => tapped = u,
+      );
+      final link = spans.firstWhere((s) => s.recognizer != null);
+      expect(link.text, '+34 655 000 011');
+      (link.recognizer! as TapGestureRecognizer).onTap?.call();
+      expect(tapped, 'tel:+34655000011');
+    });
+
+    test('the email wins over the mention branch', () {
+      // Without the ordering, the loop reaches the `@` and eats
+      // `@example` as a mention of a user called "example".
+      final spans = parse(
+        'escribe a chiara@example.com',
+        onTapLink: (_) {},
+        onTapMention: (_) {},
+      );
+      expect(spans.map((s) => s.text).toList(), [
+        'escribe a ',
+        'chiara@example.com',
+      ]);
+      expect(spans.last.style?.decoration, TextDecoration.underline);
+    });
+
+    test('a dotted local part is not split into a host and a mention', () {
+      final spans = parse(
+        'escribe a maria.jose@example.com',
+        onTapLink: (_) {},
+        onTapMention: (_) {},
+      );
+      final links = spans.where((s) => s.recognizer != null).toList();
+      expect(links.map((s) => s.text).toList(), ['maria.jose@example.com']);
+    });
+
+    test('a real mention is still a mention', () {
+      String? tapped;
+      final spans = parse('hola @alice', onTapMention: (u) => tapped = u);
+      final mention = spans.firstWhere((s) => s.text == '@alice');
+      (mention.recognizer! as TapGestureRecognizer).onTap?.call();
+      expect(tapped, 'alice');
+    });
+
+    test('dates, prices and plain digits stay plain text', () {
+      const prose =
+          'quedamos el 2026-08-31 a las 20:00, somos 12 y salen 1.234,56 euros';
+      final spans = parse(prose, onTapLink: (_) {});
+      expect(spans.where((s) => s.recognizer != null), isEmpty);
+      expect(spans.map((s) => s.text).join(), prose);
+    });
+
+    test('a word that fails as a link is not retried one letter in', () {
+      // `vamos.a` has a one-letter tail and cannot be a host; the scan
+      // must not offer `amos.a` next, nor any other suffix.
+      final spans = parse('vamos.a ver que tal', onTapLink: (_) {});
+      expect(spans.where((s) => s.recognizer != null), isEmpty);
+      expect(spans.single.text, 'vamos.a ver que tal');
+    });
+
+    test('nothing is dropped or duplicated on the way through', () {
+      final spans = parse(repro, onTapLink: (_) {});
+      expect(spans.map((s) => s.text).join(), repro);
+    });
+  });
 }

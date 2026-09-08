@@ -11,6 +11,15 @@ import '../../theme/chat_theme.dart';
 import '_attachment_upload_overlay.dart';
 import '_bubble_metadata.dart';
 
+/// Name the tap-to-open target of the video row for [messageId] answers to.
+///
+/// Lives inside a [MessageBubble], so it carries the caveat of
+/// [attachmentUploadCancelSemanticsId]: the `ValueKey` half is the reachable
+/// one and the `identifier` half only reaches a native dump when the bubble
+/// is rendered standalone.
+String videoBubbleSemanticsId(String messageId) =>
+    'chat_message_${messageId}_video';
+
 /// Bubble that renders a video thumbnail; tap the play overlay to open.
 ///
 /// The package ships no video player, so playback belongs to [onTap]. The
@@ -35,6 +44,7 @@ class VideoBubble extends StatefulWidget {
     this.onCancelUpload,
     this.isFailed = false,
     this.onRetry,
+    this.messageId,
   });
 
   final String videoUrl;
@@ -74,6 +84,12 @@ class VideoBubble extends StatefulWidget {
   /// glyph in place of the retry arrow — a failure no retry can clear
   /// must not offer a button that does nothing.
   final VoidCallback? onRetry;
+
+  /// Id of the message this row renders. Names the in-flight cancel and the
+  /// failed-state retry targets ([attachmentUploadCancelSemanticsId] /
+  /// [attachmentRetrySemanticsId]); `null` (default) leaves both unnamed
+  /// rather than publishing a name two rows could answer to.
+  final String? messageId;
 
   /// Identifies the **poster frame**, never the clip: the thumbnail is a
   /// blob of its own with its own attachment id
@@ -305,7 +321,11 @@ class _VideoBubbleState extends State<VideoBubble> {
       isFailed: widget.isFailed,
       uploadProgress: uploadProgress,
     );
+    final messageId = widget.messageId;
+    final id = messageId == null ? null : videoBubbleSemanticsId(messageId);
     return Semantics(
+      key: id == null ? null : ValueKey(id),
+      identifier: id,
       label: caption ?? theme.l10nOf(context).videoPreview,
       button: widget.onTap != null && uploadProgress == null && !showFailed,
       child: GestureDetector(
@@ -339,6 +359,7 @@ class _VideoBubbleState extends State<VideoBubble> {
                               height: _placeholderHeight,
                               icon: Icons.videocam,
                               onCancel: widget.onCancelUpload,
+                              messageId: widget.messageId,
                             )
                           : showFailed
                           ? AttachmentFailedPlaceholder(
@@ -346,6 +367,7 @@ class _VideoBubbleState extends State<VideoBubble> {
                               height: _placeholderHeight,
                               icon: Icons.videocam,
                               onRetry: widget.onRetry,
+                              messageId: widget.messageId,
                             )
                           : Stack(
                               alignment: Alignment.center,

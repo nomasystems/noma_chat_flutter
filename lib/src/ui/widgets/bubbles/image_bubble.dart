@@ -40,6 +40,7 @@ class ImageBubble extends StatefulWidget {
     this.onCancelUpload,
     this.isFailed = false,
     this.onRetry,
+    this.messageId,
   });
 
   final String imageUrl;
@@ -78,6 +79,12 @@ class ImageBubble extends StatefulWidget {
   /// glyph in place of the retry arrow — a failure no retry can clear
   /// must not offer a button that does nothing.
   final VoidCallback? onRetry;
+
+  /// Id of the message this row renders. Names the in-flight cancel and the
+  /// failed-state retry targets ([attachmentUploadCancelSemanticsId] /
+  /// [attachmentRetrySemanticsId]); `null` (default) leaves both unnamed
+  /// rather than publishing a name two rows could answer to.
+  final String? messageId;
 
   /// Identifies this attachment for [urlResolver]. `null` (default) keeps
   /// [imageUrl] as the sole source, unchanged from before this parameter
@@ -321,6 +328,7 @@ class _ImageBubbleState extends State<ImageBubble> {
                                   _defaultImageMaxHeight,
                               icon: Icons.image,
                               onCancel: widget.onCancelUpload,
+                              messageId: widget.messageId,
                             )
                           : showFailed
                           ? AttachmentFailedPlaceholder(
@@ -330,6 +338,7 @@ class _ImageBubbleState extends State<ImageBubble> {
                                   _defaultImageMaxHeight,
                               icon: Icons.image,
                               onRetry: widget.onRetry,
+                              messageId: widget.messageId,
                             )
                           : _usesMediaLoader
                           ? _buildAuthenticatedImage(theme)

@@ -108,14 +108,8 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
     DeliveryStatusLegendEntryBuilder? entryBuilder,
     String? title,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      useRootNavigator: true,
-      isScrollControlled: true,
+    return theme.showSheet<void>(
+      context,
       builder: (ctx) => DeliveryStatusLegendSheet(
         theme: theme,
         isGroup: isGroup,
@@ -159,6 +153,7 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
 
   Widget _glyphFor(BuildContext context, MessageDeliveryState state) {
     const size = 18.0;
+    final colors = Theme.of(context).colorScheme;
     final override = theme.bubble.statusIconBuilder?.call(
       context,
       MessageStatusIconData(state: state, size: size),
@@ -171,7 +166,7 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
         color:
             theme.bubble.statusPendingColor ??
             theme.bubble.statusColor ??
-            Colors.grey,
+            colors.onSurfaceVariant,
       ),
       MessageDeliveryState.failed => Icon(
         Icons.error_outline,
@@ -199,6 +194,7 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = theme.l10nOf(context);
+    final colors = Theme.of(context).colorScheme;
     return SafeArea(
       child: SingleChildScrollView(
         child: Column(
@@ -236,7 +232,10 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
                 child: Text(
                   l10n.deliveryStatusLegendGroupNote,
                   key: const ValueKey('chat_delivery_legend_group_note'),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
               ),
             const SizedBox(height: 8),
@@ -249,6 +248,7 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
   Widget _row(BuildContext context, DeliveryStatusLegendEntry entry) {
     final override = entryBuilder?.call(context, entry);
     if (override != null) return override;
+    final colors = Theme.of(context).colorScheme;
     final id = deliveryStatusLegendSemanticsId(entry.state);
     return Semantics(
       identifier: id,
@@ -265,7 +265,7 @@ class DeliveryStatusLegendSheet extends StatelessWidget {
         title: Text(entry.title),
         subtitle: Text(
           entry.description,
-          style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+          style: TextStyle(fontSize: 12, color: colors.onSurfaceVariant),
         ),
       ),
     );

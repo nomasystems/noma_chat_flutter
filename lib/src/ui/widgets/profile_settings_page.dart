@@ -6,6 +6,7 @@ import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
 import '../utils/initials.dart';
+import '../utils/text_selection_menu.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
 
@@ -295,6 +296,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage>
             padding: const EdgeInsets.symmetric(horizontal: 24),
             child: TextField(
               controller: _nameController,
+              contextMenuBuilder: buildTextSelectionMenu,
               decoration: InputDecoration(
                 labelText: l10n.yourName,
                 helperText: l10n.minCharsTemplate.replaceAll(
@@ -313,6 +315,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage>
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: TextField(
                 controller: _bioController,
+                contextMenuBuilder: buildTextSelectionMenu,
                 decoration: InputDecoration(
                   labelText: l10n.about,
                   border: const OutlineInputBorder(),
@@ -329,6 +332,7 @@ class _ProfileSettingsPageState extends State<ProfileSettingsPage>
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: TextField(
                 controller: _emailController,
+                contextMenuBuilder: buildTextSelectionMenu,
                 decoration: InputDecoration(
                   labelText: l10n.email,
                   border: const OutlineInputBorder(),

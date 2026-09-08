@@ -39,6 +39,23 @@ void main() {
       expect(f, isA<ConflictFailure>());
     });
 
+    test('maps ChatAttachmentTooLargeException to AttachmentTooLargeFailure, '
+        'not the ServerFailure a plain ChatApiException would get', () {
+      final f = mapExceptionToFailure(
+        const ChatAttachmentTooLargeException(
+          body: {'detail': 'Payload too large.'},
+        ),
+      );
+      expect(f, isA<AttachmentTooLargeFailure>());
+      expect((f as AttachmentTooLargeFailure).statusCode, 413);
+    });
+
+    test('defaults the attachment-too-large token when the server sends '
+        'none', () {
+      final f = mapExceptionToFailure(const ChatAttachmentTooLargeException());
+      expect(f.errorToken, ChatErrorTokens.attachmentTooLarge);
+    });
+
     test('maps ChatRateLimitException to RateLimitFailure', () {
       final f = mapExceptionToFailure(
         const ChatRateLimitException(retryAfter: Duration(seconds: 10)),

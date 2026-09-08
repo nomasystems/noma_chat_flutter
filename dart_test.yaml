@@ -1,3 +1,5 @@
+timeout: 2m
+
 # Tagged test groups. Filter with:
 #   flutter test -x slow      # skip slow tests (fast feedback loop)
 #   flutter test -t slow      # only slow tests (CI parallel job)

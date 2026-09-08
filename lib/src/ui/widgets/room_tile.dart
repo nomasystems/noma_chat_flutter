@@ -10,6 +10,12 @@ import 'message_status_icon.dart';
 import 'unread_badge.dart';
 import 'user_avatar.dart';
 
+/// Name the row of the room list that opens [roomId].
+///
+/// One name per room, so opening a chat from a driver never depends on the
+/// row's position in a list that reorders on every incoming message.
+String roomTileSemanticsId(String roomId) => 'chat_room_tile_$roomId';
+
 /// A single row in the room list showing avatar, name, last message preview,
 /// timestamp, unread badge, and muted/pinned indicators.
 class RoomTile extends StatelessWidget {
@@ -34,6 +40,7 @@ class RoomTile extends StatelessWidget {
     this.blockedSenderIds = const <String>{},
     this.blockedContentPolicy = BlockedContentPolicy.placeholder,
     this.swipeActions = const <RoomSwipeAction>[],
+    this.matchedParticipant,
   });
 
   final RoomListItem room;
@@ -43,6 +50,15 @@ class RoomTile extends StatelessWidget {
   final String? lastMessageSenderName;
   final String? currentUserId;
   final ChatTheme theme;
+
+  /// Name of the member whose name — not the room's own title or last
+  /// message — is why this row survived the active search filter (see
+  /// `RoomListController.matchedParticipantFor`). Painted as an extra line
+  /// under the room name, e.g. a group titled "Weekend trip" found by
+  /// typing "ali" shows "Alice" here so the match makes sense at a glance.
+  /// `null` paints nothing — the ordinary row for a title/last-message
+  /// match, or for no active filter at all.
+  final String? matchedParticipant;
   final Widget Function(BuildContext, RoomListItem)? leadingBuilder;
   final Widget Function(BuildContext, RoomListItem)? trailingBuilder;
 
@@ -68,7 +84,10 @@ class RoomTile extends StatelessWidget {
   /// Optional override for the last-message preview text. When this builder
   /// returns a non-null string, it is used verbatim as the subtitle: the
   /// sentence is taken as self-contained, so **no sender prefix is prepended**
-  /// to it (the receipt icon is still painted). A consumer that already names
+  /// to it (the receipt icon is still painted, as long as the last message is
+  /// one the user actually wrote — an override over a system notice, a
+  /// reaction or a deleted message carries no tick either way, same as it
+  /// carries no prefix). A consumer that already names
   /// the actor inside its own sentence would otherwise read it twice
   /// ("Alice: Alice joined the plan"). When it returns `null`, the default
   /// WhatsApp-style preview kicks in, prefix included.
@@ -224,6 +243,8 @@ class RoomTile extends StatelessWidget {
 
     final subtitleHeader = subtitleHeaderBuilder?.call(context, room);
 
+    final matchedParticipantLine = _buildMatchedParticipant(context);
+
     final mutedUntil = _buildMutedUntil(context);
 
     final tileColor = isSelected
@@ -231,6 +252,8 @@ class RoomTile extends StatelessWidget {
         : (theme.roomList.tileBackgroundColor ?? Colors.transparent);
 
     return Semantics(
+      key: ValueKey(roomTileSemanticsId(room.id)),
+      identifier: roomTileSemanticsId(room.id),
       label: room.displayName,
       container: true,
       child: _wrapWithSwipeActions(
@@ -277,6 +300,10 @@ class RoomTile extends StatelessWidget {
                           const SizedBox(height: 2),
                           subtitleHeader,
                         ],
+                        if (matchedParticipantLine != null) ...[
+                          const SizedBox(height: 2),
+                          matchedParticipantLine,
+                        ],
                         if (subtitle != null) ...[
                           const SizedBox(height: 2),
                           subtitle,
@@ -311,6 +338,26 @@ class RoomTile extends StatelessWidget {
     );
   }
 
+  /// Renders [matchedParticipant] as a small line under the room name, so
+  /// a search hit on a member rather than the title/last message still
+  /// reads as an obviously relevant result instead of a mystery match.
+  Widget? _buildMatchedParticipant(BuildContext context) {
+    final name = matchedParticipant;
+    if (name == null || name.isEmpty) return null;
+    return Text(
+      name,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style:
+          theme.roomList.previewStyle?.copyWith(fontStyle: FontStyle.italic) ??
+          TextStyle(
+            fontSize: 13,
+            fontStyle: FontStyle.italic,
+            color: Colors.grey.shade600,
+          ),
+    );
+  }
+
   /// Deadline line of a timed mute — the only place the row says when the
   /// notifications come back.
   ///
@@ -339,6 +386,20 @@ class RoomTile extends StatelessWidget {
 
   bool get _isOwnLastMessage =>
       currentUserId != null && room.lastMessageUserId == currentUserId;
+
+  /// Whether the last message of the row is something its sender actually
+  /// wrote, as opposed to a system notice, a reaction or a tombstone.
+  ///
+  /// The sender prefix and the receipt tick are the same claim made twice —
+  /// "you wrote this" — so both hang on this single getter and cannot
+  /// diverge again. A system notice reaches the row with `from` set to the
+  /// plan owner, which makes [_isOwnLastMessage] true for a sentence nobody
+  /// typed; without this guard the row paints a delivery tick in front of
+  /// "The plan has started".
+  bool get _lastMessageHasAuthorAttribution =>
+      !room.lastMessageIsDeleted &&
+      !room.lastMessageIsSystem &&
+      room.lastMessageType != MessageType.reaction;
 
   /// Subtitle for the row: the invitation actions, the typing line, or the
   /// last-message preview.
@@ -405,7 +466,10 @@ class RoomTile extends StatelessWidget {
               defaultStyle.copyWith(fontWeight: FontWeight.w600))
         : defaultStyle;
 
-    final showReceipt = _isOwnLastMessage && room.lastMessageReceipt != null;
+    final showReceipt =
+        _isOwnLastMessage &&
+        room.lastMessageReceipt != null &&
+        _lastMessageHasAuthorAttribution;
     final prefix = (blocked || overrideText != null)
         ? ''
         : _resolvePrefix(context);
@@ -504,9 +568,7 @@ class RoomTile extends StatelessWidget {
   /// reacted, nor when it is a system notice: nobody wrote it, and "You: the
   /// plan starts in 24 hours" reads as if the user had.
   String _resolvePrefix(BuildContext context) {
-    if (room.lastMessageIsDeleted) return '';
-    if (room.lastMessageIsSystem) return '';
-    if (room.lastMessageType == MessageType.reaction) return '';
+    if (!_lastMessageHasAuthorAttribution) return '';
     // DMs never get a sender prefix — the title already identifies who
     // the conversation is with. The "Alice: Asdf" shape only makes
     // sense in groups where the avatar / title can't disambiguate.

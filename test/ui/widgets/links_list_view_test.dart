@@ -114,4 +114,23 @@ void main() {
       expect(tapped?.url, 'https://example.com');
     });
   });
+
+  group('LinksListView empty state', () {
+    testWidgets('says what will fill the tab, not just that it is empty', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(body: LinksListView(messages: [])),
+        ),
+      );
+
+      expect(find.byType(EmptyState), findsOneWidget);
+      expect(find.text('No links shared yet'), findsOneWidget);
+      expect(
+        find.text('Links you share in this conversation will appear here'),
+        findsOneWidget,
+      );
+    });
+  });
 }

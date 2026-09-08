@@ -210,7 +210,10 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12, color: Colors.black54),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               );
         final subtitleWidget = subtitleBuilder != null
             ? subtitleBuilder!(context, subtitle)
@@ -219,67 +222,78 @@ class ChatRoomAppBar extends StatelessWidget implements PreferredSizeWidget {
         return AppBar(
           leading: onBack == null
               ? null
-              : IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  tooltip: theme.l10nOf(context).back,
-                  onPressed: onBack,
-                ),
-          titleSpacing: 0,
-          title: InkWell(
-            onTap: onTap,
-            child: Row(
-              children: [
-                avatar,
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Flexible(
-                            child: Text(
-                              resolvedTitle,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 17,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          if (room?.pinned == true) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.push_pin,
-                              size: 16,
-                              color:
-                                  theme.roomList.pinnedIconColor ??
-                                  Colors.black54,
-                              semanticLabel: theme.l10nOf(context).pin,
-                            ),
-                          ],
-                          if (room?.muted == true) ...[
-                            const SizedBox(width: 6),
-                            Icon(
-                              Icons.notifications_off_outlined,
-                              size: 16,
-                              color:
-                                  theme.roomList.mutedIconColor ??
-                                  Colors.black54,
-                              semanticLabel: theme.l10nOf(context).mute,
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (subtitleWidget != null) subtitleWidget,
-                    ],
+              : Semantics(
+                  key: const ValueKey('chat_room_back_button'),
+                  identifier: 'chat_room_back_button',
+                  button: true,
+                  label: theme.l10nOf(context).back,
+                  child: IconButton(
+                    icon: const Icon(Icons.arrow_back),
+                    tooltip: theme.l10nOf(context).back,
+                    onPressed: onBack,
                   ),
                 ),
-              ],
+          titleSpacing: 0,
+          title: Semantics(
+            key: const ValueKey('chat_room_title'),
+            identifier: 'chat_room_title',
+            button: onTap != null,
+            child: InkWell(
+              onTap: onTap,
+              child: Row(
+                children: [
+                  avatar,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                resolvedTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                            if (room?.pinned == true) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.push_pin,
+                                size: 16,
+                                color:
+                                    theme.roomList.pinnedIconColor ??
+                                    Colors.black54,
+                                semanticLabel: theme.l10nOf(context).pin,
+                              ),
+                            ],
+                            if (room?.muted == true) ...[
+                              const SizedBox(width: 6),
+                              Icon(
+                                Icons.notifications_off_outlined,
+                                size: 16,
+                                color:
+                                    theme.roomList.mutedIconColor ??
+                                    Colors.black54,
+                                semanticLabel: theme.l10nOf(context).mute,
+                              ),
+                            ],
+                          ],
+                        ),
+                        if (subtitleWidget != null) subtitleWidget,
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           actions: actions,

@@ -35,16 +35,32 @@ interface class ChatContactsController {
   /// `client.contacts.listBlocked()`. Replaces the set and fires
   /// the change callback. Not polled — subsequent mutations come
   /// from [block] / [unblock] (local sources of truth).
+  ///
+  /// `GET /blocked` is paginated and truncates to a default page size when
+  /// the request omits `limit`, so a single response is not the user's
+  /// blocked set. Every page is read here, because the set is what prunes
+  /// blocked contacts' DMs out of the room list: a short read does not
+  /// merely hide part of a list, it puts blocked people's chats back on
+  /// screen.
+  ///
+  /// A page that fails leaves [blockedUserIds] untouched and surfaces the
+  /// failure. Committing the pages that did land would be worse than
+  /// keeping the previous set: the missing ids are exactly the ones whose
+  /// rooms would reappear.
   Future<ChatResult<void>> loadBlocked() async {
-    final result = await _a.client.contacts.listBlocked();
-    if (_a._disposed) return const ChatSuccess(null);
-    if (result.isFailure) {
+    final walk = await readAllPages<String>(
+      (pagination) => _a.client.contacts.listBlocked(pagination: pagination),
+      isCancelled: () => _a._disposed,
+    );
+    if (walk == null) return const ChatSuccess(null);
+    if (walk.isFailure) {
       return _a._emitFailure(
-        result.castFailure<void>(),
+        walk.castFailure<void>(),
         OperationKind.loadBlockedUsers,
       );
     }
-    blockedUserIds = result.dataOrThrow.items.toSet();
+
+    blockedUserIds = walk.dataOrThrow.toSet();
     return const ChatSuccess(null);
   }
 

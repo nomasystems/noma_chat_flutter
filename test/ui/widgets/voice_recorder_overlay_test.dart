@@ -211,6 +211,86 @@ void main() {
     controller.dispose();
   });
 
+  testWidgets('the locked panel publishes a name for each of its controls', (
+    tester,
+  ) async {
+    final handle = WidgetsBinding.instance.ensureSemantics();
+    final controller = createController();
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+
+    await controller.startRecording();
+    controller.lockRecording();
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
+
+    for (final name in [
+      'chat_voice_overlay_delete_button',
+      'chat_voice_overlay_pause_button',
+      'chat_voice_overlay_prelisten_button',
+      'chat_voice_overlay_send_button',
+    ]) {
+      expect(
+        find.semantics.byPredicate((node) => node.identifier == name),
+        findsOne,
+        reason: 'Semantics half missing for $name',
+      );
+      expect(
+        find.byKey(ValueKey(name)),
+        findsOneWidget,
+        reason: 'ValueKey half missing for $name',
+      );
+    }
+    expect(
+      find.byKey(const ValueKey('chat_voice_overlay_resume_button')),
+      findsNothing,
+    );
+
+    await controller.pauseRecording();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('chat_voice_overlay_resume_button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('chat_voice_overlay_pause_button')),
+      findsNothing,
+    );
+
+    await controller.cancelRecording();
+    controller.dispose();
+    handle.dispose();
+  });
+
+  testWidgets('the pre-listen panel reuses the delete and send names of the '
+      'locked one, which it can never share the screen with', (tester) async {
+    final handle = WidgetsBinding.instance.ensureSemantics();
+    final controller = createController();
+    when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);
+
+    await controller.startRecording();
+    controller.lockRecording();
+    await controller.startPreListen();
+    await tester.pumpWidget(wrap(VoiceRecorderOverlay(controller: controller)));
+
+    expect(controller.state, VoiceRecordingState.preListen);
+    expect(
+      find.byKey(const ValueKey('chat_voice_overlay_delete_button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('chat_voice_overlay_send_button')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('chat_voice_overlay_prelisten_button')),
+      findsNothing,
+    );
+
+    await controller.cancelRecording();
+    controller.dispose();
+    handle.dispose();
+  });
+
   testWidgets('preListen shows play/pause and send', (tester) async {
     final controller = createController();
     when(() => mockRecorder.isRecording()).thenAnswer((_) async => true);

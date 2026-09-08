@@ -72,14 +72,6 @@ class MessageIdIndex {
     String messageId,
   ) => getOrBuild(roomId, box)[messageId];
 
-  /// Updates the index for a write — `oldKey` is the previous box
-  /// key (when the message moved due to a timestamp change),
-  /// `newKey` is the new one.
-  void recordWrite(String roomId, String messageId, String newKey) {
-    final index = _byRoom[roomId];
-    if (index != null) index[messageId] = newKey;
-  }
-
   /// Removes a single message from the index after a delete.
   void removeMessage(String roomId, String messageId) {
     _byRoom[roomId]?.remove(messageId);

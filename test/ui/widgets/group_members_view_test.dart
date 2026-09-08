@@ -71,6 +71,7 @@ class _PaginatingChatClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) => _base.enqueueOfflineAttachment(
     roomId: roomId,
     bytes: bytes,
@@ -82,6 +83,7 @@ class _PaginatingChatClient implements ChatClient {
     metadata: metadata,
     tempId: tempId,
     clientMessageId: clientMessageId,
+    referencedMessageId: referencedMessageId,
   );
 
   @override
@@ -94,6 +96,7 @@ class _PaginatingMembersApi implements ChatMembersApi {
   final ChatMembersApi _base;
   final List<String> _allMemberIds;
   int listCallCount = 0;
+  bool listFails = false;
   List<ChatPaginationParams?> receivedPagination = [];
 
   @override
@@ -105,6 +108,7 @@ class _PaginatingMembersApi implements ChatMembersApi {
   }) async {
     listCallCount++;
     receivedPagination.add(pagination);
+    if (listFails) return const ChatFailureResult(ForbiddenFailure());
     final offset = pagination?.offset ?? 0;
     final limit = pagination?.limit ?? _allMemberIds.length;
     final page = _allMemberIds.skip(offset).take(limit).toList();
@@ -135,8 +139,10 @@ class _PaginatingMembersApi implements ChatMembersApi {
   }) => _base.joinWithToken(roomId, token: token);
 
   @override
-  Future<ChatResult<void>> remove(String roomId, String userId) =>
-      _base.remove(roomId, userId);
+  Future<ChatResult<void>> remove(String roomId, String userId) async {
+    _allMemberIds.remove(userId);
+    return _base.remove(roomId, userId);
+  }
 
   @override
   Future<ChatResult<void>> leave(String roomId) => _base.leave(roomId);
@@ -380,6 +386,54 @@ void main() {
     });
   });
 
+  group('GroupMembersView — controls survive their own press', () {
+    testWidgets('removing a member hides its row instead of tearing down the '
+        'button that was pressed', (tester) async {
+      final ids = ['me', 'u1', 'u2'];
+      final base = MockChatClient(currentUserId: 'me');
+      base.seedRoom(ChatRoom(id: 'r1', name: 'G', members: ids));
+      final removing = _PaginatingChatClient(base, allMemberIds: ids);
+      final removingAdapter = ChatUiAdapter(client: removing, currentUser: me);
+      removingAdapter.start();
+      addTearDown(() async {
+        await removingAdapter.dispose();
+        await base.dispose();
+      });
+
+      await tester.pumpWidget(
+        wrap(
+          GroupMembersView(
+            adapter: removingAdapter,
+            roomId: 'r1',
+            currentUserRole: RoomRole.admin,
+            displayNameResolver: names,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final manageTooltip = find.ancestor(
+        of: find.byIcon(Icons.more_vert, skipOffstage: false).first,
+        matching: find.byType(Tooltip, skipOffstage: false),
+      );
+      final before = tester.state<TooltipState>(manageTooltip);
+
+      await tester.tap(find.byIcon(Icons.more_vert).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.removeMember));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(l10n.removeMember).last);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Alice'), findsNothing);
+      expect(find.text('Alice', skipOffstage: false), findsOneWidget);
+      expect(
+        identical(tester.state<TooltipState>(manageTooltip), before),
+        isTrue,
+      );
+    });
+  });
+
   group('GroupMembersView — pagination for large groups', () {
     const viewer = ChatUser(id: 'me', displayName: 'Me');
     late MockChatClient baseClient;
@@ -414,6 +468,27 @@ void main() {
     tearDown(() async {
       await pagingAdapter.dispose();
       await baseClient.dispose();
+    });
+
+    testWidgets('a failed roster load shows localized copy, never the raw '
+        'failure', (tester) async {
+      pagingMembers.listFails = true;
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            pageSize: 5,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
     });
 
     testWidgets('requests only pageSize members on first load', (tester) async {
@@ -459,6 +534,34 @@ void main() {
       expect(pagingMembers.listCallCount, 2);
       expect(pagingMembers.receivedPagination[1]?.offset, 5);
       expect(find.byType(ListTile), findsNWidgets(11));
+    });
+
+    testWidgets('a failed load-more keeps the roster and notices in localized '
+        'copy, never the raw failure', (tester) async {
+      await tester.pumpWidget(
+        wrapPaging(
+          GroupMembersView(
+            adapter: pagingAdapter,
+            roomId: 'big',
+            currentUserRole: RoomRole.member,
+            embedded: true,
+            pageSize: 5,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(6));
+      pagingMembers.listFails = true;
+
+      await tester.tap(find.text(ChatTheme.defaults.l10n.loadMore));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ListTile), findsNWidgets(6));
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
     });
 
     testWidgets('load-more row disappears once every member has been fetched', (

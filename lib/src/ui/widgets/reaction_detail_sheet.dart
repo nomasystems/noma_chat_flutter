@@ -4,6 +4,13 @@ import '../models/reaction_user.dart';
 import '../theme/chat_theme.dart';
 import 'user_avatar.dart';
 
+/// Name the "remove my reaction" control of one emoji answers to, both as its
+/// `ValueKey` and as its `Semantics(identifier:)`. Scoped by emoji, like
+/// `chat_reaction_<emoji>` and `chat_reaction_picker_<emoji>`: the sheet lists
+/// one row per reaction the current user left, so a single flat name would be
+/// published as many times as they reacted.
+String reactionRemoveSemanticsId(String emoji) => 'chat_reaction_remove_$emoji';
+
 /// Signature for a custom presenter of the reaction detail sheet. Receives the
 /// already-built content widget and is responsible for displaying it in the
 /// host app's preferred bottom sheet style. When `null`, [ReactionDetailSheet]
@@ -37,13 +44,10 @@ class ReactionDetailSheet {
     if (sheetBuilder != null) {
       return sheetBuilder(context, content);
     }
-    return showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
+    return theme.showSheet<void>(
+      context,
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      useRootNavigator: false,
       builder: (_) => content,
     );
   }
@@ -83,7 +87,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
   List<AggregatedReaction>? _reactions;
   Map<String, ReactionUser> _resolvedUsers = {};
   bool _loading = true;
-  String? _error;
+  bool _failed = false;
   TabController? _tabController;
 
   @override
@@ -114,17 +118,17 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
         try {
           resolved.addAll(await batchFetcher(userIds));
         } catch (_) {
-          // Fall through — ids missing below get the id-as-name fallback.
+          // Fall through — ids missing below stay unnamed.
         }
         for (final id in userIds) {
-          resolved.putIfAbsent(id, () => ReactionUser(id: id, displayName: id));
+          resolved.putIfAbsent(id, () => ReactionUser(id: id, displayName: ''));
         }
       } else {
         final futures = userIds.map((id) async {
           try {
             resolved[id] = await widget.userFetcher(id);
           } catch (_) {
-            resolved[id] = ReactionUser(id: id, displayName: id);
+            resolved[id] = ReactionUser(id: id, displayName: '');
           }
         });
         await Future.wait(futures);
@@ -139,10 +143,10 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
         _resolvedUsers = resolved;
         _loading = false;
       });
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _failed = true;
         _loading = false;
       });
     }
@@ -159,12 +163,12 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
       );
     }
 
-    if (_error != null || _reactions == null) {
+    if (_failed || _reactions == null) {
       return SizedBox(
         height: height,
         child: Center(
           child: Text(
-            _error ?? widget.theme.l10nOf(context).error,
+            widget.theme.l10nOf(context).loadFailed,
             style: TextStyle(color: Theme.of(context).colorScheme.error),
           ),
         ),
@@ -179,7 +183,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
           _UserWithEmoji(
             user:
                 _resolvedUsers[userId] ??
-                ReactionUser(id: userId, displayName: userId),
+                ReactionUser(id: userId, displayName: ''),
             emoji: r.emoji,
           ),
         );
@@ -218,7 +222,7 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
                         (id) => _UserWithEmoji(
                           user:
                               _resolvedUsers[id] ??
-                              ReactionUser(id: id, displayName: id),
+                              ReactionUser(id: id, displayName: ''),
                           emoji: r.emoji,
                         ),
                       )
@@ -260,6 +264,8 @@ class _ReactionDetailContentState extends State<ReactionDetailContent>
               if (isCurrentUser) ...[
                 const SizedBox(width: 8),
                 Semantics(
+                  key: ValueKey(reactionRemoveSemanticsId(item.emoji)),
+                  identifier: reactionRemoveSemanticsId(item.emoji),
                   label: widget.theme.l10nOf(context).removeReaction,
                   button: true,
                   child: IconButton(

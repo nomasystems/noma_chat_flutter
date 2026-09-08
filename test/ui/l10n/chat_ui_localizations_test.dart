@@ -94,6 +94,7 @@ void main() {
         ChatUiLocalizations.de: 'de',
         ChatUiLocalizations.it: 'it',
         ChatUiLocalizations.pt: 'pt',
+        ChatUiLocalizations.ca: 'ca',
       };
       for (final entry in locales.entries) {
         final l10n = entry.key;
@@ -339,6 +340,14 @@ void main() {
       expect(ChatUiLocalizations.pt.lastSeen('X'), 'visto por último há X');
     });
 
+    test('ca has its own lastSeen translation', () {
+      expect(
+        ChatUiLocalizations.ca.lastSeen('X'),
+        isNot(ChatUiLocalizations.en.lastSeen('X')),
+      );
+      expect(ChatUiLocalizations.ca.lastSeen('X'), 'última vegada fa X');
+    });
+
     test('copyWith overrides lastSeenTemplate', () {
       final l10n = ChatUiLocalizations.en.copyWith(
         lastSeenTemplate: 'seen {time} ago',
@@ -394,6 +403,44 @@ void main() {
       expect(l10n.loadMore, 'Načíst další');
     });
 
+    test('every full-tier locale translates the accessibility retry action '
+        'and the generic load-failure copy', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(l10n.retry, isNot('Retry'));
+        expect(l10n.loadFailed, isNot('Could not load'));
+        expect(l10n.saveFailed, isNot('Could not save changes'));
+        expect(l10n.createGroupFailed, isNot('Could not create the group'));
+      }
+    });
+
+    test(
+      'the load-failure copy is overridable through both plumbing paths',
+      () {
+        expect(
+          ChatUiLocalizations.en.copyWith(loadFailed: 'X').loadFailed,
+          'X',
+        );
+        expect(ChatUiLocalizations.override(loadFailed: 'X'), isNotNull);
+        expect(
+          ChatUiLocalizations.en.copyWith(saveFailed: 'X').saveFailed,
+          'X',
+        );
+        expect(
+          ChatUiLocalizations.en
+              .copyWith(createGroupFailed: 'X')
+              .createGroupFailed,
+          'X',
+        );
+      },
+    );
+
     test('every full-tier locale translates the upload labels', () {
       for (final l10n in [
         ChatUiLocalizations.es,
@@ -432,6 +479,61 @@ void main() {
         expect(
           l10n.blockedInRoomNotice,
           isNot('You blocked someone in this chat'),
+        );
+      }
+    });
+
+    test('every one of the twelve locales translates the message-info send '
+        'line and the reply-quote semantics label', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+        ChatUiLocalizations.sv,
+        ChatUiLocalizations.no,
+        ChatUiLocalizations.da,
+        ChatUiLocalizations.pl,
+        ChatUiLocalizations.cs,
+      ]) {
+        final reason = l10n.localeCode;
+        expect(
+          l10n.messageSentAtTemplate,
+          isNot(ChatUiLocalizations.en.messageSentAtTemplate),
+          reason: reason,
+        );
+        expect(l10n.messageSentAtTemplate, contains('{time}'), reason: reason);
+        expect(
+          l10n.messageSentNoReceiptsTemplate,
+          isNot(ChatUiLocalizations.en.messageSentNoReceiptsTemplate),
+          reason: reason,
+        );
+        expect(
+          l10n.messageSentNoReceiptsTemplate,
+          contains('{time}'),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsTemplate,
+          isNot(ChatUiLocalizations.en.replyQuoteSemanticsTemplate),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsTemplate,
+          allOf(contains('{sender}'), contains('{quote}')),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsNoSenderTemplate,
+          isNot(ChatUiLocalizations.en.replyQuoteSemanticsNoSenderTemplate),
+          reason: reason,
+        );
+        expect(
+          l10n.replyQuoteSemanticsNoSenderTemplate,
+          contains('{quote}'),
+          reason: reason,
         );
       }
     });
@@ -501,6 +603,118 @@ void main() {
 
     test('forLanguageCode falls back to en for an unsupported code', () {
       expect(ChatUiLocalizations.forLanguageCode('xx'), ChatUiLocalizations.en);
+    });
+  });
+
+  group('ChatUiLocalizations — empty-state copy', () {
+    test('searchPromptTooShort substitutes the minimum it is given', () {
+      expect(
+        ChatUiLocalizations.en.searchPromptTooShort(2),
+        'Type at least 2 characters',
+      );
+      expect(
+        ChatUiLocalizations.en.searchPromptTooShort(5),
+        'Type at least 5 characters',
+      );
+    });
+
+    test('every locale that translates the opening search prompt also '
+        'translates the too-short one', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(
+          l10n.searchPromptEmpty,
+          isNot(ChatUiLocalizations.en.searchPromptEmpty),
+        );
+        expect(
+          l10n.searchPromptTooShortTemplate,
+          isNot(ChatUiLocalizations.en.searchPromptTooShortTemplate),
+          reason: l10n.localeCode,
+        );
+        expect(l10n.searchPromptTooShort(3), contains('3'));
+      }
+    });
+
+    test('a gallery subtitle is translated exactly where its own title is', () {
+      for (final l10n in [
+        ChatUiLocalizations.es,
+        ChatUiLocalizations.fr,
+        ChatUiLocalizations.de,
+        ChatUiLocalizations.it,
+        ChatUiLocalizations.pt,
+        ChatUiLocalizations.ca,
+      ]) {
+        expect(
+          l10n.noMediaSubtitle,
+          isNot(ChatUiLocalizations.en.noMediaSubtitle),
+        );
+        expect(
+          l10n.galleryNoDocsSubtitle,
+          isNot(ChatUiLocalizations.en.galleryNoDocsSubtitle),
+          reason: l10n.localeCode,
+        );
+        expect(
+          l10n.galleryNoLinksSubtitle,
+          isNot(ChatUiLocalizations.en.galleryNoLinksSubtitle),
+          reason: l10n.localeCode,
+        );
+      }
+
+      // The Nordic + Eastern-EU tier translates `noMedia` but not the docs /
+      // links titles, so its subtitles follow the same split: a translated
+      // subtitle under an English title would read worse than neither.
+      for (final l10n in [
+        ChatUiLocalizations.sv,
+        ChatUiLocalizations.no,
+        ChatUiLocalizations.da,
+        ChatUiLocalizations.pl,
+        ChatUiLocalizations.cs,
+      ]) {
+        expect(l10n.noMedia, isNot(ChatUiLocalizations.en.noMedia));
+        expect(
+          l10n.noMediaSubtitle,
+          isNot(ChatUiLocalizations.en.noMediaSubtitle),
+          reason: l10n.localeCode,
+        );
+        expect(l10n.galleryNoDocs, ChatUiLocalizations.en.galleryNoDocs);
+        expect(
+          l10n.galleryNoDocsSubtitle,
+          ChatUiLocalizations.en.galleryNoDocsSubtitle,
+          reason: l10n.localeCode,
+        );
+        expect(
+          l10n.galleryNoLinksSubtitle,
+          ChatUiLocalizations.en.galleryNoLinksSubtitle,
+          reason: l10n.localeCode,
+        );
+      }
+    });
+
+    test('the new keys are overridable through both plumbing paths', () {
+      final copy = ChatUiLocalizations.en.copyWith(
+        noMediaSubtitle: 'A',
+        galleryNoDocsSubtitle: 'B',
+        galleryNoLinksSubtitle: 'C',
+        searchPromptTooShortTemplate: 'D {count}',
+      );
+      expect(copy.noMediaSubtitle, 'A');
+      expect(copy.galleryNoDocsSubtitle, 'B');
+      expect(copy.galleryNoLinksSubtitle, 'C');
+      expect(copy.searchPromptTooShort(7), 'D 7');
+
+      final delegate = ChatUiLocalizations.override(
+        noMediaSubtitle: 'A',
+        galleryNoDocsSubtitle: 'B',
+        galleryNoLinksSubtitle: 'C',
+        searchPromptTooShortTemplate: 'D {count}',
+      );
+      expect(delegate, isNotNull);
     });
   });
 }

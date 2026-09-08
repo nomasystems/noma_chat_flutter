@@ -74,7 +74,7 @@ class ReadReceiptAvatars extends StatelessWidget {
               '+$overflow',
               style: TextStyle(
                 fontSize: avatarSize * 0.7,
-                color: Colors.grey.shade600,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
             ),
           ),

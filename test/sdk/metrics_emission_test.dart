@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_advanced.dart';
-import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/cache/offline_queue.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 import 'package:noma_chat/src/_internal/transport/ws_transport.dart';
@@ -28,7 +27,14 @@ class _CaptureMetrics {
 }
 
 class _FakeWebSocketChannel implements WebSocketChannel {
+  _FakeWebSocketChannel() {
+    _streamController.onListen = _flushPending;
+  }
+
   final _streamController = StreamController<dynamic>.broadcast();
+
+  final _pending = <String>[];
+
   // ignore: close_sinks
   final _sinkController = StreamController<dynamic>();
   @override
@@ -53,7 +59,25 @@ class _FakeWebSocketChannel implements WebSocketChannel {
   @override
   dynamic noSuchMethod(Invocation invocation) => null;
 
-  void receiveMessage(String message) => _streamController.add(message);
+  void _flushPending() {
+    if (_pending.isEmpty) return;
+    final queued = List<String>.of(_pending);
+    _pending.clear();
+    scheduleMicrotask(() {
+      for (final message in queued) {
+        if (_streamController.isClosed) return;
+        _streamController.add(message);
+      }
+    });
+  }
+
+  void receiveMessage(String message) {
+    if (!_streamController.hasListener) {
+      _pending.add(message);
+      return;
+    }
+    _streamController.add(message);
+  }
 
   Future<void> simulateDrop({int? closeCode, String? reason}) async {
     _closeCode = closeCode;

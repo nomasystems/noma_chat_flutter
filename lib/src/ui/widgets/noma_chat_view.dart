@@ -25,6 +25,7 @@ import '../models/attachment_rejection.dart';
 import '../models/camera_capture_result.dart';
 import '../models/reaction_user.dart';
 import '../models/room_list_item.dart';
+import '../pages/attachment_review_page.dart';
 import '../pages/camera_capture_page.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_url_resolver.dart';
@@ -42,6 +43,9 @@ import 'message_context_menu.dart';
 import 'message_info_sheet.dart';
 import 'operation_feedback_listener.dart';
 import 'report_message_dialog.dart';
+
+part 'noma_chat_view_media.dart';
+part 'noma_chat_view_wiring.dart';
 
 /// Signature for [NomaChatView.appBarBuilder] — builds the screen's app bar
 /// from the live [room] (may be `null` before the room list resolves it) and
@@ -241,6 +245,12 @@ class _NomaChatViewState extends State<NomaChatView>
   String? _unreadBoundaryMessageId;
   String? _seededInitialMessageId;
   bool _autoLeft = false;
+  // Latched the first time a session teardown is observed. The controllers
+  // this view paints are disposed as part of that teardown and never come
+  // back, so the placeholder has to survive the wipe itself: a rebuild that
+  // arrives afterwards — a parent rebuilding, a changed title, a rotation —
+  // would otherwise hand `ChatView` a dead notifier to listen to.
+  bool _sessionTornDown = false;
 
   // The local user's own row in the room's receipt list — the read cursor
   // the divider is anchored on. `null` once resolved means the server had
@@ -258,6 +268,7 @@ class _NomaChatViewState extends State<NomaChatView>
   void initState() {
     super.initState();
     _bind();
+    _probeOwnAvatar();
   }
 
   @override
@@ -318,10 +329,16 @@ class _NomaChatViewState extends State<NomaChatView>
 
     // Pre-fetch the DM peer so the app bar avatar resolves on first build.
     final roomItem = adapter.roomListController.getRoomById(widget.roomId);
-    // Pin the group/1:1 decision before member hydration runs so receipt
-    // aggregation never collapses a group to 1:1 while its member list loads.
     if (roomItem != null) {
+      _roomWasListed = true;
+      // Pin the group/1:1 decision before member hydration runs so receipt
+      // aggregation never collapses a group to 1:1 while its member list
+      // loads. The negative answer is only pinned here, on bind, where it is
+      // the starting assumption: a row rebuilt without its detail reports
+      // `isGroup: false` for a group it simply has not learned about yet, so
+      // only [_pinRoomFacts]' positive re-affirmation may follow it.
       controller.setIsGroup(roomItem.isGroup);
+      _pinRoomFacts(roomItem);
     }
     // A draft DM has no room-list entry yet, so `roomItem` is null and the
     // AppBar avatar renders as a "?" placeholder. Fall back to the draft
@@ -346,6 +363,53 @@ class _NomaChatViewState extends State<NomaChatView>
     if (widget.hydrateGroupMembers) {
       unawaited(_seedGroupMembers());
     }
+  }
+
+  /// Pins the room's group-ness, reported member count and remembered peer
+  /// onto the controller.
+  ///
+  /// Together they are what lets a room with nobody else in it be
+  /// recognised as such ([ChatController.isSelfConversation]) on a host that
+  /// never lists members at all — `hydrateGroupMembers: false` — where the
+  /// roster is the one piece of evidence that never arrives. The count alone
+  /// is not enough: a DM whose peer signed out or deleted their account is
+  /// dropped from the room's member lists and reports a single member too,
+  /// and only the peer the row still names tells the two apart. Neither term
+  /// covers a group the user is alone in, which reports one member and names
+  /// no peer because a group has none — only its group-ness separates it from
+  /// the user's own room.
+  ///
+  /// Re-applied on every room-list notification, not only on bind: a room
+  /// opened before its detail landed carries no count yet, and reports
+  /// `isGroup: false` for a group it has not learned about either. A row with
+  /// no count and no peer leaves the last ones alone, and group-ness is
+  /// re-affirmed in one direction only — `false` is absence of evidence, so a
+  /// later detail may add the group but a detail-less row may never take one
+  /// away. This can therefore only ever add evidence.
+  void _pinRoomFacts(RoomListItem room) {
+    final controller = _controller;
+    if (controller == null) return;
+    if (room.isGroup) controller.setIsGroup(true);
+    controller
+      ..setMemberCount(room.memberCount)
+      ..setRememberedPeerId(room.otherUserId);
+  }
+
+  /// The local user's own face is painted inside their own voice notes, and
+  /// nowhere else — so nothing else ever noticed that the snapshot the host
+  /// handed over at sign-in carries no avatarUrl when it sets the photo
+  /// through its own backend, and the note came out with initials for an
+  /// account that plainly has one.
+  ///
+  /// Asked for after the first frame, not during [_bind]: the answer lands
+  /// in the shared user cache, whose notification the room list forwards,
+  /// and nothing about painting a face should run before the room the user
+  /// asked for is on screen.
+  void _probeOwnAvatar() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      unawaited(widget.adapter.ensureCurrentUserAvatar());
+    });
   }
 
   // Ceiling on the receipts round trip. The divider waits on it, so a call
@@ -410,20 +474,49 @@ class _NomaChatViewState extends State<NomaChatView>
     fallbackUnreadCount: _initialUnreadCount,
   );
 
+  /// Whether the room list has ever carried this room. See
+  /// [_onRoomListChanged].
+  bool _roomWasListed = false;
+
   void _onRoomListChanged() {
     if (!mounted) return;
+    // A session teardown empties the list and disposes the controllers behind
+    // it in the same breath, so this notification is the last one that can
+    // still be trusted to describe rooms. Rebuilding on it paints the view
+    // against a ChatController that is already gone. Recorded, not just
+    // skipped: the flag outlives the wipe, which `disconnect` and [signOut]
+    // both lower again on their way out.
+    if (widget.adapter.isTearingDown) {
+      _sessionTornDown = true;
+      return;
+    }
     setState(() {});
     if (_autoLeft) return;
     final roomId = _controller?.roomId;
     if (roomId == null) return;
-    final stillExists =
-        widget.adapter.roomListController.getRoomById(roomId) != null;
-    if (stillExists) return;
+    final row = widget.adapter.roomListController.getRoomById(roomId);
+    if (row != null) {
+      _roomWasListed = true;
+      _pinRoomFacts(row);
+      return;
+    }
+    // A room the list has NEVER carried has not been removed — it has not
+    // arrived yet. Leaving on that threw the user straight back out of a
+    // room opened by id (a push notification, a deep link) whenever any
+    // unrelated write notified the list first: `cacheUsers` forwards every
+    // avatar or display name it learns through `notifyMembersChanged`.
+    if (!_roomWasListed) return;
     _leaveRoom();
   }
 
   void _leaveRoom() {
     if (_autoLeft || !mounted) return;
+    // A session teardown empties the room list too, and from here that looks
+    // exactly like the room being removed. Leaving on it fired the host's
+    // "this conversation is no longer available" flow *after* the logout had
+    // already navigated away, stranding a modal on top of the next screen —
+    // and left this view rebuilding against an adapter that was already gone.
+    if (widget.adapter.isTearingDown) return;
     // Mark immediately so re-entrant triggers (the room-list notify and the
     // onRoomRemoved callback fire back-to-back inside one WS event dispatch)
     // collapse to a single leave.
@@ -437,6 +530,10 @@ class _NomaChatViewState extends State<NomaChatView>
     // on a clean tree.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      // Re-checked after the frame: a teardown that starts between the
+      // removal and the callback would otherwise hand the host a leave for a
+      // session it has already torn down.
+      if (widget.adapter.isTearingDown) return;
       if (widget.onRoomLeft != null) {
         widget.onRoomLeft!();
       } else {
@@ -458,6 +555,11 @@ class _NomaChatViewState extends State<NomaChatView>
       if (!mounted) return;
       final paginated = result.dataOrNull;
       if (paginated == null) return;
+      adapter.recordRoomRoster(
+        widget.roomId,
+        paginated.items.map((m) => m.userId),
+        complete: !paginated.hasMore,
+      );
       final selfId = adapter.currentUser.id;
       final memberIds = <String>[
         for (final m in paginated.items)
@@ -506,41 +608,6 @@ class _NomaChatViewState extends State<NomaChatView>
   RoomListItem? get _room {
     final roomId = _controller?.roomId ?? widget.roomId;
     return widget.adapter.roomListController.getRoomById(roomId);
-  }
-
-  /// Default role-aware context-menu actions. `pin` is hidden when the
-  /// current user lacks permission (owner/admin in any room; either member in
-  /// a 2-person DM) so a tap never triggers a 403.
-  ///
-  /// `forward` is absent on purpose: picking the target rooms is a product
-  /// decision the package cannot make for the host, so the tile would open
-  /// the menu, close it and do nothing. A host that wires it adds it back
-  /// through [contextMenuActionsResolver] —
-  /// `(room, defaults) => {...defaults, MessageAction.forward}` — and
-  /// handles it in `ChatViewCallbacks.onContextMenuAction`, typically by
-  /// showing `MessageForwardSheet` and calling `adapter.messages.forward`,
-  /// whose confirmation snackbar the bundled [OperationFeedbackListener]
-  /// then shows on its own.
-  Set<MessageAction> _defaultContextMenuActions(RoomListItem? room) {
-    final role = room?.userRole;
-    final isAdminOrOwner = role == RoomRole.owner || role == RoomRole.admin;
-    final isGroup = room?.isGroup == true;
-    final isTwoMemberDm = !isGroup && (room?.memberCount ?? 0) == 2;
-    final canPin = isAdminOrOwner || isTwoMemberDm;
-    return {
-      MessageAction.reply,
-      MessageAction.copy,
-      MessageAction.edit,
-      MessageAction.delete,
-      MessageAction.deleteForMe,
-      MessageAction.discardFailed,
-      MessageAction.react,
-      if (canPin) MessageAction.pin,
-      if (canPin) MessageAction.unpin,
-      // Private per-user bookmark — available on any message.
-      MessageAction.star,
-      MessageAction.report,
-    };
   }
 
   /// The built-in "edit this message" callback.
@@ -626,489 +693,6 @@ class _NomaChatViewState extends State<NomaChatView>
     await adapter.messages.delete(sendKey, message.id);
   };
 
-  Future<ReactionUser> _defaultUserFetcher(String userId) async {
-    final adapter = widget.adapter;
-    final cached = adapter.findCachedUser(userId);
-    if (cached != null) {
-      return ReactionUser(
-        id: userId,
-        displayName: cached.displayName ?? userId,
-        avatarUrl: cached.avatarUrl,
-      );
-    }
-    final fetched = await adapter.client.users.get(userId);
-    final user = fetched.dataOrNull;
-    if (user != null) {
-      adapter.cacheUsers([user]);
-      return ReactionUser(
-        id: user.id,
-        displayName: user.displayName ?? user.id,
-        avatarUrl: user.avatarUrl,
-      );
-    }
-    return ReactionUser(id: userId, displayName: userId);
-  }
-
-  Future<void> _defaultReport(ChatMessage message) async {
-    final adapter = widget.adapter;
-    final roomId = _controller?.roomId ?? widget.roomId;
-    final reason = await ReportMessageDialog.show(
-      context,
-      theme: _theme,
-      reasonHint: widget.reportReasonHint,
-    );
-    if (reason == null || reason.isEmpty || !mounted) return;
-    await adapter.client.messages.report(roomId, message.id, reason: reason);
-    if (!mounted) return;
-    showNotice(noticeL10n.reported);
-  }
-
-  Future<void> _showMessageInfo(String roomId, ChatMessage message) async {
-    final adapter = widget.adapter;
-    await MessageInfoSheet.show(
-      context,
-      message: message,
-      currentUserId: adapter.currentUser.id,
-      loadReceipts: () async =>
-          (await adapter.messages.loadReceipts(roomId)).dataOrNull ?? const [],
-      displayNameFor: adapter.displayNameFor,
-      theme: _theme,
-    );
-  }
-
-  ChatViewBuilders _resolveBuilders() {
-    final adapter = widget.adapter;
-    final user = widget.builders ?? const ChatViewBuilders();
-    return ChatViewBuilders(
-      contextMenuBuilder: user.contextMenuBuilder,
-      reactionDetailSheetBuilder: user.reactionDetailSheetBuilder,
-      avatarBuilder: user.avatarBuilder,
-      systemMessageTextResolver: user.systemMessageTextResolver,
-      systemMessageBuilder: user.systemMessageBuilder,
-      headerBuilder: user.headerBuilder,
-      blockedBannerBuilder: user.blockedBannerBuilder,
-      notParticipatingBannerBuilder: user.notParticipatingBannerBuilder,
-      audioUploadProgressFor: user.audioUploadProgressFor,
-      attachmentUploadProgressFor:
-          user.attachmentUploadProgressFor ??
-          adapter.attachmentUploadProgressFor,
-      attachmentUploadCancellableFor:
-          user.attachmentUploadCancellableFor ??
-          adapter.attachmentUploadCancellableFor,
-      linkPreviewFetcher: user.linkPreviewFetcher,
-      displayNameResolver:
-          user.displayNameResolver ??
-          (id) {
-            final resolved = adapter.displayNameFor(id);
-            return resolved == id ? null : resolved;
-          },
-      avatarUrlResolver:
-          user.avatarUrlResolver ??
-          (id) => adapter.findCachedUser(id)?.avatarUrl,
-      avatarRebuildSignal:
-          user.avatarRebuildSignal ?? adapter.userCacheListenable,
-      userFetcher: user.userFetcher ?? _defaultUserFetcher,
-      batchUserFetcher: user.batchUserFetcher,
-      attachmentUrlResolver:
-          user.attachmentUrlResolver ?? adapter.defaultAttachmentUrlResolver,
-      attachmentMediaLoader:
-          user.attachmentMediaLoader ?? adapter.defaultAttachmentMediaLoader,
-      videoPreviewBuilder: user.videoPreviewBuilder,
-      blockedMessageBuilder: user.blockedMessageBuilder,
-      emptyRoomBuilder: user.emptyRoomBuilder,
-    );
-  }
-
-  ChatViewCallbacks _resolveCallbacks({
-    required String sendKey,
-    required bool isBlocked,
-    String? blockOtherUserId,
-  }) {
-    final adapter = widget.adapter;
-    final user = widget.callbacks ?? const ChatViewCallbacks();
-    return ChatViewCallbacks(
-      onMessageLongPress: user.onMessageLongPress,
-      onTapVideo: user.onTapVideo,
-      onTapFile:
-          user.onTapFile ??
-          (msg) async {
-            final url = msg.attachmentUrl;
-            if (url == null || url.isEmpty) return;
-            // Re-mint through the same resolver Audio/Image/Video bubbles
-            // use before downloading — `url` may be a signed link that has
-            // since expired (the SDK persists the mint-time URL verbatim
-            // on `ChatMessage.attachmentUrl`).
-            final resolver =
-                widget.builders?.attachmentUrlResolver ??
-                adapter.defaultAttachmentUrlResolver;
-            final resolvedUrl = await resolver(
-              AttachmentRef(
-                roomId: sendKey,
-                attachmentId: msg.attachmentId,
-                fallbackUrl: url,
-              ),
-            );
-            await openAttachmentFile(
-              client: adapter.client,
-              url: resolvedUrl,
-              fileName: msg.fileName,
-              mimeType: msg.mimeType,
-              logger: adapter.logger,
-            );
-          },
-      onTapLocation: user.onTapLocation,
-      onTapLink: user.onTapLink,
-      onTapMention: user.onTapMention,
-      onShareLocation: user.onShareLocation,
-      onAttachTap: user.onAttachTap,
-      onPermissionDenied: user.onPermissionDenied,
-      canStartRecording: user.canStartRecording,
-      onRecordingRejected: user.onRecordingRejected,
-      onTapImage:
-          user.onTapImage ?? (msg) => _openImageViewer(context, sendKey, msg),
-      onUnblock:
-          user.onUnblock ??
-          (isBlocked && blockOtherUserId != null
-              ? () => adapter.contacts.unblock(blockOtherUserId)
-              : null),
-      onVoicePlayed: (message, durationMs, firstListen) {
-        adapter.emitAnalyticsEvent(
-          ChatAnalyticsEvent.voicePlayed(
-            roomId: sendKey,
-            messageId: message.id,
-            durationMs: durationMs,
-            firstListen: firstListen,
-          ),
-        );
-        user.onVoicePlayed?.call(message, durationMs, firstListen);
-      },
-      onSendMessageRequest:
-          user.onSendMessageRequest ??
-          (req) {
-            unawaited(
-              adapter.messages.send(
-                sendKey,
-                text: req.text,
-                metadata: req.metadata,
-                referencedMessageId: req.replyTo?.id,
-                messageType: req.replyTo != null
-                    ? MessageType.reply
-                    : MessageType.regular,
-              ),
-            );
-            // Taken, not delivered: the send raises its optimistic row
-            // before it touches the network, so the text is on screen from
-            // here on. A failure downgrades that row to "failed" with its
-            // own retry — handing the wording back to the composer as well
-            // would put it in two places at once.
-            return true;
-          },
-      onEditMessage: user.onEditMessage ?? _defaultEdit(sendKey),
-      onDeleteMessage: user.onDeleteMessage ?? _defaultDelete(sendKey),
-      onDiscardFailedMessage:
-          user.onDiscardFailedMessage ??
-          (message) => adapter.messages.discardFailed(sendKey, message.id),
-      onReactionSelected:
-          user.onReactionSelected ??
-          (message, emoji) => adapter.messages.sendReaction(
-            sendKey,
-            messageId: message.id,
-            emoji: emoji,
-          ),
-      onDeleteReaction:
-          user.onDeleteReaction ??
-          (message, emoji) => adapter.messages.deleteReaction(
-            sendKey,
-            messageId: message.id,
-            emoji: emoji,
-          ),
-      onLoadMoreMessages:
-          user.onLoadMoreMessages ?? () => adapter.messages.loadMore(sendKey),
-      onTypingChanged:
-          user.onTypingChanged ??
-          (isTyping) =>
-              adapter.messages.sendTyping(sendKey, isTyping: isTyping),
-      onVoiceMessageReady:
-          user.onVoiceMessageReady ??
-          (data) => adapter.messages.sendVoice(
-            sendKey,
-            audioBytes: data.audioBytes,
-            mimeType: data.mimeType,
-            duration: data.duration,
-            waveform: data.waveform,
-          ),
-      onPickCamera:
-          user.onPickCamera ??
-          (PlatformSupport.supportsInAppCameraCapture
-              ? () => _captureAndSend(sendKey)
-              : PlatformSupport.supportsCameraCapture
-              ? () => _pickAndSendImage(sendKey, fromCamera: true)
-              : null),
-      onPickGallery:
-          user.onPickGallery ??
-          () => _pickAndSendImage(sendKey, fromCamera: false),
-      onPickFile: user.onPickFile ?? () => _pickAndSendFile(sendKey),
-      onFetchReactions:
-          user.onFetchReactions ??
-          (messageId) async {
-            final result = await adapter.client.messages.getReactions(
-              sendKey,
-              messageId,
-            );
-            return result.dataOrNull ?? const <AggregatedReaction>[];
-          },
-      onRetryMessage:
-          user.onRetryMessage ??
-          (message) => adapter.messages.retrySend(sendKey, message.id),
-      onCancelAttachmentUpload:
-          user.onCancelAttachmentUpload ??
-          (message) => adapter.cancelAttachmentUpload(message.id),
-      onReportMessage: user.onReportMessage ?? _defaultReport,
-      onContextMenuAction: (message, action) {
-        switch (action) {
-          case MessageAction.pin:
-            adapter.messages.pin(sendKey, message.id);
-          case MessageAction.unpin:
-            adapter.messages.unpin(sendKey, message.id);
-          case MessageAction.star:
-            adapter.messages.star(sendKey, message.id);
-          case MessageAction.unstar:
-            adapter.messages.unstar(sendKey, message.id);
-          case MessageAction.deleteForMe:
-            adapter.messages.deleteLocally(sendKey, message.id);
-          case MessageAction.info:
-            unawaited(_showMessageInfo(sendKey, message));
-          default:
-            break;
-        }
-        user.onContextMenuAction?.call(message, action);
-      },
-    );
-  }
-
-  /// Default `onTapImage`: opens the built-in full-screen viewer wired to
-  /// the same authenticated media loader the bubbles render through.
-  /// Handing [ImageViewer] only the URL is not enough — attachment
-  /// downloads are Bearer-protected and a plain `CachedNetworkImage`
-  /// gets a 401, so the viewer would show the broken-image fallback while
-  /// the bubble behind it displayed the photo fine.
-  void _openImageViewer(
-    BuildContext context,
-    String roomId,
-    ChatMessage message,
-  ) {
-    final url = message.attachmentUrl;
-    if (url == null || url.isEmpty) return;
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => ImageViewer(
-          imageUrl: url,
-          theme: _theme,
-          mediaLoader:
-              widget.builders?.attachmentMediaLoader ??
-              widget.adapter.defaultAttachmentMediaLoader,
-          attachmentRef: AttachmentRef(
-            roomId: roomId,
-            attachmentId: message.attachmentId,
-            fallbackUrl: url,
-          ),
-        ),
-      ),
-    );
-  }
-
-  AttachmentPolicy get _attachmentPolicy =>
-      widget.attachmentPolicy ?? NomaChatView.defaultAttachmentPolicy;
-
-  void _reportAttachmentRejected(AttachmentRejection rejection) {
-    if (!mounted) return;
-    final l10n = noticeL10n;
-    showNotice(switch (rejection.reason) {
-      AttachmentRejectReason.tooLarge => l10n.attachmentTooLarge,
-      AttachmentRejectReason.mimeNotAllowed => l10n.attachmentTypeNotAllowed,
-      AttachmentRejectReason.unreadable => l10n.attachmentUnreadable,
-    });
-  }
-
-  /// Default `onPickCamera` wherever the SDK ships its own capture screen.
-  /// Preferred over `image_picker`'s system camera because the composer's
-  /// Camera row has to do both jobs — tap for a still, hold for a clip —
-  /// and `image_picker` can only hand back one or the other, chosen before
-  /// the user ever sees a viewfinder.
-  ///
-  /// What comes back has already been confirmed on the capture screen's own
-  /// review step, so this method only ever sees shots the user chose to
-  /// send: a retake or a discard resolves to `null` here.
-  ///
-  /// [ChatViewBuilders.videoPreviewBuilder] rides along so a host can keep
-  /// `video_player` out of its build — this is the only path that reaches
-  /// the review step's clip preview.
-  Future<void> _captureAndSend(String sendKey) async {
-    final shot = await CameraCapturePage.show(
-      context: context,
-      theme: _theme,
-      videoPreviewBuilder: widget.builders?.videoPreviewBuilder,
-    );
-    if (shot == null) return;
-    try {
-      if (!mounted) return;
-      final policy = _attachmentPolicy;
-      final violation = policy.validate(
-        mimeType: shot.mimeType,
-        sizeBytes: await shot.file.length(),
-      );
-      if (!mounted) return;
-      if (violation != null) {
-        _reportAttachmentRejected(
-          AttachmentRejection.fromPolicyViolation(
-            violation,
-            fileName: shot.fileName,
-          ),
-        );
-        return;
-      }
-      // Same metadata pass every other picked image gets: a photo shot with
-      // location services on carries GPS coordinates in its EXIF block.
-      final bytes = await ImageMetadataScrubber.scrub(
-        await shot.file.readAsBytes(),
-        onMetric: widget.adapter.metricCallback,
-      );
-      if (!mounted) return;
-      await widget.adapter.messages.sendAttachment(
-        sendKey,
-        bytes: bytes,
-        mimeType: shot.mimeType,
-        fileName: shot.fileName,
-        policy: policy,
-      );
-    } finally {
-      // The capture screen writes to the app cache and nothing else ever
-      // collects it, so a rejected clip would sit there at full size forever.
-      unawaited(_discardCapture(shot));
-    }
-  }
-
-  Future<void> _discardCapture(CameraCaptureResult shot) async {
-    try {
-      await File(shot.file.path).delete();
-    } on Object catch (error) {
-      uiDebugLog('NomaChatView', 'could not delete capture: $error');
-    }
-  }
-
-  Future<void> _pickAndSendImage(
-    String sendKey, {
-    required bool fromCamera,
-  }) async {
-    final policy = _attachmentPolicy;
-    final pick = fromCamera
-        ? await AttachmentPickers.pickImageFromCamera(
-            policy: policy,
-            onRejected: _reportAttachmentRejected,
-            onMetric: widget.adapter.metricCallback,
-          )
-        : await AttachmentPickers.pickImageFromGallery(
-            policy: policy,
-            onRejected: _reportAttachmentRejected,
-            onMetric: widget.adapter.metricCallback,
-          );
-    if (pick == null || !mounted) return;
-    await widget.adapter.messages.sendAttachment(
-      sendKey,
-      bytes: pick.bytes,
-      mimeType: pick.mimeType,
-      fileName: pick.fileName,
-      policy: policy,
-    );
-  }
-
-  Future<void> _pickAndSendFile(String sendKey) async {
-    final policy = _attachmentPolicy;
-    final pick = await AttachmentPickers.pickFile(
-      policy: policy,
-      onRejected: _reportAttachmentRejected,
-      onMetric: widget.adapter.metricCallback,
-    );
-    if (pick == null || !mounted) return;
-    await widget.adapter.messages.sendAttachment(
-      sendKey,
-      bytes: pick.bytes,
-      mimeType: pick.mimeType,
-      fileName: pick.fileName,
-      policy: policy,
-    );
-  }
-
-  ChatViewBehaviors _resolveBehaviors({
-    required RoomListItem? room,
-    required bool isBlocked,
-  }) {
-    var actions = _defaultContextMenuActions(room);
-    if (widget.contextMenuActionsResolver != null) {
-      actions = widget.contextMenuActionsResolver!(room, actions);
-    }
-    final defaults = ChatViewBehaviors(
-      enableMentions: true,
-      contextMenuActions: actions,
-    );
-    final user = widget.behaviors ?? const ChatViewBehaviors();
-    return user
-        .mergedOnto(defaults)
-        .withRoomState(
-          initialMessageId: widget.initialMessageId ?? _seededInitialMessageId,
-          unreadBoundaryMessageId: _unreadBoundaryMessageId,
-          unreadCount: _unreadDividerCount,
-          isBlocked: isBlocked,
-          isParticipating: room?.isParticipating ?? true,
-          readOnly: room?.isReadOnly ?? false,
-          readOnlyLabel: (room?.selfMuted ?? false)
-              ? _theme.l10nOf(context).mutedByAdmin
-              : null,
-          isGroup: room?.isGroup ?? false,
-          // Live: `onBlockedUsersChanged` already rebuilds this view, so a
-          // block performed from inside the room prunes its history on the
-          // next frame instead of on the next open.
-          blockedSenderIds: widget.adapter.blockedUserIds,
-        );
-  }
-
-  /// Wraps [child] in the bundled [OperationFeedbackListener] so operation
-  /// feedback reaches the user without any host wiring: the success
-  /// confirmations (pin, unpin, delete) and the failures a bubble cannot
-  /// express on its own — a moderation rejection, a retry refused because
-  /// the file was never uploaded.
-  ///
-  /// Mounts nothing when the host opted out via
-  /// `ChatViewBehaviors(showOperationFeedback: false)`, and mounts only
-  /// what a listener above this view is not already delivering: one wired
-  /// to both streams leaves nothing to add, one mounted without `errors`
-  /// keeps its success confirmations and gets the failures covered here.
-  /// No route ends up showing an event twice, and none leaves the
-  /// failures unheard.
-  Widget _withOperationFeedback(BuildContext context, Widget child) {
-    final behaviors = widget.behaviors;
-    if (behaviors != null && !behaviors.showOperationFeedback) return child;
-    final adapter = widget.adapter;
-    switch (OperationFeedbackListener.coverageAbove(context)) {
-      case OperationFeedbackCoverage.everything:
-        return child;
-      case OperationFeedbackCoverage.successesOnly:
-        return OperationFeedbackListener(
-          successes: const Stream<OperationSuccess>.empty(),
-          errors: adapter.operationErrors,
-          theme: _theme,
-          child: child,
-        );
-      case OperationFeedbackCoverage.none:
-        return OperationFeedbackListener(
-          successes: adapter.operationSuccesses,
-          errors: adapter.operationErrors,
-          theme: _theme,
-          child: child,
-        );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final adapter = widget.adapter;
@@ -1119,7 +703,13 @@ class _NomaChatViewState extends State<NomaChatView>
     // rebuild `ChatView` against a disposed ChatController — its
     // `ListenableBuilder` would re-subscribe to a dead notifier. Render the
     // neutral placeholder for the single frame until the deferred pop lands.
-    if (controller == null || _autoLeft) {
+    //
+    // A session teardown disposes the same controller without ever setting
+    // `_autoLeft` — the leave is suppressed precisely because the room did
+    // not go away — so it needs its own term here, or the first rebuild
+    // after a `disconnect(clearRooms: true)` / [ChatUiAdapter.signOut] throws
+    // "A ChatController was used after being disposed".
+    if (controller == null || _autoLeft || _sessionTornDown) {
       return _withOperationFeedback(
         context,
         Scaffold(
@@ -1231,7 +821,7 @@ class _NomaChatViewState extends State<NomaChatView>
 }) {
   final incoming = [
     for (final m in messages)
-      if (m.from != currentUserId) m,
+      if (m.from != currentUserId && !m.isSystem) m,
   ];
   if (incoming.isEmpty) return null;
 
@@ -1241,7 +831,8 @@ class _NomaChatViewState extends State<NomaChatView>
     if (at != -1) {
       final after = [
         for (var i = at + 1; i < messages.length; i++)
-          if (messages[i].from != currentUserId) messages[i],
+          if (messages[i].from != currentUserId && !messages[i].isSystem)
+            messages[i],
       ];
       if (after.isNotEmpty) {
         return (messageId: after.first.id, count: after.length);

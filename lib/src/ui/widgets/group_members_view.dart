@@ -56,9 +56,10 @@ class GroupMembersView extends StatefulWidget {
   final RoomRole currentUserRole;
   final ChatTheme theme;
 
-  /// Resolver from userId → display name. Return `null` to fall back to
-  /// the raw userId rendering. Typically wired to
-  /// `adapter.findCachedUser(id)?.displayName`.
+  /// Resolver from userId → display name. Return `null` for an id you
+  /// cannot name: the row then renders without a title rather than
+  /// spelling out the id. Typically wired to `adapter.displayNameFor(id)`,
+  /// mapping its empty answer to `null`.
   final String? Function(String userId)? displayNameResolver;
 
   /// Resolver from userId → avatar URL.
@@ -98,10 +99,16 @@ class _GroupMembersViewState extends State<GroupMembersView>
   ChatTheme get noticeTheme => widget.theme;
 
   List<RoomUser>? _members;
+
+  /// Every member this view has rendered, each pinned to the slot it first
+  /// occupied. Rows dropped from the roster stay in place, hidden instead
+  /// of unmounted, so the overflow button is never torn down inside its
+  /// own press.
+  List<RoomUser> _renderedMembers = const [];
   bool _loading = false;
   bool _loadingMore = false;
   bool _hasMore = false;
-  String? _error;
+  bool _failed = false;
   final _scrollController = ScrollController();
 
   static const double _loadMoreThresholdPx = 200;
@@ -170,7 +177,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (!mounted) return;
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     // Request the `users` expansion so the backend embeds each member's
     // displayName + avatarUrl in the list response. This is the modern
@@ -191,19 +198,21 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loading = false;
-        _error = failure.toString();
+        _failed = true;
       }),
       (paginated) {
         // Seed the adapter cache from the embedded fields BEFORE the first
         // render so the sync resolvers (which read the cache) already have
         // names + avatars on this same frame.
         _seedCacheFromExpanded(paginated.items);
+        _recordRoster(paginated.items, complete: !paginated.hasMore);
         setState(() {
           _loading = false;
           _hasMore = paginated.hasMore;
           _members = _sort(paginated.items);
+          _renderedMembers = _pinHiddenRows(_members!);
         });
         // Only members the expansion did NOT cover still need a profile
         // fetch — typically none when the backend honours `?expand=users`.
@@ -233,22 +242,35 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loadingMore = false;
         // Keep whatever page is already loaded; only surface the error via
-        // a snackbar since `_error` would otherwise blank the existing list.
-        showNotice(failure.toString());
+        // a snackbar since `_failed` would otherwise blank the existing list.
+        showNotice(noticeL10n.loadFailed);
       }),
       (paginated) {
         _seedCacheFromExpanded(paginated.items);
+        _recordRoster(paginated.items, complete: false);
         setState(() {
           _loadingMore = false;
           _hasMore = paginated.hasMore;
           final merged = [...?_members, ...paginated.items];
           _members = _sort(merged);
+          _renderedMembers = _pinHiddenRows(_members!);
         });
         unawaited(_warmMissingUsers(paginated.items));
       },
+    );
+  }
+
+  /// Hands the ids of a roster page to the adapter so the room list can be
+  /// searched by member. Unlike the user-cache seed above this keeps every
+  /// id, named or not: naming is the adapter's job and can land later.
+  void _recordRoster(List<RoomUser> members, {required bool complete}) {
+    widget.adapter.recordRoomRoster(
+      widget.roomId,
+      members.map((m) => m.userId),
+      complete: complete,
     );
   }
 
@@ -303,7 +325,10 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (!mounted) return;
     setState(() {
       final current = _members;
-      if (current != null) _members = _sort(current);
+      if (current != null) {
+        _members = _sort(current);
+        _renderedMembers = _pinHiddenRows(_members!);
+      }
     });
   }
 
@@ -325,6 +350,28 @@ class _GroupMembersViewState extends State<GroupMembersView>
       if (byRank != 0) return byRank;
       return label(a).compareTo(label(b));
     });
+  }
+
+  /// Merges [live] into the rendered roster: members no longer in the
+  /// roster keep the index they had, and the live rows fill the slots that
+  /// are left, in the order [_sort] gave them.
+  List<RoomUser> _pinHiddenRows(List<RoomUser> live) {
+    final liveIds = {for (final m in live) m.userId};
+    final pinned = <int, RoomUser>{};
+    for (var i = 0; i < _renderedMembers.length; i++) {
+      final m = _renderedMembers[i];
+      if (!liveIds.contains(m.userId)) pinned[i] = m;
+    }
+    if (pinned.isEmpty) return live;
+    final rows = <RoomUser>[];
+    final queue = List<RoomUser>.of(live);
+    var slot = 0;
+    while (queue.isNotEmpty || pinned.containsKey(slot)) {
+      final hidden = pinned[slot];
+      rows.add(hidden ?? queue.removeAt(0));
+      slot++;
+    }
+    return rows;
   }
 
   Future<void> _openActions(RoomUser target) async {
@@ -382,9 +429,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showNotice(
-        result.failureOrNull?.toString() ?? noticeL10n.updateRoleFailed,
-      );
+      showNotice(noticeL10n.updateRoleFailed);
       return;
     }
     if (widget.onRoleChanged != null) {
@@ -400,9 +445,7 @@ class _GroupMembersViewState extends State<GroupMembersView>
     );
     if (!mounted) return;
     if (result.isFailure) {
-      showNotice(
-        result.failureOrNull?.toString() ?? noticeL10n.removeMemberFailed,
-      );
+      showNotice(noticeL10n.removeMemberFailed);
       return;
     }
     if (widget.onMemberRemoved != null) {
@@ -416,15 +459,20 @@ class _GroupMembersViewState extends State<GroupMembersView>
     if (_loading && _members == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_members == null || _members!.isEmpty)) {
+    if (_failed && (_members == null || _members!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(
+            widget.theme.l10nOf(context).loadFailed,
+            textAlign: TextAlign.center,
+          ),
         ),
       );
     }
     final members = _members ?? const <RoomUser>[];
+    final rows = _renderedMembers;
+    final liveIds = {for (final m in members) m.userId};
     final currentUserId = widget.adapter.currentUser.id;
     // `embedded` mode nests this list (shrinkWrap + non-scrolling physics)
     // inside a host-owned outer scrollable — this widget can't observe that
@@ -440,10 +488,10 @@ class _GroupMembersViewState extends State<GroupMembersView>
       physics: widget.embedded
           ? const NeverScrollableScrollPhysics()
           : const AlwaysScrollableScrollPhysics(),
-      itemCount: members.length + (showFooter ? 1 : 0),
+      itemCount: rows.length + (showFooter ? 1 : 0),
       separatorBuilder: (_, _) => const SizedBox.shrink(),
       itemBuilder: (context, index) {
-        if (index >= members.length) {
+        if (index >= rows.length) {
           if (showLoadMoreRow) {
             return ListTile(
               title: Center(
@@ -468,12 +516,12 @@ class _GroupMembersViewState extends State<GroupMembersView>
             ),
           );
         }
-        final m = members[index];
+        final m = rows[index];
         final resolvedName = widget.displayNameResolver?.call(m.userId);
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()
-            : m.userId;
+            : '';
         final avatarUrl = widget.avatarUrlResolver?.call(m.userId);
         final badge = _badgeFor(m.role);
         final isSelf = m.userId == currentUserId;
@@ -509,24 +557,28 @@ class _GroupMembersViewState extends State<GroupMembersView>
                   ],
                 ],
               );
-        return ListTile(
-          leading: UserAvatar(
-            imageUrl: avatarUrl,
-            displayName: displayName,
-            size: 40,
-            theme: widget.theme,
-            excludeSemantics: true,
+        return Visibility(
+          visible: liveIds.contains(m.userId),
+          maintainState: true,
+          child: ListTile(
+            leading: UserAvatar(
+              imageUrl: avatarUrl,
+              displayName: displayName,
+              size: 40,
+              theme: widget.theme,
+              excludeSemantics: true,
+            ),
+            title: Text(displayName),
+            // No `@<uuid>` subtitle. The id is an internal opaque
+            // value, not a mention handle — surfacing it here was
+            // misleading. Mentions resolve via displayName + the
+            // autocomplete overlay in the composer; the id never
+            // leaves the SDK.
+            subtitle: null,
+            trailing: trailing,
+            onTap: tap,
+            onLongPress: longPress,
           ),
-          title: Text(displayName),
-          // No `@<uuid>` subtitle. The id is an internal opaque
-          // value, not a mention handle — surfacing it here was
-          // misleading. Mentions resolve via displayName + the
-          // autocomplete overlay in the composer; the id never
-          // leaves the SDK.
-          subtitle: null,
-          trailing: trailing,
-          onTap: tap,
-          onLongPress: longPress,
         );
       },
     );

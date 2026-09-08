@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../models/pin.dart';
 import '../theme/chat_theme.dart';
+import '../theme/default_palette.dart';
 
 /// Banner displayed at the top of a chat view showing the current pinned message.
 class PinnedMessagesBanner extends StatelessWidget {
@@ -64,7 +65,9 @@ class PinnedMessagesBanner extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 13,
-                        color: Colors.grey.shade600,
+                        color: theme.input.replyPreviewBackgroundColor == null
+                            ? DefaultPalette.mutedSurfaceText
+                            : null,
                       ),
                     ),
                 ],
@@ -72,6 +75,8 @@ class PinnedMessagesBanner extends StatelessWidget {
             ),
             if (onClose != null)
               Semantics(
+                key: const ValueKey('chat_pinned_close_button'),
+                identifier: 'chat_pinned_close_button',
                 label: theme.l10nOf(context).close,
                 button: true,
                 child: GestureDetector(

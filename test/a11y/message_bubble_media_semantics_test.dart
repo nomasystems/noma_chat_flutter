@@ -29,7 +29,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: Photo, Sent'), findsOneWidget);
+      expect(semanticsWithLabel('You: Photo, 12:00, Sent'), findsOneWidget);
       expect(semanticsWithLabel('You: , Sent'), findsNothing);
     });
 
@@ -47,7 +47,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: Video, Sent'), findsOneWidget);
+      expect(semanticsWithLabel('You: Video, 12:00, Sent'), findsOneWidget);
     });
 
     testWidgets('a shared location reads "You: Location, Sent"', (
@@ -67,7 +67,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: Location, Sent'), findsOneWidget);
+      expect(semanticsWithLabel('You: Location, 12:00, Sent'), findsOneWidget);
     });
 
     testWidgets('a named document reads its file name', (tester) async {
@@ -83,7 +83,10 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: contract.pdf, Sent'), findsOneWidget);
+      expect(
+        semanticsWithLabel('You: contract.pdf, 12:00, Sent'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a captioned photo announces the photo before the caption', (
@@ -101,7 +104,7 @@ void main() {
       );
 
       expect(
-        semanticsWithLabel('You: Photo, en la playa, Sent'),
+        semanticsWithLabel('You: Photo, en la playa, 12:00, Sent'),
         findsOneWidget,
         reason:
             'reading the caption alone left no clue there was an image '
@@ -121,7 +124,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: hola, Sent'), findsOneWidget);
+      expect(semanticsWithLabel('You: hola, 12:00, Sent'), findsOneWidget);
     });
   });
 
@@ -138,7 +141,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: Forwarded, Sent'), findsOneWidget);
+      expect(semanticsWithLabel('You: Forwarded, 12:00, Sent'), findsOneWidget);
       expect(semanticsWithLabel('You: , Sent'), findsNothing);
     });
 
@@ -154,7 +157,7 @@ void main() {
       );
 
       expect(
-        semanticsWithLabel('You: Forwarded, mira esto, Sent'),
+        semanticsWithLabel('You: Forwarded, mira esto, 12:00, Sent'),
         findsOneWidget,
       );
     });
@@ -173,7 +176,10 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true)),
       );
 
-      expect(semanticsWithLabel('You: Forwarded, Photo, Sent'), findsOneWidget);
+      expect(
+        semanticsWithLabel('You: Forwarded, Photo, 12:00, Sent'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -190,7 +196,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true, isFailed: true)),
       );
 
-      expect(semanticsWithLabel('You: Photo, Failed'), findsOneWidget);
+      expect(semanticsWithLabel('You: Photo, 12:00, Failed'), findsOneWidget);
     });
 
     testWidgets('a failed text message reads its text and the failure', (
@@ -202,7 +208,7 @@ void main() {
         wrap(MessageBubble(message: message, isOutgoing: true, isFailed: true)),
       );
 
-      expect(semanticsWithLabel('You: hola, Failed'), findsOneWidget);
+      expect(semanticsWithLabel('You: hola, 12:00, Failed'), findsOneWidget);
     });
 
     testWidgets('a send still on its way keeps announcing Sending', (
@@ -216,7 +222,7 @@ void main() {
         ),
       );
 
-      expect(semanticsWithLabel('You: hola, Sending'), findsOneWidget);
+      expect(semanticsWithLabel('You: hola, 12:00, Sending'), findsOneWidget);
     });
   });
 }

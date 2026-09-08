@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../theme/chat_theme.dart';
 import '../../utils/date_formatter.dart';
+import '../../utils/text_selection_menu.dart';
 import '../../utils/markdown_parser.dart';
 import '_bubble_metadata.dart';
 
@@ -19,6 +20,7 @@ class TextBubble extends StatelessWidget {
     this.replyPreview,
     this.linkPreview,
     this.enableSelection = true,
+    this.emojiOnly = false,
     this.onTapLink,
     this.onTapMention,
     this.statusWidget,
@@ -55,6 +57,17 @@ class TextBubble extends StatelessWidget {
   /// with no tap target keep selection.
   final bool enableSelection;
 
+  /// Paints the body as a message that is nothing but emoji: large, with
+  /// the timestamp and ticks moved out from under the glyphs to a line of
+  /// their own underneath.
+  ///
+  /// The caller decides, not this widget: whether a body qualifies depends
+  /// on things only [MessageBubble] knows — a quote, a link preview card or
+  /// a forward header all keep the ordinary bubble, because the enlarged
+  /// glyph is only bubble-less when there is nothing else in the bubble to
+  /// hold. See `isEmojiOnlyText`.
+  final bool emojiOnly;
+
   /// Opens the tapped URL. `null` leaves link spans styled but inert — see
   /// [parseMarkdown] for how each inline role treats a missing handler.
   final ValueChanged<String>? onTapLink;
@@ -66,13 +79,31 @@ class TextBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textStyle = isOutgoing
-        ? (theme.bubble.outgoingTextStyle ?? const TextStyle(fontSize: 15))
-        : (theme.bubble.incomingTextStyle ?? const TextStyle(fontSize: 15));
+    final textStyle = emojiOnly
+        ? theme.emojiOnlyTextStyle(isOutgoing: isOutgoing)
+        : (isOutgoing
+              ? (theme.bubble.outgoingTextStyle ??
+                    const TextStyle(fontSize: 15))
+              : (theme.bubble.incomingTextStyle ??
+                    const TextStyle(fontSize: 15)));
 
     final editedHint = _resolveEditedHint(context);
     final metaRow = _buildMetaRow(context, editedHint);
     final metaWidth = _estimateMetaWidth(context, metaRow, editedHint);
+
+    // With no bubble behind it there is nothing to tuck the meta row into:
+    // overlaying it would put the time on top of the glyph. It goes on its
+    // own line underneath instead, which is also where WhatsApp puts it.
+    if (emojiOnly) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(text, style: textStyle),
+          if (metaRow != null) ...[const SizedBox(height: 2), metaRow],
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -198,7 +229,12 @@ class TextBubble extends StatelessWidget {
     final selectable =
         enableSelection &&
         !spans.any((s) => s is TextSpan && s.recognizer != null);
-    return selectable ? SelectableText.rich(textSpan) : Text.rich(textSpan);
+    return selectable
+        ? SelectableText.rich(
+            textSpan,
+            contextMenuBuilder: buildTextSelectionMenu,
+          )
+        : Text.rich(textSpan);
   }
 
   Widget _buildTextWithMeta(

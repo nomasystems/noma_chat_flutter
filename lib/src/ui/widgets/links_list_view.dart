@@ -111,6 +111,7 @@ class LinksListView extends StatelessWidget {
           key: const ValueKey('chat_gallery_links_empty'),
           icon: Icons.link_off,
           title: theme.l10nOf(context).galleryNoLinks,
+          subtitle: theme.l10nOf(context).galleryNoLinksSubtitle,
           theme: theme,
         ),
       );
@@ -151,8 +152,10 @@ class LinksListView extends StatelessWidget {
             // across renders of the same message gallery.
             key: ValueKey(rowId),
             leading: CircleAvatar(
-              backgroundColor: Colors.grey.shade200,
-              foregroundColor: Colors.grey.shade700,
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.surfaceContainerHighest,
+              foregroundColor: Theme.of(context).colorScheme.onSurfaceVariant,
               child: const Icon(Icons.link),
             ),
             title: Text(link.url, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -162,7 +165,10 @@ class LinksListView extends StatelessWidget {
                     subtitleParts.join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
             onTap: onTapLink != null ? () => onTapLink!(link) : null,
           ),

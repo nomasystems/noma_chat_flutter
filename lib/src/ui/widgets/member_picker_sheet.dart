@@ -18,7 +18,10 @@ import 'user_avatar.dart';
 ///   context: context,
 ///   client: chat.client,
 ///   excludeIds: currentMemberIds,
-///   displayNameResolver: (id) => chat.adapter.findCachedUser(id)?.displayName,
+///   displayNameResolver: (id) {
+///     final name = chat.adapter.displayNameFor(id);
+///     return name.isEmpty ? null : name;
+///   },
 ///   avatarUrlResolver: (id) => chat.adapter.findCachedUser(id)?.avatarUrl,
 ///   onConfirm: (selected) =>
 ///       chat.adapter.rooms.addMembers(roomId, selected.toList()),
@@ -44,10 +47,10 @@ class MemberPickerSheet {
     String? Function(String userId)? displayNameResolver,
     String? Function(String userId)? avatarUrlResolver,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
+    return theme.showSheet<void>(
+      context,
       showDragHandle: true,
+      useRootNavigator: false,
       builder: (sheetContext) => _MemberPickerBody(
         client: client,
         excludeIds: excludeIds,
@@ -85,7 +88,7 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
   List<ChatContact>? _contacts;
   bool _loading = false;
   bool _submitting = false;
-  String? _error;
+  bool _failed = false;
   final Set<String> _selected = <String>{};
   // Local fallback cache: user profiles we fetched after loading the
   // contact list (because the host resolver couldn't name them). Reads
@@ -103,16 +106,16 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     final result = await widget.client.contacts.list(
       pagination: const ChatPaginationParams(limit: 100),
     );
     if (!mounted) return;
     result.fold(
-      (failure) => setState(() {
+      (_) => setState(() {
         _loading = false;
-        _error = failure.toString();
+        _failed = true;
       }),
       (paginated) {
         setState(() {
@@ -227,11 +230,11 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
     if (_loading && _contacts == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_contacts == null || _contacts!.isEmpty)) {
+    if (_failed && (_contacts == null || _contacts!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(l10n.loadFailed, textAlign: TextAlign.center),
         ),
       );
     }
@@ -254,7 +257,7 @@ class _MemberPickerBodyState extends State<_MemberPickerBody> {
         final displayName =
             (resolvedName != null && resolvedName.trim().isNotEmpty)
             ? resolvedName.trim()
-            : userId;
+            : '';
         final avatarUrl =
             widget.avatarUrlResolver?.call(userId) ?? _resolvedAvatars[userId];
         final selected = _selected.contains(userId);

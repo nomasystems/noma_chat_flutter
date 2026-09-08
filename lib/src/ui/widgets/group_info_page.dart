@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../cache/cache_policy.dart';
-import '../../core/result.dart';
 import '../../models/room.dart';
 import '../../models/room_user.dart';
 import '../../storage/avatar_storage.dart';
@@ -10,6 +9,7 @@ import '../room_defaults.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
 import '../utils/initials.dart';
+import '../utils/text_selection_menu.dart';
 import 'avatar_picker_field.dart';
 import 'avatar_picker_sheet.dart';
 import 'group_members_view.dart';
@@ -68,10 +68,12 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   RoomDetail? _detail;
   bool _loading = true;
   bool _saving = false;
-  String? _error;
+  bool _failed = false;
 
   late final TextEditingController _nameController;
   late final TextEditingController _descriptionController;
+  late final FocusNode _nameFocusNode;
+  late final FocusNode _descriptionFocusNode;
   bool _editingName = false;
   bool _editingDescription = false;
 
@@ -80,6 +82,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     super.initState();
     _nameController = TextEditingController();
     _descriptionController = TextEditingController();
+    _nameFocusNode = FocusNode();
+    _descriptionFocusNode = FocusNode();
     _loadDetail();
   }
 
@@ -87,13 +91,23 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
+    _nameFocusNode.dispose();
+    _descriptionFocusNode.dispose();
     super.dispose();
+  }
+
+  /// Name for [id] as every roster this page opens should see it: the
+  /// host's own directory first, the chat profile after, and `null` — not
+  /// the id — when neither can name the person.
+  String? _nameOrNull(String id) {
+    final name = widget.adapter.displayNameFor(id).trim();
+    return name.isEmpty ? null : name;
   }
 
   Future<void> _loadDetail() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
     final result = await widget.adapter.client.rooms.get(
       widget.roomId,
@@ -103,7 +117,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isFailure) {
       setState(() {
         _loading = false;
-        _error = result.failureOrNull?.message;
+        _failed = true;
       });
       return;
     }
@@ -119,6 +133,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Future<void> _commitDescription() async {
     final newDesc = _descriptionController.text.trim();
     if (newDesc == (_detail?.subject ?? '')) {
+      _descriptionFocusNode.unfocus();
       setState(() => _editingDescription = false);
       return;
     }
@@ -128,6 +143,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       subject: newDesc.isEmpty ? '' : newDesc,
     );
     if (!mounted) return;
+    _descriptionFocusNode.unfocus();
     setState(() {
       _saving = false;
       _editingDescription = false;
@@ -135,7 +151,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showNotice(_failureMessage(result));
+      showNotice(_failureMessage);
     }
   }
 
@@ -150,6 +166,14 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Future<void> _onAddMembers() async {
     final membersRes = await widget.adapter.client.members.list(widget.roomId);
     if (!mounted) return;
+    final roster = membersRes.dataOrNull;
+    if (roster != null) {
+      widget.adapter.recordRoomRoster(
+        widget.roomId,
+        roster.items.map((m) => m.userId),
+        complete: !roster.hasMore,
+      );
+    }
     final excludeIds = <String>{
       widget.adapter.currentUser.id,
       ...?membersRes.dataOrNull?.items.map((m) => m.userId),
@@ -159,8 +183,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       client: widget.adapter.client,
       excludeIds: excludeIds,
       theme: widget.theme,
-      displayNameResolver: (id) =>
-          widget.adapter.findCachedUser(id)?.displayName,
+      displayNameResolver: (id) => _nameOrNull(id),
       avatarUrlResolver: (id) => widget.adapter.findCachedUser(id)?.avatarUrl,
       onConfirm: (selected) async {
         if (selected.isEmpty) return;
@@ -215,6 +238,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     final newName = _nameController.text.trim();
     if (newName.length < widget.minNameLength) return;
     if (newName == _detail?.name) {
+      _nameFocusNode.unfocus();
       setState(() => _editingName = false);
       return;
     }
@@ -224,6 +248,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       name: newName,
     );
     if (!mounted) return;
+    _nameFocusNode.unfocus();
     setState(() {
       _saving = false;
       _editingName = false;
@@ -231,12 +256,20 @@ class _GroupInfoPageState extends State<GroupInfoPage>
     if (result.isSuccess) {
       await _loadDetail();
     } else {
-      showNotice(_failureMessage(result));
+      showNotice(_failureMessage);
     }
   }
 
-  String _failureMessage(ChatResult<void> r) =>
-      r.failureOrNull?.message ?? noticeL10n.photoUploadFailed;
+  String get _failureMessage => noticeL10n.saveFailed;
+
+  /// The edit fields stay mounted and are only hidden, so [Visibility]
+  /// keeps them out of the focus tree until the row is on screen again.
+  /// Claim the focus once that frame has been laid out.
+  void _focusOnNextFrame(FocusNode node) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) node.requestFocus();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -245,8 +278,8 @@ class _GroupInfoPageState extends State<GroupInfoPage>
       appBar: AppBar(title: Text(l10n.groupInfo)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(child: Text(_error!))
+          : _failed
+          ? Center(child: Text(l10n.loadFailed))
           : _detail == null
           ? const SizedBox.shrink()
           : ListView(
@@ -298,8 +331,7 @@ class _GroupInfoPageState extends State<GroupInfoPage>
                   currentUserRole: _detail!.userRole,
                   theme: widget.theme,
                   embedded: true,
-                  displayNameResolver: (id) =>
-                      widget.adapter.findCachedUser(id)?.displayName,
+                  displayNameResolver: _nameOrNull,
                   avatarUrlResolver: (id) =>
                       widget.adapter.findCachedUser(id)?.avatarUrl,
                   onMemberRemoved: (_) => _loadDetail(),
@@ -313,111 +345,141 @@ class _GroupInfoPageState extends State<GroupInfoPage>
   Widget _buildDescriptionRow() {
     final l10n = widget.theme.l10nOf(context);
     final raw = _detail?.subject?.trim() ?? '';
-    if (!_editingDescription) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.groupDescription,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Colors.black54,
-                      fontWeight: FontWeight.w500,
-                    ),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Visibility(
+          visible: !_editingDescription,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        l10n.groupDescription,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        raw.isEmpty ? '—' : raw,
+                        style: const TextStyle(fontSize: 16),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    raw.isEmpty ? '—' : raw,
-                    style: const TextStyle(fontSize: 16),
+                ),
+                if (_canManage)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: l10n.edit,
+                    onPressed: () {
+                      setState(() => _editingDescription = true);
+                      _focusOnNextFrame(_descriptionFocusNode);
+                    },
                   ),
-                ],
-              ),
+              ],
             ),
-            if (_canManage)
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: l10n.edit,
-                onPressed: () => setState(() => _editingDescription = true),
-              ),
-          ],
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: TextField(
-        controller: _descriptionController,
-        autofocus: true,
-        maxLines: 3,
-        decoration: InputDecoration(
-          labelText: l10n.groupDescription,
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: l10n.save,
-            onPressed: _saving ? null : _commitDescription,
           ),
         ),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _commitDescription(),
-      ),
+        Visibility(
+          visible: _editingDescription,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: TextField(
+              controller: _descriptionController,
+              focusNode: _descriptionFocusNode,
+              contextMenuBuilder: buildTextSelectionMenu,
+              maxLines: 3,
+              decoration: InputDecoration(
+                labelText: l10n.groupDescription,
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.check),
+                  tooltip: l10n.save,
+                  onPressed: _saving ? null : _commitDescription,
+                ),
+              ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _commitDescription(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
   Widget _buildNameRow() {
     final l10n = widget.theme.l10nOf(context);
-    if (!_editingName) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Row(
-          children: [
-            Expanded(
-              child: Text(
-                _detail!.name?.isNotEmpty == true ? _detail!.name! : '',
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Visibility(
+          visible: !_editingName,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _detail!.name?.isNotEmpty == true ? _detail!.name! : '',
+                    style: const TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
                 ),
-                textAlign: TextAlign.center,
-              ),
+                if (_canManage)
+                  IconButton(
+                    icon: const Icon(Icons.edit_outlined),
+                    tooltip: l10n.edit,
+                    onPressed: () {
+                      setState(() => _editingName = true);
+                      _focusOnNextFrame(_nameFocusNode);
+                    },
+                  ),
+              ],
             ),
-            if (_canManage)
-              IconButton(
-                icon: const Icon(Icons.edit_outlined),
-                tooltip: l10n.edit,
-                onPressed: () => setState(() => _editingName = true),
+          ),
+        ),
+        Visibility(
+          visible: _editingName,
+          maintainState: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: TextField(
+              controller: _nameController,
+              focusNode: _nameFocusNode,
+              contextMenuBuilder: buildTextSelectionMenu,
+              decoration: InputDecoration(
+                labelText: l10n.groupName,
+                helperText: l10n.minCharsTemplate.replaceAll(
+                  '{n}',
+                  '${widget.minNameLength}',
+                ),
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  icon: const Icon(Icons.check),
+                  tooltip: l10n.save,
+                  onPressed: _saving ? null : _commitName,
+                ),
               ),
-          ],
-        ),
-      );
-    }
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: TextField(
-        controller: _nameController,
-        autofocus: true,
-        decoration: InputDecoration(
-          labelText: l10n.groupName,
-          helperText: l10n.minCharsTemplate.replaceAll(
-            '{n}',
-            '${widget.minNameLength}',
-          ),
-          border: const OutlineInputBorder(),
-          suffixIcon: IconButton(
-            icon: const Icon(Icons.check),
-            tooltip: l10n.save,
-            onPressed: _saving ? null : _commitName,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _commitName(),
+            ),
           ),
         ),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _commitName(),
-      ),
+      ],
     );
   }
 }

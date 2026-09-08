@@ -66,14 +66,31 @@ void main() {
       controller.dispose();
     });
 
-    testWidgets('falls back to userId when user not in otherUsers', (
+    testWidgets('says nothing at all about a typist it cannot name', (
       tester,
     ) async {
       final controller = makeController();
       controller.setTyping('unknown-id', true);
 
       await tester.pumpWidget(wrap(TypingStatusText(controller: controller)));
-      expect(find.text('unknown-id is typing'), findsOneWidget);
+      expect(find.text('unknown-id is typing'), findsNothing);
+      expect(find.byType(Text), findsNothing);
+      controller.dispose();
+    });
+
+    testWidgets('and counts one it cannot name when it has company', (
+      tester,
+    ) async {
+      final controller = makeController(
+        otherUsers: [
+          const ChatUser(id: 'alice', displayName: 'Alice', active: true),
+        ],
+      );
+      controller.setTyping('alice', true);
+      controller.setTyping('unknown-id', true);
+
+      await tester.pumpWidget(wrap(TypingStatusText(controller: controller)));
+      expect(find.text('2 people are typing'), findsOneWidget);
       controller.dispose();
     });
 

@@ -116,6 +116,13 @@ void main() {
 
       expect(find.byType(EmptyState), findsOneWidget);
       expect(find.text('No media'), findsOneWidget);
+      expect(
+        find.text(
+          'Photos and videos you share in this conversation will '
+          'appear here',
+        ),
+        findsOneWidget,
+      );
       expect(find.byIcon(Icons.photo_library_outlined), findsOneWidget);
     });
 

@@ -1232,6 +1232,95 @@ final files = await chat.client.attachments.listInRoom(roomId);
 await chat.client.attachments.deleteInRoom(roomId, messageId);
 ```
 
+#### Caption and reply — a photo answers like a text message does
+
+`sendAttachment` takes a `caption` (published as the message text, painted
+under the media by `ImageBubble` / `VideoBubble` / `FileBubble`) and a
+`referencedMessageId` (the message being answered). `sendVoice` takes the
+same `referencedMessageId`. Pass the composer's pending reply and close it
+once the send resolves — read it *before* opening the picker, so a picker
+the user cancels leaves the reply preview where it was:
+
+```dart
+final chatController = chat.adapter.findChatController(roomId);
+final replyTo = chatController?.replyingTo?.id;
+
+final pick = await AttachmentPickers.pickImageFromGallery();
+if (pick == null) return; // the reply preview stays open
+
+final sent = await chat.adapter.messages.sendAttachment(
+  roomId,
+  bytes: pick.bytes,
+  mimeType: pick.mimeType,
+  fileName: pick.fileName,
+  caption: 'at the top of the hill',
+  referencedMessageId: replyTo,
+);
+if (sent.isSuccess) chatController?.setReplyTo(null);
+```
+
+`NomaChatView` already does all of this on its own gallery, file, camera
+and voice-note paths — the snippet is for a host that drives the pickers
+itself. A quoted attachment paints the same quote strip a text reply does,
+above the media; a voice note recorded with the reply preview open carries
+the quote through `VoiceMessageData.referencedMessageId`.
+
+An attachment that fails on a connectivity error and is replayed from the
+**offline queue** keeps its quote too, not just its caption:
+`ChatClient.enqueueOfflineAttachment` takes an optional
+`referencedMessageId`, `PendingSendAttachment` (the queued operation)
+carries it, and the replay path sends it when present — the same as a
+manual `retrySend` on the failed bubble already did. Call it right after
+the upload failure, passing the same `referencedMessageId` the failed
+`sendAttachment`/`sendVoice` call was given:
+
+```dart
+client.enqueueOfflineAttachment(
+  roomId: roomId,
+  bytes: bytes,
+  mimeType: mimeType,
+  causeFailure: uploadFailure,
+  referencedMessageId: replyTo,
+);
+```
+
+#### Reviewing before sending — `AttachmentReviewPage`
+
+The system picker confirms a *selection*, not a publication. Between the
+picker and the send, `AttachmentReviewPage` shows what was chosen at full
+size with a caption field under it and two ways out: back, which sends
+nothing, and send, which returns every attachment with its own caption.
+Multi-selection is paged, one caption per attachment.
+
+```dart
+final picks = await AttachmentPickers.pickMultipleMedia();
+final reviewed = await AttachmentReviewPage.show(
+  context: context,
+  attachments: picks,
+  theme: chatTheme,
+);
+if (reviewed == null) return; // the user backed out
+
+for (final item in reviewed) {
+  await chat.adapter.messages.sendAttachment(
+    roomId,
+    bytes: item.attachment.bytes,
+    mimeType: item.attachment.mimeType,
+    fileName: item.attachment.fileName,
+    caption: item.caption,
+  );
+}
+```
+
+`NomaChatView` inserts this step by itself on the gallery and file rows.
+The in-app camera has its own review step, `CameraCaptureReview`, which now
+carries the same caption field (`allowCaption`, on by default):
+`CameraCapturePage.show` returns a `CameraCaptureSubmission` with the
+`capture` and the `caption`. The caption field's placeholder is the
+`attachmentCaptionHint` string of `ChatUiLocalizations`, and both review
+steps expose `chat_attachment_review_caption` /
+`chat_attachment_review_send` / `chat_attachment_review_back` for UI tests.
+
 #### `attachmentId` and re-minting an expired signed URL
 
 `ChatMessage.attachmentId` is the stable id an attachment was uploaded
@@ -1694,7 +1783,25 @@ chat.client.events.listen((event) {
 > `MessageAckedEvent`), `message_delivered` (delivered cursor advanced →
 > `MessageDeliveredEvent`) and `receipt_updated` (`ReceiptUpdatedEvent`), and
 > the SDK parses and dispatches all three out of the box. No extra wiring is
-> needed to drive WhatsApp-style ticks.
+> needed to drive WhatsApp-style ticks. Frames attributed to the current user
+> — the echo of their own `markAsRead`, fanned out to every one of their
+> connections — never reach the tick: they say what *this* user read, not what
+> anyone received. Their only effect is clearing the room's unread badge, so a
+> read on one device converges on the others. The exception is a room with no
+> members besides the user — the "message yourself" conversation
+> (`ChatController.isSelfConversation`) — where they are the audience, so their
+> own read is what turns the tick blue. Recognising such a room takes positive
+> evidence that nobody else is in it — either a member list that was fetched and
+> came back empty, or a room row reporting a single member — *and* a row that
+> names no peer of its own: signing out or deleting an account drops that user
+> from the room's member lists, so an ordinary DM the other side walked out of
+> reports a single member too, and only the peer the row still remembers tells
+> the two apart. `NomaChatView` pins both facts on open so the exception also
+> holds for a host that opens rooms with `hydrateGroupMembers: false` and never
+> lists members at all. That
+> mark is rendered but never cached — it rests on the room being empty, and a
+> stored receipt can never be lowered — so re-opening the room re-derives it
+> from the user's own read cursor instead.
 
 ---
 
@@ -1880,6 +1987,24 @@ final snapshot = await ds.exportData(); // Map<String, dynamic>
 await ds.importData(snapshot);          // replaces the current cache contents
 ```
 
+### Host user directory cache
+
+Names resolved through `userDirectoryResolver` (see
+[Customization hooks](#userdirectoryresolver--host-user-directory)) are
+persisted so the very first frame after a cold start already has the names
+it had yesterday, instead of a blank screen until the resolver answers
+again. `HiveChatDatasource` implements the separate `HostUserStore`
+interface (`saveHostUsers` / `getHostUsers` / `getHostUser` /
+`clearHostUsers`, each keyed by `CachedHostUser(user: HostUser, updatedAt:
+DateTime)`) in a Hive box scoped to the signed-in user, alongside the boxes
+`Backup and restore` above covers.
+
+A custom `ChatLocalDatasource` gets this for free by also implementing
+`HostUserStore` — the adapter checks `cache is HostUserStore` at runtime and
+persists only when it answers; one that does not implement it still works,
+it just resolves names fresh from `userDirectoryResolver` every session
+instead of caching them.
+
 ---
 
 ## UI components — controllers
@@ -2017,6 +2142,38 @@ above) backfills anything missed. Pass `disconnect(clearRooms: true)` for
 the old eager-wipe behavior — `signOut()` / `dispose()` still always do the
 full wipe internally.
 
+#### `adapter.isTearingDown` — telling a wipe apart from a removal
+
+A room list that goes empty looks, to a listener, exactly like "every room
+you were in has just been removed". `adapter.isTearingDown` is the explicit
+signal that says which one it was: it is `true` for the whole of a
+`disconnect(clearRooms: true)` / `signOut()` / `dispose()` wipe — every
+notification the wipe emits, not only the one that empties the list, because
+a teardown keeps clearing (and notifying) after that — and `false` otherwise.
+
+Read it *inside* the notification. For `disconnect(clearRooms: true)` and
+`signOut()` the signal is only raised across the wipe itself and is `false`
+again by the time the call returns, because the adapter deliberately stays
+reusable — the next user can sign in on the same instance. `dispose()` is the
+exception: there it stays `true` for good.
+
+Anything that reacts to a room disappearing — leaving the room, popping its
+route, showing "this conversation is no longer available" — must check it
+first and stay put while it is `true`. `NomaChatView` already does, so
+`onRoomLeft` never fires for a logout; a host that watches
+`roomListController` itself has to do the same, or a sign-out will strand a
+dialog on top of whatever screen it navigated to.
+
+A view that was open when the wipe ran does not come back: the wipe disposes
+the `ChatController` behind it, so `NomaChatView` records the teardown and
+renders its neutral placeholder from then on rather than repainting against a
+dead controller. Hosts navigate away on logout anyway; one that keeps the
+route alive gets a spinner, not an exception.
+
+It is a declared signal rather than an inference from the list going empty
+on purpose: being removed from the only room you had empties the list too,
+and that one is a real removal the host still has to hear about.
+
 ---
 
 ## UI components — widgets
@@ -2047,7 +2204,7 @@ auto-mark read) and clears it on dispose.
 1. **History + pin load** — calls `messages.load` / `messages.loadPins` for the room.
 2. **Unread divider snapshot** — freezes the open-time unread boundary before mark-as-read clears it (WhatsApp parity; later arrivals don't move it).
 3. **Group member hydration** — fetches the member list and pushes real names/avatars into the controller so group sender labels and @mention autocomplete resolve. Best-effort; toggle with `hydrateGroupMembers: false`.
-4. **Blocked + room-removed reactions** — rebuilds when the blocked-user set changes and pops (or calls `onRoomLeft`) when the room is removed under it (local user left/blocked, or the peer deleted the room).
+4. **Blocked + room-removed reactions** — rebuilds when the blocked-user set changes and pops (or calls `onRoomLeft`) when the room is removed under it (local user left/blocked, or the peer deleted the room). A session teardown that empties the room list is not a removal and does not leave — see `adapter.isTearingDown`.
 5. **Role-aware context menu** — the bubble long-press menu hides `pin` when the current user lacks permission (owner/admin in any room; either member in a 2-person DM) so a tap never triggers a 403.
 6. **Report dialog** — long-press → Report opens the bundled `ReportMessageDialog` and posts `messages.report`. Customize the field placeholder with `reportReasonHint`, or replace the whole flow via `callbacks.onReportMessage`.
 7. **Reaction-detail user fetcher** — resolves reactor profiles (cache-first, then `users.get`) for the reaction-detail sheet.
@@ -2066,7 +2223,7 @@ pass wins, the rest keep the sensible behavior.
 | `appBarActions` | `List<Widget>?` | Trailing icons appended to the default app bar (e.g. refresh, overflow). Ignored when `appBarBuilder` is set. |
 | `appBarBuilder` | `ChatAppBarBuilder?` | Replace the entire app bar: `(context, room, controller) => PreferredSizeWidget`. |
 | `onAppBarTap` | `void Function(RoomListItem?)?` | Tap on the default app bar's title row (typically opens room/user info). Left unset, the row is not a tap target at all — no ripple, no swallowed tap. |
-| `onRoomLeft` | `VoidCallback?` | Invoked when the room is removed under the view. Defaults to `Navigator.maybePop`. |
+| `onRoomLeft` | `VoidCallback?` | Invoked when the room is removed under the view. Never fires for a session teardown — `disconnect(clearRooms: true)`, `signOut()`, `dispose()` — including a leave already scheduled when the teardown starts (see `adapter.isTearingDown`). Defaults to `Navigator.maybePop`. |
 | `contextMenuActionsResolver` | `ContextMenuActionsResolver?` | `(room, defaults) => Set<MessageAction>` — add/remove actions on top of the role-aware defaults. |
 | `hydrateGroupMembers` | `bool` | Fetch + hydrate group members (default `true`). |
 | `initialMessageId` | `String?` | Message to scroll to and highlight on mount (search / pinned-row target). |
@@ -2354,6 +2511,43 @@ MessageSearchView(
 );
 ```
 
+#### Empty states of the search screen
+
+`MessageSearchView` has three distinct empty states, each with its own
+instrumentation identifier so a host (or an E2E suite) can tell them apart:
+
+| Identifier | When | Copy |
+|---|---|---|
+| `chat_search_prompt` | Nothing typed yet | `ChatUiLocalizations.searchPromptEmpty`, or the `emptyPromptText` override |
+| `chat_search_too_short` | Something typed, but shorter than `minQueryLength` | `ChatUiLocalizations.searchPromptTooShort(minQueryLength)`, or the `tooShortPromptText` override |
+| `chat_search_empty` | A dispatched query returned nothing | `ChatUiLocalizations.noResults` |
+
+`searchPromptTooShort` takes the minimum as an argument and substitutes it
+into `searchPromptTooShortTemplate` (`'Type at least {count} characters'`),
+so a host that raises `minQueryLength` gets copy that matches — never
+hard-code the number into a translation. With `minQueryLength: 1` the
+too-short state is unreachable by construction and never renders.
+
+`GroupSetupPage` gates its member search the same way, on
+`minSearchQueryLength` (default `RoomDefaults.minSearchQueryLength`), and
+below that minimum it renders the same copy under the identifier
+`chat_group_search_too_short` instead of silently falling back to the
+contact suggestions.
+
+#### Empty states of "Shared in this chat"
+
+`MediaGalleryView`, `DocsListView` and `LinksListView` each render an
+`EmptyState` with a title *and* a second line naming what will eventually
+fill the tab — `noMediaSubtitle`, `galleryNoDocsSubtitle` and
+`galleryNoLinksSubtitle`. The subtitle is styled with
+`ChatTheme.emptyStateSubtitleStyle`; override any of the strings through
+`ChatUiLocalizations.copyWith` or `ChatUiLocalizations.override`.
+
+Translation coverage follows each title: `noMediaSubtitle` ships in all
+twelve bundled locales, the docs and links subtitles in the seven whose
+titles are translated (en/es/fr/de/it/pt/ca) — a translated subtitle under
+an English title would read worse than neither.
+
 ### Bubble types
 
 `MessageBubble` dispatches to the appropriate sub-widget based on `ChatMessage.type`:
@@ -2391,6 +2585,71 @@ MessageSearchView(
 | `DateSeparator` | Sticky date labels between message groups |
 | `MessageStatusIcon` | Sent / delivered / read ticks |
 | `UserAvatar` | Network image with fallback initials |
+
+### Keyboard behaviour
+
+The SDK's own pages split into two groups, and the split is fixed — there is
+no flag for it, because the two halves need opposite things:
+
+| Page | `resizeToAvoidBottomInset` | Why |
+|---|---|---|
+| `StarredMessagesPage` | `false` | Nothing to type on the page |
+| `MediaGalleryPage` | `false` | Nothing to type on the page |
+| `ImageViewer` | `false` | Nothing to type on the page |
+| `UserInfoPage` | `false` | Read-only profile |
+| `CameraCapturePage` | `false` | No field; a shrinking viewfinder is never wanted |
+| `GroupSetupPage` | default | Name / description / member search sit low in a scrollable form |
+| `ProfileSettingsPage` | default | Name / about / email sit low in a scrollable form |
+| `GroupInfoPage` | default | Inline name / description editing, at a scroll position the user chose |
+| `NomaChatView` (room) | default | The composer is anchored to the bottom edge |
+
+The first group draws the keyboard **on top**: the body keeps its full height,
+so the content the reader is looking at is covered rather than squeezed into a
+strip. The second keeps the Material default so the caret stays visible while
+typing.
+
+Hosts that embed the SDK's *views* (`ChatView`, `RoomListView`,
+`StarredMessagesView`, `MediaGalleryView`, `MessageSearchView`,
+`BlockedUsersView`) own the surrounding `Scaffold` and therefore own this
+choice themselves. The same rule of thumb applies: pass
+`resizeToAvoidBottomInset: false` unless the screen has a field below its
+midpoint. When one single element has to clear the keyboard on an otherwise
+fixed page, pad just that element — the pattern the SDK's own sheets use:
+
+```dart
+Padding(
+  padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+  child: confirmButton,
+)
+```
+
+### Text selection & the iOS context menu
+
+Every editable `TextField` the SDK owns — the composer, the message search
+fields, the group/profile name and description fields, the report-message
+reason field, the attachment caption — and the selectable body of a text
+bubble render the Flutter-drawn `AdaptiveTextSelectionToolbar` for copy /
+cut / paste / select-all, not the platform's native `SystemContextMenu`.
+
+On iOS, `SystemContextMenu` can only be shown while the field's text input
+connection is live. A route pushed, or a sheet opened, over a focused field
+tears that connection down while the menu is still mounted, and the menu
+then asserts on every subsequent frame — the screen keeps painting but stops
+answering any gesture at all. Long-pressing a message while the composer
+below it is focused is the everyday way to trigger this. Because every SDK
+field sets its own `contextMenuBuilder` (see
+`lib/src/ui/utils/text_selection_menu.dart`), none of them can ever build
+`SystemContextMenu`, regardless of `MediaQuery.supportsShowingSystemContextMenu`.
+
+One consequence: on iOS 16+, Apple's native Writing Tools entry — which only
+ever appears inside `SystemContextMenu` — never shows up on an SDK field.
+Copy, cut, paste, select-all and look-up remain available through the
+Flutter toolbar.
+
+A host that fully replaces an SDK field (e.g. a custom composer passed to
+`ChatView`) is outside this guarantee and should apply the same
+`contextMenuBuilder` if it can be focused underneath a pushed route or a
+long-press sheet.
 
 ---
 
@@ -2662,6 +2921,37 @@ room titles from the room list and unstars through the adapter. Use the primary
 constructor (`load` / `onUnstar` / `onOpen` / `roomTitleFor` / `itemBuilder`) for
 full control. Each entry is a lightweight `StarredMessage` (ids + `starredAt`).
 
+### Unread counting excludes system messages
+
+`RoomListItem.unreadCount` is server-authoritative: `GET` rooms returns
+`unreadMessages` and the `UnreadUpdatedEvent` WS frame (`roomId`, `count`)
+carries live deltas, both reconciled into the room list as-is. The client
+only adds to that count locally, between reconciliations, when a `NewMessageEvent`
+arrives for a room the user isn't currently viewing — and it skips that
+local bump entirely for a message with `ChatMessage.isSystem == true`
+(plan lifecycle notices, membership changes, …), so a room whose only
+unseen activity is system messages never shows unread. The Messaggi-tab
+badge (`RoomListController.unreadRoomCount`) and the row badge both read
+`unreadCount`, so they inherit this for free. `NomaChatView`'s "N new
+messages" divider (`resolveUnreadBoundary`) applies the same exclusion
+independently, since it derives its own boundary from the loaded message
+list rather than from `unreadCount`.
+
+The very first event for a room the device doesn't know yet takes a
+different path: `RoomEnricher.addFromDetail` fetches the room detail and
+builds a brand-new `RoomListItem` around it, rather than updating an
+existing one. That fresh row applies the same exclusion when seeding its
+initial `unreadCount` — an unknown room's first message being a system
+notice does not seed the row with a badge that the next reconciliation
+would then have to clear.
+
+This is a two-sided contract: the backend's own `unreadMessages` /
+`UnreadUpdatedEvent.count` must already exclude system messages (messages
+carrying `metadata.system == true` / `type == "system"`) for the two halves
+to agree once `loadRooms` reconciles the server value. A backend that still
+counts system messages will show a badge that briefly clears (the client's
+local skip) and then reappears on the next room-list refresh.
+
 ### Mention badge & Archived chats
 
 `RoomTile` shows an "@" badge when `RoomListItem.unreadMentions > 0` (populated
@@ -2840,17 +3130,21 @@ zero configuration, and `_captureAndSend` only ever sees confirmed captures.
 Unconfirmed ones are deleted by the page itself: the camera plugins write
 into the app cache and nothing else ever collects it.
 
-If you drive the screen yourself, `CameraCapturePage.show()` still resolves
-to a `CameraCaptureResult?` — `null` now also covers "the user discarded it":
+If you drive the screen yourself, `CameraCapturePage.show()` resolves to a
+`CameraCaptureSubmission?` — the confirmed capture plus the caption typed on
+the review step — `null` covering both "the user discarded it" and "the user
+cancelled":
 
 ```dart
-final shot = await CameraCapturePage.show(context: context, theme: myTheme);
-if (shot == null) return;               // cancelled, or discarded on review
+final submission = await CameraCapturePage.show(context: context, theme: myTheme);
+if (submission == null) return;         // cancelled, or discarded on review
+final shot = submission.capture;
 await chat.adapter.messages.sendAttachment(
   roomId,
   bytes: await shot.file.readAsBytes(),
   mimeType: shot.mimeType,
   fileName: shot.fileName,
+  caption: submission.caption,
 );
 ```
 
@@ -2896,6 +3190,228 @@ the Send button, default the send-green) and
 `cameraCaptureHintStyle`). Its labels are `ChatUiLocalizations.send`,
 `.cameraRetake` and `.cameraDiscard`; the clip preview announces
 `.playPreview` / `.pausePreview`.
+
+### userDirectoryResolver — host user directory
+
+Chat only knows the ids it was handed — a room's member list is a list of
+opaque strings. Most hosts already have a users table of their own (name,
+avatar, whether the account still exists), and `userDirectoryResolver` lets
+that table answer instead of chat's own profile:
+
+```dart
+final chat = await NomaChat.create(
+  ...
+  userDirectoryResolver: (ids) async {
+    final users = await myUsersApi.getByIds(ids);
+    return {
+      for (final u in users) u.id: HostUser(id: u.id, displayName: u.name, avatarUrl: u.photoUrl),
+      for (final id in ids.difference(users.map((u) => u.id).toSet()))
+        id: HostUser.missing(id), // no such user in our directory
+    };
+  },
+  userDirectoryTtl: const Duration(hours: 12), // default
+);
+```
+
+Contract: `userDirectoryResolver` is called in batches (several ids the SDK
+needs at once, not one call per id); the map you return is keyed by the same
+ids you were asked about. An id you leave out of the map is asked again
+later — return `HostUser.missing(id)` instead when you have looked and there
+really is nobody behind it, so the SDK stops asking. An exception is treated
+as a transport failure and retried like any other lookup.
+
+Names resolved this way feed the room title (`RoomTitleContext` for a DM
+without its own name), the sender prefix on a bubble, avatars, and
+membership banners — anywhere `ChatUiAdapter.displayNameFor` is the source.
+Leave `userDirectoryResolver` unset and the SDK falls back to chat's own
+profile store exactly as it always did.
+
+**No id is ever painted as a name.** When neither the host directory nor
+chat's own profile has a name for someone, every one of those surfaces
+renders a blank instead of the raw id — a room full of UUIDs is worse than a
+room full of blanks. A host that wants something in that gap (an initial, a
+generic "Unknown") supplies it itself, from `displayName == null` or `''`.
+
+Answers are cached to disk (see [Cache](#cache)) so the very first frame
+after a cold start already has yesterday's names, and refreshed once
+`userDirectoryTtl` elapses.
+
+### bootstrapCurrentUser
+
+`false` by default. When `true`, `connect()` asks chat for the signed-in
+user's own profile (`users.get(currentUser.id)`) right after connecting and,
+only if the answer is `NotFoundFailure`, creates it (`users.create()`). Any
+other failure is logged and does not abort the connection. Turn it on for a
+host whose backend never provisions the chat profile out of band; leave it
+`false` — the 0.33 behaviour — for one that already does.
+
+### sendRetryPolicy — retrying the first send after a draft materializes
+
+A message typed into a brand-new 1:1 conversation is sent against a
+client-side draft key before the room exists on the server; very
+occasionally the send races the room's own creation and comes back
+`NotFoundFailure` a moment too early. `sendRetryPolicy` re-polls the room
+and retries that one send automatically:
+
+```dart
+NomaChat.create(
+  ...
+  sendRetryPolicy: const SendRetryPolicy.firstSendOnly(), // default
+  // sendRetryPolicy: const SendRetryPolicy.none(), // 0.33 behaviour
+)
+```
+
+`SendRetryPolicy.firstSendOnly()` backs off over three attempts (400ms,
+900ms, 1500ms by default, configurable via `delays:`) and only ever applies
+to a send whose destination was a draft key and whose failure was
+"room not found" — an upload failure, a moderation rejection or any other
+error is left for the user to retry by hand. The retry reuses the failed
+row's own `tempId` as the idempotency key, so a first send that actually did
+land on the server is never delivered twice; the bubble shows `pending`
+while the retry runs and only flips to `failed` once every attempt in the
+policy is exhausted.
+
+The send's log line — `sendMessage`, `sendAttachment` and `sendVoice`, both
+the `confirmed` and the `failed` one — now carries `attempts` when more than
+one post was made, `recoveredFrom: <first attempt's failure>` when the send
+stumbled and landed anyway, and `firstFailure` next to the final failure
+when every attempt failed. The message text still names the LAST attempt's
+failure, which is the verdict the user is shown. A send that landed on its
+first post carries none of these keys.
+
+### attachmentShrinker — outgoing image reduction
+
+Every `AttachmentPickers` entry point (`pickImageFromCamera`,
+`pickImageFromGallery`, `pickVideoFromGallery`, `pickMultipleMedia`,
+`pickFile`) and the in-app camera shrink an outgoing image before it
+uploads, so a full-resolution shot leaves the device as a few hundred KB
+instead of a few MB:
+
+```dart
+AttachmentPickers.pickImageFromGallery(
+  policy: const AttachmentPolicy(
+    shrinkEnabled: true,             // default
+    shrinkSteps: AttachmentPolicy.defaultShrinkSteps, // 3072px@85 … 1280px@60
+  ),
+  // shrinker: const DefaultAttachmentShrinker(), // the picker default
+)
+```
+
+`AttachmentPolicy.shrinkEnabled` (default `true`) turns shrinking off for a
+policy entirely — nothing is re-encoded, and an injected `AttachmentShrinker`
+is never consulted. `AttachmentPolicy.shrinkSteps` (default
+`AttachmentPolicy.defaultShrinkSteps`, five steps from 3072px/quality 85
+down to 1280px/quality 60) is the ladder the default engine tries, largest
+dimension first, stopping at the first result that fits the policy's byte
+cap; a source already under the cap, a non-image mime type, or a step ladder
+that runs out are all `null` — the contract for "send the bytes untouched".
+
+The engine is pluggable through the abstract `AttachmentShrinker` interface
+(`Future<ShrunkAttachment?> fit(bytes, {mimeType, maxBytes, fileName})`):
+
+- `DefaultAttachmentShrinker` — the SDK's own engine, built on
+  `package:image`, running on a background isolate where the platform
+  supports one. It is the default for the five public pickers above.
+- `NoAttachmentShrinker` — sends exactly the bytes picked; pass it as
+  `shrinker: const NoAttachmentShrinker()` to a picker, or
+  `AttachmentPolicy(shrinkEnabled: false)`, to opt out.
+- `ChatUiAdapter(attachmentShrinker: ...)` sets the engine `NomaChatView`
+  hands to every attachment path it drives itself (camera, gallery, multiple
+  media, generic file). It defaults to `DefaultAttachmentShrinker` too, so a
+  host that mounts `NomaChatView` and never touches this parameter still
+  reduces outgoing images; pass `const NoAttachmentShrinker()` to opt the
+  whole view out.
+- A custom engine that wants `AttachmentPolicy.shrinkSteps` to drive its own
+  ladder implements `PolicyConfigurableShrinker.withShrinkSteps(steps)`; one
+  that does not implement it keeps its own fixed presets untouched by the
+  policy.
+
+Re-encoding always produces `image/jpeg` under a `.jpg` name — `mimeType`
+and `fileName` on the returned `ShrunkAttachment` change together, since a
+backend that stores a blob under a content type its own bytes contradict is
+the failure mode this exists to avoid. `AttachmentPolicy` measures what the
+file *is* (mime type, denied extensions) against the original pick and what
+it *weighs* against the shrunk payload, with the original mime type's cap —
+a PDF a shrinker declines to touch is never judged as if it were the JPEG
+some other file became.
+
+### ReadOnlyNoticeBuilder — why a room is read-only
+
+A room can be read-only for three independent reasons, and a host that
+customizes the notice usually wants to say which one applies:
+
+```dart
+NomaChatView(
+  roomId: roomId,
+  adapter: chat.adapter,
+  builders: ChatViewBuilders(
+    readOnlyNoticeBuilder: (context, reason) => switch (reason) {
+      ReadOnlyReason.ownerOnly => MyClosedBanner(),
+      ReadOnlyReason.selfMuted => MyMutedBanner(),
+      ReadOnlyReason.announcement => MyAnnouncementBanner(),
+    },
+  ),
+)
+```
+
+`ReadOnlyReason` is `announcement` (an announcement channel and the viewer
+is not the owner), `selfMuted` (an admin silenced this member specifically —
+distinct from the room's own notification mute), or `ownerOnly` (the room's
+backend-set `RoomConfig.writePolicy` is `ownerOnly` and the viewer is not the
+owner). Return `null` — the default — to keep the SDK's own notice, which
+carries the semantic identifier `chat_read_only_notice` for drivers
+(`Semantics(identifier: 'chat_read_only_notice')` plus a matching `ValueKey`).
+
+`RoomWritePolicy` (`members`, the default, or `ownerOnly`) travels in the
+room's own config — `RoomConfig.writePolicy` on `RoomDetail`, mirrored on
+`RoomListItem.writePolicy` for the list — and is read-only from the SDK's
+side: it is set server-side, never here. An absent field, a value from a
+newer backend, or the wrong type all resolve to `members` (fails open, so a
+spelling mismatch never locks a room nobody meant to close). `RoomListItem`
+and `RoomDetail` both expose `isReadOnly` (`true` for any of the three
+reasons); `readOnlyReason` — the most specific cause that applies, or `null`
+when the room is writable — lives on `RoomListItem` only, and is what feeds
+`ChatViewBehaviors.readOnlyReason` and therefore a host's
+`readOnlyNoticeBuilder`.
+
+### ParticipantNameResolver & recordRoomRoster — searching the room list by member
+
+`RoomListController`'s text filter matches a room's resolved title
+(`displayName`) and its last message by default. `participantNameResolver`
+extends that to the people in the room, so typing a contact's name finds the
+1:1 or group they are in even when the room's own title does not mention
+them:
+
+```dart
+final controller = chat.roomListController
+  ..setParticipantNameResolver(
+    (room) => myContactDirectory.namesFor(room.id),
+  );
+```
+
+`RoomListController.matchedParticipantFor(roomId)` returns the name that
+made a row match when the title/last-message did not, or `null` otherwise;
+`RoomListView`'s own `RoomTile` already paints it as a second line under the
+room name (`RoomTile(matchedParticipant: ...)`) whenever it is not given a
+custom `tileBuilder`. Call `notifyMembersChanged()` after your own directory
+fills in a name so the active filter re-evaluates.
+
+`ChatUiAdapter` wires a default resolver of its own — `displayNameFor` over
+each 1:1's other member and whoever sent the room's last message — so
+searching by name works out of the box for anyone the SDK has already had a
+reason to name. It does not track full room membership on its own; feed it
+with `ChatUiAdapter.recordRoomRoster(roomId, userIds, {complete: true})`
+whenever your own code learns who is in a room (the SDK already calls this
+when a group chat, its info page, or a page of `GroupMembersView` loads), and
+read back what is known with `roomRosterOf(roomId)`. `complete: false` adds
+to what is already known instead of replacing it, for a paginated roster.
+Calling `setParticipantNameResolver` replaces the adapter's default outright
+rather than layering on top of it — call `recordRoomRoster` instead if you
+just want to widen what the default already finds.
+
+For tests, `MockChatClient.seedRoomMeta(roomId, writePolicy: ...)` seeds the
+write policy on both the room detail and the listing, so a suite (or
+`example/`) can exercise an owner-only room without a real backend.
 
 ---
 

@@ -4,6 +4,15 @@ import 'package:flutter/material.dart';
 import '../../theme/chat_theme.dart';
 import '_bubble_metadata.dart';
 
+/// Name the tap-to-open target of the location row for [messageId] answers
+/// to.
+///
+/// Lives inside a [MessageBubble], so the `ValueKey` half is the reachable
+/// one and the `identifier` half only reaches a native dump when the bubble
+/// is rendered standalone.
+String locationBubbleSemanticsId(String messageId) =>
+    'chat_message_${messageId}_location';
+
 /// Bubble for a shared location: shows a static map preview centered on the
 /// coordinates and opens the system maps app on tap.
 class LocationBubble extends StatelessWidget {
@@ -18,6 +27,7 @@ class LocationBubble extends StatelessWidget {
     this.isOutgoing = false,
     this.theme = ChatTheme.defaults,
     this.statusWidget,
+    this.messageId,
   });
 
   final double latitude;
@@ -29,6 +39,11 @@ class LocationBubble extends StatelessWidget {
   final bool isOutgoing;
   final ChatTheme theme;
   final Widget? statusWidget;
+
+  /// Id of the message this row renders. Names the tap-to-open target
+  /// ([locationBubbleSemanticsId]); `null` (default) leaves it unnamed
+  /// rather than publishing a name two rows could answer to.
+  final String? messageId;
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +57,10 @@ class LocationBubble extends StatelessWidget {
     final mapBuilder = theme.locationMapBuilder;
     final hasMapPreview = mapBuilder != null || staticMapUrl != null;
 
+    final id = messageId == null ? null : locationBubbleSemanticsId(messageId!);
     return Semantics(
+      key: id == null ? null : ValueKey(id),
+      identifier: id,
       label: label ?? theme.l10nOf(context).locationMessage,
       button: onTap != null,
       child: GestureDetector(

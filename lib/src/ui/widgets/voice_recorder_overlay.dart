@@ -233,6 +233,7 @@ class VoiceRecorderOverlay extends StatelessWidget {
                 color: theme.voiceRecorderCancelColor ?? Colors.grey.shade600,
                 onTap: controller.cancelRecording,
                 semanticsLabel: l10n.delete,
+                identifier: 'chat_voice_overlay_delete_button',
               ),
               if (controller.isPaused)
                 _CircleButton(
@@ -240,6 +241,7 @@ class VoiceRecorderOverlay extends StatelessWidget {
                   color: theme.voiceRecorderActiveColor ?? Colors.red,
                   onTap: controller.resumeRecording,
                   semanticsLabel: l10n.resumeRecording,
+                  identifier: 'chat_voice_overlay_resume_button',
                 )
               else
                 _CircleButton(
@@ -247,18 +249,21 @@ class VoiceRecorderOverlay extends StatelessWidget {
                   color: theme.audioPlayButtonColor ?? Colors.blue,
                   onTap: controller.pauseRecording,
                   semanticsLabel: l10n.pauseRecording,
+                  identifier: 'chat_voice_overlay_pause_button',
                 ),
               _CircleButton(
                 icon: Icons.play_arrow,
                 color: theme.audioPlayButtonColor ?? Colors.blue,
                 onTap: controller.startPreListen,
                 semanticsLabel: l10n.preListenLabel,
+                identifier: 'chat_voice_overlay_prelisten_button',
               ),
               _CircleButton(
                 icon: Icons.send,
                 color: theme.input.sendButtonColor ?? Colors.blue,
                 onTap: () => onSend?.call(),
                 semanticsLabel: l10n.send,
+                identifier: 'chat_voice_overlay_send_button',
               ),
             ],
           ),
@@ -281,17 +286,25 @@ class VoiceRecorderOverlay extends StatelessWidget {
         children: [
           Row(
             children: [
-              IconButton(
-                icon: Icon(
-                  controller.isPreListening ? Icons.pause : Icons.play_arrow,
-                  color: theme.audioPlayButtonColor ?? Colors.blue,
+              Semantics(
+                key: const ValueKey('chat_voice_overlay_prelisten_play_button'),
+                identifier: 'chat_voice_overlay_prelisten_play_button',
+                button: true,
+                label: controller.isPreListening
+                    ? l10n.pauseRecording
+                    : l10n.playPreview,
+                child: IconButton(
+                  icon: Icon(
+                    controller.isPreListening ? Icons.pause : Icons.play_arrow,
+                    color: theme.audioPlayButtonColor ?? Colors.blue,
+                  ),
+                  tooltip: controller.isPreListening
+                      ? l10n.pauseRecording
+                      : l10n.playPreview,
+                  onPressed: controller.isPreListening
+                      ? controller.stopPreListen
+                      : controller.startPreListen,
                 ),
-                tooltip: controller.isPreListening
-                    ? theme.l10nOf(context).pauseRecording
-                    : theme.l10nOf(context).playPreview,
-                onPressed: controller.isPreListening
-                    ? controller.stopPreListen
-                    : controller.startPreListen,
               ),
               const SizedBox(width: 8),
               Expanded(
@@ -325,12 +338,14 @@ class VoiceRecorderOverlay extends StatelessWidget {
                 color: theme.voiceRecorderCancelColor ?? Colors.grey.shade600,
                 onTap: controller.cancelRecording,
                 semanticsLabel: l10n.delete,
+                identifier: 'chat_voice_overlay_delete_button',
               ),
               _CircleButton(
                 icon: Icons.send,
                 color: theme.input.sendButtonColor ?? Colors.blue,
                 onTap: () => onSend?.call(),
                 semanticsLabel: l10n.send,
+                identifier: 'chat_voice_overlay_send_button',
               ),
             ],
           ),
@@ -394,16 +409,20 @@ class _CircleButton extends StatelessWidget {
     required this.color,
     required this.onTap,
     required this.semanticsLabel,
+    required this.identifier,
   });
 
   final IconData icon;
   final Color color;
   final VoidCallback onTap;
   final String semanticsLabel;
+  final String identifier;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
+      key: ValueKey(identifier),
+      identifier: identifier,
       label: semanticsLabel,
       button: true,
       child: GestureDetector(

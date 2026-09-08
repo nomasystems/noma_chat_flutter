@@ -43,6 +43,14 @@ ChatFailure mapExceptionToFailure(Object e) {
   if (e is ChatConflictException) {
     return ConflictFailure(e.message, e.errorToken);
   }
+  if (e is ChatAttachmentTooLargeException) {
+    return AttachmentTooLargeFailure(
+      statusCode: e.statusCode,
+      body: e.body,
+      message: e.message,
+      errorToken: e.errorToken ?? ChatErrorTokens.attachmentTooLarge,
+    );
+  }
   if (e is ChatRateLimitException) {
     return RateLimitFailure(
       retryAfter: e.retryAfter,

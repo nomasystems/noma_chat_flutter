@@ -5,10 +5,13 @@ import '../../models/message.dart';
 import '../../models/read_receipt.dart';
 import '../../models/user.dart';
 import '../controller/audio_playback_coordinator.dart';
+import '../l10n/chat_ui_localizations.dart';
 import '../l10n/system_message_text.dart';
 import '../services/attachment_bytes_loader.dart';
 import '../services/attachment_url_resolver.dart';
 import '../theme/chat_theme.dart';
+import '../utils/date_formatter.dart';
+import '../utils/emoji_only.dart';
 import '../utils/last_message_preview.dart' show mediaSemanticLabel;
 import '../utils/url_detector.dart';
 import 'bubbles/_attachment_upload_overlay.dart' show paintsAttachmentFailure;
@@ -25,6 +28,9 @@ import 'reaction_bar.dart';
 import 'read_receipt_avatars.dart';
 import 'reply_preview.dart';
 import 'swipe_to_reply.dart';
+
+part 'message_bubble_body.dart';
+part 'message_bubble_semantics.dart';
 
 /// Instrumentation name of the bubble rendering [messageId], published as the
 /// row's `ValueKey` in [MessageList] and as the bubble's
@@ -289,6 +295,43 @@ class MessageBubble extends StatelessWidget {
 
   bool get _isForwarded => message.isForwarded;
 
+  /// Whether this message is the "just an emoji" case a chat paints large
+  /// and with no bubble behind it: a text body of at most three emoji, in a
+  /// bubble that has nothing else to hold.
+  ///
+  /// The first exclusions mirror [_buildBubbleContent] branch for branch —
+  /// an attachment, a voice note, a location or a reaction never reaches
+  /// [TextBubble] at all, and a caption of "🍺" under a photo is not this
+  /// case. The last three are the surfaces the enlarged glyph cannot share
+  /// a bubble with: a quoted reply, a link preview card and a forward
+  /// header each need the background to stand on.
+  bool get _isEmojiOnlyBody {
+    if (_isSystem || _isForwarded) return false;
+    final type = message.messageType;
+    if (type == MessageType.reaction ||
+        type == MessageType.reply ||
+        type == MessageType.location) {
+      return false;
+    }
+    if ((type == MessageType.audio || type == MessageType.attachment) &&
+        message.attachmentUrl != null) {
+      return false;
+    }
+    if (_hasLinkPreviewCard) return false;
+    return isEmojiOnlyText(message.text ?? '');
+  }
+
+  /// The same condition [_buildBubbleContent] uses to decide whether a
+  /// [LinkPreviewBubble] goes under the text.
+  bool get _hasLinkPreviewCard {
+    final meta = message.metadata;
+    if (meta == null) return false;
+    if (!meta.containsKey('linkUrl') && !meta.containsKey('linkTitle')) {
+      return false;
+    }
+    return UrlDetector.hasUrl(message.text ?? '');
+  }
+
   /// Parses `metadata['sourceTimestamp']` when present — an ISO-8601
   /// string, if the backend/consumer stamps the original send time onto
   /// the forwarded copy. `null` when absent or unparsable so
@@ -425,7 +468,7 @@ class MessageBubble extends StatelessWidget {
               color:
                   theme.bubble.statusPendingColor ??
                   theme.bubble.statusColor ??
-                  Colors.grey,
+                  Theme.of(context).colorScheme.onSurfaceVariant,
             ),
       MessageDeliveryState.sent ||
       MessageDeliveryState.delivered ||
@@ -440,241 +483,23 @@ class MessageBubble extends StatelessWidget {
     };
   }
 
-  Widget _buildBubbleContent(
-    BuildContext context,
-    VoidCallback? onCancelUpload,
-  ) {
-    if (message.isDeleted) {
-      return _DeletedBubbleContent(
-        isOutgoing: isOutgoing,
-        adminDeleted: _adminDeleted,
-        theme: theme,
-      );
-    }
+  /// Media types that can carry a quote of their own: a photo, a voice
+  /// note or a map card sent as the answer to a message. A thread reply is
+  /// plain text carrying [ChatMessage.referencedMessageId] and is not a
+  /// quote; a reaction is metadata on another message and never a bubble.
+  static const Set<MessageType> _quotableMediaTypes = {
+    MessageType.attachment,
+    MessageType.audio,
+    MessageType.location,
+  };
 
-    final mimeType = _mimeType?.toLowerCase() ?? '';
-
-    // Bumped from 12 → 14 + stroke 1.5 → 2 inside MessageStatusIcon.
-    // The user reported "no se ven los ticks" on a real device; the
-    // previous values were too thin on a phone display. WhatsApp uses
-    // ~14px ticks with a slightly thicker stroke. Configurable via
-    // `theme.bubble.statusColor` / `theme.bubble.statusReadColor` /
-    // `theme.bubble.statusPendingColor`, or replaced wholesale per
-    // state through `theme.bubble.statusIconBuilder`.
-    final deliveryState = _deliveryState;
-    final Widget? statusIcon = deliveryState == null
-        ? null
-        : _buildStatusIcon(context, deliveryState);
-
-    final outgoingStatusWidget = statusIcon == null
-        ? null
-        : (readReceiptUsers.isEmpty || isFailed || isPending
-              ? statusIcon
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ReadReceiptAvatars(
-                      receipts: readReceipts,
-                      users: readReceiptUsers,
-                      avatarSize: 14,
-                      theme: theme,
-                    ),
-                    const SizedBox(width: 4),
-                    statusIcon,
-                  ],
-                ));
-
-    if (message.messageType == MessageType.audio &&
-        message.attachmentUrl != null) {
-      final waveform = _extractWaveform();
-      // Audio carries the sender's portrait INSIDE the bubble — the large
-      // tappable slot on the far edge (left for outgoing, right for
-      // incoming) that morphs into the speed pill on play. So it skips the
-      // group leading-avatar wrapper: otherwise the sender showed twice (a
-      // small leading avatar on the near edge + the big portrait), and with
-      // the portrait suppressed it looked off-balance. One portrait, on the
-      // far edge, symmetric with outgoing.
-      return AudioBubble(
-        audioUrl: message.attachmentUrl!,
-        timestamp: message.timestamp,
-        isOutgoing: isOutgoing,
-        theme: theme,
-        waveform: waveform,
-        messageId: message.id,
-        coordinator: audioCoordinator,
-        uploadProgress: audioUploadProgress,
-        statusWidget: outgoingStatusWidget,
-        senderAvatarUrl: senderAvatarUrl,
-        senderDisplayName: senderDisplayName,
-        showSenderPortrait: true,
-        attachmentRef: _attachmentRef,
-        urlResolver: attachmentUrlResolver,
-        mediaLoader: attachmentMediaLoader,
-        onVoicePlayed: onVoicePlayed,
-      );
-    }
-
-    if (message.messageType == MessageType.attachment &&
-        message.attachmentUrl != null) {
-      if (mimeType.startsWith('audio/')) {
-        final waveform = _extractWaveform();
-        // Same as the audio MessageType branch above: the in-bubble
-        // portrait (far edge → speed pill) replaces the group leading
-        // avatar, keeping incoming symmetric with outgoing.
-        return AudioBubble(
-          audioUrl: message.attachmentUrl!,
-          timestamp: message.timestamp,
-          isOutgoing: isOutgoing,
-          theme: theme,
-          waveform: waveform,
-          messageId: message.id,
-          coordinator: audioCoordinator,
-          uploadProgress: audioUploadProgress,
-          statusWidget: outgoingStatusWidget,
-          senderAvatarUrl: senderAvatarUrl,
-          senderDisplayName: senderDisplayName,
-          showSenderPortrait: true,
-          attachmentRef: _attachmentRef,
-          urlResolver: attachmentUrlResolver,
-          mediaLoader: attachmentMediaLoader,
-          onVoicePlayed: onVoicePlayed,
-        );
-      }
-      if (mimeType.startsWith('image/')) {
-        return ImageBubble(
-          imageUrl: message.attachmentUrl!,
-          caption: message.text,
-          timestamp: message.timestamp,
-          onTap: onTapImage,
-          isOutgoing: isOutgoing,
-          theme: theme,
-          statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
-          attachmentRef: _attachmentRef,
-          urlResolver: attachmentUrlResolver,
-          mediaLoader: attachmentMediaLoader,
-          uploadProgress: attachmentUploadProgress,
-          onCancelUpload: onCancelUpload,
-          isFailed: isFailed,
-          onRetry: _mediaRetry,
-        );
-      }
-      if (mimeType.startsWith('video/')) {
-        return VideoBubble(
-          videoUrl: message.attachmentUrl!,
-          thumbnailUrl: message.thumbnailUrl,
-          timestamp: message.timestamp,
-          onTap: onTapVideo,
-          isOutgoing: isOutgoing,
-          theme: theme,
-          statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
-          thumbnailRef: _thumbnailRefFor(message),
-          urlResolver: attachmentUrlResolver,
-          mediaLoader: attachmentMediaLoader,
-          uploadProgress: attachmentUploadProgress,
-          onCancelUpload: onCancelUpload,
-          isFailed: isFailed,
-          onRetry: _mediaRetry,
-        );
-      }
-      return FileBubble(
-        fileName:
-            message.fileName ?? message.text ?? theme.l10nOf(context).file,
-        fileSize: message.fileSize,
-        mimeType: mimeType.isNotEmpty ? mimeType : null,
-        timestamp: message.timestamp,
-        onTap: onTapFile,
-        isOutgoing: isOutgoing,
-        theme: theme,
-        statusWidget: _hasMediaRetryAffordance ? null : outgoingStatusWidget,
-        uploadProgress: attachmentUploadProgress,
-        onCancelUpload: onCancelUpload,
-        isFailed: isFailed,
-        onRetry: _mediaRetry,
-      );
-    }
-
-    if (message.messageType == MessageType.location) {
-      final meta = message.metadata ?? const {};
-      final lat = double.tryParse('${meta['lat'] ?? ''}');
-      final lng = double.tryParse('${meta['lng'] ?? ''}');
-      if (lat != null && lng != null) {
-        return LocationBubble(
-          latitude: lat,
-          longitude: lng,
-          staticMapUrl: meta['staticMapUrl']?.toString(),
-          label: (message.text ?? '').isNotEmpty ? message.text : null,
-          timestamp: message.timestamp,
-          onTap: onTapLocation,
-          isOutgoing: isOutgoing,
-          theme: theme,
-          statusWidget: outgoingStatusWidget,
-        );
-      }
-    }
-
-    if (message.messageType == MessageType.reaction) {
-      return const SizedBox.shrink();
-    }
-
-    Widget? replyWidget;
-    if (message.messageType == MessageType.reply && referencedMessage != null) {
-      replyWidget = ReplyPreview(
-        message: referencedMessage!,
-        senderName: referencedSenderName,
-        onTap: onTapReply,
-        theme: theme,
-        mediaLoader: attachmentMediaLoader,
-        roomId: roomId,
-      );
-    }
-
-    Widget? linkPreview;
-    final text = message.text ?? '';
-    if (UrlDetector.hasUrl(text) && message.metadata != null) {
-      final meta = message.metadata!;
-      if (meta.containsKey('linkUrl') || meta.containsKey('linkTitle')) {
-        linkPreview = LinkPreviewBubble(
-          url:
-              meta['linkUrl'] as String? ??
-              (UrlDetector.extractUrls(text).isNotEmpty
-                  ? UrlDetector.extractUrls(text).first
-                  : ''),
-          title: meta['linkTitle'] as String?,
-          description: meta['linkDescription'] as String?,
-          imageUrl: meta['linkImage'] as String?,
-          isOutgoing: isOutgoing,
-          theme: theme,
-        );
-      }
-    }
-
-    Widget bubble = TextBubble(
-      text: text,
-      isOutgoing: isOutgoing,
-      timestamp: message.timestamp,
-      isEdited: _isEdited,
-      editedByAdmin: _adminEdited,
-      adminSent: _adminSent,
-      theme: theme,
-      replyPreview: replyWidget,
-      linkPreview: linkPreview,
-      enableSelection: onSwipeToReply == null,
-      onTapLink: onTapLink,
-      onTapMention: onTapMention,
-      statusWidget: outgoingStatusWidget,
-    );
-
-    if (_isForwarded) {
-      bubble = ForwardedBubble(
-        sourceLabel: forwardedSourceLabel,
-        sourceTimestamp: _forwardedSourceTimestamp,
-        theme: theme,
-        child: bubble,
-      );
-    }
-
-    return bubble;
-  }
+  /// `true` when the quote strip belongs above the media rather than inside
+  /// the text column, which media bubbles do not have.
+  bool get _quotesReferencedMedia =>
+      !message.isDeleted &&
+      referencedMessage != null &&
+      message.referencedMessageId != null &&
+      _quotableMediaTypes.contains(message.messageType);
 
   @override
   Widget build(BuildContext context) {
@@ -775,12 +600,24 @@ class MessageBubble extends StatelessWidget {
               : defaultRadius.copyWith(bottomLeft: const Radius.circular(4)))
         : defaultRadius;
 
+    // A message that is nothing but emoji drops the bubble entirely: the
+    // glyph lands on the chat background, WhatsApp-style. Enlarging the
+    // text inside the rectangle would only produce a taller rectangle.
+    // A highlighted row keeps its background — the highlight IS the
+    // background, and losing it would lose the "this is the message you
+    // jumped to" signal.
+    final emojiOnly = _isEmojiOnlyBody && !isHighlighted;
+
     return Container(
       constraints: BoxConstraints(
         maxWidth: maxBubbleWidth ?? MediaQuery.sizeOf(context).width * 0.75,
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
+      padding: emojiOnly
+          ? EdgeInsets.zero
+          : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: emojiOnly
+          ? null
+          : BoxDecoration(color: bubbleColor, borderRadius: bubbleRadius),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -813,7 +650,11 @@ class MessageBubble extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.push_pin, size: 12, color: Colors.grey.shade600),
+        Icon(
+          Icons.push_pin,
+          size: 12,
+          color: theme.bubble.timestampStyle?.color ?? Colors.grey.shade600,
+        ),
         const SizedBox(width: 3),
         Text(
           theme.l10nOf(context).pinned.isNotEmpty
@@ -822,7 +663,7 @@ class MessageBubble extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             fontStyle: FontStyle.italic,
-            color: Colors.grey.shade600,
+            color: theme.bubble.timestampStyle?.color ?? Colors.grey.shade600,
           ),
         ),
       ],
@@ -900,208 +741,6 @@ class MessageBubble extends StatelessWidget {
     return SwipeToReply(onSwipe: onSwipeToReply!, child: content);
   }
 
-  /// Scoped to the bubble container only (not reactions/thread-link, which
-  /// are appended as siblings in [_buildBubbleColumn] and keep their own
-  /// unexcluded `Semantics` nodes reachable to screen readers). The
-  /// consolidated [_buildSemanticLabel] replaces the descendants' raw
-  /// text/timestamp/status announcements (`excludeSemantics: true`), but the
-  /// bubble's actual interactive affordances — context menu, retry, opening
-  /// an attachment — have no announcement of their own to fall back on, so
-  /// they're re-declared explicitly on this same node (mirrors the
-  /// `MapButton` pattern: exclude descendants, keep the callbacks).
-  ///
-  /// That exclusion is also why the delivery tick's name rides a bare sibling
-  /// node stacked over the bubble's corner instead of the tick itself: an
-  /// excluded subtree publishes nothing, so the `Semantics(identifier:)` the
-  /// tick carries would not even reach the framework's own tree. The sibling
-  /// carries the name and nothing else — no label, value, hint or action — so
-  /// the message still reads as one unit and the delivery state is still
-  /// announced once, by [_buildSemanticLabel], instead of twice.
-  ///
-  /// Being bare is also its limit, and it is a platform one. iOS publishes a
-  /// `UIAccessibilityElement` only for a node its engine considers focusable —
-  /// one with a label, a value, a hint or a non-scrolling action — and the
-  /// identifier is not part of that test, so XCUITest and `idb` never see this
-  /// node. Android's bridge writes the identifier as the node's
-  /// `resource-id` regardless. Giving the sibling any of the four fields that
-  /// would buy it a place on iOS would also buy it a screen-reader stop
-  /// repeating a state the bubble already reads out, which is the trade this
-  /// deliberately refuses. See the delivery-tick note in `README.md`.
-  Widget _wrapWithSemantics(
-    BuildContext context,
-    Widget content,
-    VoidCallback? onCancelUpload,
-  ) {
-    final bubble = Semantics(
-      identifier: messageBubbleSemanticsId(message.id, isOutgoing: isOutgoing),
-      label: _buildSemanticLabel(context),
-      excludeSemantics: true,
-      onLongPress: onLongPress,
-      onTap: _attachmentOpenAction,
-      customSemanticsActions: _customSemanticsActions(context, onCancelUpload),
-      child: content,
-    );
-
-    final statusId = _statusSemanticsId;
-    if (statusId == null) return bubble;
-
-    return Stack(
-      children: [
-        bubble,
-        Positioned(
-          right: 0,
-          bottom: 0,
-          width: _statusMarkerSize,
-          height: _statusMarkerSize,
-          child: Semantics(
-            identifier: statusId,
-            container: true,
-            child: const SizedBox(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  /// Name of the delivery tick this bubble paints, `null` when it paints
-  /// none — an incoming row, a deleted one, or one still sending or failed,
-  /// whose glyphs are a clock and an error icon rather than the tick.
-  ///
-  /// Mirrors the arms of [_buildStatusIcon] that render a [MessageStatusIcon].
-  /// The failed state is unreachable here for a second reason: it is the only
-  /// one that paints a media retry affordance, and that suppresses the tick.
-  String? get _statusSemanticsId {
-    if (message.isDeleted) return null;
-    return switch (_deliveryState) {
-      MessageDeliveryState.sent ||
-      MessageDeliveryState.delivered ||
-      MessageDeliveryState.read => messageStatusSemanticsId(message.id),
-      MessageDeliveryState.sending ||
-      MessageDeliveryState.failed ||
-      null => null,
-    };
-  }
-
-  /// Merges every screen-reader custom action this bubble exposes.
-  /// Returns `null` (not an empty map) when neither applies, keeping the
-  /// no-actions case identical to before either existed.
-  Map<CustomSemanticsAction, VoidCallback>? _customSemanticsActions(
-    BuildContext context,
-    VoidCallback? onCancelUpload,
-  ) {
-    final actions = {
-      ...?_retryCustomAction(context),
-      ...?_cancelUploadCustomAction(context, onCancelUpload),
-    };
-    return actions.isEmpty ? null : actions;
-  }
-
-  /// Callback that opens this message's attachment, when it has one — wired
-  /// as the outer bubble's semantic tap action. `null` for text messages
-  /// (no default action besides the long-press menu) and for audio (its
-  /// play/pause toggle is private to `AudioBubble`, not reachable from here).
-  VoidCallback? get _attachmentOpenAction {
-    if (message.isDeleted) return null;
-    if (message.messageType == MessageType.location) {
-      return onTapLocation;
-    }
-    if (message.messageType != MessageType.attachment ||
-        message.attachmentUrl == null) {
-      return null;
-    }
-    final mimeType = _mimeType?.toLowerCase() ?? '';
-    if (mimeType.startsWith('audio/')) return null;
-    if (mimeType.startsWith('image/')) return onTapImage;
-    if (mimeType.startsWith('video/')) return onTapVideo;
-    return onTapFile;
-  }
-
-  /// Exposes the failed-send retry as a screen-reader custom action. Both
-  /// the status-row retry icon and, when [_hasMediaRetryAffordance] is
-  /// true, the media-level retry arrow are bare `GestureDetector`s with no
-  /// text of their own, so neither has any other way to announce itself
-  /// once nested under the excluded bubble semantics — this one action
-  /// covers whichever of the two is actually on screen.
-  Map<CustomSemanticsAction, VoidCallback>? _retryCustomAction(
-    BuildContext context,
-  ) {
-    final retry = onRetry;
-    if (!isFailed || retry == null) return null;
-    return {CustomSemanticsAction(label: theme.l10nOf(context).retry): retry};
-  }
-
-  /// `true` for the bubbles that actually paint a cancel X on the upload
-  /// ring: image, video and file. Mirrors the branch [_buildBubbleContent]
-  /// takes, deletion first — a deleted row renders the tombstone and never
-  /// reaches the media bubbles, whatever else it still carries. Audio rows
-  /// — voice notes and audio attachments alike — render `AudioBubble`,
-  /// which has no cancel control at all. A voice clip's upload *is*
-  /// abortable (`sendVoice` registers its token like any other blob, so the
-  /// session teardown reaches it); there is simply no X on that bubble to
-  /// announce or to wire.
-  bool get _paintsUploadCancel {
-    if (message.isDeleted) return false;
-    if (message.messageType != MessageType.attachment) return false;
-    if (message.attachmentUrl == null) return false;
-    return !(_mimeType?.toLowerCase() ?? '').startsWith('audio/');
-  }
-
-  /// Exposes the upload-cancel X as a screen-reader custom action — same
-  /// reasoning as [_retryCustomAction]: it's a bare icon nested inside the
-  /// upload-progress ring with no announcement of its own once the
-  /// bubble's own semantics excludes descendants. Takes [onCancelUpload] at
-  /// face value: it arrives from [_cancelUploadCallback], the one place that
-  /// decides whether an X exists at all, and re-deriving that here is how
-  /// the announcement drifted from the painting in the first place.
-  Map<CustomSemanticsAction, VoidCallback>? _cancelUploadCustomAction(
-    BuildContext context,
-    VoidCallback? onCancelUpload,
-  ) {
-    final cancel = onCancelUpload;
-    if (cancel == null) {
-      return null;
-    }
-    return {
-      CustomSemanticsAction(label: theme.l10nOf(context).cancelUploadLabel):
-          cancel,
-    };
-  }
-
-  String _buildSemanticLabel(BuildContext context) {
-    final l10n = theme.l10nOf(context);
-    final semanticSender = senderName ?? (isOutgoing ? l10n.you : '');
-    // A photo, a map card or a voice note carries no text, and reading the
-    // empty string out is how the conversation became "You: , Sent" under
-    // VoiceOver. Anything that is not plain text describes itself through
-    // the same words the chat list uses, with its caption appended; a text
-    // message gets read verbatim, as it always was.
-    final semanticBody = message.isDeleted
-        ? l10n.messageDeleted
-        : (mediaSemanticLabel(message, l10n) ?? message.text ?? '');
-    final announceSending = isOutgoing && !message.isDeleted && isPending;
-    final statusForSemantics =
-        isOutgoing && !message.isDeleted && !isPending && !isFailed
-        ? _effectiveStatus
-        : null;
-    // A failed send announced nothing at all: same silence as a message on
-    // its way out, for the opposite situation.
-    final statusSuffix = isFailed && isOutgoing && !message.isDeleted
-        ? ', ${l10n.statusFailed}'
-        : announceSending
-        ? ', ${l10n.statusSending}'
-        : statusForSemantics == null
-        ? ''
-        : ', ${switch (statusForSemantics) {
-            ReceiptStatus.sent => l10n.statusSent,
-            ReceiptStatus.delivered => l10n.statusDelivered,
-            ReceiptStatus.read => l10n.statusRead,
-          }}';
-    final semanticBodyWithStatus = '$semanticBody$statusSuffix';
-    return semanticSender.isNotEmpty
-        ? '$semanticSender: $semanticBodyWithStatus'
-        : semanticBodyWithStatus;
-  }
-
   /// The row's long-press affordance, spanning avatar, side gap and the
   /// bubble alike (WhatsApp behaviour) instead of the bubble's own box.
   ///
@@ -1174,6 +813,24 @@ class MessageBubble extends StatelessWidget {
   }
 }
 
+/// The tombstone wording for a deleted message. Single source for the
+/// painted placeholder ([_DeletedBubbleContent]) and for the bubble's
+/// accessibility label, which used to read the sender-agnostic
+/// `messageDeleted` while the screen said "You deleted this message".
+String _deletedBubbleLabel(
+  ChatUiLocalizations l10n, {
+  required bool isOutgoing,
+  required bool adminDeleted,
+}) => adminDeleted
+    ? l10n.messageDeletedByAdmin
+    : (isOutgoing
+          ? (l10n.previewDeletedByYou.isNotEmpty
+                ? l10n.previewDeletedByYou
+                : l10n.messageDeleted)
+          : (l10n.previewDeletedByOther.isNotEmpty
+                ? l10n.previewDeletedByOther
+                : l10n.messageDeleted));
+
 /// Renders the "this message was deleted" placeholder inside a bubble.
 /// Chooses between three labels depending on who deleted the message:
 ///
@@ -1205,15 +862,11 @@ class _DeletedBubbleContent extends StatelessWidget {
         : theme.bubble.incomingTextStyle;
     final color = baseStyle?.color?.withValues(alpha: 0.7) ?? Colors.grey;
     final l10n = theme.l10nOf(context);
-    final deletedText = adminDeleted
-        ? l10n.messageDeletedByAdmin
-        : (isOutgoing
-              ? (l10n.previewDeletedByYou.isNotEmpty
-                    ? l10n.previewDeletedByYou
-                    : l10n.messageDeleted)
-              : (l10n.previewDeletedByOther.isNotEmpty
-                    ? l10n.previewDeletedByOther
-                    : l10n.messageDeleted));
+    final deletedText = _deletedBubbleLabel(
+      l10n,
+      isOutgoing: isOutgoing,
+      adminDeleted: adminDeleted,
+    );
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(

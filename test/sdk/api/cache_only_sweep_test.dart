@@ -233,15 +233,17 @@ String _methodOf(String declaration) => declaration.split('.').last;
 ///
 /// Returns entries shaped `path:Class.method`. Every sub-API lives under
 /// the flat `lib/src/api/`, and every policy a caller can pass is declared
-/// on an abstract class in `chat_client.dart`, so those two locations are
-/// the whole surface this rule has to hold on.
+/// on an abstract class in the `chat_client.dart` library — its own file
+/// plus the parts it names — so those two locations are the whole surface
+/// this rule has to hold on.
 Set<String> _declarationsUnderSweep() {
+  const clientRoot = 'lib/src/client';
   final files = <File>[
     ...Directory('lib/src/api')
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.dart')),
-    File('lib/src/client/chat_client.dart'),
+    ..._chatClientLibrary(clientRoot),
   ]..sort((a, b) => a.path.compareTo(b.path));
 
   final classPattern = RegExp(
@@ -272,4 +274,16 @@ Set<String> _declarationsUnderSweep() {
     }
   }
   return found;
+}
+
+/// The `chat_client.dart` library: the entry file and every part it names.
+///
+/// Read from the `part` directives rather than hard-coded so splitting an
+/// abstract sub-API into its own part keeps it under the sweep.
+List<File> _chatClientLibrary(String root) {
+  final entry = File('$root/chat_client.dart');
+  final parts = RegExp(r"^part\s+'([^']+)';", multiLine: true)
+      .allMatches(entry.readAsStringSync())
+      .map((m) => File('$root/${m.group(1)}'));
+  return [entry, ...parts];
 }

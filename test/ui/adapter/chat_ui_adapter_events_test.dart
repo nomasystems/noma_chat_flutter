@@ -101,7 +101,7 @@ void main() {
 
     test('dmActivity ignored when no room mapping', () async {
       await adapter.connect();
-      adapter.getChatController('dm-room');
+      final controller = adapter.getChatController('dm-room');
 
       mockClient.emitEvent(
         const ChatEvent.dmActivity(
@@ -112,7 +112,7 @@ void main() {
       );
 
       await Future.delayed(Duration.zero);
-      // No crash, just ignored
+      expect(controller.typingUserIds, isEmpty);
     });
   });
 
@@ -203,7 +203,12 @@ void main() {
             .where((m) => m.isSystem)
             .firstOrNull;
         expect(systemMsg, isNotNull);
-        expect(systemMsg!.text, contains('u2'));
+        expect(systemMsg!.text, isNot(contains('u2')));
+        expect(systemMsg.metadata?[SystemMessageMetadataKeys.userId], 'u2');
+        expect(
+          systemMsg.metadata?[SystemMessageMetadataKeys.userLabel],
+          isEmpty,
+        );
       },
     );
   });

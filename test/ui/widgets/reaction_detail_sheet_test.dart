@@ -138,6 +138,55 @@ void main() {
       expect(find.byIcon(Icons.close), findsWidgets);
     });
 
+    testWidgets('each remove button publishes chat_reaction_remove_<emoji> on '
+        'both halves', (tester) async {
+      final handle = WidgetsBinding.instance.ensureSemantics();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                body: ElevatedButton(
+                  onPressed: () => ReactionDetailSheet.show(
+                    context,
+                    fetchReactions: () async => reactions,
+                    currentUserId: 'u1',
+                    userFetcher: resolver,
+                    onRemoveReaction: (_) {},
+                  ),
+                  child: const Text('Open'),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(
+        reactionRemoveSemanticsId('\u{1F44D}'),
+        'chat_reaction_remove_\u{1F44D}',
+      );
+      for (final emoji in ['\u{1F44D}', '\u2764\uFE0F']) {
+        final name = reactionRemoveSemanticsId(emoji);
+        expect(
+          find.semantics.byPredicate((node) => node.identifier == name),
+          findsOne,
+          reason: 'Semantics half missing for $name',
+        );
+        expect(
+          find.byKey(ValueKey(name)),
+          findsOneWidget,
+          reason: 'ValueKey half missing for $name',
+        );
+      }
+
+      handle.dispose();
+    });
+
     testWidgets('calls onRemoveReaction and closes sheet', (tester) async {
       String? removedEmoji;
       await tester.pumpWidget(
@@ -225,7 +274,7 @@ void main() {
       expect(find.text('Bob'), findsWidgets);
     });
 
-    testWidgets('falls back to id-as-name when batchUserFetcher omits an id', (
+    testWidgets('leaves a reactor the batchUserFetcher omits unnamed', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -256,10 +305,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('You'), findsWidgets);
-      expect(find.text('u2'), findsWidgets);
+      expect(find.text('u2'), findsNothing);
+      expect(find.byType(ListTile), findsNWidgets(3));
     });
 
-    testWidgets('falls back to id-as-name when batchUserFetcher throws', (
+    testWidgets('leaves every reactor unnamed when batchUserFetcher throws', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -288,10 +338,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('You'), findsWidgets);
-      expect(find.text('u2'), findsWidgets);
+      expect(find.text('u2'), findsNothing);
+      expect(find.byType(ListTile), findsNWidgets(3));
     });
 
-    testWidgets('shows error state on fetch failure', (tester) async {
+    testWidgets('shows localized copy on fetch failure, never the raw '
+        'exception', (tester) async {
       await tester.pumpWidget(
         MaterialApp(
           home: Builder(
@@ -316,7 +368,8 @@ void main() {
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Exception'), findsOneWidget);
+      expect(find.textContaining('Exception'), findsNothing);
+      expect(find.text(ChatTheme.defaults.l10n.loadFailed), findsOneWidget);
     });
   });
 

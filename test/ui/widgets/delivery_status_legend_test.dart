@@ -195,4 +195,45 @@ void main() {
     expect(find.text('Leído'), findsOneWidget);
     expect(find.text('Se abrió el chat y se leyó el mensaje.'), findsOneWidget);
   });
+
+  testWidgets('without a host palette every glyph shares the ambient token', (
+    tester,
+  ) async {
+    late ColorScheme colors;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: ThemeData.dark(),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) {
+              colors = Theme.of(context).colorScheme;
+              return const DeliveryStatusLegendSheet(theme: ChatTheme.defaults);
+            },
+          ),
+        ),
+      ),
+    );
+
+    final clock = tester.widget<Icon>(
+      find.descendant(
+        of: find.byKey(
+          ValueKey(
+            deliveryStatusLegendSemanticsId(MessageDeliveryState.sending),
+          ),
+        ),
+        matching: find.byIcon(Icons.access_time),
+      ),
+    );
+
+    expect(clock.color, colors.onSurfaceVariant);
+    expect(
+      paintedGlyphColour(tester, MessageDeliveryState.sent),
+      colors.onSurfaceVariant,
+    );
+    expect(
+      paintedGlyphColour(tester, MessageDeliveryState.delivered),
+      colors.onSurfaceVariant,
+    );
+    expect(paintedGlyphColour(tester, MessageDeliveryState.sent), clock.color);
+  });
 }

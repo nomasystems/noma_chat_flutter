@@ -156,7 +156,11 @@ class ChatUiLocalizations {
     this.galleryDocsTab = 'Docs',
     this.galleryLinksTab = 'Links',
     this.galleryNoLinks = 'No links shared yet',
+    this.galleryNoLinksSubtitle =
+        'Links you share in this conversation will appear here',
     this.galleryNoDocs = 'No documents shared yet',
+    this.galleryNoDocsSubtitle =
+        'Documents you share in this conversation will appear here',
     this.audioError = 'Audio unavailable',
     this.slideToCancel = 'Slide to cancel',
     this.slideUpToLock = 'Slide up to lock',
@@ -203,6 +207,8 @@ class ChatUiLocalizations {
     this.repliesTemplate = '{count} replies',
     this.replySingleTemplate = '{count} reply',
     this.replyInThread = 'Reply in thread',
+    this.replyQuoteSemanticsTemplate = 'Replying to {sender}: {quote}',
+    this.replyQuoteSemanticsNoSenderTemplate = 'Replying to: {quote}',
     this.searchMessages = 'Search messages',
     this.noResults = 'No results',
     this.accept = 'Accept',
@@ -220,6 +226,8 @@ class ChatUiLocalizations {
     this.startChat = 'Start chat',
     this.block = 'Block',
     this.noMedia = 'No media',
+    this.noMediaSubtitle =
+        'Photos and videos you share in this conversation will appear here',
     this.messageDeleted = 'This message was deleted',
     this.messageDeletedByAdmin = 'Deleted by admin',
     this.typingOneTemplate = '{name} is typing',
@@ -318,6 +326,7 @@ class ChatUiLocalizations {
     this.cameraPermissionDenied = 'You need to allow camera access',
     this.cameraRetake = 'Retake',
     this.cameraDiscard = 'Discard',
+    this.attachmentCaptionHint = 'Add a caption',
     this.switchCamera = 'Switch camera',
     this.openSettings = 'Open settings',
     this.changesSaved = 'Changes saved',
@@ -340,10 +349,14 @@ class ChatUiLocalizations {
     this.readBy = 'Read by',
     this.deliveredTo = 'Delivered to',
     this.noReceiptsYet = 'No read or delivery info yet',
+    this.messageSentAtTemplate = 'Sent \u00b7 {time}',
+    this.messageSentNoReceiptsTemplate =
+        'Sent at {time}. Nobody has received it yet.',
     // Opening prompt and result count of `MessageSearchView`.
     this.searchPromptEmpty = 'Search for text inside this conversation',
     this.searchResultCountSingularTemplate = '{count} result',
     this.searchResultCountPluralTemplate = '{count} results',
+    this.searchPromptTooShortTemplate = 'Type at least {count} characters',
     // Per-member subtitles of `MessageInfoSheet`. The server keeps read /
     // delivered cursors, not a stamp per message, so a member's time is the
     // time they read THIS message only when their cursor points at it.
@@ -393,6 +406,7 @@ class ChatUiLocalizations {
     this.presenceOffline = 'Offline',
     this.email = 'Email',
     this.searchEmoji = 'Search emoji...',
+    this.noRecentEmoji = 'No recent emoji',
     this.unblockFailed = 'Unblock failed',
     this.updateRoleFailed = 'Update role failed',
     this.removeMemberFailed = 'Remove member failed',
@@ -402,6 +416,9 @@ class ChatUiLocalizations {
     this.locationMessage = 'Location message',
     this.avatar = 'Avatar',
     this.loadMore = 'Load more',
+    this.loadFailed = 'Could not load',
+    this.saveFailed = 'Could not save changes',
+    this.createGroupFailed = 'Could not create the group',
   });
 
   /// IETF / ISO 639-1 primary language subtag of this instance
@@ -567,7 +584,15 @@ class ChatUiLocalizations {
   final String galleryDocsTab;
   final String galleryLinksTab;
   final String galleryNoLinks;
+
+  /// Second line under [galleryNoLinks], naming what will fill the tab.
+  final String galleryNoLinksSubtitle;
+
   final String galleryNoDocs;
+
+  /// Second line under [galleryNoDocs], naming what will fill the tab.
+  final String galleryNoDocsSubtitle;
+
   final String audioError;
   final String slideToCancel;
   final String slideUpToLock;
@@ -692,6 +717,19 @@ class ChatUiLocalizations {
   final String repliesTemplate;
   final String replySingleTemplate;
   final String replyInThread;
+
+  /// Screen-reader description of the quote a reply bubble carries.
+  ///
+  /// The quote is painted inside a subtree the bubble excludes from the
+  /// semantics tree, so without this the relation ("this answers that") was
+  /// lost to a screen reader entirely. `{sender}` is the quoted author,
+  /// `{quote}` its first line or media description. Read through
+  /// [replyQuoteSemantics].
+  final String replyQuoteSemanticsTemplate;
+
+  /// Same as [replyQuoteSemanticsTemplate] for a quoted author nobody can
+  /// name (an unresolved id, or a blocked sender whose name is withheld).
+  final String replyQuoteSemanticsNoSenderTemplate;
   final String searchMessages;
   final String noResults;
   final String accept;
@@ -709,6 +747,10 @@ class ChatUiLocalizations {
   final String startChat;
   final String block;
   final String noMedia;
+
+  /// Second line under [noMedia], naming what will fill the tab.
+  final String noMediaSubtitle;
+
   final String messageDeleted;
   final String messageDeletedByAdmin;
   final String typingOneTemplate;
@@ -842,6 +884,10 @@ class ChatUiLocalizations {
   /// Leaves the capture screen without sending anything, on the same
   /// review step.
   final String cameraDiscard;
+
+  /// Placeholder of the caption field on the attachment review step
+  /// (`AttachmentReviewPage`, `CameraCaptureReview`).
+  final String attachmentCaptionHint;
   final String switchCamera;
   final String openSettings;
   final String changesSaved;
@@ -872,6 +918,17 @@ class ChatUiLocalizations {
   /// delivered cursor covering the message yet.
   final String noReceiptsYet;
 
+  /// The send line [MessageInfoSheet] prints above the receipt sections.
+  /// `{time}` is the message's own timestamp — the hour the bubble already
+  /// shows two centimetres higher up, which the sheet dedicated to that
+  /// message used not to say at all.
+  final String messageSentAtTemplate;
+
+  /// The whole of [MessageInfoSheet] when nobody has received the message
+  /// yet: it replaces [noReceiptsYet], which stated only what was missing.
+  /// `{time}` is the message's own timestamp.
+  final String messageSentNoReceiptsTemplate;
+
   /// Opening copy of `MessageSearchView`, rendered before anything has
   /// been typed into the query field.
   final String searchPromptEmpty;
@@ -882,6 +939,16 @@ class ChatUiLocalizations {
 
   /// Plural form of the result-count header above the search results.
   final String searchResultCountPluralTemplate;
+
+  /// Copy shown while a search query is shorter than the minimum length
+  /// the screen dispatches on. `{count}` is that minimum, which is a widget
+  /// parameter — never hard-code it into the translation.
+  final String searchPromptTooShortTemplate;
+
+  /// Substitutes `{count}` in [searchPromptTooShortTemplate] with the
+  /// minimum query length. Used by `MessageSearchView` and `GroupSetupPage`.
+  String searchPromptTooShort(int count) =>
+      searchPromptTooShortTemplate.replaceAll('{count}', count.toString());
 
   /// Resolves the right singular / plural result-count header for [count]
   /// and substitutes `{count}`. Used by `MessageSearchView`.
@@ -1005,6 +1072,10 @@ class ChatUiLocalizations {
   /// Search hint shown inside the full emoji picker sheet.
   final String searchEmoji;
 
+  /// Text shown inside the full emoji picker when the "recently used"
+  /// tab has nothing in it yet.
+  final String noRecentEmoji;
+
   /// Fallback snackbar text when unblocking a user fails and the failure
   /// carries no message.
   final String unblockFailed;
@@ -1035,6 +1106,17 @@ class ChatUiLocalizations {
   /// when more members remain beyond the current page.
   final String loadMore;
 
+  /// Generic copy shown in place of a list when its contents could not
+  /// be loaded. Replaces the raw failure text so the screen never shows
+  /// untranslated technical detail.
+  final String loadFailed;
+
+  /// Fallback snackbar text when saving a profile or group edit fails.
+  final String saveFailed;
+
+  /// Fallback snackbar text when creating a group fails.
+  final String createGroupFailed;
+
   String blockUserName(String name) =>
       blockUserNameTemplate.replaceAll('{name}', name);
   String unblockUserName(String name) =>
@@ -1045,6 +1127,21 @@ class ChatUiLocalizations {
     one: replySingleTemplate,
     other: repliesTemplate,
   ).replaceAll('{count}', count.toString());
+
+  /// Builds the reply-quote description a screen reader reads before the
+  /// body of the answer. Pass `sender: null` when the quoted author cannot
+  /// be named.
+  String messageSentAt(String time) =>
+      messageSentAtTemplate.replaceAll('{time}', time);
+  String messageSentNoReceipts(String time) =>
+      messageSentNoReceiptsTemplate.replaceAll('{time}', time);
+
+  String replyQuoteSemantics({String? sender, required String quote}) =>
+      (sender == null || sender.isEmpty)
+      ? replyQuoteSemanticsNoSenderTemplate.replaceAll('{quote}', quote)
+      : replyQuoteSemanticsTemplate
+            .replaceAll('{sender}', sender)
+            .replaceAll('{quote}', quote);
 
   String userJoined(String userId) =>
       userJoinedTemplate.replaceAll('{user}', userId);
@@ -1240,7 +1337,9 @@ class ChatUiLocalizations {
     String? galleryDocsTab,
     String? galleryLinksTab,
     String? galleryNoLinks,
+    String? galleryNoLinksSubtitle,
     String? galleryNoDocs,
+    String? galleryNoDocsSubtitle,
     String? audioError,
     String? slideToCancel,
     String? slideUpToLock,
@@ -1278,6 +1377,8 @@ class ChatUiLocalizations {
     String? repliesTemplate,
     String? replySingleTemplate,
     String? replyInThread,
+    String? replyQuoteSemanticsTemplate,
+    String? replyQuoteSemanticsNoSenderTemplate,
     String? searchMessages,
     String? noResults,
     String? accept,
@@ -1295,6 +1396,7 @@ class ChatUiLocalizations {
     String? startChat,
     String? block,
     String? noMedia,
+    String? noMediaSubtitle,
     String? messageDeleted,
     String? messageDeletedByAdmin,
     String? typingOneTemplate,
@@ -1353,6 +1455,7 @@ class ChatUiLocalizations {
     String? cameraPermissionDenied,
     String? cameraRetake,
     String? cameraDiscard,
+    String? attachmentCaptionHint,
     String? switchCamera,
     String? openSettings,
     String? profile,
@@ -1367,9 +1470,12 @@ class ChatUiLocalizations {
     String? readBy,
     String? deliveredTo,
     String? noReceiptsYet,
+    String? messageSentAtTemplate,
+    String? messageSentNoReceiptsTemplate,
     String? searchPromptEmpty,
     String? searchResultCountSingularTemplate,
     String? searchResultCountPluralTemplate,
+    String? searchPromptTooShortTemplate,
     String? receiptNoExactTime,
     String? receiptAtLatestTemplate,
     String? deliveryStatusLegendTitle,
@@ -1403,6 +1509,7 @@ class ChatUiLocalizations {
     String? presenceOffline,
     String? email,
     String? searchEmoji,
+    String? noRecentEmoji,
     String? unblockFailed,
     String? updateRoleFailed,
     String? removeMemberFailed,
@@ -1412,6 +1519,9 @@ class ChatUiLocalizations {
     String? locationMessage,
     String? avatar,
     String? loadMore,
+    String? loadFailed,
+    String? saveFailed,
+    String? createGroupFailed,
   }) {
     return ChatUiLocalizations(
       localeCode: localeCode ?? this.localeCode,
@@ -1532,7 +1642,11 @@ class ChatUiLocalizations {
       galleryDocsTab: galleryDocsTab ?? this.galleryDocsTab,
       galleryLinksTab: galleryLinksTab ?? this.galleryLinksTab,
       galleryNoLinks: galleryNoLinks ?? this.galleryNoLinks,
+      galleryNoLinksSubtitle:
+          galleryNoLinksSubtitle ?? this.galleryNoLinksSubtitle,
       galleryNoDocs: galleryNoDocs ?? this.galleryNoDocs,
+      galleryNoDocsSubtitle:
+          galleryNoDocsSubtitle ?? this.galleryNoDocsSubtitle,
       audioError: audioError ?? this.audioError,
       slideToCancel: slideToCancel ?? this.slideToCancel,
       slideUpToLock: slideUpToLock ?? this.slideUpToLock,
@@ -1576,6 +1690,11 @@ class ChatUiLocalizations {
       repliesTemplate: repliesTemplate ?? this.repliesTemplate,
       replySingleTemplate: replySingleTemplate ?? this.replySingleTemplate,
       replyInThread: replyInThread ?? this.replyInThread,
+      replyQuoteSemanticsTemplate:
+          replyQuoteSemanticsTemplate ?? this.replyQuoteSemanticsTemplate,
+      replyQuoteSemanticsNoSenderTemplate:
+          replyQuoteSemanticsNoSenderTemplate ??
+          this.replyQuoteSemanticsNoSenderTemplate,
       searchMessages: searchMessages ?? this.searchMessages,
       noResults: noResults ?? this.noResults,
       accept: accept ?? this.accept,
@@ -1594,6 +1713,7 @@ class ChatUiLocalizations {
       startChat: startChat ?? this.startChat,
       block: block ?? this.block,
       noMedia: noMedia ?? this.noMedia,
+      noMediaSubtitle: noMediaSubtitle ?? this.noMediaSubtitle,
       messageDeleted: messageDeleted ?? this.messageDeleted,
       messageDeletedByAdmin:
           messageDeletedByAdmin ?? this.messageDeletedByAdmin,
@@ -1664,6 +1784,8 @@ class ChatUiLocalizations {
           cameraPermissionDenied ?? this.cameraPermissionDenied,
       cameraRetake: cameraRetake ?? this.cameraRetake,
       cameraDiscard: cameraDiscard ?? this.cameraDiscard,
+      attachmentCaptionHint:
+          attachmentCaptionHint ?? this.attachmentCaptionHint,
       switchCamera: switchCamera ?? this.switchCamera,
       openSettings: openSettings ?? this.openSettings,
       profile: profile ?? this.profile,
@@ -1728,6 +1850,10 @@ class ChatUiLocalizations {
       readBy: readBy ?? this.readBy,
       deliveredTo: deliveredTo ?? this.deliveredTo,
       noReceiptsYet: noReceiptsYet ?? this.noReceiptsYet,
+      messageSentAtTemplate:
+          messageSentAtTemplate ?? this.messageSentAtTemplate,
+      messageSentNoReceiptsTemplate:
+          messageSentNoReceiptsTemplate ?? this.messageSentNoReceiptsTemplate,
       searchPromptEmpty: searchPromptEmpty ?? this.searchPromptEmpty,
       searchResultCountSingularTemplate:
           searchResultCountSingularTemplate ??
@@ -1735,6 +1861,8 @@ class ChatUiLocalizations {
       searchResultCountPluralTemplate:
           searchResultCountPluralTemplate ??
           this.searchResultCountPluralTemplate,
+      searchPromptTooShortTemplate:
+          searchPromptTooShortTemplate ?? this.searchPromptTooShortTemplate,
       receiptNoExactTime: receiptNoExactTime ?? this.receiptNoExactTime,
       receiptAtLatestTemplate:
           receiptAtLatestTemplate ?? this.receiptAtLatestTemplate,
@@ -1776,6 +1904,7 @@ class ChatUiLocalizations {
       presenceOffline: presenceOffline ?? this.presenceOffline,
       email: email ?? this.email,
       searchEmoji: searchEmoji ?? this.searchEmoji,
+      noRecentEmoji: noRecentEmoji ?? this.noRecentEmoji,
       unblockFailed: unblockFailed ?? this.unblockFailed,
       updateRoleFailed: updateRoleFailed ?? this.updateRoleFailed,
       removeMemberFailed: removeMemberFailed ?? this.removeMemberFailed,
@@ -1786,6 +1915,9 @@ class ChatUiLocalizations {
       locationMessage: locationMessage ?? this.locationMessage,
       avatar: avatar ?? this.avatar,
       loadMore: loadMore ?? this.loadMore,
+      loadFailed: loadFailed ?? this.loadFailed,
+      saveFailed: saveFailed ?? this.saveFailed,
+      createGroupFailed: createGroupFailed ?? this.createGroupFailed,
     );
   }
 
@@ -1868,6 +2000,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Subiendo {percent}%',
     cancelUploadLabel: 'Cancelar subida',
     retryUploadLabel: 'Reintentar subida',
+    retry: 'Reintentar',
     members: 'miembros',
     online: 'en línea',
     lastSeenTemplate: 'última vez hace {time}',
@@ -1974,7 +2107,11 @@ class ChatUiLocalizations {
     galleryDocsTab: 'Documentos',
     galleryLinksTab: 'Enlaces',
     galleryNoLinks: 'Aún no se han compartido enlaces',
+    galleryNoLinksSubtitle:
+        'Los enlaces que compartáis en esta conversación aparecerán aquí',
     galleryNoDocs: 'Aún no se han compartido documentos',
+    galleryNoDocsSubtitle:
+        'Los documentos que compartáis en esta conversación aparecerán aquí',
     audioError: 'Audio no disponible',
     slideToCancel: 'Desliza para cancelar',
     slideUpToLock: 'Desliza arriba para bloquear',
@@ -2011,6 +2148,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} respuestas',
     replySingleTemplate: '{count} respuesta',
     replyInThread: 'Responder en hilo',
+    replyQuoteSemanticsTemplate: 'Respondiendo a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Respondiendo a: {quote}',
     searchMessages: 'Buscar mensajes',
     noResults: 'Sin resultados',
     accept: 'Aceptar',
@@ -2028,6 +2167,8 @@ class ChatUiLocalizations {
     startChat: 'Iniciar chat',
     block: 'Bloquear',
     noMedia: 'Sin multimedia',
+    noMediaSubtitle:
+        'Las fotos y vídeos que compartáis en esta conversación aparecerán aquí',
     messageDeleted: 'Este mensaje fue eliminado',
     messageDeletedByAdmin: 'Eliminado por el administrador',
     typingOneTemplate: '{name} está escribiendo',
@@ -2117,6 +2258,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: 'Necesitas permitir el acceso a la cámara',
     cameraRetake: 'Repetir',
     cameraDiscard: 'Descartar',
+    attachmentCaptionHint: 'Añade un pie de foto',
     switchCamera: 'Cambiar de cámara',
     openSettings: 'Abrir ajustes',
     changesSaved: 'Cambios guardados',
@@ -2135,9 +2277,13 @@ class ChatUiLocalizations {
     readBy: 'Leído por',
     deliveredTo: 'Entregado a',
     noReceiptsYet: 'Aún no hay información de entrega ni de lectura',
+    messageSentAtTemplate: 'Enviado \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Enviado a las {time}. Todavía no lo ha recibido nadie.',
     searchPromptEmpty: 'Busca por texto dentro de esta conversación',
     searchResultCountSingularTemplate: '{count} resultado',
     searchResultCountPluralTemplate: '{count} resultados',
+    searchPromptTooShortTemplate: 'Escribe al menos {count} caracteres',
     receiptNoExactTime: 'Sin hora exacta',
     receiptAtLatestTemplate: 'Como muy tarde a las {time}',
     deliveryStatusLegendTitle: 'Qué significan los checks',
@@ -2172,6 +2318,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Desconectado',
     email: 'Correo electrónico',
     searchEmoji: 'Buscar emoji...',
+    noRecentEmoji: 'Sin emojis recientes',
     unblockFailed: 'No se pudo desbloquear',
     updateRoleFailed: 'No se pudo actualizar el rol',
     removeMemberFailed: 'No se pudo eliminar al miembro',
@@ -2181,6 +2328,9 @@ class ChatUiLocalizations {
     locationMessage: 'Mensaje de ubicación',
     avatar: 'Avatar',
     loadMore: 'Cargar más',
+    loadFailed: 'No se pudo cargar',
+    saveFailed: 'No se pudieron guardar los cambios',
+    createGroupFailed: 'No se pudo crear el grupo',
   );
 
   static const ChatUiLocalizations fr = ChatUiLocalizations(
@@ -2194,6 +2344,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Envoi {percent}%',
     cancelUploadLabel: "Annuler l'envoi",
     retryUploadLabel: "Réessayer l'envoi",
+    retry: 'Réessayer',
     blockUser: 'Bloquer',
     blockUserConfirmBody:
         'Vous ne recevrez plus de messages de cet utilisateur.',
@@ -2347,7 +2498,11 @@ class ChatUiLocalizations {
     galleryDocsTab: 'Documents',
     galleryLinksTab: 'Liens',
     galleryNoLinks: 'Aucun lien partagé pour le moment',
+    galleryNoLinksSubtitle:
+        'Les liens partagés dans cette conversation apparaîtront ici',
     galleryNoDocs: 'Aucun document partagé pour le moment',
+    galleryNoDocsSubtitle:
+        'Les documents partagés dans cette conversation apparaîtront ici',
     audioError: 'Audio indisponible',
     slideToCancel: 'Glisser pour annuler',
     slideUpToLock: 'Glisser vers le haut pour verrouiller',
@@ -2375,6 +2530,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} réponses',
     replySingleTemplate: '{count} réponse',
     replyInThread: 'Répondre dans le fil',
+    replyQuoteSemanticsTemplate: 'En réponse à {sender} : {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'En réponse à : {quote}',
     searchMessages: 'Rechercher des messages',
     noResults: 'Aucun résultat',
     accept: 'Accepter',
@@ -2392,6 +2549,8 @@ class ChatUiLocalizations {
     startChat: 'Démarrer une discussion',
     block: 'Bloquer',
     noMedia: 'Aucun média',
+    noMediaSubtitle:
+        'Les photos et vidéos partagées dans cette conversation apparaîtront ici',
     messageDeleted: 'Ce message a été supprimé',
     messageDeletedByAdmin: 'Supprimé par un administrateur',
     typingOneTemplate: '{name} écrit',
@@ -2443,6 +2602,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: "Tu dois autoriser l'accès à la caméra",
     cameraRetake: 'Reprendre',
     cameraDiscard: 'Supprimer',
+    attachmentCaptionHint: 'Ajouter une légende',
     switchCamera: 'Changer de caméra',
     openSettings: 'Ouvrir les réglages',
     changesSaved: 'Modifications enregistrées',
@@ -2460,9 +2620,13 @@ class ChatUiLocalizations {
     readBy: 'Lu par',
     deliveredTo: 'Remis à',
     noReceiptsYet: 'Aucune info de remise ou de lecture pour le moment',
+    messageSentAtTemplate: 'Envoyé \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        "Envoyé à {time}. Personne ne l'a encore reçu.",
     searchPromptEmpty: 'Rechercher du texte dans cette conversation',
     searchResultCountSingularTemplate: '{count} résultat',
     searchResultCountPluralTemplate: '{count} résultats',
+    searchPromptTooShortTemplate: 'Saisissez au moins {count} caractères',
     receiptNoExactTime: 'Heure exacte inconnue',
     receiptAtLatestTemplate: 'Au plus tard à {time}',
     deliveryStatusLegendTitle: 'Ce que signifient les coches',
@@ -2497,6 +2661,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Hors ligne',
     email: 'E-mail',
     searchEmoji: 'Rechercher un émoji...',
+    noRecentEmoji: 'Aucun émoji récent',
     unblockFailed: 'Échec du déblocage',
     updateRoleFailed: 'Échec de la mise à jour du rôle',
     removeMemberFailed: 'Échec du retrait du membre',
@@ -2506,6 +2671,9 @@ class ChatUiLocalizations {
     locationMessage: 'Message de position',
     avatar: 'Avatar',
     loadMore: 'Charger plus',
+    loadFailed: 'Chargement impossible',
+    saveFailed: 'Impossible d\'enregistrer les modifications',
+    createGroupFailed: 'Impossible de créer le groupe',
   );
 
   static const ChatUiLocalizations de = ChatUiLocalizations(
@@ -2519,6 +2687,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Wird hochgeladen {percent}%',
     cancelUploadLabel: 'Upload abbrechen',
     retryUploadLabel: 'Upload wiederholen',
+    retry: 'Erneut versuchen',
     blockUser: 'Blockieren',
     blockUserConfirmBody:
         'Du erhältst keine Nachrichten mehr von diesem Benutzer.',
@@ -2675,7 +2844,11 @@ class ChatUiLocalizations {
     galleryDocsTab: 'Dokumente',
     galleryLinksTab: 'Links',
     galleryNoLinks: 'Noch keine Links geteilt',
+    galleryNoLinksSubtitle:
+        'Links, die ihr in dieser Unterhaltung teilt, erscheinen hier',
     galleryNoDocs: 'Noch keine Dokumente geteilt',
+    galleryNoDocsSubtitle:
+        'Dokumente, die ihr in dieser Unterhaltung teilt, erscheinen hier',
     audioError: 'Audio nicht verfügbar',
     slideToCancel: 'Zum Abbrechen wischen',
     slideUpToLock: 'Nach oben wischen zum Sperren',
@@ -2703,6 +2876,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} Antworten',
     replySingleTemplate: '{count} Antwort',
     replyInThread: 'Im Thread antworten',
+    replyQuoteSemanticsTemplate: 'Antwort an {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Antwort auf: {quote}',
     searchMessages: 'Nachrichten suchen',
     noResults: 'Keine Ergebnisse',
     accept: 'Annehmen',
@@ -2720,6 +2895,8 @@ class ChatUiLocalizations {
     startChat: 'Chat starten',
     block: 'Blockieren',
     noMedia: 'Keine Medien',
+    noMediaSubtitle:
+        'Fotos und Videos, die ihr in dieser Unterhaltung teilt, erscheinen hier',
     messageDeleted: 'Diese Nachricht wurde gelöscht',
     messageDeletedByAdmin: 'Vom Administrator gelöscht',
     typingOneTemplate: '{name} schreibt',
@@ -2770,6 +2947,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: 'Du musst den Zugriff auf die Kamera erlauben',
     cameraRetake: 'Neu aufnehmen',
     cameraDiscard: 'Verwerfen',
+    attachmentCaptionHint: 'Bildunterschrift hinzufügen',
     switchCamera: 'Kamera wechseln',
     openSettings: 'Einstellungen öffnen',
     changesSaved: 'Änderungen gespeichert',
@@ -2787,9 +2965,13 @@ class ChatUiLocalizations {
     readBy: 'Gelesen von',
     deliveredTo: 'Zugestellt an',
     noReceiptsYet: 'Noch keine Zustell- oder Leseinfo',
+    messageSentAtTemplate: 'Gesendet \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Um {time} gesendet. Noch niemand hat sie erhalten.',
     searchPromptEmpty: 'Text in dieser Unterhaltung suchen',
     searchResultCountSingularTemplate: '{count} Ergebnis',
     searchResultCountPluralTemplate: '{count} Ergebnisse',
+    searchPromptTooShortTemplate: 'Gib mindestens {count} Zeichen ein',
     receiptNoExactTime: 'Keine genaue Uhrzeit',
     receiptAtLatestTemplate: 'Spätestens um {time}',
     deliveryStatusLegendTitle: 'Was die Haken bedeuten',
@@ -2824,6 +3006,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Offline',
     email: 'E-Mail',
     searchEmoji: 'Emoji suchen...',
+    noRecentEmoji: 'Keine kürzlich verwendeten Emojis',
     unblockFailed: 'Entsperren fehlgeschlagen',
     updateRoleFailed: 'Rollenaktualisierung fehlgeschlagen',
     removeMemberFailed: 'Mitglied entfernen fehlgeschlagen',
@@ -2833,6 +3016,9 @@ class ChatUiLocalizations {
     locationMessage: 'Standortnachricht',
     avatar: 'Avatar',
     loadMore: 'Mehr laden',
+    loadFailed: 'Laden fehlgeschlagen',
+    saveFailed: 'Änderungen konnten nicht gespeichert werden',
+    createGroupFailed: 'Gruppe konnte nicht erstellt werden',
   );
 
   static const ChatUiLocalizations it = ChatUiLocalizations(
@@ -2846,6 +3032,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Caricamento {percent}%',
     cancelUploadLabel: 'Annulla caricamento',
     retryUploadLabel: 'Riprova caricamento',
+    retry: 'Riprova',
     blockUser: 'Blocca',
     blockUserConfirmBody: 'Non riceverai più messaggi da questo utente.',
     blockUserConfirmTitle: 'Bloccare?',
@@ -2998,7 +3185,11 @@ class ChatUiLocalizations {
     galleryDocsTab: 'Documenti',
     galleryLinksTab: 'Link',
     galleryNoLinks: 'Nessun link condiviso',
+    galleryNoLinksSubtitle:
+        'I link condivisi in questa conversazione appariranno qui',
     galleryNoDocs: 'Nessun documento condiviso',
+    galleryNoDocsSubtitle:
+        'I documenti condivisi in questa conversazione appariranno qui',
     audioError: 'Audio non disponibile',
     slideToCancel: 'Scorri per annullare',
     slideUpToLock: 'Scorri verso l\'alto per bloccare',
@@ -3026,6 +3217,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} risposte',
     replySingleTemplate: '{count} risposta',
     replyInThread: 'Rispondi nel thread',
+    replyQuoteSemanticsTemplate: 'In risposta a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'In risposta a: {quote}',
     searchMessages: 'Cerca messaggi',
     noResults: 'Nessun risultato',
     accept: 'Accetta',
@@ -3043,6 +3236,8 @@ class ChatUiLocalizations {
     startChat: 'Avvia chat',
     block: 'Blocca',
     noMedia: 'Nessun media',
+    noMediaSubtitle:
+        'Le foto e i video condivisi in questa conversazione appariranno qui',
     messageDeleted: 'Questo messaggio è stato eliminato',
     messageDeletedByAdmin: "Eliminato dall'amministratore",
     typingOneTemplate: '{name} sta scrivendo',
@@ -3093,6 +3288,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: "Devi consentire l'accesso alla fotocamera",
     cameraRetake: 'Ripeti',
     cameraDiscard: 'Scarta',
+    attachmentCaptionHint: 'Aggiungi una didascalia',
     switchCamera: 'Cambia fotocamera',
     openSettings: 'Apri impostazioni',
     changesSaved: 'Modifiche salvate',
@@ -3110,9 +3306,13 @@ class ChatUiLocalizations {
     readBy: 'Letto da',
     deliveredTo: 'Consegnato a',
     noReceiptsYet: 'Ancora nessuna info di consegna o lettura',
+    messageSentAtTemplate: 'Inviato \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Inviato alle {time}. Nessuno lo ha ancora ricevuto.',
     searchPromptEmpty: 'Cerca testo in questa conversazione',
     searchResultCountSingularTemplate: '{count} risultato',
     searchResultCountPluralTemplate: '{count} risultati',
+    searchPromptTooShortTemplate: 'Scrivi almeno {count} caratteri',
     receiptNoExactTime: 'Ora esatta non disponibile',
     receiptAtLatestTemplate: 'Al più tardi alle {time}',
     deliveryStatusLegendTitle: 'Cosa significano le spunte',
@@ -3146,6 +3346,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Offline',
     email: 'Email',
     searchEmoji: 'Cerca emoji...',
+    noRecentEmoji: 'Nessuna emoji recente',
     unblockFailed: 'Sblocco non riuscito',
     updateRoleFailed: 'Aggiornamento del ruolo non riuscito',
     removeMemberFailed: 'Rimozione del membro non riuscita',
@@ -3155,6 +3356,9 @@ class ChatUiLocalizations {
     locationMessage: 'Messaggio di posizione',
     avatar: 'Avatar',
     loadMore: 'Carica altro',
+    loadFailed: 'Impossibile caricare',
+    saveFailed: 'Impossibile salvare le modifiche',
+    createGroupFailed: 'Impossibile creare il gruppo',
   );
 
   static const ChatUiLocalizations pt = ChatUiLocalizations(
@@ -3168,6 +3372,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Enviando {percent}%',
     cancelUploadLabel: 'Cancelar envio',
     retryUploadLabel: 'Repetir envio',
+    retry: 'Tentar novamente',
     blockUser: 'Bloquear',
     blockUserConfirmBody: 'Você não receberá mais mensagens deste usuário.',
     blockUserConfirmTitle: 'Bloquear?',
@@ -3320,7 +3525,11 @@ class ChatUiLocalizations {
     galleryDocsTab: 'Documentos',
     galleryLinksTab: 'Ligações',
     galleryNoLinks: 'Ainda não há ligações partilhadas',
+    galleryNoLinksSubtitle:
+        'As ligações partilhadas nesta conversa aparecerão aqui',
     galleryNoDocs: 'Ainda não há documentos partilhados',
+    galleryNoDocsSubtitle:
+        'Os documentos partilhados nesta conversa aparecerão aqui',
     audioError: 'Áudio indisponível',
     slideToCancel: 'Deslizar para cancelar',
     slideUpToLock: 'Deslizar para cima para bloquear',
@@ -3348,6 +3557,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} respostas',
     replySingleTemplate: '{count} resposta',
     replyInThread: 'Responder no tópico',
+    replyQuoteSemanticsTemplate: 'Em resposta a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Em resposta a: {quote}',
     searchMessages: 'Pesquisar mensagens',
     noResults: 'Sem resultados',
     accept: 'Aceitar',
@@ -3365,6 +3576,8 @@ class ChatUiLocalizations {
     startChat: 'Iniciar conversa',
     block: 'Bloquear',
     noMedia: 'Sem multimédia',
+    noMediaSubtitle:
+        'As fotos e vídeos partilhados nesta conversa aparecerão aqui',
     messageDeleted: 'Esta mensagem foi eliminada',
     messageDeletedByAdmin: 'Eliminada pelo administrador',
     typingOneTemplate: '{name} está a escrever',
@@ -3415,6 +3628,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: 'Precisas de permitir o acesso à câmara',
     cameraRetake: 'Repetir',
     cameraDiscard: 'Descartar',
+    attachmentCaptionHint: 'Adicionar uma legenda',
     switchCamera: 'Mudar de câmara',
     openSettings: 'Abrir definições',
     changesSaved: 'Alterações guardadas',
@@ -3432,9 +3646,13 @@ class ChatUiLocalizations {
     readBy: 'Lida por',
     deliveredTo: 'Entregue a',
     noReceiptsYet: 'Ainda sem info de entrega ou leitura',
+    messageSentAtTemplate: 'Enviada \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Enviada às {time}. Ainda ninguém a recebeu.',
     searchPromptEmpty: 'Procurar texto nesta conversa',
     searchResultCountSingularTemplate: '{count} resultado',
     searchResultCountPluralTemplate: '{count} resultados',
+    searchPromptTooShortTemplate: 'Escreve pelo menos {count} caracteres',
     receiptNoExactTime: 'Sem hora exata',
     receiptAtLatestTemplate: 'O mais tardar às {time}',
     deliveryStatusLegendTitle: 'O que significam os tiques',
@@ -3469,6 +3687,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Offline',
     email: 'E-mail',
     searchEmoji: 'Pesquisar emoji...',
+    noRecentEmoji: 'Sem emojis recentes',
     unblockFailed: 'Não foi possível desbloquear',
     updateRoleFailed: 'Não foi possível atualizar o papel',
     removeMemberFailed: 'Não foi possível remover o membro',
@@ -3478,6 +3697,9 @@ class ChatUiLocalizations {
     locationMessage: 'Mensagem de localização',
     avatar: 'Avatar',
     loadMore: 'Carregar mais',
+    loadFailed: 'Não foi possível carregar',
+    saveFailed: 'Não foi possível guardar as alterações',
+    createGroupFailed: 'Não foi possível criar o grupo',
   );
 
   static const ChatUiLocalizations ca = ChatUiLocalizations(
@@ -3491,6 +3713,7 @@ class ChatUiLocalizations {
     attachmentUploadingTemplate: 'Pujant {percent}%',
     cancelUploadLabel: 'Cancel·lar la pujada',
     retryUploadLabel: 'Tornar a provar la pujada',
+    retry: 'Torna-ho a provar',
     blockUser: 'Bloquejar',
     blockUserConfirmBody: 'Ja no rebràs missatges d\'aquest usuari.',
     blockUserConfirmTitle: 'Bloquejar?',
@@ -3563,6 +3786,7 @@ class ChatUiLocalizations {
     userRemovedByTemplate: '{actor} ha tret {user}',
     youRemovedTemplate: 'Has tret {user}',
     youWereRemovedByTemplate: '{actor} t\'ha tret',
+    lastSeenTemplate: 'última vegada fa {time}',
     localeCode: 'ca',
     today: 'Avui',
     yesterday: 'Ahir',
@@ -3616,6 +3840,9 @@ class ChatUiLocalizations {
     loading: 'Carregant...',
     noMessages: 'Encara no hi ha missatges',
     attachmentPreview: '📎 Adjunt',
+    attachmentTooLarge: 'El fitxer és massa gran per enviar-lo.',
+    attachmentTypeNotAllowed: 'Aquest tipus de fitxer no està permès.',
+    attachmentUnreadable: 'No s\'ha pogut llegir el fitxer seleccionat.',
     imagePreview: 'Foto',
     videoPreview: 'Vídeo',
     audioPreview: '🎤 Missatge de veu',
@@ -3638,7 +3865,11 @@ class ChatUiLocalizations {
     galleryDocsTab: 'Documents',
     galleryLinksTab: 'Enllaços',
     galleryNoLinks: 'Encara no s\'han compartit enllaços',
+    galleryNoLinksSubtitle:
+        'Els enllaços que compartiu en aquesta conversa apareixeran aquí',
     galleryNoDocs: 'Encara no s\'han compartit documents',
+    galleryNoDocsSubtitle:
+        'Els documents que compartiu en aquesta conversa apareixeran aquí',
     audioError: 'Àudio no disponible',
     slideToCancel: 'Llisca per cancel·lar',
     slideUpToLock: 'Llisca amunt per bloquejar',
@@ -3666,6 +3897,8 @@ class ChatUiLocalizations {
     repliesTemplate: '{count} respostes',
     replySingleTemplate: '{count} resposta',
     replyInThread: 'Respondre al fil',
+    replyQuoteSemanticsTemplate: 'Responent a {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Responent a: {quote}',
     searchMessages: 'Cercar missatges',
     noResults: 'Sense resultats',
     accept: 'Acceptar',
@@ -3683,6 +3916,8 @@ class ChatUiLocalizations {
     startChat: 'Iniciar xat',
     block: 'Bloquejar',
     noMedia: 'Sense multimèdia',
+    noMediaSubtitle:
+        'Les fotos i els vídeos que compartiu en aquesta conversa apareixeran aquí',
     messageDeleted: 'Aquest missatge ha estat eliminat',
     messageDeletedByAdmin: 'Eliminat per l\'administrador',
     typingOneTemplate: '{name} està escrivint',
@@ -3733,6 +3968,7 @@ class ChatUiLocalizations {
     cameraPermissionDenied: "Necessites permetre l'accés a la càmera",
     cameraRetake: 'Repeteix',
     cameraDiscard: 'Descarta',
+    attachmentCaptionHint: 'Afegeix un peu de foto',
     switchCamera: 'Canviar de càmera',
     openSettings: 'Obrir configuració',
     changesSaved: 'Canvis desats',
@@ -3750,9 +3986,13 @@ class ChatUiLocalizations {
     readBy: 'Llegit per',
     deliveredTo: 'Lliurat a',
     noReceiptsYet: 'Encara no hi ha info de lliurament ni de lectura',
+    messageSentAtTemplate: 'Enviat \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Enviat a les {time}. Encara no l\'ha rebut ningú.',
     searchPromptEmpty: 'Cerca text dins d’aquesta conversa',
     searchResultCountSingularTemplate: '{count} resultat',
     searchResultCountPluralTemplate: '{count} resultats',
+    searchPromptTooShortTemplate: 'Escriu com a mínim {count} caràcters',
     receiptNoExactTime: 'Sense hora exacta',
     receiptAtLatestTemplate: 'Com a molt tard a les {time}',
     deliveryStatusLegendTitle: 'Què signifiquen els tics',
@@ -3787,6 +4027,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Fora de línia',
     email: 'Correu electrònic',
     searchEmoji: 'Cercar emoji...',
+    noRecentEmoji: 'Cap emoji recent',
     unblockFailed: 'No s\'ha pogut desbloquejar',
     updateRoleFailed: 'No s\'ha pogut actualitzar el rol',
     removeMemberFailed: 'No s\'ha pogut eliminar el membre',
@@ -3796,6 +4037,9 @@ class ChatUiLocalizations {
     locationMessage: 'Missatge d\'ubicació',
     avatar: 'Avatar',
     loadMore: 'Carrega\'n més',
+    loadFailed: "No s'ha pogut carregar",
+    saveFailed: "No s'han pogut desar els canvis",
+    createGroupFailed: "No s'ha pogut crear el grup",
   );
 
   // ----------------------------------------------------------------
@@ -3921,6 +4165,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'medlemmar',
     thread: 'Tråd',
+    replyQuoteSemanticsTemplate: 'Svar till {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Svar på: {quote}',
     searchMessages: 'Sök meddelanden',
     noResults: 'Inga resultat',
     accept: 'Acceptera',
@@ -3936,6 +4182,8 @@ class ChatUiLocalizations {
     startChat: 'Starta chatt',
     block: 'Blockera',
     noMedia: 'Inga mediefiler',
+    noMediaSubtitle:
+        'Foton och videor som delas i den här konversationen visas här',
     messageDeleted: 'Detta meddelande togs bort',
     relativeNow: 'just nu',
     scrollToBottom: 'Bläddra till botten',
@@ -3980,6 +4228,9 @@ class ChatUiLocalizations {
     messageInfo: 'Meddelandeinfo',
     readBy: 'Läst av',
     deliveredTo: 'Levererat till',
+    messageSentAtTemplate: 'Skickat \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Skickat kl. {time}. Ingen har tagit emot det än.',
     exportChat: 'Exportera chatt',
     star: 'Stjärnmärk',
     unstar: 'Ta bort stjärnmärkning',
@@ -4000,6 +4251,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Frånkopplad',
     email: 'E-post',
     searchEmoji: 'Sök emoji...',
+    noRecentEmoji: 'Inga nyligen använda emojier',
     error: 'Fel',
     reason: 'Anledning',
     locationMessage: 'Platsmeddelande',
@@ -4117,6 +4369,8 @@ class ChatUiLocalizations {
     online: 'pålogget',
     members: 'medlemmer',
     thread: 'Tråd',
+    replyQuoteSemanticsTemplate: 'Svar til {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Svar på: {quote}',
     searchMessages: 'Søk i meldinger',
     noResults: 'Ingen resultater',
     accept: 'Godta',
@@ -4132,6 +4386,7 @@ class ChatUiLocalizations {
     startChat: 'Start chat',
     block: 'Blokker',
     noMedia: 'Ingen medier',
+    noMediaSubtitle: 'Bilder og videoer som deles i denne samtalen vises her',
     messageDeleted: 'Denne meldingen ble slettet',
     relativeNow: 'akkurat nå',
     scrollToBottom: 'Bla til bunnen',
@@ -4176,6 +4431,9 @@ class ChatUiLocalizations {
     messageInfo: 'Meldingsinfo',
     readBy: 'Lest av',
     deliveredTo: 'Levert til',
+    messageSentAtTemplate: 'Sendt \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Sendt kl. {time}. Ingen har mottatt den ennå.',
     exportChat: 'Eksporter chat',
     star: 'Stjernemerk',
     unstar: 'Fjern stjernemerking',
@@ -4196,6 +4454,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Frakoblet',
     email: 'E-post',
     searchEmoji: 'Søk emoji...',
+    noRecentEmoji: 'Ingen nylige emojier',
     error: 'Feil',
     reason: 'Grunn',
     locationMessage: 'Posisjonsmelding',
@@ -4313,6 +4572,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'medlemmer',
     thread: 'Tråd',
+    replyQuoteSemanticsTemplate: 'Svar til {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Svar på: {quote}',
     searchMessages: 'Søg i beskeder',
     noResults: 'Ingen resultater',
     accept: 'Accepter',
@@ -4328,6 +4589,8 @@ class ChatUiLocalizations {
     startChat: 'Start chat',
     block: 'Bloker',
     noMedia: 'Ingen medier',
+    noMediaSubtitle:
+        'Billeder og videoer, der deles i denne samtale, vises her',
     messageDeleted: 'Denne besked blev slettet',
     relativeNow: 'lige nu',
     scrollToBottom: 'Rul til bunden',
@@ -4372,6 +4635,9 @@ class ChatUiLocalizations {
     messageInfo: 'Beskedoplysninger',
     readBy: 'Læst af',
     deliveredTo: 'Leveret til',
+    messageSentAtTemplate: 'Sendt \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Sendt kl. {time}. Ingen har modtaget den endnu.',
     exportChat: 'Eksporter chat',
     star: 'Stjernemarkér',
     unstar: 'Fjern stjernemarkering',
@@ -4392,6 +4658,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Offline',
     email: 'E-mail',
     searchEmoji: 'Søg emoji...',
+    noRecentEmoji: 'Ingen seneste emojis',
     error: 'Fejl',
     reason: 'Årsag',
     locationMessage: 'Placeringsbesked',
@@ -4509,6 +4776,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'członkowie',
     thread: 'Wątek',
+    replyQuoteSemanticsTemplate: 'Odpowiedź do {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Odpowiedź na: {quote}',
     searchMessages: 'Szukaj wiadomości',
     noResults: 'Brak wyników',
     accept: 'Akceptuj',
@@ -4524,6 +4793,8 @@ class ChatUiLocalizations {
     startChat: 'Rozpocznij czat',
     block: 'Zablokuj',
     noMedia: 'Brak multimediów',
+    noMediaSubtitle:
+        'Zdjęcia i filmy udostępnione w tej rozmowie pojawią się tutaj',
     messageDeleted: 'Ta wiadomość została usunięta',
     relativeNow: 'teraz',
     scrollToBottom: 'Przewiń do dołu',
@@ -4568,6 +4839,9 @@ class ChatUiLocalizations {
     messageInfo: 'Informacje o wiadomości',
     readBy: 'Przeczytane przez',
     deliveredTo: 'Dostarczono do',
+    messageSentAtTemplate: 'Wysłano \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Wysłano o {time}. Nikt jeszcze nie odebrał tej wiadomości.',
     exportChat: 'Eksportuj czat',
     star: 'Oznacz gwiazdką',
     unstar: 'Usuń oznaczenie gwiazdką',
@@ -4588,6 +4862,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Offline',
     email: 'E-mail',
     searchEmoji: 'Szukaj emoji...',
+    noRecentEmoji: 'Brak ostatnich emoji',
     error: 'Błąd',
     reason: 'Powód',
     locationMessage: 'Wiadomość z lokalizacją',
@@ -4705,6 +4980,8 @@ class ChatUiLocalizations {
     online: 'online',
     members: 'členové',
     thread: 'Vlákno',
+    replyQuoteSemanticsTemplate: 'Odpověď pro {sender}: {quote}',
+    replyQuoteSemanticsNoSenderTemplate: 'Odpověď na: {quote}',
     searchMessages: 'Hledat zprávy',
     noResults: 'Žádné výsledky',
     accept: 'Přijmout',
@@ -4720,6 +4997,7 @@ class ChatUiLocalizations {
     startChat: 'Zahájit chat',
     block: 'Blokovat',
     noMedia: 'Žádná média',
+    noMediaSubtitle: 'Fotky a videa sdílená v této konverzaci se zobrazí zde',
     messageDeleted: 'Tato zpráva byla smazána',
     relativeNow: 'právě teď',
     scrollToBottom: 'Přejít dolů',
@@ -4764,6 +5042,9 @@ class ChatUiLocalizations {
     messageInfo: 'Informace o zprávě',
     readBy: 'Přečteno od',
     deliveredTo: 'Doručeno komu',
+    messageSentAtTemplate: 'Odesláno \u00b7 {time}',
+    messageSentNoReceiptsTemplate:
+        'Odesláno v {time}. Zatím to nikdo neobdržel.',
     exportChat: 'Exportovat chat',
     star: 'Označit hvězdičkou',
     unstar: 'Zrušit označení hvězdičkou',
@@ -4784,6 +5065,7 @@ class ChatUiLocalizations {
     presenceOffline: 'Offline',
     email: 'E-mail',
     searchEmoji: 'Hledat emoji...',
+    noRecentEmoji: 'Žádné nedávné emoji',
     error: 'Chyba',
     reason: 'Důvod',
     locationMessage: 'Zpráva s polohou',
@@ -5044,7 +5326,9 @@ class ChatUiLocalizations {
     String? galleryDocsTab,
     String? galleryLinksTab,
     String? galleryNoLinks,
+    String? galleryNoLinksSubtitle,
     String? galleryNoDocs,
+    String? galleryNoDocsSubtitle,
     String? audioError,
     String? slideToCancel,
     String? slideUpToLock,
@@ -5089,6 +5373,8 @@ class ChatUiLocalizations {
     String? repliesTemplate,
     String? replySingleTemplate,
     String? replyInThread,
+    String? replyQuoteSemanticsTemplate,
+    String? replyQuoteSemanticsNoSenderTemplate,
     String? searchMessages,
     String? noResults,
     String? accept,
@@ -5106,6 +5392,7 @@ class ChatUiLocalizations {
     String? startChat,
     String? block,
     String? noMedia,
+    String? noMediaSubtitle,
     String? messageDeleted,
     String? messageDeletedByAdmin,
     String? typingOneTemplate,
@@ -5189,6 +5476,7 @@ class ChatUiLocalizations {
     String? cameraPermissionDenied,
     String? cameraRetake,
     String? cameraDiscard,
+    String? attachmentCaptionHint,
     String? switchCamera,
     String? openSettings,
     String? changesSaved,
@@ -5207,9 +5495,12 @@ class ChatUiLocalizations {
     String? readBy,
     String? deliveredTo,
     String? noReceiptsYet,
+    String? messageSentAtTemplate,
+    String? messageSentNoReceiptsTemplate,
     String? searchPromptEmpty,
     String? searchResultCountSingularTemplate,
     String? searchResultCountPluralTemplate,
+    String? searchPromptTooShortTemplate,
     String? receiptNoExactTime,
     String? receiptAtLatestTemplate,
     String? deliveryStatusLegendTitle,
@@ -5243,6 +5534,7 @@ class ChatUiLocalizations {
     String? presenceOffline,
     String? email,
     String? searchEmoji,
+    String? noRecentEmoji,
     String? unblockFailed,
     String? updateRoleFailed,
     String? removeMemberFailed,
@@ -5252,6 +5544,9 @@ class ChatUiLocalizations {
     String? locationMessage,
     String? avatar,
     String? loadMore,
+    String? loadFailed,
+    String? saveFailed,
+    String? createGroupFailed,
   }) {
     return _OverrideChatUiLocalizationsDelegate(
       onlyLocale: locale,
@@ -5354,7 +5649,9 @@ class ChatUiLocalizations {
         galleryDocsTab: galleryDocsTab,
         galleryLinksTab: galleryLinksTab,
         galleryNoLinks: galleryNoLinks,
+        galleryNoLinksSubtitle: galleryNoLinksSubtitle,
         galleryNoDocs: galleryNoDocs,
+        galleryNoDocsSubtitle: galleryNoDocsSubtitle,
         audioError: audioError,
         slideToCancel: slideToCancel,
         slideUpToLock: slideUpToLock,
@@ -5399,6 +5696,9 @@ class ChatUiLocalizations {
         repliesTemplate: repliesTemplate,
         replySingleTemplate: replySingleTemplate,
         replyInThread: replyInThread,
+        replyQuoteSemanticsTemplate: replyQuoteSemanticsTemplate,
+        replyQuoteSemanticsNoSenderTemplate:
+            replyQuoteSemanticsNoSenderTemplate,
         searchMessages: searchMessages,
         noResults: noResults,
         accept: accept,
@@ -5416,6 +5716,7 @@ class ChatUiLocalizations {
         startChat: startChat,
         block: block,
         noMedia: noMedia,
+        noMediaSubtitle: noMediaSubtitle,
         messageDeleted: messageDeleted,
         messageDeletedByAdmin: messageDeletedByAdmin,
         typingOneTemplate: typingOneTemplate,
@@ -5499,6 +5800,7 @@ class ChatUiLocalizations {
         cameraPermissionDenied: cameraPermissionDenied,
         cameraRetake: cameraRetake,
         cameraDiscard: cameraDiscard,
+        attachmentCaptionHint: attachmentCaptionHint,
         switchCamera: switchCamera,
         openSettings: openSettings,
         changesSaved: changesSaved,
@@ -5517,9 +5819,12 @@ class ChatUiLocalizations {
         readBy: readBy,
         deliveredTo: deliveredTo,
         noReceiptsYet: noReceiptsYet,
+        messageSentAtTemplate: messageSentAtTemplate,
+        messageSentNoReceiptsTemplate: messageSentNoReceiptsTemplate,
         searchPromptEmpty: searchPromptEmpty,
         searchResultCountSingularTemplate: searchResultCountSingularTemplate,
         searchResultCountPluralTemplate: searchResultCountPluralTemplate,
+        searchPromptTooShortTemplate: searchPromptTooShortTemplate,
         receiptNoExactTime: receiptNoExactTime,
         receiptAtLatestTemplate: receiptAtLatestTemplate,
         deliveryStatusLegendTitle: deliveryStatusLegendTitle,
@@ -5553,6 +5858,7 @@ class ChatUiLocalizations {
         presenceOffline: presenceOffline,
         email: email,
         searchEmoji: searchEmoji,
+        noRecentEmoji: noRecentEmoji,
         unblockFailed: unblockFailed,
         updateRoleFailed: updateRoleFailed,
         removeMemberFailed: removeMemberFailed,
@@ -5562,6 +5868,9 @@ class ChatUiLocalizations {
         locationMessage: locationMessage,
         avatar: avatar,
         loadMore: loadMore,
+        loadFailed: loadFailed,
+        saveFailed: saveFailed,
+        createGroupFailed: createGroupFailed,
       ),
     );
   }
@@ -5572,8 +5881,7 @@ class _ChatUiLocalizationsDelegate
   const _ChatUiLocalizationsDelegate();
 
   @override
-  bool isSupported(Locale locale) =>
-      ChatUiLocalizations.supportedLanguageCodes.contains(locale.languageCode);
+  bool isSupported(Locale locale) => true;
 
   @override
   Future<ChatUiLocalizations> load(Locale locale) async =>
@@ -5604,9 +5912,7 @@ class _OverrideChatUiLocalizationsDelegate
   bool isSupported(Locale locale) {
     final only = onlyLocale;
     if (only != null) return locale.languageCode == only.languageCode;
-    return ChatUiLocalizations.supportedLanguageCodes.contains(
-      locale.languageCode,
-    );
+    return true;
   }
 
   @override

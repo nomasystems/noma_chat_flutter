@@ -7,11 +7,17 @@ import 'package:noma_chat/noma_chat.dart';
 void main() {
   const me = 'me';
 
-  ChatMessage msg(String id, String from, int minute) => ChatMessage(
+  ChatMessage msg(
+    String id,
+    String from,
+    int minute, {
+    bool isSystem = false,
+  }) => ChatMessage(
     id: id,
     from: from,
     timestamp: DateTime(2026, 1, 1, 10, minute),
     text: id,
+    isSystem: isSystem,
   );
 
   // Three incoming messages the user answered at the end. The room badge
@@ -114,5 +120,48 @@ void main() {
         expect(boundary?.count, 3);
       },
     );
+  });
+
+  group('excludes system messages', () {
+    test('a room where only system events arrived has no boundary at all', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [
+          msg('sys1', 'plan-owner', 1, isSystem: true),
+          msg('sys2', 'plan-owner', 2, isSystem: true),
+        ],
+        currentUserId: me,
+        fallbackUnreadCount: 2,
+      );
+
+      expect(boundary, isNull);
+    });
+
+    test('counts back over person messages only, system rows do not count', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [
+          msg('m1', 'u1', 1),
+          msg('sys1', 'u1', 2, isSystem: true),
+          msg('m2', 'u1', 3),
+        ],
+        currentUserId: me,
+        fallbackUnreadCount: 2,
+      );
+
+      expect(boundary?.messageId, 'm1');
+      expect(boundary?.count, 2);
+    });
+
+    test('a cursor whose only unseen rows are system events degrades to the '
+        'count instead of anchoring on a system row', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [msg('m1', 'u1', 1), msg('sys1', 'u1', 2, isSystem: true)],
+        currentUserId: me,
+        fallbackUnreadCount: 1,
+        ownReadCursor: const ReadReceipt(userId: me, lastReadMessageId: 'm1'),
+      );
+
+      expect(boundary?.messageId, 'm1');
+      expect(boundary?.count, 1);
+    });
   });
 }

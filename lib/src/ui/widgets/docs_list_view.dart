@@ -75,6 +75,7 @@ class DocsListView extends StatelessWidget {
           key: const ValueKey('chat_gallery_docs_empty'),
           icon: Icons.insert_drive_file_outlined,
           title: theme.l10nOf(context).galleryNoDocs,
+          subtitle: theme.l10nOf(context).galleryNoDocsSubtitle,
           theme: theme,
         ),
       );
@@ -86,7 +87,7 @@ class DocsListView extends StatelessWidget {
       separatorBuilder: (_, __) => const Divider(height: 0),
       itemBuilder: (context, index) {
         final item = visible[index];
-        final iconColor = Colors.grey.shade700;
+        final colors = Theme.of(context).colorScheme;
         final subtitleParts = <String>[];
         if (item.timestamp != null) {
           subtitleParts.add(
@@ -117,8 +118,8 @@ class DocsListView extends StatelessWidget {
             // dedupe by url + sender + timestamp (MediaItem has no id).
             key: ValueKey(rowId),
             leading: CircleAvatar(
-              backgroundColor: Colors.grey.shade200,
-              foregroundColor: iconColor,
+              backgroundColor: colors.surfaceContainerHighest,
+              foregroundColor: colors.onSurfaceVariant,
               child: Icon(_iconFor(item.mimeType)),
             ),
             title: Text(
@@ -132,7 +133,10 @@ class DocsListView extends StatelessWidget {
                     subtitleParts.join(' · '),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
             onTap: onTapItem != null ? () => onTapItem!(item) : null,
           ),

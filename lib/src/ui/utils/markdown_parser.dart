@@ -1,6 +1,8 @@
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 
+import 'url_detector.dart';
+
 /// Inline markdown roles recognised by [parseMarkdown].
 ///
 /// **Supported syntax (inline only):**
@@ -9,7 +11,13 @@ import 'package:flutter/material.dart';
 /// * `_italic_` (mid-word italics intentionally do not match)
 /// * `~~strikethrough~~`
 /// * `` `code` ``
-/// * bare URLs starting with `http://` or `https://`
+/// * URLs, with or without a scheme — `https://example.com` and
+///   `www.example.com` / `example.com/path` alike, recognised with the very
+///   same definition `UrlDetector` uses for the link preview card and the
+///   room's "Links" list
+/// * email addresses (`someone@example.com`), linked as `mailto:`
+/// * international phone numbers in `+` form (`+34655000011`), linked as
+///   `tel:`
 /// * `@mentions` of the form `@username`
 ///
 /// **Not supported (rendered verbatim):**
@@ -187,14 +195,50 @@ List<MarkdownSpan> _parse(String text) {
       }
     }
 
-    // URL: http:// or https://
-    if (_isUrlStart(text, i)) {
-      final end = _findUrlEnd(text, i);
-      flushPlain();
-      final url = text.substring(i, end);
-      spans.add(MarkdownSpan(url, MarkdownStyle.link, url: url));
-      i = end;
-      continue;
+    // Email, before both the URL and the mention branches on purpose.
+    // Before the URL branch because the local part of `maria.jose@…` is
+    // itself a valid bare host, and before the mention branch because the
+    // loop would otherwise reach the `@` of `chiara@example.com` and eat
+    // `@example` as a mention of a user called "example".
+    if (_isTokenStart(text, i)) {
+      final email = _emailPattern.matchAsPrefix(text, i);
+      if (email != null) {
+        final address = email.group(0)!;
+        flushPlain();
+        spans.add(
+          MarkdownSpan(address, MarkdownStyle.link, url: 'mailto:$address'),
+        );
+        i = email.end;
+        continue;
+      }
+
+      // URL: schemed or bare host, per `UrlDetector`.
+      final url = UrlDetector.matchAt(text, i);
+      if (url != null) {
+        flushPlain();
+        spans.add(MarkdownSpan(url.text, MarkdownStyle.link, url: url.url));
+        i = url.end;
+        continue;
+      }
+
+      // Phone: `+` and 8-15 digits, optionally grouped. Deliberately the
+      // narrowest of the three — without the leading `+` a run of digits
+      // is far more often a date, a price or a plan size than a number
+      // anybody wants to dial.
+      final phone = _phonePattern.matchAsPrefix(text, i);
+      if (phone != null) {
+        final number = phone.group(0)!;
+        flushPlain();
+        spans.add(
+          MarkdownSpan(
+            number,
+            MarkdownStyle.link,
+            url: 'tel:${number.replaceAll(_phoneSeparators, '')}',
+          ),
+        );
+        i = phone.end;
+        continue;
+      }
     }
 
     // @mention: @ followed by word chars
@@ -218,16 +262,28 @@ List<MarkdownSpan> _parse(String text) {
   return spans;
 }
 
-bool _isUrlStart(String text, int i) {
-  return text.startsWith('https://', i) || text.startsWith('http://', i);
-}
+final RegExp _emailPattern = RegExp(
+  r'[A-Za-z0-9._%+\-]+@[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?'
+  r'(\.[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}',
+);
 
-int _findUrlEnd(String text, int start) {
-  var i = start;
-  while (i < text.length && !_isWhitespace(text[i])) {
-    i++;
-  }
-  return i;
+final RegExp _phonePattern = RegExp(r'\+[0-9]([ \-.]?[0-9]){7,14}');
+
+final RegExp _phoneSeparators = RegExp(r'[ \-.]');
+
+final RegExp _tokenTail = RegExp(r'[A-Za-z0-9._%+\-@/]');
+
+/// Whether position [i] can begin a link, an email or a phone number.
+///
+/// The scan is left to right, so a candidate that failed at the start of a
+/// word must not be retried one character in: without this, `informe.pdf`
+/// failing as a whole would be re-offered as `nforme.pdf`, and the local
+/// part of an address that failed would be re-offered from its second
+/// letter. A token starts at the beginning of the string or right after
+/// something that is not part of one.
+bool _isTokenStart(String text, int i) {
+  if (i == 0) return true;
+  return !_tokenTail.hasMatch(text[i - 1]);
 }
 
 int _findMentionEnd(String text, int start) {
@@ -236,10 +292,6 @@ int _findMentionEnd(String text, int start) {
     i++;
   }
   return i;
-}
-
-bool _isWhitespace(String ch) {
-  return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
 }
 
 bool _isWordChar(String ch) {

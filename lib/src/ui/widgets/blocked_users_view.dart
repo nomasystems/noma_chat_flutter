@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../client/chat_client.dart';
+import '../../core/pagination_walk.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
 import 'chat_room_options_menu.dart';
@@ -13,10 +14,15 @@ import 'user_avatar.dart';
 /// raw userId. Consumers typically resolve the name from their own user
 /// directory or from `ChatUiAdapter.findCachedUser(userId)?.displayName`.
 ///
-/// The widget owns its own loading + refresh cycle: pulls
+/// The widget owns its own loading + refresh cycle: reads
 /// `client.contacts.listBlocked()` on mount and after each successful
 /// unblock. Wrap in a [Scaffold] (with `AppBar(title: l10n.blockedUsers)`)
 /// at the consumer side.
+///
+/// `GET /blocked` is paginated and truncates to a default page size when the
+/// request omits `limit`, so the read below walks every page: a screen whose
+/// only purpose is unblocking people must not hide the people it cannot show
+/// — there would be no way left to reach them.
 class BlockedUsersView extends StatefulWidget {
   const BlockedUsersView({
     super.key,
@@ -47,8 +53,9 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
   ChatTheme get noticeTheme => widget.theme;
 
   List<String>? _blocked;
+  List<String> _rendered = const [];
   bool _loading = false;
-  String? _error;
+  bool _failed = false;
 
   @override
   void initState() {
@@ -59,20 +66,51 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
   Future<void> _load() async {
     setState(() {
       _loading = true;
-      _error = null;
+      _failed = false;
     });
-    final result = await widget.client.contacts.listBlocked();
-    if (!mounted) return;
-    result.fold(
-      (failure) => setState(() {
-        _loading = false;
-        _error = failure.toString();
-      }),
-      (paginated) => setState(() {
-        _loading = false;
-        _blocked = paginated.items;
-      }),
+    final walk = await readAllPages<String>(
+      (pagination) =>
+          widget.client.contacts.listBlocked(pagination: pagination),
+      isCancelled: () => !mounted,
     );
+    if (walk == null || !mounted) return;
+    walk.fold(
+      (_) => setState(() {
+        _loading = false;
+        _failed = true;
+      }),
+      (ids) {
+        // Page boundaries can shift between the walk's requests, so an id
+        // seen twice is kept once, in the position it first appeared at.
+        final unique = ids.toSet().toList();
+        setState(() {
+          _loading = false;
+          _blocked = unique;
+          _rendered = _pinHiddenRows(unique);
+        });
+      },
+    );
+  }
+
+  /// Merges [live] into the rendered list: ids no longer blocked keep the
+  /// slot they had, and the live ids fill the slots that are left.
+  List<String> _pinHiddenRows(List<String> live) {
+    final liveIds = live.toSet();
+    final pinned = <int, String>{};
+    for (var i = 0; i < _rendered.length; i++) {
+      final id = _rendered[i];
+      if (!liveIds.contains(id)) pinned[i] = id;
+    }
+    if (pinned.isEmpty) return live;
+    final rows = <String>[];
+    final queue = List<String>.of(live);
+    var slot = 0;
+    while (queue.isNotEmpty || pinned.containsKey(slot)) {
+      final hidden = pinned[slot];
+      rows.add(hidden ?? queue.removeAt(0));
+      slot++;
+    }
+    return rows;
   }
 
   Future<void> _confirmUnblock(String userId) async {
@@ -101,7 +139,7 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
       // Surface a basic error message; the consumer can wrap the widget
       // with their own SnackBar pipeline (via operationErrors) for richer
       // handling.
-      showNotice(result.failureOrNull?.toString() ?? l10n.unblockFailed);
+      showNotice(l10n.unblockFailed);
     }
   }
 
@@ -111,53 +149,64 @@ class _BlockedUsersViewState extends State<BlockedUsersView>
     if (_loading && _blocked == null) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (_error != null && (_blocked == null || _blocked!.isEmpty)) {
+    if (_failed && (_blocked == null || _blocked!.isEmpty)) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!, textAlign: TextAlign.center),
+          child: Text(l10n.loadFailed, textAlign: TextAlign.center),
         ),
       );
     }
     final blocked = _blocked ?? const <String>[];
-    if (blocked.isEmpty) {
+    if (_rendered.isEmpty) {
       return Center(child: Text(l10n.blockedUsersEmpty));
     }
+    final liveIds = blocked.toSet();
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.separated(
-        itemCount: blocked.length,
-        separatorBuilder: (_, _) => const Divider(height: 0),
-        itemBuilder: (context, index) {
-          final userId = blocked[index];
-          final resolvedName = widget.displayNameResolver?.call(userId);
-          final displayName =
-              (resolvedName != null && resolvedName.trim().isNotEmpty)
-              ? resolvedName.trim()
-              : userId;
-          final avatarUrl = widget.avatarUrlResolver?.call(userId);
-          return ListTile(
-            leading: UserAvatar(
-              imageUrl: avatarUrl,
-              displayName: displayName,
-              size: 40,
-              theme: widget.theme,
-              excludeSemantics: true,
-            ),
-            title: Text(displayName),
-            // Subtitle used to expose the raw UUID under the display
-            // name as "@<uuid>". The id is internal-by-design — surfacing
-            // it as a pseudo-handle is misleading (it's not a usable
-            // mention) and clutters the row. Drop it: when we have a
-            // friendly name we just show the name; when we don't, the
-            // title already renders the id alone.
-            subtitle: null,
-            trailing: TextButton(
-              onPressed: () => _confirmUnblock(userId),
-              child: Text(l10n.unblock),
-            ),
-          );
-        },
+      child: Stack(
+        children: [
+          ListView.separated(
+            itemCount: _rendered.length,
+            separatorBuilder: (_, _) => const Divider(height: 0),
+            itemBuilder: (context, index) {
+              final userId = _rendered[index];
+              final resolvedName = widget.displayNameResolver?.call(userId);
+              final displayName =
+                  (resolvedName != null && resolvedName.trim().isNotEmpty)
+                  ? resolvedName.trim()
+                  : '';
+              final avatarUrl = widget.avatarUrlResolver?.call(userId);
+              return Visibility(
+                key: ValueKey(userId),
+                visible: liveIds.contains(userId),
+                maintainState: true,
+                child: ListTile(
+                  leading: UserAvatar(
+                    imageUrl: avatarUrl,
+                    displayName: displayName,
+                    size: 40,
+                    theme: widget.theme,
+                    excludeSemantics: true,
+                  ),
+                  title: Text(displayName),
+                  // Subtitle used to expose the raw UUID under the display
+                  // name as "@<uuid>". The id is internal-by-design —
+                  // surfacing it as a pseudo-handle is misleading (it's not
+                  // a usable mention) and clutters the row. Drop it: when we
+                  // have a friendly name we just show the name; when we
+                  // don't, the title already renders the id alone.
+                  subtitle: null,
+                  trailing: TextButton(
+                    onPressed: () => _confirmUnblock(userId),
+                    child: Text(l10n.unblock),
+                  ),
+                ),
+              );
+            },
+          ),
+          if (blocked.isEmpty) Center(child: Text(l10n.blockedUsersEmpty)),
+        ],
       ),
     );
   }

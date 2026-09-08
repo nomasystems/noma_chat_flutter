@@ -135,8 +135,10 @@ class MembersApi implements ChatMembersApi {
   /// wins instead — a paginated or expanded read goes to the network
   /// whatever you pass.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -268,8 +270,10 @@ class MembersApi implements ChatMembersApi {
   /// original request already reached the server before the client saw the
   /// failure.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -379,8 +383,10 @@ class MembersApi implements ChatMembersApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart
@@ -432,8 +438,10 @@ class MembersApi implements ChatMembersApi {
   ///
   /// Returns [ChatSuccess] with a `void` value on success.
   ///
-  /// Throws [ChatAuthException] if the token cannot be refreshed.
-  /// Throws [ChatNetworkException] on network errors.
+  /// A token that cannot be refreshed surfaces as `ChatFailureResult`
+  /// holding `AuthFailure`; a network error surfaces as
+  /// `ChatFailureResult` holding `NetworkFailure`. This method never
+  /// throws — every failure is returned, not raised.
   ///
   /// Example:
   /// ```dart

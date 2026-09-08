@@ -1,9 +1,12 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image/image.dart' as img;
 import 'package:permission_handler/permission_handler.dart';
 
 import '../../_internal/ui_debug_log.dart';
@@ -17,9 +20,23 @@ import '../utils/platform_support.dart';
 import 'camera_capture_review.dart';
 import 'camera_recording_gate.dart';
 
+part 'camera_capture_view.dart';
+
+/// What the capture screen hands back: the confirmed capture plus the
+/// caption written under it on the review step.
+@immutable
+class CameraCaptureSubmission {
+  const CameraCaptureSubmission({required this.capture, this.caption});
+
+  final CameraCaptureResult capture;
+
+  /// Caption typed on the review step, or `null` when it was left empty.
+  final String? caption;
+}
+
 /// Full-screen in-app camera: tap the shutter for a still, hold it to
-/// record a clip. Pops with a [CameraCaptureResult], or `null` when the
-/// user backs out.
+/// record a clip. Pops with a [CameraCaptureSubmission], or `null` when
+/// the user backs out.
 ///
 /// The shutter never sends. Whatever it produces lands on an in-flow
 /// review step ([CameraCaptureReview]) showing the still full-screen or
@@ -42,9 +59,14 @@ class CameraCapturePage extends StatefulWidget {
     super.key,
     this.theme = ChatTheme.defaults,
     this.videoPreviewBuilder,
+    this.allowCaption = true,
   });
 
   final ChatTheme theme;
+
+  /// Whether the review step offers a caption field. See
+  /// [CameraCaptureReview.allowCaption].
+  final bool allowCaption;
 
   /// Replaces the review step's clip preview. `null` plays the capture
   /// with `video_player` through [CameraVideoPreview]. Never consulted for
@@ -54,21 +76,23 @@ class CameraCapturePage extends StatefulWidget {
   /// Pushes the capture screen and returns what the user confirmed on the
   /// review step, or `null` when nothing was confirmed — a discard, a
   /// cancellation, or a platform without an in-app camera.
-  static Future<CameraCaptureResult?> show({
+  static Future<CameraCaptureSubmission?> show({
     required BuildContext context,
     ChatTheme theme = ChatTheme.defaults,
     bool fullscreenDialog = true,
     CameraVideoPreviewBuilder? videoPreviewBuilder,
+    bool allowCaption = true,
   }) {
     if (!PlatformSupport.supportsInAppCameraCapture) {
-      return Future<CameraCaptureResult?>.value();
+      return Future<CameraCaptureSubmission?>.value();
     }
-    return Navigator.of(context).push<CameraCaptureResult>(
-      MaterialPageRoute<CameraCaptureResult>(
+    return Navigator.of(context).push<CameraCaptureSubmission>(
+      MaterialPageRoute<CameraCaptureSubmission>(
         fullscreenDialog: fullscreenDialog,
         builder: (_) => CameraCapturePage(
           theme: theme,
           videoPreviewBuilder: videoPreviewBuilder,
+          allowCaption: allowCaption,
         ),
       ),
     );
@@ -103,6 +127,10 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   double _maxZoom = 1.0;
   double _currentZoom = 1.0;
   double _baseZoom = 1.0;
+  double _dragZoomOrigin = 0;
+  int _zoomPointers = 0;
+  double _shutterZoomBase = 1.0;
+  final Map<int, ({double min, double max})> _zoomRanges = {};
   double? _requestedZoom;
   bool _applyingZoom = false;
   // Handed over by [dispose] when the screen goes away with a start still in
@@ -120,6 +148,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // else — a discard, a host popping this route, a teardown — leaves a file
   // in the app cache that only [dispose] is left to collect.
   bool _captureConfirmed = false;
+  bool _captureCollected = false;
 
   ChatUiLocalizations get _l10n => noticeL10n;
 
@@ -136,9 +165,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     _recordingTimer?.cancel();
     final pending = _pendingCapture;
     _pendingCapture = null;
-    if (pending != null && !_captureConfirmed) {
-      // The screen is leaving with a take nobody accepted — a discard, or a
-      // host popping this route out from under the review.
+    if (pending != null && !_captureConfirmed && !_captureCollected) {
       unawaited(_deleteCapture(pending));
     }
     final controller = _controller;
@@ -341,6 +368,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     // one), so it is re-read on every bind rather than cached across them.
     var minZoom = 1.0;
     var maxZoom = 1.0;
+    var reported = true;
     try {
       minZoom = await controller.getMinZoomLevel();
       maxZoom = await controller.getMaxZoomLevel();
@@ -349,12 +377,23 @@ class _CameraCapturePageState extends State<CameraCapturePage>
       // A lens that rejects the query just keeps the pinch gesture inert.
       // Both ends go back to the seed together: a half-read range would leave
       // the minimum above the maximum and make the pinch clamp throw.
+      reported = false;
       minZoom = 1.0;
       maxZoom = 1.0;
     }
     if (maxZoom < minZoom) {
+      reported = false;
       minZoom = 1.0;
       maxZoom = 1.0;
+    }
+    if (reported) {
+      _zoomRanges[index] = (min: minZoom, max: maxZoom);
+    } else {
+      final known = _zoomRanges[index];
+      if (known != null) {
+        minZoom = known.min;
+        maxZoom = known.max;
+      }
     }
     if (!mounted) {
       await controller.dispose();
@@ -446,6 +485,9 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     if (controller.value.isTakingPicture) return;
     try {
       final file = await controller.takePicture();
+      if (controller.description.lensDirection == CameraLensDirection.front) {
+        await _matchViewfinderMirror(file);
+      }
       if (!mounted) return;
       _presentForReview(CameraCaptureResult(file: file, isVideo: false));
     } on Object catch (error, stack) {
@@ -460,6 +502,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
 
   Future<void> _startRecording() async {
     _holdActive = true;
+    _shutterZoomBase = _currentZoom;
     var controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     if (!_microphoneGranted) {
@@ -656,6 +699,7 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void _presentForReview(CameraCaptureResult capture) {
     setState(() {
       _pendingCapture = capture;
+      _captureCollected = false;
       _interruptionNotice = null;
     });
   }
@@ -666,11 +710,13 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   /// the review — not a viewfinder nobody asked for — is what stays on
   /// screen through the exit transition. [_captureConfirmed] is what stops
   /// [dispose] from deleting the file the caller now owns.
-  void _sendPendingCapture() {
+  void _sendPendingCapture(String? caption) {
     final capture = _pendingCapture;
     if (capture == null) return;
     _captureConfirmed = true;
-    Navigator.of(context).pop(capture);
+    Navigator.of(
+      context,
+    ).pop(CameraCaptureSubmission(capture: capture, caption: caption));
   }
 
   /// Throws the take away and goes back to the live preview. The one exit
@@ -678,14 +724,22 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void _retakePendingCapture() {
     final capture = _pendingCapture;
     if (capture == null) return;
-    setState(() => _pendingCapture = null);
+    setState(() {
+      _pendingCapture = null;
+      _captureCollected = true;
+    });
     unawaited(_deleteCapture(capture));
   }
 
   /// Leaves the camera without sending, exactly like the viewfinder's own
-  /// close button. [dispose] collects the file on the way out.
+  /// close button. The take stays on screen through the exit transition, but
+  /// its file goes now: waiting for [dispose] would hold a full-size still in
+  /// the app cache for as long as the pop animation runs.
   void _discardPendingCapture() {
-    if (_pendingCapture == null) return;
+    final capture = _pendingCapture;
+    if (capture == null) return;
+    _captureCollected = true;
+    unawaited(_deleteCapture(capture));
     Navigator.of(context).pop();
   }
 
@@ -722,184 +776,13 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   Widget build(BuildContext context) {
     final theme = widget.theme;
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor:
           theme.cameraCaptureBackgroundColor ??
           DefaultPalette.cameraCaptureBackground,
       body: SafeArea(
         child: _pendingCapture == null ? _buildViewfinder() : _buildReview(),
       ),
-    );
-  }
-
-  /// The review step, plus the back-gesture contract that goes with it: on
-  /// this screen "back" means "shoot again", not "leave with the take
-  /// silently dropped on the floor".
-  Widget _buildReview() {
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        _retakePendingCapture();
-      },
-      child: CameraCaptureReview(
-        result: _pendingCapture!,
-        theme: widget.theme,
-        videoPreviewBuilder: widget.videoPreviewBuilder,
-        onSend: _sendPendingCapture,
-        onRetake: _retakePendingCapture,
-        onDiscard: _discardPendingCapture,
-      ),
-    );
-  }
-
-  Widget _buildViewfinder() {
-    final theme = widget.theme;
-    final l10n = _l10n;
-    final foreground = _foreground;
-    // Every slot is keyed and unconditional. A `Stack` matches children by
-    // position, so an overlay that comes and goes (the recording pill) used
-    // to shift the shutter one place down the list and rebuild its
-    // `GestureDetector` from scratch — mid-press, on any device with a
-    // single lens, which loses the release that ends the clip.
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        KeyedSubtree(
-          key: const ValueKey('chat_camera_preview'),
-          child: Semantics(
-            identifier: 'chat_camera_preview',
-            child: _buildPreview(),
-          ),
-        ),
-        Positioned(
-          key: const ValueKey('chat_camera_close'),
-          top: 8,
-          left: 8,
-          child: Semantics(
-            identifier: 'chat_camera_close',
-            button: true,
-            label: l10n.close,
-            child: IconButton(
-              onPressed: () => Navigator.of(context).pop(),
-              icon: Icon(Icons.close, color: foreground, size: 28),
-            ),
-          ),
-        ),
-        Positioned(
-          key: const ValueKey('chat_camera_flip'),
-          top: 8,
-          right: 8,
-          child: _cameras.length > 1 && !_recordingGate.isRecording
-              ? Semantics(
-                  identifier: 'chat_camera_flip',
-                  button: true,
-                  enabled: _canSwitchCamera,
-                  label: l10n.switchCamera,
-                  child: IconButton(
-                    onPressed: _canSwitchCamera ? _switchCamera : null,
-                    icon: Icon(
-                      Icons.flip_camera_ios,
-                      color: _canSwitchCamera
-                          ? foreground
-                          : foreground.withValues(alpha: 0.4),
-                      size: 28,
-                    ),
-                  ),
-                )
-              : const SizedBox.shrink(),
-        ),
-        Positioned(
-          key: const ValueKey('chat_camera_recording_pill'),
-          top: 16,
-          left: 0,
-          right: 0,
-          child: _recordingGate.isRecording
-              ? Center(
-                  child: Semantics(
-                    identifier: 'chat_camera_recording_pill',
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 6,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _recordingColor.withValues(alpha: 0.85),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.fiber_manual_record,
-                            color: foreground,
-                            size: 12,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            _formatElapsed(_recordingElapsed),
-                            style: TextStyle(
-                              color: foreground,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                )
-              : const SizedBox.shrink(),
-        ),
-        Positioned(
-          key: const ValueKey('chat_camera_controls'),
-          bottom: 32,
-          left: 0,
-          right: 0,
-          child: Semantics(
-            identifier: 'chat_camera_controls',
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_interruptionNotice != null && _error == null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Semantics(
-                      identifier: 'chat_camera_interruption_notice',
-                      child: Container(
-                        key: const ValueKey('chat_camera_interruption_notice'),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 6,
-                        ),
-                        decoration: BoxDecoration(
-                          color:
-                              theme.cameraCaptureOverlayColor ??
-                              DefaultPalette.cameraCaptureOverlay,
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Text(
-                          _interruptionNotice!,
-                          textAlign: TextAlign.center,
-                          style: _hintStyle(emphasis: true),
-                        ),
-                      ),
-                    ),
-                  ),
-                if (_error == null)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: Text(
-                      _recordingGate.isRecording
-                          ? l10n.cameraRecordingHint
-                          : l10n.cameraTapForPhoto,
-                      style: _hintStyle(),
-                    ),
-                  ),
-                _buildCaptureButton(),
-              ],
-            ),
-          ),
-        ),
-      ],
     );
   }
 
@@ -910,127 +793,23 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     return emphasis ? base.copyWith(color: _foreground) : base;
   }
 
-  Widget _buildPreview() {
-    if (_initializing) {
-      return Center(child: CircularProgressIndicator(color: _foreground));
-    }
-    if (_error != null) {
-      return Center(
-        key: const ValueKey('chat_camera_error'),
-        child: Semantics(
-          identifier: 'chat_camera_error',
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  _error!,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: _foreground, fontSize: 16),
-                ),
-                if (_showSettingsCta) ...[
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: Semantics(
-                      identifier: 'chat_camera_open_settings',
-                      child: FilledButton(
-                        key: const ValueKey('chat_camera_open_settings'),
-                        onPressed: openAppSettings,
-                        child: Text(_l10n.openSettings),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      );
-    }
-    final controller = _controller;
-    if (controller == null || !controller.value.isInitialized) {
-      return const SizedBox.shrink();
-    }
-    // Pinch lives on its own detector wrapping only the live preview — a
-    // sibling of the shutter's detector inside the Stack, never an ancestor
-    // of it, so the two never compete in the same gesture arena.
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onScaleStart: _handleScaleStart,
-      onScaleUpdate: _handleScaleUpdate,
-      child: Center(
-        child: AspectRatio(
-          aspectRatio: 1 / controller.value.aspectRatio,
-          child: CameraPreview(controller),
-        ),
-      ),
-    );
-  }
-
   void _handleScaleStart(ScaleStartDetails details) {
+    _anchorZoomGesture(details.pointerCount, details.localFocalPoint.dy);
+  }
+
+  void _anchorZoomGesture(int pointers, double focalY) {
+    _zoomPointers = pointers;
     _baseZoom = _currentZoom;
+    _dragZoomOrigin = focalY;
   }
 
-  /// Applies the pinch one call at a time, and only records the zoom the lens
-  /// actually took: committing it up front left `_currentZoom` — and with it
-  /// the next pinch's `_baseZoom` — describing a zoom the lens had refused,
-  /// and concurrent updates could resolve out of order.
-  Future<void> _handleScaleUpdate(ScaleUpdateDetails details) async {
-    if (_controller == null) return;
-    if (_maxZoom <= _minZoom) return;
-    final zoom = (_baseZoom * details.scale).clamp(_minZoom, _maxZoom);
-    if (zoom == _currentZoom) return;
-    _requestedZoom = zoom;
-    if (_applyingZoom) return;
-    _applyingZoom = true;
-    try {
-      while (_requestedZoom != null) {
-        final next = _requestedZoom!;
-        _requestedZoom = null;
-        final controller = _controller;
-        if (controller == null) return;
-        try {
-          await controller.setZoomLevel(next);
-          if (!identical(controller, _controller)) return;
-          _currentZoom = next;
-        } on Object catch (error, stack) {
-          // Some lenses reject an in-range zoom value; the preview must not
-          // die for a gesture that only adjusts framing.
-          uiDebugLog(
-            'CameraCapturePage',
-            'setZoomLevel($next) failed: $error\n$stack',
-          );
-        }
-      }
-    } finally {
-      _applyingZoom = false;
-    }
-  }
-
-  Widget _buildCaptureButton() {
-    final controller = _controller;
-    final ready =
-        controller != null &&
-        controller.value.isInitialized &&
-        !_initializing &&
-        !_binding &&
-        !_recordingGate.isStopping;
-    final isRecording = _recordingGate.isRecording;
-
-    return CameraCaptureButton(
-      key: const ValueKey('chat_camera_shutter'),
-      ready: ready,
-      isRecording: isRecording,
-      theme: widget.theme,
-      // While recording, tapping the shutter finishes and sends the clip —
-      // it is no longer a dead tap.
-      onTap: ready ? (isRecording ? _stopRecording : _takePicture) : null,
-      onRecordStart: ready ? _startRecording : null,
-      onRecordStop: ready ? _stopRecording : null,
-      onRecordCancel: ready ? _cancelHold : null,
-    );
+  /// Zooms while the shutter itself is held: [travel] is how far the finger
+  /// has slid up from where the press started, in logical pixels. The
+  /// standard way to frame a clip one-handed, and the only pointer the user
+  /// still has while hold-to-record keeps it down.
+  void _handleShutterZoom(double travel) {
+    if (!_recordingGate.isRecording) return;
+    unawaited(_applyZoom(_zoomForTravel(_shutterZoomBase, travel)));
   }
 }
 
@@ -1048,6 +827,7 @@ class CameraCaptureButton extends StatelessWidget {
     this.onRecordStart,
     this.onRecordStop,
     this.onRecordCancel,
+    this.onRecordZoom,
   });
 
   final bool ready;
@@ -1060,6 +840,12 @@ class CameraCaptureButton extends StatelessWidget {
   /// Fired when the press is cancelled instead of released — a permission
   /// dialog stealing the touch, mostly. `onRecordStop` never fires for those.
   final VoidCallback? onRecordCancel;
+
+  /// Fired while the press is held and the finger slides, with how far it has
+  /// travelled up from where it started, in logical pixels (down is
+  /// negative). A host that drops this shutter into its own capture screen
+  /// can drive the lens zoom from it the way [CameraCapturePage] does.
+  final ValueChanged<double>? onRecordZoom;
 
   @override
   Widget build(BuildContext context) {
@@ -1091,6 +877,9 @@ class CameraCaptureButton extends StatelessWidget {
               : (_) => onRecordStart!(),
           onLongPressEnd: onRecordStop == null ? null : (_) => onRecordStop!(),
           onLongPressCancel: onRecordCancel,
+          onLongPressMoveUpdate: onRecordZoom == null
+              ? null
+              : (details) => onRecordZoom!(-details.localOffsetFromOrigin.dy),
           child: Container(
             width: size,
             height: size,
@@ -1111,4 +900,65 @@ class CameraCaptureButton extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The vertical travel, in logical pixels, that walks the lens across its
+/// whole zoom range while a clip is being recorded. Hold-to-record leaves a
+/// single finger free, and a one-finger gesture carries no scale factor to
+/// pinch with, so the distance it slides is what drives the zoom instead.
+const double _dragZoomTravel = 220;
+
+/// Above every still the SDK's own capture screen can produce, and below the
+/// dimensions a file crafted to exhaust memory declares. Read from the header
+/// before a single pixel is allocated.
+const int _maxStillPixels = 50000000;
+
+/// A still that keeps the format it arrived in, flipped along the axis it is
+/// displayed on, or `null` when the bytes are not one this can rebuild — in
+/// which case the capture is left exactly as the sensor wrote it.
+///
+/// Any EXIF orientation is baked into the pixels first: a horizontal flip of
+/// the stored buffer lands on the vertical axis once a viewer rotates the
+/// picture by its tag, which would leave the take upside down instead of
+/// unmirrored. The ICC profile the capture carries survives the rebuild, so
+/// a Display P3 photo still reads as one downstream.
+Uint8List? _flipStillHorizontally(Uint8List bytes) {
+  final decoder = _stillDecoder(bytes);
+  if (decoder == null) return null;
+  try {
+    final info = decoder.startDecode(bytes);
+    if (info == null || info.numFrames > 1) return null;
+    if (info.width * info.height > _maxStillPixels) return null;
+    final decoded = decoder.decode(bytes, frame: 0);
+    if (decoded == null) return null;
+    final flipped = img.flipHorizontal(img.bakeOrientation(decoded));
+    return decoder is img.PngDecoder
+        ? img.PngEncoder().encode(flipped, singleFrame: true)
+        : img.JpegEncoder(
+            quality: _stillQuality,
+          ).encode(flipped, singleFrame: true);
+  } on Object {
+    return null;
+  }
+}
+
+/// One generation above the 90 the metadata pass re-encodes at downstream, so
+/// the flip is not what a sent photo loses its detail to.
+const int _stillQuality = 95;
+
+img.Decoder? _stillDecoder(Uint8List bytes) {
+  if (bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF) {
+    return img.JpegDecoder();
+  }
+  if (bytes.length >= 4 &&
+      bytes[0] == 0x89 &&
+      bytes[1] == 0x50 &&
+      bytes[2] == 0x4E &&
+      bytes[3] == 0x47) {
+    return img.PngDecoder();
+  }
+  return null;
 }

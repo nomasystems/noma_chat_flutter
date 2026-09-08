@@ -110,16 +110,13 @@ class AttachmentPickerSheet extends StatelessWidget {
     String? title,
     ChatTheme theme = ChatTheme.defaults,
   }) {
-    return showModalBottomSheet(
-      context: context,
+    return theme.showSheet<void>(
+      context,
       // Stretch edge-to-edge so the picker spans the full screen width
-      // (the user noticed it was inset). `showDragHandle` + rounded top
-      // corners match WhatsApp's attachment picker presentation.
-      isScrollControlled: true,
+      // (the user noticed it was inset). `showDragHandle` + the shared
+      // rounded top corners match WhatsApp's attachment picker presentation.
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      useRootNavigator: false,
       builder: (_) => AttachmentPickerSheet(
         onPickCamera: onPickCamera,
         onPickGallery: onPickGallery,

@@ -212,6 +212,11 @@ abstract final class ChatErrorTokens {
   static const String rateLimited = 'rate_limited';
   static const String cannotDeleteOtherUser = 'cannot_delete_other_user';
 
+  /// Server refused an attachment upload for its size (413). Mirrors the
+  /// drop reason [OfflineQueue.onOperationDropped] reports for the same
+  /// condition caught before a reconnect ever leaves the device.
+  static const String attachmentTooLarge = 'attachment_too_large';
+
   /// Account-level deactivation/ban tokens that the SDK maps to
   /// [AuthFailure] so the host's re-auth flow fires.
   static const String userDeactivated = 'user_deactivated';
@@ -325,6 +330,26 @@ final class ServerFailure extends ChatFailure {
     this.body,
     String message = 'Server error',
     String? errorToken,
+  }) : super(message, errorToken: errorToken);
+}
+
+/// Server refused an attachment upload because it exceeds the transport's
+/// size limit (413). The client-side [AttachmentPolicy] pre-flight check
+/// (`AttachmentPickers`, `ChatUiAdapter.sendAttachment`) already screens for
+/// this before the bytes are ever sent; this failure is what a caller sees
+/// when the two disagree — a HEIC that grows on its way to JPEG, a re-encode
+/// step run between pick and upload, a cap the server enforces below the
+/// client's own — so it can show the exact same "too large" text either way
+/// instead of a generic upload failure.
+final class AttachmentTooLargeFailure extends ChatFailure {
+  final int statusCode;
+  final dynamic body;
+
+  const AttachmentTooLargeFailure({
+    this.statusCode = 413,
+    this.body,
+    String message = 'Attachment is too large',
+    String? errorToken = ChatErrorTokens.attachmentTooLarge,
   }) : super(message, errorToken: errorToken);
 }
 

@@ -28,25 +28,17 @@ class RoomContextMenu extends StatelessWidget {
     Widget Function(BuildContext, RoomListItem)? builder,
     ChatTheme theme = ChatTheme.defaults,
   }) async {
-    const shape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-    );
-
     if (builder != null) {
-      return showModalBottomSheet<RoomAction>(
-        context: context,
-        shape: shape,
-        clipBehavior: Clip.antiAlias,
-        useRootNavigator: true,
+      return theme.showSheet<RoomAction>(
+        context,
+        isScrollControlled: false,
         builder: (ctx) => builder(ctx, room),
       );
     }
 
-    return showModalBottomSheet<RoomAction>(
-      context: context,
-      shape: shape,
-      clipBehavior: Clip.antiAlias,
-      useRootNavigator: true,
+    return theme.showSheet<RoomAction>(
+      context,
+      isScrollControlled: false,
       builder: (ctx) => RoomContextMenu(
         room: room,
         enabledActions: enabledActions,

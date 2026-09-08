@@ -480,12 +480,52 @@ name must **wrap the identity the old one carried** (id, or the same tuple
 as before), never replace it with a positional one, and any code that parses
 the key back (`findChildIndexCallback`) is updated in the same change.
 
+A control that only exists inside a `MessageBubble` (the audio play/speed
+controls, the upload cancel/retry targets) still carries both halves, but the
+`identifier` half is inert there: the bubble merges its subtree into one
+announcement with `excludeSemantics: true`, so no descendant reaches the
+semantics tree at all. Name it anyway — the `ValueKey` half works, and the
+widget rendered standalone publishes both — and interpolate the message id so
+two rows of the same list never answer to the same name.
+
+Uniqueness is a property of a **settled** frame, not of every frame. A
+cross-fade or a tab slide keeps the outgoing subtree mounted next to the
+incoming one, so a name both of them carry is published twice for the length
+of the animation. Do not scope the name to the transition — that hands the
+harness two names for one visible control. Document the window in the README
+(`Names during a transition`) and settle the frame before addressing it.
+
 A name is proven by a test that asserts on the **semantics tree**, not just
 the widget tree: `find.bySemanticsIdentifier(name)` (or
 `tester.getSemantics(...)` with `isSemantics(identifier: …, label: …)`) plus
 `find.byKey(ValueKey(name))`, under a `tester.ensureSemantics()` handle that
 `tearDown` disposes. Turning the semantics tree on in production is the
 host's decision — `ensureSemantics` never appears under `lib/`.
+
+Those per-name tests are a registry: they prove the names we know about are
+reachable, and they cannot see a control that shipped without one.
+`test/a11y/semantics_identifier_sweep_test.dart` closes that gap by reading
+`lib/` instead of the tree — any `Semantics` declaring `button`, `link`,
+`textField`, `slider`, `onTap`, `onLongPress` or `customSemanticsActions`
+without an `identifier:` fails it, and its failure message says what to add.
+A control that genuinely has no identity to publish — no id reaches it, so
+every instance would answer to one name — is exempted by adding its path and
+the reason to the `_unnamedByDesign` map at the top of that file. That map is
+for controls that cannot be named, never for controls not yet named.
+
+A `Semantics` node is not always involved, so the same file carries a second
+sweep over the Material widgets whose whole purpose is to be tapped —
+`IconButton`, `InkWell`, `TextButton`, `ElevatedButton`, `FilledButton` and
+their siblings. One of those taking a non-null `onPressed` / `onTap` /
+`onLongPress` / `onChanged` / `onSelected`, and not nested inside a
+`Semantics` that already publishes an identifier, fails it: an `IconButton`
+with a tooltip reads fine to a screen reader and still lands in a native dump
+without an `AXUniqueId`. Files whose buttons are known to be unnamed are
+listed in `_materialControlsNotYetNamed`, keyed by path and carrying both the
+surface they belong to and **how many** unnamed buttons that file holds today.
+The count is exact in both directions: adding one more to a listed file fails
+the sweep just as a fresh file would, and naming one fails it until the number
+comes down. Unlike `_unnamedByDesign` that list is a deferral, not a blessing.
 
 ### 10.12 Notices go through `showChatNotice`
 
@@ -537,3 +577,36 @@ rebuilding `ChatViewBuilders` field by field. Every new field must be
 copied there too; a slot missing from `_resolveBuilders` is silently
 dropped for every host that goes through `NomaChatView`, which is all of
 them.
+
+### 10.14 What counts as a link — `UrlDetector`
+
+`UrlDetector` (`lib/src/ui/utils/url_detector.dart`) is the single
+definition of "this piece of text is a link" for the whole SDK: the
+bubble's markdown parser, the link preview card, the composer preview and
+the room's *Links* tab all go through `extractUrls` or `matchAt`. Never add
+a second regular expression somewhere else — the two entry points share the
+same gates precisely so a string is a link in the bubble exactly when it is
+one in the Links list.
+
+A match with an explicit scheme (`https://…`) is always a link. A **bare**
+match has to earn it, or every dotted word in prose — `informe.pdf`,
+`notas.txt`, a full stop typed without the space after it — turns blue and
+sends the reader to a browser error page:
+
+* it starts with `www.`, or
+* it carries a path, query or fragment, or
+* its last label is a known top-level domain.
+
+The recognised suffixes are a short built-in list: the common generic ones
+plus the country codes of the locales the SDK ships. A host whose users
+routinely write bare domains under a suffix that list misses adds them once
+at start-up:
+
+```dart
+UrlDetector.extraTlds.add('barcelona');
+```
+
+This is deliberately *not* a `ChatTheme` field: it is not a visual decision,
+and a set that every consumer shares does not belong in a sealed per-view
+model. Entries are matched case-insensitively, so `'Barcelona'` and
+`'barcelona'` are the same suffix.

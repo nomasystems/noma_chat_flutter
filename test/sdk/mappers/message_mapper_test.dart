@@ -94,6 +94,16 @@ void main() {
       expect(msg.metadata?['forwardedFrom'], 'user-2');
     });
 
+    test('system messageType maps to regular', () {
+      final msg = MessageMapper.fromJson({
+        'id': 'msg-1',
+        'from': 'u-1',
+        'timestamp': '2024-01-01T00:00:00Z',
+        'messageType': 'system',
+      });
+      expect(msg.messageType, MessageType.regular);
+    });
+
     test('unknown messageType defaults to regular', () {
       final msg = MessageMapper.fromJson({
         'id': 'msg-1',
@@ -135,6 +145,7 @@ void main() {
         'reply',
         'audio',
         'forward',
+        'system',
       ]) {
         MessageMapper.fromJson({
           'id': 'msg-1',

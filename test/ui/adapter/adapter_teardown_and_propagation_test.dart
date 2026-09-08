@@ -69,6 +69,74 @@ void main() {
     });
   });
 
+  group('isTearingDown labels the wipe as a teardown, not a removal', () {
+    test(
+      'is raised while the room list is emptied and lowered after',
+      () async {
+        client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+        await adapter.rooms.load();
+        expect(adapter.isTearingDown, isFalse);
+
+        final seen = <bool>[];
+        void onChanged() => seen.add(adapter.isTearingDown);
+        adapter.roomListController.addListener(onChanged);
+
+        await adapter.disconnect(clearRooms: true);
+        adapter.roomListController.removeListener(onChanged);
+
+        expect(seen, isNotEmpty);
+        expect(seen.last, isTrue);
+        expect(adapter.isTearingDown, isFalse);
+      },
+    );
+
+    test('stays raised across every notification a signOut emits, not just '
+        'the one that empties the list', () async {
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      await adapter.rooms.load();
+      // Dropping this mirror is the LAST thing the wipe does, and it
+      // notifies the room list after the list itself was emptied.
+      adapter.roomListController.setDeletedRoomIds({'gone1'});
+
+      final seen = <bool>[];
+      void onChanged() => seen.add(adapter.isTearingDown);
+      adapter.roomListController.addListener(onChanged);
+
+      await adapter.signOut();
+      adapter.roomListController.removeListener(onChanged);
+
+      expect(seen.length, greaterThanOrEqualTo(2));
+      expect(seen, everyElement(isTrue));
+      expect(adapter.roomListController.deletedRoomIds, isEmpty);
+      expect(adapter.isTearingDown, isFalse);
+    });
+
+    test('stays raised from dispose onwards', () async {
+      final ownClient = MockChatClient(currentUserId: 'me');
+      final own = ChatUiAdapter(client: ownClient, currentUser: currentUser);
+      expect(own.isTearingDown, isFalse);
+
+      await own.dispose();
+
+      expect(own.isTearingDown, isTrue);
+      await ownClient.dispose();
+    });
+
+    test('a plain room removal is never labelled a teardown', () async {
+      client.seedRoom(const ChatRoom(id: 'r1', members: ['me', 'bob']));
+      await adapter.rooms.load();
+
+      var seen = true;
+      void onChanged() => seen = adapter.isTearingDown;
+      adapter.roomListController.addListener(onChanged);
+      adapter.roomListController.removeRoom('r1');
+      adapter.roomListController.removeListener(onChanged);
+
+      expect(adapter.roomListController.rooms, isEmpty);
+      expect(seen, isFalse);
+    });
+  });
+
   group('signOut wipes every registry', () {
     test(
       'clears user cache, blocked users, presence and voice uploads',

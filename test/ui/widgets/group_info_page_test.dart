@@ -96,7 +96,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Not found'), findsOneWidget);
+      expect(find.text(ChatTheme.defaults.l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+        expect(text.data ?? '', isNot(contains('Not found')));
+      }
     });
   });
 
@@ -172,6 +176,154 @@ void main() {
 
       expect(find.text('New description'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
+    });
+  });
+
+  group('GroupInfoPage — edit controls survive their own press', () {
+    // Tree order is name row first, description row second, and inside
+    // each row the read-only line comes before the edit field. So index 0
+    // is the name control and index 1 the description one, whether or not
+    // the row is currently on screen.
+    Finder pencilAt(int index) =>
+        find.byIcon(Icons.edit_outlined, skipOffstage: false).at(index);
+
+    Finder saveAt(int index) =>
+        find.byIcon(Icons.check, skipOffstage: false).at(index);
+
+    Finder tooltipOf(Finder icon) => find.ancestor(
+      of: icon,
+      matching: find.byType(Tooltip, skipOffstage: false),
+    );
+
+    testWidgets('the name pencil and its save button are hidden, never '
+        'unmounted, when the row flips mode', (tester) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      final pencil = tester.state<TooltipState>(tooltipOf(pencilAt(0)));
+      final save = tester.state<TooltipState>(tooltipOf(saveAt(0)));
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      expect(
+        find.byIcon(Icons.edit_outlined, skipOffstage: false),
+        findsNWidgets(2),
+      );
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(pencilAt(0))), pencil),
+        isTrue,
+      );
+
+      // Committing an unchanged name leaves edit mode inside the press.
+      await tester.tap(find.byIcon(Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byIcon(Icons.check, skipOffstage: false), findsNWidgets(2));
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(saveAt(0))), save),
+        isTrue,
+      );
+    });
+
+    testWidgets('the description pencil and its save button are hidden, '
+        'never unmounted, when the row flips mode', (tester) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+
+      final pencil = tester.state<TooltipState>(tooltipOf(pencilAt(1)));
+      final save = tester.state<TooltipState>(tooltipOf(saveAt(1)));
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).last);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).focusNode?.hasFocus,
+        isTrue,
+      );
+      expect(
+        find.byIcon(Icons.edit_outlined, skipOffstage: false),
+        findsNWidgets(2),
+      );
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(pencilAt(1))), pencil),
+        isTrue,
+      );
+
+      await tester.tap(find.byIcon(Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextField), findsNothing);
+      expect(find.byIcon(Icons.check, skipOffstage: false), findsNWidgets(2));
+      expect(
+        identical(tester.state<TooltipState>(tooltipOf(saveAt(1))), save),
+        isTrue,
+      );
+    });
+  });
+
+  group('GroupInfoPage — save failures', () {
+    // What the user must read is the localized "could not save" line, never
+    // the failure's own wording.
+    Future<void> failNextSave() => client.rooms.delete('r1');
+
+    testWidgets('a failed name save shows the localized notice', (
+      tester,
+    ) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+      await failNextSave();
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).first);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Renamed Group');
+      await tester.pump();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.saveFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
+
+      await tester.pumpAndSettle(const Duration(seconds: 6));
+    });
+
+    testWidgets('a failed description save shows the localized notice', (
+      tester,
+    ) async {
+      seedGroup();
+
+      await tester.pumpWidget(wrap());
+      await tester.pumpAndSettle();
+      await failNextSave();
+
+      await tester.tap(find.byIcon(Icons.edit_outlined).last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'New description');
+      await tester.pump();
+      await tester.tap(find.widgetWithIcon(IconButton, Icons.check));
+      await tester.pumpAndSettle();
+
+      expect(find.text(l10n.saveFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+      }
+
+      await tester.pumpAndSettle(const Duration(seconds: 6));
     });
   });
 }

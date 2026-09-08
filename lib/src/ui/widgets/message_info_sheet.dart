@@ -67,8 +67,9 @@ typedef MessageReceiptSubtitleBuilder =
 /// room's per-member read receipts (`adapter.messages.loadReceipts(roomId)`
 /// / `client.messages.getRoomReceipts`); the sheet classifies them against
 /// the message's timestamp using [readersFor] / [deliveredTo]. Names come
-/// from [displayNameFor] (defaults to the raw user id); pass [leadingBuilder]
-/// to render avatars.
+/// from [displayNameFor], which is expected to answer with an empty string
+/// for an id it cannot name — the row then carries no name rather than a
+/// raw id; pass [leadingBuilder] to render avatars.
 ///
 /// ```dart
 /// MessageInfoSheet.show(
@@ -114,7 +115,8 @@ class MessageInfoSheet extends StatelessWidget {
   /// "reads" their own message).
   final String currentUserId;
 
-  /// Resolves a user id to a display name. When `null`, the raw id is used.
+  /// Resolves a user id to a display name. When `null`, or when it answers
+  /// with an empty string, the row carries no name — never the raw id.
   final String Function(String userId)? displayNameFor;
 
   /// Visual theme. Defaults to [ChatTheme.defaults].
@@ -155,14 +157,12 @@ class MessageInfoSheet extends StatelessWidget {
     MessageReceiptSubtitleBuilder? receiptSubtitleBuilder,
     bool showApproximateReceiptTimes = false,
   }) {
-    return showModalBottomSheet<void>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
-      clipBehavior: Clip.antiAlias,
-      useRootNavigator: true,
-      isScrollControlled: true,
+    // Through the shared presenter, so this sheet wears the same chrome as
+    // the rest of the app instead of the hard-coded 16 radius and the cream
+    // Material derives when no background is named. See
+    // [ChatSheetPresentation].
+    return theme.showSheet<void>(
+      context,
       builder: (ctx) => FutureBuilder<List<ReadReceipt>>(
         future: loadReceipts(),
         builder: (ctx, snapshot) {
@@ -191,6 +191,7 @@ class MessageInfoSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = theme.l10nOf(context);
+    final colors = Theme.of(context).colorScheme;
     final readers = readersFor(
       message,
       receipts,
@@ -229,15 +230,42 @@ class MessageInfoSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
+            // The send time, always, in both branches. The one screen
+            // dedicated to a message used to be the only place that did not
+            // say when it was sent — the bubble says it two centimetres
+            // higher up.
             if (readers.isEmpty && delivered.isEmpty)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                 child: Text(
-                  l10n.noReceiptsYet,
-                  style: TextStyle(color: Colors.grey.shade600),
+                  l10n.messageSentNoReceipts(
+                    _formatTime(context, message.timestamp),
+                  ),
+                  key: const ValueKey('chat_message_info_sent_empty'),
+                  style: TextStyle(color: colors.onSurfaceVariant),
                 ),
               )
             else ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                child: Row(
+                  children: [
+                    Icon(Icons.check, size: 18, color: colors.onSurfaceVariant),
+                    const SizedBox(width: 8),
+                    Text(
+                      l10n.messageSentAt(
+                        _formatTime(context, message.timestamp),
+                      ),
+                      key: const ValueKey('chat_message_info_sent'),
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: colors.onSurface,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
               if (readers.isNotEmpty)
                 _section(
                   context,
@@ -318,6 +346,13 @@ class MessageInfoSheet extends StatelessWidget {
     return l10n.receiptNoExactTime;
   }
 
+  /// Name for a receipt row. With no resolver wired the row is untitled:
+  /// the id is not a name, and a sheet full of UUIDs tells the reader less
+  /// than a sheet of blanks. A resolver that deliberately answers with the
+  /// id is taken at its word.
+  static String _nameFor(String Function(String)? resolve, String userId) =>
+      resolve == null ? '' : resolve(userId).trim();
+
   Widget _section(
     BuildContext context,
     IconData icon,
@@ -325,6 +360,7 @@ class MessageInfoSheet extends StatelessWidget {
     List<MessageReceiptDetail> details,
   ) {
     final resolve = displayNameFor;
+    final colors = Theme.of(context).colorScheme;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -333,14 +369,14 @@ class MessageInfoSheet extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(
             children: [
-              Icon(icon, size: 18, color: Colors.grey.shade600),
+              Icon(icon, size: 18, color: colors.onSurfaceVariant),
               const SizedBox(width: 8),
               Text(
                 title,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w600,
-                  color: Colors.grey.shade700,
+                  color: colors.onSurface,
                 ),
               ),
             ],
@@ -350,9 +386,7 @@ class MessageInfoSheet extends StatelessWidget {
           ListTile(
             dense: true,
             leading: leadingBuilder?.call(context, detail.userId),
-            title: Text(
-              resolve != null ? resolve(detail.userId) : detail.userId,
-            ),
+            title: Text(_nameFor(resolve, detail.userId)),
             subtitle:
                 receiptSubtitleBuilder?.call(context, detail) ??
                 Text(
@@ -360,7 +394,10 @@ class MessageInfoSheet extends StatelessWidget {
                   key: ValueKey(
                     'chat_message_info_time_${detail.kind.name}_${detail.userId}',
                   ),
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: colors.onSurfaceVariant,
+                  ),
                 ),
           ),
       ],

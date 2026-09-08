@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_advanced.dart';
-import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 import 'package:noma_chat/src/_internal/http/rest_client.dart';
 
 class _MockDio extends Mock implements Dio {}
@@ -584,6 +583,13 @@ void main() {
     test('409 → ChatConflictException', () async {
       await expectMaps<ChatConflictException>(
         dioErr(statusCode: 409, body: {'message': 'already exists'}),
+      );
+    });
+
+    test('413 → ChatAttachmentTooLargeException, not the generic '
+        'ChatApiException fallback', () async {
+      await expectMaps<ChatAttachmentTooLargeException>(
+        dioErr(statusCode: 413, body: {'detail': 'Payload too large.'}),
       );
     });
 

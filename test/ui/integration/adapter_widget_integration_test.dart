@@ -185,7 +185,8 @@ void main() {
       await tester.pump();
       await tester.pump();
 
-      expect(find.text('user42 joined'), findsOneWidget);
+      expect(find.text('Member joined'), findsOneWidget);
+      expect(find.textContaining('user42'), findsNothing);
     });
 
     test('loadRooms populates room list controller', () async {

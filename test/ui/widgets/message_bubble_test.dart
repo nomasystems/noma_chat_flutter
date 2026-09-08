@@ -226,6 +226,49 @@ void main() {
     });
   });
 
+  group('MessageBubble — FileBubble caption', () {
+    testWidgets('passes the message text as the caption when a file name '
+        'exists', (tester) async {
+      final msg = ChatMessage(
+        id: 'doc1',
+        from: 'u1',
+        text: 'for the audit',
+        timestamp: DateTime(2026, 1, 1),
+        messageType: MessageType.attachment,
+        mimeType: 'application/pdf',
+        attachmentUrl: 'https://x/report.pdf',
+        fileName: 'report.pdf',
+      );
+      await tester.pumpWidget(
+        wrap(MessageBubble(message: msg, isOutgoing: true)),
+      );
+
+      final fileBubble = tester.widget<FileBubble>(find.byType(FileBubble));
+      expect(fileBubble.fileName, 'report.pdf');
+      expect(fileBubble.caption, 'for the audit');
+    });
+
+    testWidgets('does not repeat the text as a caption when it is standing '
+        'in for a missing file name', (tester) async {
+      final msg = ChatMessage(
+        id: 'doc2',
+        from: 'u1',
+        text: 'legacy-name.pdf',
+        timestamp: DateTime(2026, 1, 1),
+        messageType: MessageType.attachment,
+        mimeType: 'application/pdf',
+        attachmentUrl: 'https://x/legacy-name.pdf',
+      );
+      await tester.pumpWidget(
+        wrap(MessageBubble(message: msg, isOutgoing: true)),
+      );
+
+      final fileBubble = tester.widget<FileBubble>(find.byType(FileBubble));
+      expect(fileBubble.fileName, 'legacy-name.pdf');
+      expect(fileBubble.caption, isNull);
+    });
+  });
+
   group('Read receipt avatars', () {
     testWidgets(
       'renders ReadReceiptAvatars when readReceiptUsers is non-empty',

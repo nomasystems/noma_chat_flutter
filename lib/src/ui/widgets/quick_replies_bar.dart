@@ -2,6 +2,15 @@ import 'package:flutter/material.dart';
 
 import '../theme/chat_theme.dart';
 
+/// Name a quick-reply chip answers to, both as its `ValueKey` and as its
+/// `Semantics(identifier:)`.
+///
+/// The bar's content is consumer-driven and its labels are free text that
+/// can repeat or be localised, so a chip is named by its position in
+/// [QuickRepliesBar.replies] — stable only while the list keeps its order,
+/// the same trade `chat_attachment_option_extra_<position>` already makes.
+String quickReplySemanticsId(int index) => 'chat_quick_reply_$index';
+
 /// Horizontal row of one-tap reply chips above the composer.
 ///
 /// The SDK ships the *layout* (scrollable row, theming, semantics);
@@ -49,6 +58,7 @@ class QuickRepliesBar extends StatelessWidget {
               if (i > 0) SizedBox(width: chipSpacing),
               _QuickReplyChip(
                 label: replies[i],
+                identifier: quickReplySemanticsId(i),
                 onTap: () => onReply(replies[i]),
               ),
             ],
@@ -60,14 +70,21 @@ class QuickRepliesBar extends StatelessWidget {
 }
 
 class _QuickReplyChip extends StatelessWidget {
-  const _QuickReplyChip({required this.label, required this.onTap});
+  const _QuickReplyChip({
+    required this.label,
+    required this.identifier,
+    required this.onTap,
+  });
 
   final String label;
+  final String identifier;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
+      key: ValueKey(identifier),
+      identifier: identifier,
       label: label,
       button: true,
       child: ActionChip(label: Text(label), onPressed: onTap),

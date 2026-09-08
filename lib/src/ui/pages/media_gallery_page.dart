@@ -81,9 +81,9 @@ class MediaGalleryPage extends StatefulWidget {
 
   /// Optional resolver from `senderId` → display name. Used by the Docs
   /// and Links tabs to render the sender as "Alice" instead of a raw
-  /// UUID. Typically wired to `ChatUiAdapter.displayNameFor`. When
-  /// `null` (or when the resolver returns the same id back) the
-  /// sender chip is omitted from the row.
+  /// UUID. Typically wired to `ChatUiAdapter.displayNameFor`, which answers
+  /// with an empty string for an id it cannot name. When `null`, empty, or
+  /// the id itself, the sender chip is omitted from the row.
   final String? Function(String userId)? senderNameResolver;
 
   @override
@@ -94,7 +94,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     with SingleTickerProviderStateMixin {
   late final TabController _tabController;
   bool _loading = true;
-  String? _errorMessage;
+  bool _failed = false;
   List<MediaItem> _media = const [];
   List<MediaItem> _docs = const [];
 
@@ -205,16 +205,16 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
               _media = media;
               _docs = docs;
               _loading = false;
-              _errorMessage = null;
+              _failed = false;
             });
             return;
           }
           olderCursor = nextOlderCursor;
           pages += 1;
-        case ChatFailureResult(:final failure):
+        case ChatFailureResult():
           setState(() {
             _loading = false;
-            _errorMessage = failure.toString();
+            _failed = true;
           });
           return;
       }
@@ -227,7 +227,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
       _media = media;
       _docs = docs;
       _loading = false;
-      _errorMessage = null;
+      _failed = false;
     });
   }
 
@@ -303,6 +303,7 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
     final theme = widget.theme;
     final l10n = theme.l10nOf(context);
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       backgroundColor:
           theme.galleryBackgroundColor ?? theme.galleryAppBarBackgroundColor,
       appBar: AppBar(
@@ -358,14 +359,14 @@ class _MediaGalleryPageState extends State<MediaGalleryPage>
                 child: const CircularProgressIndicator(),
               ),
             )
-          : _errorMessage != null
+          : _failed
           ? Semantics(
               identifier: 'chat_gallery_error',
               child: EmptyState(
                 key: const ValueKey('chat_gallery_error'),
                 icon: Icons.error_outline,
                 title: l10n.connectionError,
-                subtitle: _errorMessage,
+                subtitle: l10n.loadFailed,
                 theme: widget.theme,
               ),
             )
@@ -424,6 +425,7 @@ class _DocsTab extends StatelessWidget {
           key: const ValueKey('chat_gallery_docs_empty'),
           icon: Icons.insert_drive_file_outlined,
           title: theme.l10nOf(context).galleryNoDocs,
+          subtitle: theme.l10nOf(context).galleryNoDocsSubtitle,
           theme: theme,
         ),
       );
@@ -461,6 +463,7 @@ class _LinksTab extends StatelessWidget {
           key: const ValueKey('chat_gallery_links_empty'),
           icon: Icons.link_off,
           title: theme.l10nOf(context).galleryNoLinks,
+          subtitle: theme.l10nOf(context).galleryNoLinksSubtitle,
           theme: theme,
         ),
       );

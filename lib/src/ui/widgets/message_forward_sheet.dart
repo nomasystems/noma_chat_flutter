@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/room_list_item.dart';
 import '../theme/chat_theme.dart';
 import '../utils/chat_notice.dart';
+import '../utils/text_selection_menu.dart';
 import 'user_avatar.dart';
 
 /// Signature for a per-row builder. Lets the consumer fully replace
@@ -175,13 +176,10 @@ class MessageForwardSheet extends StatefulWidget {
       }
       return null;
     }
-    return showModalBottomSheet<List<String>>(
-      context: context,
-      isScrollControlled: true,
+    return theme.showSheet<List<String>>(
+      context,
       showDragHandle: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
-      ),
+      useRootNavigator: false,
       builder: (_) => MessageForwardSheet(
         rooms: rooms,
         initialSelectedIds: initialSelectedIds,
@@ -232,8 +230,16 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
     if (_query.isEmpty) return widget.rooms;
     return [
       for (final r in widget.rooms)
-        if (r.displayName.toLowerCase().contains(_query)) r,
+        if (_matches(r.displayName) || _matches(r.name)) r,
     ];
+  }
+
+  /// Same rule the room list itself applies: the resolved title *and* the
+  /// raw server name are searched, so a host title resolver that renames a
+  /// group never makes it unforwardable-to by the name everyone still sees.
+  bool _matches(String? value) {
+    if (value == null || value.isEmpty) return false;
+    return value.toLowerCase().contains(_query);
   }
 
   void _toggle(String id, bool value) {
@@ -286,6 +292,7 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: TextField(
                   controller: _searchController,
+                  contextMenuBuilder: buildTextSelectionMenu,
                   decoration: InputDecoration(
                     hintText: l10n.searchChats,
                     prefixIcon: const Icon(Icons.search, size: 20),
@@ -306,7 +313,11 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
                           child: Text(
                             l10n.noChatsToForward,
                             textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.grey.shade600),
+                            style: TextStyle(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         )
                   : ListView.builder(

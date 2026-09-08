@@ -109,6 +109,22 @@ final class ChatApiException extends ChatException {
   }) : super(message, errorToken: errorToken);
 }
 
+/// Server refused an upload for its size (413), mapped by
+/// `RestClient._mapDioException` distinctly from the generic
+/// [ChatApiException] so a caller can show the same "attachment too large"
+/// message the client-side pre-flight rejection uses.
+final class ChatAttachmentTooLargeException extends ChatException {
+  final int statusCode;
+  final dynamic body;
+
+  const ChatAttachmentTooLargeException({
+    this.statusCode = 413,
+    this.body,
+    String message = 'Attachment is too large',
+    String? errorToken,
+  }) : super(message, errorToken: errorToken);
+}
+
 final class ChatRateLimitException extends ChatException {
   final Duration? retryAfter;
 
@@ -121,7 +137,7 @@ final class ChatRateLimitException extends ChatException {
 
 final class ChatTimeoutException extends ChatException {
   /// Which request phase timed out, so the offline queue / retry layer
-  /// can tell a safe-to-resend pre-response timeout from a [receive]
+  /// can tell a safe-to-resend pre-response timeout from a [TimeoutKind.receive]
   /// timeout that may already have reached the server.
   final TimeoutKind kind;
 

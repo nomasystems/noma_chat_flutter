@@ -92,7 +92,8 @@ class ChatEventRouterDeps {
   markAsReadFn;
   final Future<ChatResult<void>> Function(String roomId, String messageId)
   confirmDeliveredFn;
-  final void Function(String roomId, String messageId) refreshMessageFn;
+  final void Function(String roomId, String messageId, {bool expectDeleted})
+  refreshMessageFn;
   final void Function(String roomId, String messageId) refreshReactionsFn;
   final void Function(String roomId, String userId) handleUserJoinedFn;
   final void Function(String roomId, String userId, {String? actorUserId})
@@ -210,8 +211,11 @@ class ChatEventRouter {
     String roomId,
     String messageId,
   ) => _deps.confirmDeliveredFn(roomId, messageId);
-  void _refreshMessageFn(String roomId, String messageId) =>
-      _deps.refreshMessageFn(roomId, messageId);
+  void _refreshMessageFn(
+    String roomId,
+    String messageId, {
+    bool expectDeleted = false,
+  }) => _deps.refreshMessageFn(roomId, messageId, expectDeleted: expectDeleted);
   void _refreshReactionsFn(String roomId, String messageId) =>
       _deps.refreshReactionsFn(roomId, messageId);
   void _handleUserJoinedFn(String roomId, String userId) =>
@@ -379,18 +383,33 @@ class ChatEventRouter {
         :final fromUserId,
       ):
         final receiptController = _controllers[roomId];
-        receiptController?.updateReceipt(
-          messageId,
-          status,
-          fromUserId: fromUserId,
-        );
-        _persistReceipts(roomId, receiptController);
-        if (receiptController == null) {
-          unawaited(
-            _persistClosedRoomCursor(roomId, fromUserId, messageId, status),
+        // The backend echoes the user's own `markAsRead` back to every one
+        // of their connections as this same frame. It is evidence about
+        // what THIS user read, never about a peer receiving anything, so
+        // it must not reach the bubble aggregation or the room-list tick:
+        // fed there it would report every own message in the room as read
+        // by someone the instant the user opens or writes in it.
+        final isSelfEcho = fromUserId == _currentUser().id;
+        // Except in a room with nobody else in it ("message yourself"),
+        // where the user is not echoing the audience, they ARE it: their own
+        // read is the only receipt that bubble can ever get. The controller
+        // holds such a mark back from the cache on its own.
+        final ownReadIsEvidence =
+            isSelfEcho && (receiptController?.isSelfConversation ?? false);
+        if (!isSelfEcho || ownReadIsEvidence) {
+          receiptController?.updateReceipt(
+            messageId,
+            status,
+            fromUserId: fromUserId,
           );
+          _persistReceipts(roomId, receiptController);
+          if (receiptController == null) {
+            unawaited(
+              _persistClosedRoomCursor(roomId, fromUserId, messageId, status),
+            );
+          }
+          _updateRoomListReceipt(roomId, messageId, status);
         }
-        _updateRoomListReceipt(roomId, messageId, status);
         // `markAsRead` on ANY of the user's own devices flags the whole
         // room read up to the latest message, and the backend echoes it
         // back as this same `receipt_updated` frame to every connection —
@@ -398,7 +417,7 @@ class ChatEventRouter {
         // second device (e.g. a tablet) never learns the room was read
         // elsewhere and keeps showing a stale badge. Mirrors the same
         // optimistic zero `setActiveRoom` applies on the reading device.
-        if (status == ReceiptStatus.read && fromUserId == _currentUser().id) {
+        if (status == ReceiptStatus.read && isSelfEcho) {
           _updateRoomUnread(roomId, 0);
         }
       case MessageDeliveredEvent():
@@ -519,6 +538,10 @@ class ChatEventRouter {
   /// through the confirmer's DM mapping; unresolvable events are
   /// dropped — the next room sync re-derives the listing tick anyway.
   void _onMessageDelivered(MessageDeliveredEvent event) {
+    // Delivery to the user's own devices is not a peer's evidence — the
+    // same rule [_persistClosedRoomCursor] already applies on the closed
+    // branch, kept here so the open room and the row cannot disagree.
+    if (event.userId == _currentUser().id) return;
     final resolvedRoomId = event.roomId ?? _dmContacts.roomIdFor(event.userId);
     if (resolvedRoomId == null) return;
     final controller = _controllers[resolvedRoomId];
@@ -738,17 +761,21 @@ class ChatEventRouter {
       // message as instantly read — mirrors WhatsApp's "you're in the
       // chat, you saw it the moment it landed" behaviour. The chat list
       // unread badge never blips up to 1 just to drop back to 0.
-      _updateRoomUnread(roomId, isActiveRoom ? 0 : existing.unreadCount + 1);
-      // Mention badge ("@"): bump the per-room mention counter when the
-      // incoming message tags the current user and the chat isn't already
-      // open. `_updateRoomUnread(…, 0)` clears it on read; the next
-      // `loadRooms` reconciles it against the authoritative server count.
-      if (!isActiveRoom && _messageMentionsMe(message)) {
-        final cur = _roomList.getRoomById(roomId);
-        if (cur != null) {
-          _roomList.updateRoom(
-            cur.copyWith(unreadMentions: cur.unreadMentions + 1),
-          );
+      if (message.isSystem) {
+        if (isActiveRoom) _updateRoomUnread(roomId, 0);
+      } else {
+        _updateRoomUnread(roomId, isActiveRoom ? 0 : existing.unreadCount + 1);
+        // Mention badge ("@"): bump the per-room mention counter when the
+        // incoming message tags the current user and the chat isn't already
+        // open. `_updateRoomUnread(…, 0)` clears it on read; the next
+        // `loadRooms` reconciles it against the authoritative server count.
+        if (!isActiveRoom && _messageMentionsMe(message)) {
+          final cur = _roomList.getRoomById(roomId);
+          if (cur != null) {
+            _roomList.updateRoom(
+              cur.copyWith(unreadMentions: cur.unreadMentions + 1),
+            );
+          }
         }
       }
     }
@@ -793,8 +820,26 @@ class ChatEventRouter {
     // was deleted" instead of "Deleted by admin" — same data is
     // already on the server doc, just not in the local cache yet
     // because the WS event only carries (roomId, messageId).
-    _refreshMessageFn(roomId, messageId);
-    _cache?.deleteMessage(roomId, messageId);
+    //
+    // The cached row is purged FIRST. `messages.get` has no server-side unit
+    // endpoint and resolves against that same id-indexed cache, so refreshing
+    // before the purge reads back the row as it was BEFORE the delete and
+    // hands the live text to the refresh. `expectDeleted` makes the refresh
+    // itself immune to that read, so this ordering is the second lock on the
+    // same door, not the only one.
+    void refreshAfterPurge() =>
+        _refreshMessageFn(roomId, messageId, expectDeleted: true);
+    final purge = _cache?.deleteMessage(roomId, messageId);
+    if (purge == null) {
+      refreshAfterPurge();
+    } else {
+      unawaited(
+        purge.then<void>(
+          (_) => refreshAfterPurge(),
+          onError: (_) => refreshAfterPurge(),
+        ),
+      );
+    }
     final room = _roomList.getRoomById(roomId);
     if (room != null && room.lastMessageId == messageId) {
       _roomList.updateRoom(

@@ -5,6 +5,8 @@ import '../../models/message.dart';
 import '../controller/message_search_controller.dart';
 import '../theme/chat_theme.dart';
 import '../utils/date_formatter.dart';
+import '../utils/highlight_spans.dart';
+import '../utils/text_selection_menu.dart';
 
 /// Instrumentation id of the [MessageSearchView] row for the message with id
 /// [messageId].
@@ -25,6 +27,7 @@ class MessageSearchView extends StatefulWidget {
     this.autofocus = true,
     this.currentUserId,
     this.emptyPromptText,
+    this.tooShortPromptText,
     this.resultCountLabelBuilder,
     this.showResultNavigation = true,
   }) : assert(minQueryLength >= 1, 'minQueryLength must be at least 1');
@@ -50,6 +53,11 @@ class MessageSearchView extends StatefulWidget {
   /// Copy for the initial state, before anything has been typed. Defaults
   /// to `ChatUiLocalizations.searchPromptEmpty` in the ambient locale.
   final String? emptyPromptText;
+
+  /// Copy for the state where something has been typed but it is still
+  /// shorter than [minQueryLength]. Defaults to
+  /// `ChatUiLocalizations.searchPromptTooShort`, which names the minimum.
+  final String? tooShortPromptText;
 
   /// Builds the header line above the results ("2 results"). Defaults to
   /// `ChatUiLocalizations.searchResultCount`, which picks the singular or
@@ -82,6 +90,16 @@ class _MessageSearchViewState extends State<MessageSearchView> {
   int _focusedIndex = 0;
   String _focusedForQuery = '';
 
+  bool _tooShort = false;
+
+  @override
+  void didUpdateWidget(covariant MessageSearchView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.minQueryLength == oldWidget.minQueryLength) return;
+    final trimmed = _textController.text.trim();
+    _tooShort = trimmed.isNotEmpty && trimmed.length < widget.minQueryLength;
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
@@ -96,12 +114,19 @@ class _MessageSearchViewState extends State<MessageSearchView> {
     if (trimmed.length < widget.minQueryLength) {
       // Suppress the backend search and clear any prior results so stale
       // matches don't linger while the user is still typing.
+      _setTooShort(trimmed.isNotEmpty);
       widget.controller.search('', widget.roomId);
       return;
     }
+    _setTooShort(false);
     _debounce = Timer(widget.debounceDuration, () {
       widget.controller.search(trimmed, widget.roomId);
     });
+  }
+
+  void _setTooShort(bool value) {
+    if (_tooShort == value || !mounted) return;
+    setState(() => _tooShort = value);
   }
 
   /// Stamps [radius] onto [border]'s shape without touching its colour or
@@ -273,6 +298,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
               controller: _textController,
               focusNode: _focusNode,
               autofocus: widget.autofocus,
+              contextMenuBuilder: buildTextSelectionMenu,
               onChanged: _onQueryChanged,
               style: theme.messageSearchFieldTextStyle,
               cursorColor: theme.messageSearchFieldCursorColor,
@@ -295,10 +321,12 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                     if (value.text.isEmpty) return const SizedBox.shrink();
                     return Semantics(
                       identifier: 'chat_search_clear',
+                      label: theme.l10nOf(context).clearText,
+                      button: true,
                       child: IconButton(
                         key: const ValueKey('chat_search_clear'),
                         icon: Icon(Icons.close, size: 18, color: iconColor),
-                        tooltip: theme.l10nOf(context).clearText,
+                        tooltip: null,
                         onPressed: () {
                           _textController.clear();
                           _onQueryChanged('');
@@ -361,15 +389,25 @@ class _MessageSearchViewState extends State<MessageSearchView> {
               }
 
               if (widget.controller.results.isEmpty) {
+                final promptId = _tooShort
+                    ? 'chat_search_too_short'
+                    : 'chat_search_prompt';
                 return Center(
-                  key: const ValueKey('chat_search_prompt'),
+                  key: ValueKey(promptId),
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Semantics(
-                      identifier: 'chat_search_prompt',
+                      identifier: promptId,
                       child: Text(
-                        widget.emptyPromptText ??
-                            theme.l10nOf(context).searchPromptEmpty,
+                        _tooShort
+                            ? (widget.tooShortPromptText ??
+                                  theme
+                                      .l10nOf(context)
+                                      .searchPromptTooShort(
+                                        widget.minQueryLength,
+                                      ))
+                            : (widget.emptyPromptText ??
+                                  theme.l10nOf(context).searchPromptEmpty),
                         textAlign: TextAlign.center,
                         style:
                             theme.messageSearchEmptyTextStyle ??
@@ -428,7 +466,7 @@ class _MessageSearchViewState extends State<MessageSearchView> {
                             ),
                             subtitle: Text.rich(
                               TextSpan(
-                                children: _highlightSpans(
+                                children: chatHighlightSpans(
                                   message.text ?? '',
                                   widget.controller.query,
                                   baseStyle: snippetStyle,
@@ -507,39 +545,6 @@ List<ChatMessage> _dedupeById(List<ChatMessage> results) {
     if (seen.add(message.id)) deduped.add(message);
   }
   return deduped;
-}
-
-List<TextSpan> _highlightSpans(
-  String text,
-  String query, {
-  required TextStyle baseStyle,
-  required TextStyle matchStyle,
-}) {
-  if (query.isEmpty || text.isEmpty) {
-    return [TextSpan(text: text, style: baseStyle)];
-  }
-  final spans = <TextSpan>[];
-  final lowerText = text.toLowerCase();
-  final lowerQuery = query.toLowerCase();
-  var cursor = 0;
-  while (cursor < text.length) {
-    final matchStart = lowerText.indexOf(lowerQuery, cursor);
-    if (matchStart == -1) {
-      spans.add(TextSpan(text: text.substring(cursor), style: baseStyle));
-      break;
-    }
-    if (matchStart > cursor) {
-      spans.add(
-        TextSpan(text: text.substring(cursor, matchStart), style: baseStyle),
-      );
-    }
-    final matchEnd = matchStart + query.length;
-    spans.add(
-      TextSpan(text: text.substring(matchStart, matchEnd), style: matchStyle),
-    );
-    cursor = matchEnd;
-  }
-  return spans;
 }
 
 const TextStyle _defaultCountStyle = TextStyle(

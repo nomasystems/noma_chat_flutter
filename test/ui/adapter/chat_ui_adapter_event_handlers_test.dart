@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
+import 'package:noma_chat/src/_internal/cache/memory_datasource.dart';
 import 'package:noma_chat/src/_internal/http/chat_exception.dart';
 
 /// Drives `_handleEvent` in `ChatUiAdapter` through each branch of the
@@ -76,6 +77,119 @@ void main() {
 
       final updated = controller.messages.firstWhere((m) => m.id == 'm-del');
       expect(updated.isDeleted, true);
+    },
+  );
+
+  test('MessageDeletedEvent: the defensive refresh does not resurrect the text '
+      'nor stamp "edited" when it reads back a still-live row', () async {
+    final controller = adapter.getChatController('r1');
+    final msg = ChatMessage(
+      id: 'm-del-stale',
+      from: 'u2',
+      timestamp: DateTime(2026, 1, 1),
+      text: 'bye',
+    );
+    controller.addMessage(msg);
+    // What `messages.get` resolves against — the id-indexed local cache in
+    // production — still holds the message ALIVE when the WS echo lands,
+    // because the DELETE response has not purged it yet.
+    client.addMessage('r1', msg);
+
+    client.emitEvent(
+      const MessageDeletedEvent(roomId: 'r1', messageId: 'm-del-stale'),
+    );
+    await drain();
+
+    final updated = controller.messages.firstWhere(
+      (m) => m.id == 'm-del-stale',
+    );
+    expect(updated.isDeleted, true);
+    expect(updated.text ?? '', isEmpty);
+    expect(updated.isEdited, false);
+  });
+
+  test('MessageDeletedEvent: a refreshed row that CONFIRMS the delete is still '
+      'applied, so "deleted by admin" survives', () async {
+    final controller = adapter.getChatController('r1');
+    final msg = ChatMessage(
+      id: 'm-del-admin',
+      from: 'u2',
+      timestamp: DateTime(2026, 1, 1),
+      text: 'bye',
+    );
+    controller.addMessage(msg);
+    client.addMessage(
+      'r1',
+      msg.copyWith(
+        isDeleted: true,
+        text: '',
+        metadata: const {'adminDeleted': true},
+      ),
+    );
+
+    client.emitEvent(
+      const MessageDeletedEvent(roomId: 'r1', messageId: 'm-del-admin'),
+    );
+    await drain();
+
+    final updated = controller.messages.firstWhere(
+      (m) => m.id == 'm-del-admin',
+    );
+    expect(updated.isDeleted, true);
+    expect(updated.metadata?['adminDeleted'], true);
+  });
+
+  test(
+    'MessageUpdatedEvent without an inline row does not stamp "edited" on an '
+    'unchanged row read back from cache',
+    () async {
+      final controller = adapter.getChatController('r1');
+      final msg = ChatMessage(
+        id: 'm-upd-stale',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'pre-edit',
+      );
+      controller.addMessage(msg);
+      client.addMessage('r1', msg);
+
+      client.emitEvent(
+        const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-upd-stale'),
+      );
+      await drain();
+
+      final updated = controller.messages.firstWhere(
+        (m) => m.id == 'm-upd-stale',
+      );
+      expect(updated.text, 'pre-edit');
+      expect(updated.isEdited, false);
+    },
+  );
+
+  test(
+    'MessageUpdatedEvent without an inline row still applies a genuinely new '
+    'text and marks it edited',
+    () async {
+      final controller = adapter.getChatController('r1');
+      final msg = ChatMessage(
+        id: 'm-upd-fresh',
+        from: 'u2',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'pre-edit',
+      );
+      controller.addMessage(msg);
+      client.addMessage('r1', msg.copyWith(text: 'post-edit'));
+
+      client.emitEvent(
+        const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-upd-fresh'),
+      );
+      await drain();
+
+      final updated = controller.messages.firstWhere(
+        (m) => m.id == 'm-upd-fresh',
+      );
+      expect(updated.text, 'post-edit');
+      expect(updated.isEdited, true);
     },
   );
 
@@ -180,6 +294,136 @@ void main() {
     expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 3);
   });
 
+  test("ReceiptUpdatedEvent echoing the user's own read leaves every own "
+      'bubble at the status its audience earned', () async {
+    final controller = adapter.getChatController('r1');
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-own-1',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'first',
+      ),
+    );
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-own-2',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1, 0, 1),
+        text: 'second',
+      ),
+    );
+    controller.updateReceipt(
+      'm-own-1',
+      ReceiptStatus.delivered,
+      fromUserId: 'u2',
+    );
+
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-own-2',
+        status: ReceiptStatus.read,
+        fromUserId: 'u1',
+      ),
+    );
+    await drain();
+
+    expect(controller.receiptStatuses['m-own-1'], ReceiptStatus.delivered);
+    expect(controller.receiptStatuses['m-own-2'], isNot(ReceiptStatus.read));
+  });
+
+  test("ReceiptUpdatedEvent echoing the user's own read leaves the room-list "
+      'tick where it was', () async {
+    adapter.roomListController.updateRoom(
+      adapter.roomListController
+          .getRoomById('r1')!
+          .copyWith(
+            lastMessageId: 'm-own-1',
+            lastMessageUserId: 'u1',
+            lastMessageReceipt: ReceiptStatus.sent,
+          ),
+    );
+
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-own-1',
+        status: ReceiptStatus.read,
+        fromUserId: 'u1',
+      ),
+    );
+    await drain();
+
+    expect(
+      adapter.roomListController.getRoomById('r1')!.lastMessageReceipt,
+      ReceiptStatus.sent,
+    );
+  });
+
+  test('ReceiptUpdatedEvent from a peer still advances the bubble and the '
+      'room-list tick', () async {
+    final controller = adapter.getChatController('r1');
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-own-1',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'first',
+      ),
+    );
+    adapter.roomListController.updateRoom(
+      adapter.roomListController
+          .getRoomById('r1')!
+          .copyWith(
+            lastMessageId: 'm-own-1',
+            lastMessageUserId: 'u1',
+            lastMessageReceipt: ReceiptStatus.sent,
+          ),
+    );
+
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-own-1',
+        status: ReceiptStatus.read,
+        fromUserId: 'u2',
+      ),
+    );
+    await drain();
+
+    expect(controller.receiptStatuses['m-own-1'], ReceiptStatus.read);
+    expect(
+      adapter.roomListController.getRoomById('r1')!.lastMessageReceipt,
+      ReceiptStatus.read,
+    );
+  });
+
+  test('MessageDeliveredEvent naming the user themselves is not evidence '
+      'about their own messages', () async {
+    final controller = adapter.getChatController('r1');
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-own-1',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'first',
+      ),
+    );
+
+    client.emitEvent(
+      const MessageDeliveredEvent(
+        roomId: 'r1',
+        userId: 'u1',
+        messageId: 'm-own-1',
+        seq: 1,
+      ),
+    );
+    await drain();
+
+    expect(controller.receiptStatuses['m-own-1'], isNull);
+  });
+
   test('ConnectedEvent flips connectionStateNotifier to connected', () async {
     client.emitEvent(const ConnectedEvent());
     await drain();
@@ -247,24 +491,54 @@ void main() {
   });
 
   test('UserJoinedEvent + UserLeftEvent affect the controller', () async {
+    client.seedUser(const ChatUser(id: 'u3', displayName: 'Three'));
     final controller = adapter.getChatController('r1');
-    final before = controller.otherUsers.length;
+    expect(controller.otherUsers.map((u) => u.id), isNot(contains('u3')));
 
     client.emitEvent(const UserJoinedEvent(roomId: 'r1', userId: 'u3'));
     await drain();
-    expect(controller.otherUsers.length, greaterThanOrEqualTo(before));
+    expect(controller.otherUsers.map((u) => u.id), contains('u3'));
 
     client.emitEvent(const UserLeftEvent(roomId: 'r1', userId: 'u3'));
     await drain();
-  });
-
-  test('MessageUpdatedEvent triggers a refresh path (no crash)', () async {
-    client.emitEvent(const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-x'));
-    await drain();
+    expect(controller.otherUsers.map((u) => u.id), isNot(contains('u3')));
   });
 
   test(
-    'ReactionAddedEvent from another user is processed (no crash)',
+    'MessageUpdatedEvent triggers a refresh that applies the new text',
+    () async {
+      final controller = adapter.getChatController('r1');
+      controller.addMessage(
+        ChatMessage(
+          id: 'm-x',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'before',
+        ),
+      );
+      client.addMessage(
+        'r1',
+        ChatMessage(
+          id: 'm-x',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'after',
+        ),
+      );
+
+      client.emitEvent(
+        const MessageUpdatedEvent(roomId: 'r1', messageId: 'm-x'),
+      );
+      await drain();
+
+      final updated = controller.messages.firstWhere((m) => m.id == 'm-x');
+      expect(updated.text, 'after');
+      expect(updated.isEdited, isTrue);
+    },
+  );
+
+  test(
+    'ReactionAddedEvent from another user stamps the room-list reaction preview',
     () async {
       final controller = adapter.getChatController('r1');
       controller.addMessage(
@@ -285,17 +559,41 @@ void main() {
         ),
       );
       await drain();
+
+      final room = adapter.roomListController.getRoomById('r1');
+      expect(room, isNotNull);
+      expect(room!.lastMessageType, MessageType.reaction);
+      expect(room.lastMessageReactionEmoji, '🎉');
     },
   );
 
-  test('ReactionDeletedEvent triggers reaction refresh', () async {
-    client.emitEvent(
-      const ReactionDeletedEvent(roomId: 'r1', messageId: 'm-x'),
-    );
-    await drain();
-  });
+  test(
+    'ReactionDeletedEvent triggers a reaction refresh that clears a stale local reaction',
+    () async {
+      final controller = adapter.getChatController('r1');
+      controller.addMessage(
+        ChatMessage(
+          id: 'm-x',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'hi',
+        ),
+      );
+      controller.setReactions('m-x', {'👍': 1});
+      expect(controller.reactions['m-x'], isNotNull);
 
-  test('PresenceChangedEvent updates room list (no crash)', () async {
+      client.emitEvent(
+        const ReactionDeletedEvent(roomId: 'r1', messageId: 'm-x'),
+      );
+      await drain();
+
+      expect(controller.reactions['m-x'], isNull);
+    },
+  );
+
+  test('PresenceChangedEvent updates the DM room-list row', () async {
+    adapter.dm.registerRoom('u2', 'r1');
+
     client.emitEvent(
       const PresenceChangedEvent(
         userId: 'u2',
@@ -304,9 +602,16 @@ void main() {
       ),
     );
     await drain();
+
+    final room = adapter.roomListController.getRoomById('r1');
+    expect(room, isNotNull);
+    expect(room!.isOnline, isTrue);
+    expect(room.presenceStatus, PresenceStatus.available);
   });
 
-  test('UserRoleChangedEvent triggers detail refresh (no crash)', () async {
+  test('UserRoleChangedEvent posts a system message to the room', () async {
+    final controller = adapter.getChatController('r1');
+
     client.emitEvent(
       const UserRoleChangedEvent(
         roomId: 'r1',
@@ -315,6 +620,14 @@ void main() {
       ),
     );
     await drain();
+    await drain();
+
+    final systemMessage = controller.messages.where(
+      (m) =>
+          m.metadata?[SystemMessageMetadataKeys.event] == 'user_role_changed',
+    );
+    expect(systemMessage, isNotEmpty);
+    expect(systemMessage.single.isSystem, isTrue);
   });
 
   test('DmActivityEvent for a known contact toggles typing', () async {
@@ -418,6 +731,122 @@ void main() {
       await drain();
 
       expect(controller.receiptStatuses['m1'], ReceiptStatus.delivered);
+    },
+  );
+  test('in a room with nobody else in it the user is the audience: their own '
+      'read advances the bubble', () async {
+    final controller = adapter.getChatController('r1');
+    // What `members.list` reports for a "message yourself" room.
+    controller.setOtherUsers(const []);
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-note',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'note to self',
+      ),
+    );
+
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-note',
+        status: ReceiptStatus.read,
+        fromUserId: 'u1',
+      ),
+    );
+    await drain();
+
+    expect(controller.receiptStatuses['m-note'], ReceiptStatus.read);
+  });
+
+  test('a self-conversation still zeroes its own unread badge', () async {
+    final controller = adapter.getChatController('r1');
+    controller.setOtherUsers(const []);
+    adapter.roomListController.updateRoom(
+      adapter.roomListController.getRoomById('r1')!.copyWith(unreadCount: 3),
+    );
+
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-note',
+        status: ReceiptStatus.read,
+        fromUserId: 'u1',
+      ),
+    );
+    await drain();
+
+    expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
+  });
+
+  test('a room whose members have not been reported is not a '
+      'self-conversation', () async {
+    final controller = adapter.getChatController('r1');
+    controller.addMessage(
+      ChatMessage(
+        id: 'm-own',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'hi',
+      ),
+    );
+
+    client.emitEvent(
+      const ReceiptUpdatedEvent(
+        roomId: 'r1',
+        messageId: 'm-own',
+        status: ReceiptStatus.read,
+        fromUserId: 'u1',
+      ),
+    );
+    await drain();
+
+    expect(controller.receiptStatuses['m-own'], isNull);
+  });
+
+  test(
+    'the self-conversation mark is shown but never written to the cache',
+    () async {
+      final cache = MemoryChatLocalDatasource();
+      addTearDown(cache.dispose);
+      final ownClient = MockChatClient(currentUserId: 'u1');
+      addTearDown(ownClient.dispose);
+      ownClient.seedRoom(
+        const ChatRoom(id: 'r1', name: 'Room1', members: ['u1']),
+      );
+      final own = ChatUiAdapter(
+        client: ownClient,
+        currentUser: currentUser,
+        cache: cache,
+      );
+      addTearDown(own.dispose);
+      own.start();
+
+      final note = ChatMessage(
+        id: 'm-note',
+        from: 'u1',
+        timestamp: DateTime(2026, 1, 1),
+        text: 'note to self',
+      );
+      await cache.saveMessages('r1', [note]);
+      final controller = own.getChatController('r1');
+      controller.setOtherUsers(const []);
+      controller.addMessage(note);
+
+      ownClient.emitEvent(
+        const ReceiptUpdatedEvent(
+          roomId: 'r1',
+          messageId: 'm-note',
+          status: ReceiptStatus.read,
+          fromUserId: 'u1',
+        ),
+      );
+      await drain();
+
+      expect(controller.receiptStatuses['m-note'], ReceiptStatus.read);
+      final stored = (await cache.getMessages('r1')).dataOrThrow;
+      expect(stored.single.receipt, isNull);
     },
   );
 }

@@ -242,6 +242,7 @@ class _ScriptedGatedRoomsClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) => _delegate.enqueueOfflineAttachment(
     roomId: roomId,
     bytes: bytes,
@@ -253,6 +254,7 @@ class _ScriptedGatedRoomsClient implements ChatClient {
     metadata: metadata,
     tempId: tempId,
     clientMessageId: clientMessageId,
+    referencedMessageId: referencedMessageId,
   );
 
   @override

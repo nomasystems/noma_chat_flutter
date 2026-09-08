@@ -13,6 +13,7 @@ import '../../client/chat_client.dart';
 import '../../client/noma_chat_facade.dart';
 import '../../config/lifecycle_policy.dart';
 import '../../core/pagination.dart';
+import '../../core/pagination_walk.dart';
 import '../../core/result.dart';
 import '../../events/chat_event.dart';
 import '../../models/attachment.dart';
@@ -34,6 +35,7 @@ import '../controller/room_list_controller.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../models/attachment_policy.dart';
 import '../models/room_list_item.dart';
+import '../models/send_retry_policy.dart';
 import '../room_defaults.dart';
 import '../services/attachment_pickers.dart';
 import '../services/attachment_bytes_loader.dart';
@@ -45,6 +47,7 @@ import '../widgets/chat_room_options_menu.dart';
 import '../widgets/chat_view.dart';
 import 'operation_error.dart';
 import 'room_title_resolver.dart';
+import 'user_directory_resolver.dart';
 
 import 'handlers/chat_event_router.dart';
 import 'handlers/member_event_handler.dart';
@@ -60,6 +63,8 @@ import 'services/chat_lifecycle_observer.dart';
 import 'services/connection_lifecycle.dart';
 import 'services/delivered_confirmation_coordinator.dart';
 import 'services/dm_contact_registry.dart';
+import 'services/room_roster_registry.dart';
+import 'services/host_user_directory.dart';
 import 'services/mark_as_read_coordinator.dart';
 import 'services/operation_hub.dart';
 import 'services/pending_reactions_registry.dart';
@@ -68,11 +73,21 @@ import 'services/typing_timer_registry.dart';
 import 'services/user_cache_service.dart';
 import 'services/voice_upload_registry.dart';
 
+part 'attachment_shrinker.dart';
 part 'api/contacts_controller.dart';
 part 'api/dm_controller.dart';
+part 'api/messages_attachments_controller.dart';
 part 'api/messages_controller.dart';
+part 'api/messages_failed_rows.dart';
+part 'api/messages_local_hiding.dart';
+part 'api/messages_receipts.dart';
 part 'api/profile_controller.dart';
 part 'api/rooms_controller.dart';
+part 'handlers/adapter_core.dart';
+part 'handlers/adapter_message_refresh.dart';
+part 'handlers/adapter_profile_actions.dart';
+part 'handlers/adapter_room_actions.dart';
+part 'handlers/adapter_session_lifecycle.dart';
 
 /// Adapter-local helper for best-effort cache writes wrapped in
 /// [unawaited]. Returns a [ChatFailureResult] so the new
@@ -124,7 +139,8 @@ typedef MembershipBannerFilter = bool Function(String roomId, String eventType);
 /// Subscribes to real-time events and routes them to the appropriate
 /// [ChatController] or [RoomListController]. Provides high-level actions
 /// (send, edit, delete, react) with optimistic UI updates.
-class ChatUiAdapter {
+class ChatUiAdapter extends _AdapterCore
+    with _AdapterSessionLifecycle, _AdapterRoomActions, _AdapterProfileActions {
   ChatUiAdapter({
     required this.client,
     required ChatUser currentUser,
@@ -133,6 +149,10 @@ class ChatUiAdapter {
     this.isDmRoom,
     this.membershipBannerFilter,
     this.roomTitleResolver,
+    this.userDirectoryResolver,
+    this.userDirectoryTtl = const Duration(hours: 12),
+    this.bootstrapCurrentUser = false,
+    this.sendRetryPolicy = const SendRetryPolicy.firstSendOnly(),
     this.autoMarkAsRead = true,
     this.autoConfirmDelivery = true,
     this.manageAppLifecycle = true,
@@ -147,15 +167,19 @@ class ChatUiAdapter {
     ChatLocalDatasource? cache,
     AvatarStorage? avatarStorage,
     VideoThumbnailer? videoThumbnailer,
+    AttachmentShrinker? attachmentShrinker,
   }) : _cache = cache,
        _l10n = l10n,
        _l10nPinnedByHost = !identical(l10n, ChatUiLocalizations.en),
        _currentUser = currentUser,
        avatarStorage = avatarStorage ?? DefaultAvatarStorage(client),
        videoThumbnailer = videoThumbnailer ?? const NativeVideoThumbnailer(),
+       attachmentShrinker =
+           attachmentShrinker ?? const DefaultAttachmentShrinker(),
        roomListController = RoomListController(),
        _lifecycle = ConnectionLifecycle(),
        _resyncDebounce = resyncDebounce {
+    roomListController.setParticipantNameResolver(_participantNamesFor);
     if (manageAppLifecycle) {
       _lifecycleObserver = ChatLifecycleObserver(
         policy: lifecyclePolicy,
@@ -165,6 +189,7 @@ class ChatUiAdapter {
     }
   }
 
+  @override
   final ChatClient client;
 
   // -- Sub-APIs -----------------------------------------------------
@@ -177,22 +202,27 @@ class ChatUiAdapter {
 
   /// Per-message operations — `load`, `send`, `edit`, `delete`,
   /// reactions, attachments, voice, threads, search, pin, etc.
+  @override
   late final ChatMessagesController messages = ChatMessagesController(this);
 
   /// Room-level operations — `load`, `mute`/`unmute`, `pin`/`unpin`,
   /// `hide`/`unhide`, `leave`, `addMembers`, `updateConfig`,
   /// `createGroup`, etc.
+  @override
   late final ChatRoomsController rooms = ChatRoomsController(this);
 
   /// Contact / blocked-users operations — `block`, `unblock`,
   /// `loadBlocked`, `pruneBlockedRooms`, `blockedUserIds`.
+  @override
   late final ChatContactsController contacts = ChatContactsController(this);
 
   /// Current-user profile mutations — `update`, `uploadAvatar`.
+  @override
   late final ChatProfileController profile = ChatProfileController(this);
 
   /// Direct-message helpers — `findExisting`, `openDraft`,
   /// `ensureMaterialized`, `draftRoutingKey`.
+  @override
   late final ChatDmController dm = ChatDmController(this);
 
   /// Profile of the user this adapter belongs to. Starts as the value
@@ -200,7 +230,9 @@ class ChatUiAdapter {
   /// optimistically and the WS `user_updated` echo from the backend can
   /// also push fresh values (e.g. a profile change made from a second
   /// device).
+  @override
   ChatUser get currentUser => _currentUser;
+  @override
   ChatUser _currentUser;
 
   /// Reactive view of [currentUser]. Rebuilds via `ValueListenableBuilder`
@@ -212,6 +244,7 @@ class ChatUiAdapter {
   /// header, settings entry...). Reading `adapter.currentUser` directly
   /// is fine for one-shot reads but does not trigger rebuilds.
   ValueListenable<ChatUser> get currentUserListenable => _currentUserListenable;
+  @override
   late final ValueNotifier<ChatUser> _currentUserListenable =
       ValueNotifier<ChatUser>(_currentUser);
 
@@ -224,6 +257,7 @@ class ChatUiAdapter {
   /// `GroupMembersView` uses exactly this to refresh sender avatars in
   /// group bubbles + member-row avatars without a manual reload.
   Listenable get userCacheListenable => _userCacheListenable;
+  @override
   final _BroadcastNotifier _userCacheListenable = _BroadcastNotifier();
 
   /// Fires whenever [blockedUserIds] mutates — either via [blockContact]
@@ -233,6 +267,7 @@ class ChatUiAdapter {
   /// notifier carries no payload; callers read the current snapshot
   /// from [blockedUserIds].
   Listenable get blockedUsersListenable => _blockedUsersListenable;
+  @override
   final _BroadcastNotifier _blockedUsersListenable = _BroadcastNotifier();
 
   /// Fires whenever a room's membership changes in realtime (someone was
@@ -244,6 +279,7 @@ class ChatUiAdapter {
   /// pull-to-refresh, mirroring the [userCacheListenable] avatar/name
   /// push-update.
   Listenable get roomMembersListenable => _roomMembersListenable;
+  @override
   final _BroadcastNotifier _roomMembersListenable = _BroadcastNotifier();
 
   /// Id of the room whose membership most recently changed, set right
@@ -333,12 +369,51 @@ class ChatUiAdapter {
   final MembershipBannerFilter? membershipBannerFilter;
 
   final RoomTitleResolver? roomTitleResolver;
+
+  /// The host's own answer to "who is this id?", used wherever the SDK
+  /// would otherwise have nothing to paint for a person: a one-to-one
+  /// room's title, the sender prefix in a group, an avatar, the subject
+  /// of a system line.
+  ///
+  /// `null` (the default) keeps the SDK asking chat and nobody else,
+  /// which is all it could do before this hook existed.
+  @override
+  final UserDirectoryResolver? userDirectoryResolver;
+
+  /// How long a name resolved through [userDirectoryResolver] stays good
+  /// before the SDK asks again.
+  ///
+  /// Twelve hours by default: people rename themselves rarely, and the
+  /// cost of a stale name for an afternoon is far below the cost of a
+  /// directory round trip on every room list build.
+  final Duration userDirectoryTtl;
+
+  /// Whether [connect] should make sure the current user exists in chat
+  /// before anything else runs.
+  ///
+  /// Off by default: a host that provisions its users elsewhere gets the
+  /// behaviour it already had. Turned on, the adapter reads the profile
+  /// once and creates it only when chat says it is not there — never
+  /// blindly, and never fatal if the read itself fails.
+  @override
+  final bool bootstrapCurrentUser;
+
+  /// Whether the SDK retries, on its own, a message sent into a
+  /// conversation the server did not know about yet.
+  ///
+  /// Defaults to [SendRetryPolicy.firstSendOnly]; the retry reuses the
+  /// optimistic row's `tempId`, so the send is idempotent and a message
+  /// that did arrive cannot be duplicated by the retry.
+  final SendRetryPolicy sendRetryPolicy;
+
+  @override
   final ChatLocalDatasource? _cache;
 
   /// Plugged-in storage for avatar uploads. Defaults to
   /// [DefaultAvatarStorage] which delegates to `client.attachments.upload`.
   /// Consumers wire a custom implementation when avatars must live on
   /// their own backend (Firebase, S3, custom CHT/wb pipeline, …).
+  @override
   final AvatarStorage avatarStorage;
 
   /// Extracts the poster frame `sendAttachment` uploads alongside an
@@ -351,6 +426,17 @@ class ChatUiAdapter {
   /// [NoVideoThumbnailer] to turn the feature off entirely. Never blocks a
   /// send: whatever it returns, `null` included, the video goes out.
   final VideoThumbnailer videoThumbnailer;
+
+  /// Shrinks an outgoing image so it fits the cap its [AttachmentPolicy]
+  /// sets, on every path that uploads one: the picker, the review step and
+  /// the SDK's own camera screen.
+  ///
+  /// Defaults to [DefaultAttachmentShrinker] — an oversized image is
+  /// re-encoded down the policy's ladder until it fits its cap, and
+  /// anything else travels untouched. Supply your own to hand the
+  /// re-encoding to an engine of your choice, or [NoAttachmentShrinker] to
+  /// send exactly the bytes the user picked.
+  final AttachmentShrinker attachmentShrinker;
 
   /// Default [AttachmentUrlResolver] the adapter wires into
   /// `NomaChatView`/`ChatView` when the host doesn't supply its own
@@ -370,6 +456,7 @@ class ChatUiAdapter {
   /// sends; see `AuthenticatedAttachmentLoader`'s doc.
   AttachmentMediaLoader get defaultAttachmentMediaLoader =>
       _attachmentMediaLoader;
+  @override
   late final AttachmentMediaLoader _attachmentMediaLoader =
       AuthenticatedAttachmentLoader(client: client, logger: logs);
 
@@ -384,6 +471,7 @@ class ChatUiAdapter {
   /// existed. Cached from whatever [logger] holds at first access, same as
   /// [_attachmentResolver] always has — reassigning [logger] afterwards
   /// does not retarget an already-built [logs].
+  @override
   ChatLogger? get logs => logger == null
       ? null
       : (_logs ??= ChatLogger(
@@ -402,6 +490,7 @@ class ChatUiAdapter {
   ///
   /// Disable when the consumer wants to drive marking-as-read manually
   /// (e.g. tied to message visibility on screen rather than chat entry).
+  @override
   final bool autoMarkAsRead;
 
   /// When `true` (default), the adapter confirms message delivery
@@ -440,6 +529,7 @@ class ChatUiAdapter {
   /// flappy reconnects only resyncs once per 5 seconds. Disable if the host
   /// wants to drive resync itself (e.g. tied to its own connectivity
   /// signal).
+  @override
   final bool enableReconnectResync;
 
   /// Minimum spacing between background room-list revalidation passes for
@@ -453,6 +543,7 @@ class ChatUiAdapter {
 
   /// Registered in the constructor when [manageAppLifecycle] is `true`;
   /// detached in [dispose]. `null` otherwise.
+  @override
   ChatLifecycleObserver? _lifecycleObserver;
 
   /// Wall-clock time the current/last [resync] *attempt* started, used to
@@ -460,28 +551,33 @@ class ChatUiAdapter {
   /// [enableReconnectResync]). Owned per-attempt: a failing attempt only
   /// clears it when no newer attempt has re-stamped it in the meantime, so a
   /// late failure can never wipe a seal a subsequent attempt already set.
+  @override
   DateTime? _lastResyncAt;
 
   /// `true` while a [resync] loop is running its network work. A trigger
   /// that lands during this window is coalesced into [_resyncPending] rather
   /// than dropped on the debounce floor — a reconnect that arrives mid-resync
   /// carries its own disconnected-window backlog to recover.
+  @override
   bool _resyncInFlight = false;
 
   /// Set when a [resync] trigger arrives while one is already
   /// [_resyncInFlight]; makes the in-flight loop run one more pass once it
   /// finishes so the later trigger's backlog is not lost.
+  @override
   bool _resyncPending = false;
 
   /// Minimum spacing between automatic reconnect-triggered [resync] calls.
   /// Test-overridable via the constructor's `resyncDebounce` parameter so a
   /// suite can shrink the window instead of waiting out the real default.
+  @override
   final Duration _resyncDebounce;
 
   /// Set while a trigger dropped by the time debounce (not the in-flight
   /// coalescing above) is waiting to run once the window clears, so a burst
   /// of triggers inside the same window schedules only one deferred pass
   /// instead of stacking timers.
+  @override
   Timer? _resyncDeferredTimer;
 
   bool _isDmDetail(RoomDetail detail) {
@@ -496,6 +592,7 @@ class ChatUiAdapter {
     return true;
   }
 
+  @override
   void Function(String level, String message)? logger;
 
   /// Minimum level a record must reach to pass through [logs]. Mirrors
@@ -535,6 +632,7 @@ class ChatUiAdapter {
   /// adapter's own internal emission sites (`setActiveRoom`, the send path,
   /// the incoming-message router). A throwing sink is caught and dropped:
   /// analytics must never be able to break the chat.
+  @override
   void emitAnalyticsEvent(ChatAnalyticsEvent event) {
     final sink = analyticsSink;
     if (sink == null) return;
@@ -543,20 +641,24 @@ class ChatUiAdapter {
     } catch (_) {}
   }
 
+  @override
   final RoomListController roomListController;
 
   /// Lifecycle service: owns `connectionStateNotifier`,
   /// `initializedNotifier`, the disposal flag, and the in-flight
   /// `loadRooms` completer.
+  @override
   final ConnectionLifecycle _lifecycle;
 
   /// Notifier for the current realtime connection state. Backed by
   /// [_lifecycle] — the getter keeps the public API source-compatible
   /// (`adapter.connectionStateNotifier` still works).
+  @override
   ValueNotifier<ChatConnectionState> get connectionStateNotifier =>
       _lifecycle.connectionState;
 
   /// Becomes `true` after the first successful [loadRooms] call.
+  @override
   ValueNotifier<bool> get initializedNotifier => _lifecycle.initialized;
 
   /// What the cache (disk) phase of the room load was able to say, so a
@@ -592,6 +694,7 @@ class ChatUiAdapter {
   /// ```
   ///
   /// Released by [dispose]; do not listen after that.
+  @override
   ValueListenable<RoomHydrationStatus> get roomHydrationNotifier =>
       _enricher.hydrationNotifier;
 
@@ -615,17 +718,22 @@ class ChatUiAdapter {
   /// existing `_chatControllers[roomId]` callsites work unchanged.
   /// The added value is the `disposeAll()` lifecycle helper used in
   /// `signOut` / `dispose`.
+  @override
   final ChatControllerRegistry _chatControllers = ChatControllerRegistry();
 
   /// Bidirectional `contact ↔ room` map plus stashed draft customs.
   /// Backed by [DmContactRegistry]. The legacy `_dmRoomByContact`
   /// callsites in the `part of` collaborators go through the
   /// service.
+  @override
   final DmContactRegistry _dmContacts = DmContactRegistry();
+  @override
+  final RoomRosterRegistry _roomRosters = RoomRosterRegistry();
 
   // -- Sub-managers (composition) --
   /// Standalone handler — no `part of` access, fully injected. Lives
   /// in `services/presence_registry.dart`.
+  @override
   late final PresenceRegistry _presence = PresenceRegistry(
     api: client.presence,
     roomList: roomListController,
@@ -643,6 +751,7 @@ class ChatUiAdapter {
   /// Standalone handler — `handlers/room_enricher.dart`. Receives
   /// every dep explicitly so tests can mock individual services
   /// instead of building the full adapter.
+  @override
   late final RoomEnricher _enricher = RoomEnricher(
     client: client,
     controllers: _chatControllers,
@@ -677,6 +786,7 @@ class ChatUiAdapter {
   /// events or optimistic operations (last-message preview, reaction
   /// preview, receipts, unread counts, DM title/avatar refresh,
   /// sender-name backfill and blocked-rooms pruning).
+  @override
   late final RoomListMutator _roomListMutator = RoomListMutator(
     roomListController: roomListController,
     cache: _cache,
@@ -721,6 +831,7 @@ class ChatUiAdapter {
         ),
     ensureSentReceipt: _ensureSentReceipt,
     tempIds: _tempIds,
+    sendRetryPolicy: sendRetryPolicy,
     isBlockedError: _isBlockedError,
     isMutedError: _isMutedError,
     // 403 "muted" on send → re-fetch the room detail so `selfMuted`
@@ -770,6 +881,7 @@ class ChatUiAdapter {
     logger: logger,
   );
 
+  @override
   // -- Typing throttle & stop-emit timers --
   // Backed by `TypingTimerRegistry`. Adapter wires the auto-stop
   // callback to the actual REST `sendTyping(stopsTyping)` so the
@@ -780,12 +892,20 @@ class ChatUiAdapter {
     },
   );
 
+  @override
   // -- User cache (in-memory only; persistent cache lives in [_cache]).
   // Backed by `UserCacheService` which also owns the in-flight fetch
   // dedupe.
   late final UserCacheService _userCacheService = UserCacheService(
     api: client.users,
     isDisposed: () => _disposed,
+    directory: HostUserDirectory(
+      resolver: userDirectoryResolver,
+      cache: _cache,
+      ttl: userDirectoryTtl,
+      isDisposed: () => _disposed,
+      logger: logger,
+    ),
   );
 
   // -- markAsRead backpressure --
@@ -818,6 +938,7 @@ class ChatUiAdapter {
   /// room max, follow-ups stash the newest cursor. Used by the event
   /// router (live messages), `messages.load` and the room-sync catch-up
   /// when [autoConfirmDelivery] is on.
+  @override
   late final DeliveredConfirmationCoordinator _deliveredCoord =
       DeliveredConfirmationCoordinator(
         messages: client.messages,
@@ -829,17 +950,20 @@ class ChatUiAdapter {
         // confirmation is re-sent then.
         connectionState: connectionStateNotifier,
       );
+  @override
   // Both ARE cancelled, in `_cancelSubscriptions` below, via locals
   // snapshotted from these fields — see that method's doc comment for why
   // the lint's simple direct-field-reference pattern can't see it.
   // ignore: cancel_subscriptions
   StreamSubscription<ChatEvent>? _eventSub;
+  @override
   // ignore: cancel_subscriptions
   StreamSubscription<ChatConnectionState>? _stateSub;
 
   /// Convenience accessor for the lifecycle's disposed flag — used in
   /// the ~25 async paths that need to early-out when the adapter has
   /// been torn down mid-flight.
+  @override
   bool get _disposed => _lifecycle.isDisposed;
 
   /// Bumped every time the room controllers are wiped — [signOut],
@@ -848,12 +972,35 @@ class ChatUiAdapter {
   /// flow that captured a [ChatController] before it has no more right to
   /// touch it, or the cache `signOut` just cleared, than one racing a real
   /// disposal.
+  @override
   int _sessionEpoch = 0;
 
   /// `true` when the session that was live at [epoch] has ended — see
   /// [_sessionEpoch]. Long-running optimistic sends capture the epoch up
   /// front and re-check it after every suspension point.
   bool _sessionEndedSince(int epoch) => _disposed || _sessionEpoch != epoch;
+
+  @override
+  bool _clearingRooms = false;
+
+  /// `true` for the whole of a session teardown — every notification it
+  /// emits, not only the one that empties the room list — and from
+  /// [dispose] onwards.
+  ///
+  /// An emptied room list is indistinguishable, from a listener's side, from
+  /// "every room you were in has just been removed" — yet
+  /// `disconnect(clearRooms: true)`, [signOut] and [dispose] all empty it on
+  /// purpose. Anything that reacts to a room disappearing (leaving the room,
+  /// popping its route, telling the user the conversation is gone) has to
+  /// check this first and stay put while it is `true`: the room did not go
+  /// away, the session did. [NomaChatView] does exactly that before calling
+  /// `onRoomLeft`.
+  ///
+  /// Deliberately an explicit signal instead of an inference from the list
+  /// going empty: being removed from the only room you had empties it too,
+  /// and that one is a real removal the host still has to hear about.
+  @override
+  bool get isTearingDown => _disposed || _clearingRooms;
 
   void Function(String message)? onBroadcast;
   void Function(ChatEvent event)? onError;
@@ -891,6 +1038,7 @@ class ChatUiAdapter {
   /// and fires its own onChange callback on real mutations; the
   /// adapter glues that callback to the room-prune flow + the public
   /// `onBlockedUsersChanged` hook below.
+  @override
   late final BlockedUsersRegistry _blockedUsers = BlockedUsersRegistry(
     onChanged: (ids) {
       // Blocking keeps the chat (Decision A): the blocked DM stays in the
@@ -911,12 +1059,14 @@ class ChatUiAdapter {
   /// changes ([blockedUserIds]= …). Consumers typically push the full set
   /// after their own user-info refresh; [blockContact] also keeps it in
   /// sync for the rooms it touches.
+  @override
   Set<String> get blockedUserIds => contacts.blockedUserIds;
 
   /// Replaces the blocked-users set wholesale and prunes any DM rooms
   /// whose `otherUserId` ended up blocked. Emits [onBlockedUsersChanged]
   /// after the prune. Idempotent — passing the same set twice is a no-op
   /// (the prune still runs but finds nothing new to remove).
+  @override
   set blockedUserIds(Set<String> ids) {
     contacts.blockedUserIds = ids;
   }
@@ -953,12 +1103,14 @@ class ChatUiAdapter {
   /// every `_emitFailure(...)` / `emitOperationSuccess(...)` callsite
   /// to this hub so the stream lifecycle + "skip if closed" guard
   /// have a single tested home.
+  @override
   final OperationHub _operations = OperationHub();
 
   /// Broadcast stream of failures from any adapter operation. The
   /// original `ChatResult.ChatFailureResult` is still returned to the caller; this
   /// stream is for cross-cutting concerns (global snackbars,
   /// telemetry). Multiple subscribers can listen concurrently.
+  @override
   Stream<OperationError> get operationErrors => _operations.errors;
 
   /// Broadcast stream of successful operations that have user-visible
@@ -985,6 +1137,7 @@ class ChatUiAdapter {
     userId: userId,
   );
 
+  @override
   ChatResult<T> _emitFailure<T>(
     ChatResult<T> result,
     OperationKind kind, {
@@ -1001,180 +1154,14 @@ class ChatUiAdapter {
 
   ChatConnectionState get connectionState => client.connectionState;
 
-  /// Returns (or creates) a [ChatController] for the given room.
-  ///
-  /// When [otherUsers] is supplied it is cached and pushed onto the
-  /// controller as before. When it is omitted, the adapter fills the
-  /// controller's peer list from what it already knows — the resolved DM
-  /// contact (see [DmContactRegistry]) hydrated from the in-memory user
-  /// cache. Consumers therefore no longer need the `cacheUsers(...)` +
-  /// `setOtherUsers(...)` double-call just to get the DM peer onto a
-  /// freshly-opened controller; opening the room is enough.
-  ChatController getChatController(
-    String roomId, {
-    List<ChatMessage> initialMessages = const [],
-    List<ChatUser> otherUsers = const [],
-  }) {
-    if (otherUsers.isNotEmpty) cacheUsers(otherUsers);
-    final effectiveOthers = otherUsers.isNotEmpty
-        ? otherUsers
-        : _cachedOtherUsersForRoom(roomId);
-    final existing = _chatControllers[roomId];
-    if (existing != null) {
-      // Only push when the caller actually supplied users, or when the
-      // controller has none yet and we resolved some from cache — never
-      // clobber a populated controller with an empty/cache-only list.
-      if (otherUsers.isNotEmpty) {
-        existing.setOtherUsers(otherUsers);
-      } else if (existing.otherUsers.isEmpty && effectiveOthers.isNotEmpty) {
-        existing.setOtherUsers(effectiveOthers);
-      }
-      return existing;
-    }
-    final controller = ChatController(
-      initialMessages: initialMessages,
-      currentUser: currentUser,
-      otherUsers: effectiveOthers,
-    );
-    controller.setRoomId(roomId);
-    _chatControllers[roomId] = controller;
-    return controller;
-  }
-
-  /// Best-effort resolution of a room's other participants from state the
-  /// adapter already holds — currently the resolved DM contact hydrated
-  /// from the in-memory user cache. Returns `const []` for group rooms,
-  /// unresolved DMs, or DMs whose peer hasn't been cached yet. Never
-  /// triggers a network fetch; callers that need a guaranteed roster use
-  /// the room-detail / members flows.
-  List<ChatUser> _cachedOtherUsersForRoom(String roomId) {
-    final contactId = _dmContacts.contactIdFor(roomId);
-    if (contactId == null) return const [];
-    final cached = _userCacheService.find(contactId);
-    return cached == null ? const [] : [cached];
-  }
-
-  /// Looks up a previously cached user by id. Returns `null` when the user is
-  /// unknown to the adapter; callers that need the data should trigger a
-  /// lookup via `client.users.get` and feed the result back through
-  /// [cacheUsers].
-  ChatUser? findCachedUser(String userId) => _userCacheService.find(userId);
-
-  /// Resolves a user's display name with a fallback chain that NEVER
-  /// returns a raw UUID when a friendlier label exists:
-  ///   1) Local user (`currentUser`) gets its own `displayName` — the
-  ///      adapter does NOT seed `_userCache` with self, so a plain
-  ///      `findCachedUser` lookup would miss this case and the UI would
-  ///      end up rendering the local UUID for "by you" rows.
-  ///   2) Otherwise, falls back to the cached `ChatUser.displayName` if
-  ///      non-empty.
-  ///   3) Last-ditch fallback: returns the raw `userId` so callers can
-  ///      always render something. Pass it through `pin.pinnedBy`, the
-  ///      bubble sender name, etc.
-  ///
-  /// Use this anywhere the UI shows `by <name>` / `with <name>` — pin
-  /// list, room invitations, mention overlays, etc.
-  String displayNameFor(String userId) {
-    if (userId == currentUser.id) {
-      final selfName = currentUser.displayName?.trim();
-      if (selfName != null && selfName.isNotEmpty) return selfName;
-      return userId;
-    }
-    final cached = _userCacheService.find(userId)?.displayName?.trim();
-    if (cached != null && cached.isNotEmpty) return cached;
-    return userId;
-  }
-
-  /// Inserts or updates the given users in the in-memory cache.
-  void cacheUsers(Iterable<ChatUser> users) {
-    if (_disposed) return;
-    var changed = false;
-    final displayNameChanges = <ChatUser>[];
-    final avatarChanges = <ChatUser>[];
-    // Snapshot the previous avatar URLs of the users that change so we
-    // can evict them from Flutter's image cache after the fact. Without
-    // the evict, if the backend ever reuses the same URL (CDN with
-    // stable path + new bytes) the on-device decoded image stays
-    // cached and the new avatar never renders.
-    final evictUrls = <String>[];
-    for (final u in users) {
-      final prev = _userCacheService.find(u.id);
-      if (prev == null ||
-          prev.displayName != u.displayName ||
-          prev.avatarUrl != u.avatarUrl ||
-          prev.bio != u.bio ||
-          prev.email != u.email) {
-        _userCacheService.insert(u);
-        changed = true;
-        if (prev == null || prev.displayName != u.displayName) {
-          displayNameChanges.add(u);
-        }
-        if (prev == null || prev.avatarUrl != u.avatarUrl) {
-          avatarChanges.add(u);
-          final old = prev?.avatarUrl;
-          if (old != null && old.isNotEmpty) evictUrls.add(old);
-        }
-      }
-    }
-    if (changed) {
-      roomListController.notifyMembersChanged();
-      _userCacheListenable.emit();
-    }
-    if (displayNameChanges.isNotEmpty) {
-      _roomListMutator.refreshDmTitlesForUsers(displayNameChanges);
-      _roomListMutator.refreshLastSenderNamesFor(displayNameChanges);
-    }
-    if (avatarChanges.isNotEmpty) {
-      _roomListMutator.refreshDmAvatarsForUsers(avatarChanges);
-    }
-    for (final url in evictUrls) {
-      _evictAvatarFromImageCache(url);
-    }
-  }
-
-  void _evictAvatarFromImageCache(String url) {
-    try {
-      NetworkImage(url).evict();
-    } catch (_) {
-      // Image cache eviction is best-effort. Any failure simply leaves
-      // the stale entry in memory until it gets LRU-displaced.
-    }
-  }
-
   /// Forces a `sent` receipt on a server-confirmed outgoing message that came
   /// back without one. The server omits the field for the synchronous POST
   /// response, so without this helper an outgoing bubble would render with no
   /// status icon until a `delivered`/`read` event arrives.
+  @override
   ChatMessage _ensureSentReceipt(ChatMessage message) => message.receipt == null
       ? message.copyWith(receipt: ReceiptStatus.sent)
       : message;
-
-  Future<void> _ensureUserCached(String userId) async {
-    // Delegate to the service's deduped fetch. We only need
-    // `cacheUsers` (with its room-list propagation) if the fetch
-    // actually returned a NEW user; the service already inserted into
-    // its map, but `cacheUsers` does the change-detection +
-    // notifyMembersChanged + DM title/avatar refresh side-effects.
-    if (_disposed) return;
-    final wasCached = _userCacheService.contains(userId);
-    final fetched = await _userCacheService.ensureCached(userId);
-    if (_disposed) return;
-    if (!wasCached && fetched != null) {
-      cacheUsers([fetched]);
-    }
-  }
-
-  /// Disposes and removes the controller for a room. When [autoMarkAsRead]
-  /// is true (default), flushes a `markAsRead` for the room before disposing
-  /// so the chat list unread counter and last-read pointer stay in sync
-  /// with what the user actually saw (mirrors WhatsApp's "close chat" flush).
-  void removeChatController(String roomId) {
-    if (autoMarkAsRead && _chatControllers.containsKey(roomId)) {
-      unawaited(markAsRead(roomId));
-    }
-    if (_activeRoomId == roomId) _activeRoomId = null;
-    _chatControllers.remove(roomId)?.dispose();
-  }
 
   /// Id of the room the user is currently viewing on screen. `null` means
   /// the chat list (or no chat) is in foreground. Consumers wire it from
@@ -1185,678 +1172,18 @@ class ChatUiAdapter {
   /// immediately for incoming messages in that room — so the sender sees
   /// the second tick flip to blue in real time, exactly as WhatsApp does
   /// when both peers are in the same conversation.
+  @override
   String? _activeRoomId;
   String? get activeRoomId => _activeRoomId;
-
-  /// Marks [roomId] as the currently-foregrounded chat. Pass `null` when
-  /// the user leaves it. Zeroes the room-list unread badge immediately —
-  /// optimistically, on the client, synchronously with this call — instead
-  /// of waiting for `markAsRead`'s network round-trip, so the badge clears
-  /// the instant the user opens the room even on a slow/unstable
-  /// connection, matching WhatsApp. Also triggers the real `markAsRead`
-  /// request for [roomId] if [autoMarkAsRead] is true (cheap; idempotent
-  /// when nothing changed) so the server's read cursor still advances.
-  void setActiveRoom(String? roomId) {
-    if (_activeRoomId == roomId) return;
-    _activeRoomId = roomId;
-    // A draft DM has no backend room yet (it materializes on the first sent
-    // message), so mark-as-read would 403 with `not_member`. Skip it for
-    // drafts; the room is marked read normally once it materializes.
-    final isDraftRoom =
-        roomId != null &&
-        ((_chatControllers[roomId]?.isDraft ?? false) ||
-            dm.isDraftRoutingKey(roomId));
-    if (roomId != null && !isDraftRoom) {
-      emitAnalyticsEvent(
-        ChatAnalyticsEvent.roomOpened(
-          roomId: roomId,
-          isGroup: roomListController.getRoomById(roomId)?.isGroup ?? false,
-        ),
-      );
-      // The roster frames that keep `memberCount` (and the title, the
-      // avatar, the read-only flag) current are the only thing that
-      // refreshes them, so a single frame lost to a dropped socket left
-      // the header contradicting the room for as long as the row lived —
-      // leaving and re-entering it changed nothing, because nothing
-      // re-read the detail on the way in. Opening the room is the cheap,
-      // self-healing moment to re-read it: once per entry, single-flighted
-      // by the enricher.
-      if (roomListController.getRoomById(roomId) != null) {
-        _enrichRoomFromDetail(roomId);
-      }
-    }
-    if (roomId != null && autoMarkAsRead && !isDraftRoom) {
-      final targetRoomId = roomId;
-      scheduleMicrotask(() {
-        if (!_disposed && _activeRoomId == targetRoomId) {
-          _roomListMutator.updateRoomUnread(targetRoomId, 0);
-        }
-      });
-      unawaited(markAsRead(roomId));
-    }
-  }
-
-  /// Returns the [ChatController] for [roomId] only if it has already been
-  /// created (does NOT create a new one). Useful for read-only lookups such as
-  /// resolving member names from the room list.
-  ChatController? findChatController(String roomId) => _chatControllers[roomId];
-
-  /// Associates a contact user ID with its DM room ID for typing indicator routing.
-  @internal
-  void registerDmRoom(String contactUserId, String roomId) =>
-      dm.registerRoom(contactUserId, roomId);
-
-  /// Starts listening to SDK events without connecting. Call [connect] instead for full setup.
-  void start() {
-    _cancelSubscriptions();
-    _eventSub = client.events.listen(_handleEvent);
-    _stateSub = client.stateChanges.listen(_handleStateChange);
-    // The offline-queue callback is part of the `ChatClient` contract as of
-    // 0.3.0; mocks implement it as a no-op. No `is`/`as` cast needed.
-    client.onOfflineMessageSent = _handleOfflineMessageSent;
-  }
-
-  void _handleOfflineMessageSent(
-    String roomId,
-    String tempId,
-    ChatMessage message,
-  ) {
-    final controller = _chatControllers[roomId];
-    final confirmed = _ensureSentReceipt(message);
-    if (controller != null) {
-      if (confirmed.isProvisional) {
-        // The drained send returned an ack_mode=async provisional echo:
-        // its id is untrusted, so flip the bubble from failed back to
-        // pending and let the authoritative `new_message` event reconcile
-        // it by clientMessageId.
-        controller.markPending(tempId);
-      } else {
-        controller.confirmSent(tempId, confirmed);
-      }
-    }
-    unawaited(
-      _cache
-              ?.deletePendingMessage(roomId, tempId)
-              .catchError(_swallowCacheThrow) ??
-          Future.value(),
-    );
-    _roomListMutator.updateRoomLastMessage(roomId, confirmed);
-  }
-
-  /// Connects to the server and starts listening for real-time events.
-  ///
-  /// Hydrates the room list from disk first (see [ChatRoomsController.hydrate])
-  /// when the host has not already done so, so a cache-first SDK never
-  /// hands over its cached rows behind a handshake. That adds local I/O
-  /// ahead of the socket; a store that throws is logged and skipped —
-  /// an unreadable cache must never stop a connection.
-  Future<void> connect() async {
-    _cancelSubscriptions();
-    start();
-    if (!_enricher.hasHydratedFromCache) {
-      try {
-        await rooms.hydrate();
-      } catch (e) {
-        logger?.call('warn', 'connect: cache hydration failed: $e');
-      }
-    }
-    await client.connect();
-  }
-
-  /// Full realtime resync after a reconnect: refreshes the room list from
-  /// the network (`forceNetwork: true`) and, if a room is currently
-  /// foregrounded ([activeRoomId]), reloads its messages — which also
-  /// re-confirms delivery/read receipts as a side effect of the normal
-  /// [loadMessages] flow, backfilling anything that arrived during the
-  /// disconnected window. Presence is deliberately NOT re-bootstrapped
-  /// here: the adapter's existing reconnect hook already does that (see
-  /// `ChatEventRouter._onConnected`) right before this runs, so doing it
-  /// again here would just be a redundant network call.
-  ///
-  /// A no-op until [initializedNotifier] has gone `true` once (i.e. a first
-  /// [loadRooms] has actually completed): there is nothing to "resync" for
-  /// a session that never loaded its rooms yet, and firing a network fetch
-  /// ahead of the host's own initial [loadRooms] call could race it.
-  ///
-  /// Debounced to at most once every 5 seconds so a burst of flappy
-  /// reconnects (or an app resume racing an in-flight reconnect) doesn't
-  /// fan out into repeated network round-trips. Called automatically on
-  /// every reconnect when [enableReconnectResync] is `true`; hosts can also
-  /// call it directly (e.g. from a pull-to-refresh gesture), subject to
-  /// the same debounce.
-  ///
-  /// A trigger is never simply dropped: one that lands *while a resync is
-  /// already running* is coalesced into a single follow-up pass
-  /// ([_resyncPending]); one that lands inside the *time* debounce window
-  /// arms a single deferred call for whatever remainder of the window is
-  /// left ([_scheduleDeferredResync]). Either way, a reconnect's own
-  /// disconnected-window backlog always gets a resync pass once the
-  /// current one (in-flight or debounced) clears.
-  ///
-  /// The debounce timestamp is committed per attempt and only survives once
-  /// the attempt succeeds: `loadRooms`/`loadMessages` normally surface
-  /// network/auth errors as a failed [ChatResult] rather than an exception,
-  /// but a raw throw is treated identically — either way the seal is reverted
-  /// (only if this attempt still owns it) so the very next reconnect or caller
-  /// retries immediately instead of waiting out the window on a resync that
-  /// silently did nothing.
-  Future<void> resync() async {
-    if (_disposed) return;
-    if (!initializedNotifier.value) return;
-
-    // Already running: don't let the time debounce drop this trigger —
-    // remember it and let the running loop take one more pass.
-    if (_resyncInFlight) {
-      _resyncPending = true;
-      return;
-    }
-
-    final now = DateTime.now();
-    if (_lastResyncAt != null &&
-        now.difference(_lastResyncAt!) < _resyncDebounce) {
-      _scheduleDeferredResync(now);
-      return;
-    }
-
-    _resyncDeferredTimer?.cancel();
-    _resyncDeferredTimer = null;
-
-    _resyncInFlight = true;
-    try {
-      do {
-        _resyncPending = false;
-        final attemptAt = DateTime.now();
-        _lastResyncAt = attemptAt;
-        bool ok;
-        try {
-          ok = await _runResyncOnce();
-        } catch (_) {
-          ok = false;
-        }
-        if (_disposed) return;
-        // Revert the seal only if this attempt still owns it (no newer
-        // attempt re-stamped it) — a per-attempt seal, never a shared one.
-        if (!ok && identical(_lastResyncAt, attemptAt)) {
-          _lastResyncAt = null;
-        }
-      } while (_resyncPending && !_disposed);
-    } finally {
-      _resyncInFlight = false;
-    }
-  }
-
-  /// Arms a single deferred [resync] call for the remainder of the current
-  /// debounce window, so a trigger the time debounce just dropped still
-  /// runs once the window clears instead of being lost outright. A burst of
-  /// triggers inside the same window coalesces into the one already-armed
-  /// timer rather than stacking up several.
-  void _scheduleDeferredResync(DateTime triggeredAt) {
-    if (_resyncDeferredTimer != null) return;
-    final lastResyncAt = _lastResyncAt;
-    if (lastResyncAt == null) return;
-    final elapsed = triggeredAt.difference(lastResyncAt);
-    final remaining = _resyncDebounce - elapsed;
-    final wait = remaining.isNegative ? Duration.zero : remaining;
-    _resyncDeferredTimer = Timer(wait, () {
-      _resyncDeferredTimer = null;
-      if (_disposed) return;
-      unawaited(resync());
-    });
-  }
-
-  /// One resync pass: refresh the room list from the network and, if a room
-  /// is foregrounded, reload its messages. Returns `true` only when every
-  /// leg succeeded. Throws propagate to [resync], which treats them as a
-  /// failed attempt.
-  ///
-  /// This pass runs after `ChatEventRouter._onConnected` fires (reconnect),
-  /// and — same as an explicit pull-to-refresh — trusts a successful
-  /// `loadRooms` response as the caller's authoritative complete room set:
-  /// the listing endpoint fails the request outright on a bad read rather
-  /// than answering 200 with a partial page, so there's nothing here left
-  /// to distrust about a 200. This is what reconciles a room removed on
-  /// another device while this one was offline/reconnecting.
-  ///
-  /// The foregrounded room also gets its detail re-read. The roster frames
-  /// that keep `memberCount` (and the title, the avatar, the read-only
-  /// flag) current only arrive while the socket is up, and the list pass
-  /// above resolves each room's detail through the cache — so a join that
-  /// happened while this device was backgrounded or disconnected came back
-  /// as a visible system message in the transcript next to a header still
-  /// counting the members the room had on the way in, and stayed that way
-  /// for as long as the user kept the room open (`setActiveRoom` does not
-  /// fire again for a room already active). Re-reading the detail here is
-  /// the same self-healing moment opening the room already is, for the one
-  /// room whose header is on screen.
-  Future<bool> _runResyncOnce() async {
-    final roomsResult = await loadRooms(forceNetwork: true);
-    if (_disposed) return false;
-    if (roomsResult.isFailure) return false;
-    final activeRoomId = _activeRoomId;
-    if (activeRoomId != null) {
-      if (roomListController.getRoomById(activeRoomId) != null) {
-        _enrichRoomFromDetail(activeRoomId);
-      }
-      final messagesResult = await loadMessages(activeRoomId);
-      if (_disposed) return false;
-      if (messagesResult.isFailure) return false;
-    }
-    return true;
-  }
-
-  /// Disconnects from the server.
-  ///
-  /// Cache-first by default (`clearRooms: false`): only the realtime
-  /// connection itself is torn down. The room list, the currently
-  /// foregrounded room's controller ([activeRoomId]) and the DM
-  /// contact↔room binding all survive — the list never flashes empty
-  /// across a background/reconnect cycle, and a subsequent [resync] can
-  /// backfill the open conversation. Pass `clearRooms: true` for the old
-  /// eager-wipe behavior (also used internally by [signOut] / [dispose]).
-  /// The cross-session caches — user cache, blocked-users set, presence —
-  /// always survive; use [signOut] to wipe those too.
-  Future<void> disconnect({bool clearRooms = false}) async {
-    await _cancelSubscriptions();
-    client.cancelPendingRequests('disconnect');
-    await client.disconnect();
-    // Subscriptions are cancelled BEFORE `client.disconnect()` (above) so
-    // the transport's own disconnected event/state never reaches the event
-    // router mid-teardown — which means neither `connectionStateNotifier`
-    // nor the router's own reconnect-detection latch would otherwise ever
-    // flip off `connected`. A later `connect()` computes `wasConnected` from
-    // that latch in `ChatEventRouter._onConnected`, so leaving it stale
-    // would silently skip the presence bootstrap + resync on the very next
-    // reconnect — exactly the resume-after-background path
-    // `ChatPauseAction.disconnect` relies on. Reset both explicitly here,
-    // mirroring `signOut()`'s existing notifier reset below.
-    connectionStateNotifier.value = ChatConnectionState.disconnected;
-    _eventRouter.markDisconnected();
-    _resetConnectionState(clearRooms: clearRooms);
-  }
-
-  /// Wipes the state tied to a single realtime connection. Shared by
-  /// [disconnect] and (transitively) [signOut] / [dispose] — the latter two
-  /// always pass [clearRooms] `true` via the default, so neither can
-  /// accidentally leave stale rooms/controllers behind. Keeps the
-  /// cross-session caches intact — see [_resetSessionState] for the wider
-  /// wipe.
-  ///
-  /// With [clearRooms] `false` (the resumable [disconnect] path):
-  /// [_activeRoomId], the active room's [ChatController] and [_dmContacts]
-  /// (the DM dedupe binding) are preserved, and the room list is left as-is
-  /// — so a `ChatRoomPage` open at the moment of backgrounding keeps its
-  /// controller mounted, and [resync] has something to backfill on resume.
-  void _resetConnectionState({bool clearRooms = true}) {
-    if (clearRooms) {
-      _sessionEpoch++;
-      // Paired with the bump, on the same line of execution, because the
-      // window where an upload turns into an orphan blob has no other
-      // trigger. `onProgress` cannot carry the abort: it stops firing when
-      // the last byte of the body is written, which is precisely when the
-      // bytes are billable and no message references them yet. An upload
-      // parked there waiting for its response never ticks again, so an
-      // abort that lives inside the tick never runs — the clip lands for a
-      // session that is gone, and no API can reclaim it.
-      //
-      // This reaches it from outside the transfer, tick or no tick, and the
-      // reach is a real abort rather than a flag someone has to notice:
-      // `UploadCancelToken.cancel` runs the callback `RestClient.uploadBinary`
-      // bound to it (`bindOnCancel`), which cancels the request's own Dio
-      // `CancelToken` and tears the connection down. Nothing polls
-      // `isCancelled` for this to work.
-      //
-      // A host-supplied `ChatAttachmentsApi` is free to accept the token and
-      // ignore it — `UploadCancelToken`'s own contract says so — and then
-      // the bytes do land. That case is not covered here but downstream: the
-      // epoch each send captured no longer matches, so `sendAttachment` and
-      // `sendVoice` refuse to build a message on the blob instead of posting
-      // one into a session that is over.
-      _attachmentUploadCancels.cancelAll();
-      _chatControllers.disposeAll();
-      _dmContacts.clear();
-      _activeRoomId = null;
-      roomListController.setRooms([]);
-    }
-    _typingTimers.clearAll();
-    _lastMembersChangedRoomId = null;
-  }
-
-  /// Wipes every in-memory registry the adapter owns — both the
-  /// per-connection state ([_resetConnectionState], which also aborts every
-  /// in-flight upload) and the cross-session caches (user cache, blocked
-  /// users, presence, confirmed delivered cursors, pending-reaction
-  /// suppression, voice-upload progress).
-  /// Shared by [signOut] and [dispose] so neither can drift from the full
-  /// state inventory: adding a new registry to the adapter means clearing it
-  /// here once, and both teardown paths pick it up.
-  void _resetSessionState() {
-    // Runs first: it cancels the upload tokens, so the progress notifiers
-    // let go of just below are released after their transfers were told to
-    // stop, not while one is still writing to them. (Nothing here disposes
-    // a notifier — they are published through the adapter's getters and a
-    // host may hold one; the registry only drops its references.)
-    _resetConnectionState();
-    _userCacheService.clear();
-    _blockedUsers.clear();
-    _presence.clear();
-    // The suppression map is keyed by room id alone, so a cursor confirmed
-    // for the outgoing identity would silently suppress the incoming one's
-    // first confirmation for the same room.
-    _deliveredCoord.reset();
-    _pendingReactionsRegistry.clear();
-    _voiceUploads.releaseAll();
-    // Raw media belonging to the account being torn down must not survive
-    // into the next one — same reasoning as flushing the offline queue.
-    _failedUploads.clear();
-    _enricher.resetSession();
-  }
-
-  /// One-shot teardown for "logout" flows: disconnects, wipes every
-  /// in-memory cache (users, DM mapping, blocked-users set, draft custom
-  /// payloads, voice-upload progress notifiers) and best-effort flushes
-  /// the persistent cache. After this call the adapter is in the same
-  /// shape as a fresh instance — safe to either dispose or reconnect
-  /// with a new user.
-  ///
-  /// Hosts typically call this from a "Log out" menu item. Pair with
-  /// [NomaChat.dispose] on the facade to release the cache datasource
-  /// as well.
-  ///
-  /// Routes through [ChatClient.logout] so the client-owned session state
-  /// goes too — above all the offline queue. A send or an upload that
-  /// failed on a connectivity error is parked there
-  /// (`client.enqueueOfflineAttachment`) with no record of who queued it,
-  /// and it drains on the *next* connection whoever that connection now
-  /// authenticates as: without this call an attachment queued by the
-  /// account being signed out would be uploaded and posted under the
-  /// account that signs in next. Clearing the persistent cache alone is
-  /// not enough — that only wipes the queue's persisted copy, and the
-  /// client's in-memory queue survives it and re-persists on the next
-  /// enqueue. Unconditional because [signOut] has exactly one meaning: a
-  /// teardown the queue is meant to survive — backgrounding, a connection
-  /// blip — is [disconnect], which leaves both the queue and the caches
-  /// alone.
-  ///
-  /// This does **not** set [_disposed] — the adapter deliberately stays
-  /// usable so the next user can sign in on the same instance. Anything
-  /// long-running that has to notice the logout therefore has to test
-  /// [_sessionEndedSince] and not [_disposed]; the two upload paths capture
-  /// the epoch up front for exactly this reason.
-  Future<void> signOut() async {
-    await disconnect();
-    // Before the logout below, not after: it bumps the session epoch and
-    // aborts the in-flight uploads, and an upload aborted after the queue
-    // was emptied would re-enqueue itself into the session that just ended.
-    _resetSessionState();
-    initializedNotifier.value = false;
-    connectionStateNotifier.value = ChatConnectionState.disconnected;
-    try {
-      await client.logout();
-    } catch (_) {
-      // best-effort, like the cache clear below: `logout` ends with its own
-      // cache wipe, so a datasource that throws there must not turn a
-      // logout into a failure the host has to handle. The queue clear runs
-      // before that wipe, so it has already happened by the time a cache
-      // error can surface here.
-    }
-    try {
-      await _cache?.clear();
-    } catch (_) {
-      // best-effort — a partial clear is acceptable on logout
-    }
-  }
-
-  /// Returns the room ID for a DM with the given contact, or null.
-  @internal
-  String? getDmRoomId(String contactUserId) => dm.getRoomId(contactUserId);
-
-  /// Returns the existing DM room id with [otherUserId] if there is one, or
-  /// `null` if no conversation has been started yet. Checks the contact→room
-  /// cache first (`getDmRoomId`) and falls back to scanning the room list for
-  /// rows with `otherUserId == otherUserId`.
-  ///
-  /// Use this before calling [openDirectMessageDraft] to decide whether to
-  /// open the existing conversation (`getChatController(existingId)`) or
-  /// start a fresh draft.
-  @internal
-  String? findExistingDmRoom(String otherUserId) =>
-      dm.findExisting(otherUserId);
-
-  /// Opens a draft DM with [otherUserId] WhatsApp-style — returns a
-  /// [ChatController] in `isDraft` state without creating a room
-  /// server-side. The other user is hydrated (from cache or
-  /// `client.users.get`) so `controller.otherUsers` is populated and
-  /// downstream consumers (e.g. AppBars resolving titles via
-  /// `RoomTitleResolver`) can render immediately.
-  ///
-  /// The draft is cached under the key `draft:<otherUserId>` in
-  /// `_chatControllers`. The first successful send through this controller
-  /// materializes a real room (`rooms.create` with `members: [otherUserId]`,
-  /// plus any [extraRoomCustom]) — see `_OptimisticHandler.sendMessage`.
-  ///
-  /// Callers that want to reuse an existing conversation should call
-  /// [findExistingDmRoom] first.
-  ///
-  /// [extraRoomCustom] is merged into the `custom` map of the
-  /// materialized room. Pass `{'type': 'dm'}` (or whatever marker your app
-  /// uses) when the [IsDmRoomPredicate] needs an explicit hint to recognize
-  /// the room as a DM.
-  @internal
-  Future<ChatController> openDirectMessageDraft(
-    String otherUserId, {
-    Map<String, dynamic>? extraRoomCustom,
-  }) => dm.openDraft(otherUserId, extraRoomCustom: extraRoomCustom);
-
-  /// Key under which a draft DM controller is cached in `_chatControllers`.
-  /// Exposed publicly so the UI layer can pass it to [sendMessage] (and
-  /// other room-id-keyed APIs) before the draft has been materialized into
-  /// a real room. Format: `draft:<otherUserId>`.
-  @internal
-  String draftRoutingKey(String otherUserId) => dm.draftRoutingKey(otherUserId);
-
-  // Note: draft DM custom payloads (the per-contact map previously
-  // here as `_draftRoomCustomByOtherUser`) live in [_dmContacts]
-  // under `draftCustomFor`/`setDraftCustom` — same lifecycle as the
-  // DM mapping itself, so a single service owns both.
-
-  /// Returns the real server-side `roomId` for the DM with [otherUserId],
-  /// creating the room if it does not exist yet. Idempotent — three branches:
-  ///
-  /// 1. There is already a known room with this contact
-  ///    ([findExistingDmRoom] returns non-null) → returns that id.
-  /// 2. There is an open draft controller for this contact
-  ///    (`_chatControllers['draft:<otherUserId>']`): create the room via
-  ///    `client.rooms.create`, rebind the controller from the draft slot to
-  ///    the real id (`setRoomId` + `clearDraft`), seed `_dmRoomByContact`,
-  ///    and add the row to the room list. Returns the real id.
-  /// 3. No room and no draft: same as (2) but no controller to rebind. The
-  ///    consumer typically calls [getChatController] afterwards.
-  ///
-  /// Use this from flows that need the real `roomId` BEFORE sending — e.g.
-  /// uploading an attachment whose progress is tied to a row in the list,
-  /// or any operation routed via `roomId` (typing, voice send, etc.). The
-  /// optimistic `sendMessage` materializes on its own; consumers that only
-  /// send text don't need to call this directly.
-  ///
-  /// [extraRoomCustom] overrides any custom payload previously registered
-  /// for [otherUserId] via [openDirectMessageDraft]. Useful for ad-hoc
-  /// callers without a draft controller.
-  ///
-  /// Failures propagate the underlying `ChatResult.ChatFailureResult` so the consumer can
-  /// surface a retry. A failure does NOT leave a stale draft entry — the
-  /// controller stays in `isDraft = true` and can retry on the next send.
-  @internal
-  Future<ChatResult<String>> ensureDmRoomMaterialized(
-    String otherUserId, {
-    Map<String, dynamic>? extraRoomCustom,
-  }) => dm.ensureMaterialized(otherUserId, extraRoomCustom: extraRoomCustom);
-
-  /// Releases all resources. The adapter must not be used after this call.
-  Future<void> dispose() async {
-    // Lifecycle.dispose() flips isDisposed and disposes the two
-    // notifiers. It runs FIRST so any async path racing the teardown
-    // sees `_disposed == true` immediately and bails on its early
-    // return guards.
-    await _lifecycle.dispose();
-    _lifecycleObserver?.detach();
-    _resyncDeferredTimer?.cancel();
-    _resyncDeferredTimer = null;
-    await _cancelSubscriptions();
-    client.cancelPendingRequests('dispose');
-    await client.disconnect();
-    _resetSessionState();
-    // Owns `roomHydrationNotifier`. Safe here: `_lifecycle.dispose()` above
-    // already flipped the disposed flag the enricher's publish path checks,
-    // so no in-flight load can write to the notifier after this point.
-    _enricher.dispose();
-    roomListController.dispose();
-    _currentUserListenable.dispose();
-    _userCacheListenable.dispose();
-    _roomMembersListenable.dispose();
-    _blockedUsersListenable.dispose();
-    _attachmentMediaLoader.clear();
-    await _operations.dispose();
-  }
-
-  /// Fetches rooms from the server and populates the [roomListController].
-  /// Loads user rooms using cache-then-network:
-  /// 1. Shows cached room list instantly (if available).
-  /// 2. Fetches fresh room list from network and replaces — unless
-  ///    realtime (WS) is already connected and the adapter has been
-  ///    initialized at least once. In that case the cache is trusted
-  ///    and the network round-trip is skipped: incoming events keep
-  ///    the room list up-to-date in real time.
-  ///
-  /// Pass [forceNetwork] to bypass the realtime optimization — useful
-  /// for pull-to-refresh interactions where the user explicitly asks
-  /// for a fresh server snapshot.
-  ///
-  /// A successful response — from this call, [resync]'s automatic pass
-  /// after a reconnect, or the background revalidation fired by the
-  /// cache-trusted branch above — is always treated as the caller's
-  /// authoritative complete room set, including when it's legitimately
-  /// empty: the listing endpoint fails outright on a bad read instead of
-  /// answering 200 with a partial/best-effort page, so there's no
-  /// ambiguity left for the client to guard against. A failed response
-  /// (network error, timeout, 5xx) never touches the list, here or in any
-  /// caller.
-  @internal
-  Future<ChatResult<void>> loadRooms({
-    String type = 'all',
-    bool forceNetwork = false,
-  }) => rooms.load(type: type, forceNetwork: forceNetwork);
-
-  Future<ChatResult<void>> _doLoadRooms({
-    String type = 'all',
-    bool forceNetwork = false,
-  }) => _enricher.loadAll(type: type, forceNetwork: forceNetwork);
-
-  void _loadReactionsFromMessages(
-    ChatController controller,
-    List<ChatMessage> messages,
-  ) {
-    for (final msg in messages) {
-      final reactions = msg.metadata?['_reactions'];
-      if (reactions is Map) {
-        final counts = <String, int>{};
-        for (final entry in reactions.entries) {
-          counts[entry.key as String] = entry.value as int;
-        }
-        if (counts.isNotEmpty) controller.setReactions(msg.id, counts);
-      }
-      final reactionUsers = msg.metadata?['_reactionUsers'];
-      if (reactionUsers is Map) {
-        final ownEmojis = <String>{};
-        for (final entry in reactionUsers.entries) {
-          final users = entry.value;
-          if (users is List && users.contains(currentUser.id)) {
-            ownEmojis.add(entry.key as String);
-          }
-        }
-        if (ownEmojis.isNotEmpty) {
-          controller.setUserReactions(msg.id, ownEmojis);
-        }
-      }
-    }
-  }
 
   /// Loads initial messages for a room using cache-then-network:
   /// 1. Shows cached messages instantly (if available).
   /// 2. Fetches fresh messages from network in background and merges.
+  @override
   Future<ChatResult<List<ChatMessage>>> loadMessages(
     String roomId, {
     int limit = 50,
   }) => messages.load(roomId, limit: limit);
-
-  /// Re-adds the cached pending rows that never confirmed and marks them
-  /// failed, so a send the previous session lost is still retriable after a
-  /// restart. Rows the room already holds are orphans from a lost
-  /// `deletePendingMessage` and are dropped from the cache instead of being
-  /// resurrected — see [_supersedesPendingRow] for how that is decided.
-  /// Without that guard a single failed cache delete would leak a ghost
-  /// bubble that re-appears on every reload.
-  Future<void> _rehydratePendingMessages(
-    String roomId,
-    ChatController controller,
-  ) async {
-    final cache = _cache;
-    if (cache == null) return;
-    try {
-      final pending =
-          (await cache.getPendingMessages(roomId)).dataOrNull ??
-          const <PendingChatMessage>[];
-      for (final p in pending) {
-        final superseded = controller.messages.any(
-          (m) => _supersedesPendingRow(m, p.message),
-        );
-        if (superseded) {
-          unawaited(
-            cache
-                .deletePendingMessage(roomId, p.message.id)
-                .catchError(_swallowCacheThrow),
-          );
-          continue;
-        }
-        final exists = controller.messages.any((m) => m.id == p.message.id);
-        if (!exists) controller.addMessage(p.message);
-        // Anything that survived to the next load couldn't confirm in the
-        // previous session: surface it as failed so the user can retry.
-        controller.markFailed(p.message.id);
-      }
-    } catch (_) {
-      // Best-effort: cache hydration must never block the chat.
-    }
-  }
-
-  /// `true` when [loaded] — a row the controller already holds — *is* the
-  /// message the cached [pending] row stands for, so the pending row is an
-  /// orphan and not a send to resurrect.
-  ///
-  /// The idempotency key decides it whenever both rows carry one:
-  /// [ChatMessage.clientMessageId] round-trips through the backend inside
-  /// `metadata`, so the same key under a different id is proof the send
-  /// landed — and two different keys are proof of two different sends,
-  /// however identical their text (the user deliberately sending "ok"
-  /// twice, which the heuristic below cannot tell apart). Media rows are
-  /// what make this load-bearing: they are built with no `text` while the
-  /// send puts `''` on the wire, so `null != ''` hid the match, and since
-  /// the rows gained a `clientMessageId` the resurrected ghost resolved
-  /// onto the delivered message and repainted it as failed.
-  ///
-  /// When either side has no key — rows cached before media rows carried
-  /// one, or a backend that does not echo it back — the original
-  /// sender/type/text/timestamp heuristic stands, being the only signal
-  /// those rows have.
-  bool _supersedesPendingRow(ChatMessage loaded, ChatMessage pending) {
-    if (loaded.id == pending.id) return false;
-    final pendingKey = pending.clientMessageId;
-    final loadedKey = loaded.clientMessageId;
-    if (pendingKey != null && loadedKey != null) return pendingKey == loadedKey;
-    return loaded.from == pending.from &&
-        loaded.messageType == pending.messageType &&
-        loaded.text == pending.text &&
-        loaded.timestamp.difference(pending.timestamp).inSeconds.abs() <= 60;
-  }
 
   /// Loads older messages for pagination using cache-then-network.
   /// No-op if already loading or no more pages.
@@ -1865,6 +1192,7 @@ class ChatUiAdapter {
     int limit = 50,
   }) => messages.loadMore(roomId, limit: limit);
 
+  @override
   // Message IDs with pending reaction deletes — skip WS refresh for these.
   // Backed by `PendingReactionsRegistry` (services/) so the
   // suppression logic has its own tested home rather than being a
@@ -1878,6 +1206,7 @@ class ChatUiAdapter {
   /// specific [OperationKind] on the error stream instead of the default
   /// [OperationKind.sendMessage]; pass `null` to use the default.
   @internal
+  @override
   Future<ChatResult<ChatMessage>> sendMessage(
     String roomId, {
     required String text,
@@ -1993,6 +1322,7 @@ class ChatUiAdapter {
   /// original sender so the second tick can flip to "read"; legacy callers
   /// that omit it still get the room-level `lastReadAt` persisted as before.
   @internal
+  @override
   Future<ChatResult<void>> markAsRead(
     String roomId, {
     String? lastReadMessageId,
@@ -2062,6 +1392,7 @@ class ChatUiAdapter {
   /// from [AttachmentPickers]. For voice messages keep using the
   /// dedicated [sendVoiceMessage] (it owns the waveform + duration).
   @internal
+  @override
   Future<ChatResult<ChatMessage>> sendAttachment(
     String roomIdOrDraftKey, {
     required Uint8List bytes,
@@ -2090,6 +1421,7 @@ class ChatUiAdapter {
   /// that resolved one once and subscribed to it directly would get a
   /// use-after-dispose on its next rebuild. See [VoiceUploadRegistry] for
   /// the full argument.
+  @override
   final VoiceUploadRegistry _voiceUploads = VoiceUploadRegistry();
 
   /// Cancel tokens for every blob currently on the wire — `sendAttachment`,
@@ -2097,9 +1429,11 @@ class ChatUiAdapter {
   /// [_resetConnectionState], which cancels the lot when a session ends.
   /// Kept apart from [_voiceUploads]: a progress notifier and a cancel token
   /// have unrelated lifecycles (see [AttachmentUploadCancelRegistry]'s doc).
+  @override
   final AttachmentUploadCancelRegistry _attachmentUploadCancels =
       AttachmentUploadCancelRegistry();
 
+  @override
   final FailedUploadRegistry _failedUploads = FailedUploadRegistry();
 
   /// Bytes held for media rows whose upload failed, so `messages.retrySend`
@@ -2183,239 +1517,8 @@ class ChatUiAdapter {
     waveform: waveform,
   );
 
-  /// Generic optimistic toggle for a boolean room flag (muted / pinned /
-  /// hidden). Flips the visible state immediately, calls [apiCall], and
-  /// rolls back on failure. Emits an [OperationError] through
-  /// [operationErrors] tagged with [kind] when the API call fails.
-  ///
-  /// Captured as a helper because the 6 toggle methods below — mute,
-  /// unmute, pin, unpin, hide, unhide — share the exact same flow, just
-  /// differing on which `RoomListItem` field flips and which `client.rooms`
-  /// endpoint runs.
-  Future<ChatResult<void>> _toggleRoomFlag(
-    String roomId,
-    RoomListItem Function(RoomListItem room, bool value) applyFlag,
-    bool desiredValue,
-    Future<ChatResult<void>> Function(String roomId) apiCall,
-    OperationKind kind,
-  ) async {
-    final room = roomListController.getRoomById(roomId);
-    if (room != null) {
-      roomListController.updateRoom(applyFlag(room, desiredValue));
-    }
-    final result = await apiCall(roomId);
-    if (result.isFailure && room != null) {
-      roomListController.updateRoom(applyFlag(room, !desiredValue));
-    }
-    return _emitFailure(result, kind, roomId: roomId);
-  }
-
-  /// Mutes a room with optimistic update. Pass [until] for a timed mute.
-  @internal
-  Future<ChatResult<void>> muteRoom(String roomId, {DateTime? until}) =>
-      rooms.mute(roomId, until: until);
-
-  /// Unmutes a room with optimistic update.
-  @internal
-  Future<ChatResult<void>> unmuteRoom(String roomId) => rooms.unmute(roomId);
-
-  /// Pins a room with optimistic update.
-  @internal
-  Future<ChatResult<void>> pinRoom(String roomId) => rooms.pin(roomId);
-
-  /// Unpins a room with optimistic update.
-  @internal
-  Future<ChatResult<void>> unpinRoom(String roomId) => rooms.unpin(roomId);
-
-  /// Hides a room with optimistic update (removes from visible list).
-  @internal
-  Future<ChatResult<void>> hideRoom(String roomId) => rooms.hide(roomId);
-
-  /// Unhides a room with optimistic update.
-  @internal
-  Future<ChatResult<void>> unhideRoom(String roomId) => rooms.unhide(roomId);
-
-  /// Blocks a contact. WhatsApp-parity: the DM room STAYS in the
-  /// blocker's chat list with full history — the composer is replaced
-  /// by a "tap to unblock" banner (see [ChatView.isBlocked]) so the
-  /// blocker can reverse course. The previous implementation removed
-  /// the room entirely and forced consumers to pop the chat page,
-  /// which lost the conversation context and surprised users.
-  ///
-  /// Adds [userId] to [blockedUserIds] and fires
-  /// [onBlockedUsersChanged] so the host UI can react (e.g. hide
-  /// suggestions, swap the composer for the blocked banner).
-  @internal
-  Future<ChatResult<void>> blockContact(String userId, {String? roomId}) =>
-      contacts.block(userId, roomId: roomId);
-
-  /// Unblocks a contact in the chat system. Removes [userId] from
-  /// [blockedUserIds] and fires [onBlockedUsersChanged]. Does NOT
-  /// recreate the DM row — consumers that need the room back should
-  /// call [loadRooms] or open a fresh draft via
-  /// [openDirectMessageDraft].
-  @internal
-  Future<ChatResult<void>> unblockContact(String userId) =>
-      contacts.unblock(userId);
-
-  /// Adds [userIds] to [roomId] as group members. WhatsApp-style default:
-  /// [mode] = `RoomUserMode.inviteAndJoin` — the invited users join
-  /// immediately without requiring an accept step. Apps that need an
-  /// invitation-then-accept flow pass [mode] = `RoomUserMode.invite`.
-  ///
-  /// On success the adapter does NOT mutate the local
-  /// [roomListController] directly — the backend emits a
-  /// `UserJoinedEvent` per added user that the event router already
-  /// turns into `ChatController.setOtherUsers` updates and metadata
-  /// refreshes. This keeps the local state consistent with anyone else
-  /// observing the same room (multi-device, web client, etc.).
-  @internal
-  Future<ChatResult<void>> addMembers(
-    String roomId,
-    List<String> userIds, {
-    RoomUserMode mode = RoomUserMode.inviteAndJoin,
-  }) => rooms.addMembers(roomId, userIds, mode: mode);
-
-  /// Updates room metadata (name, subject, avatar, custom). Wrapper
-  /// around `client.rooms.updateConfig` that emits [operationErrors]
-  /// with [OperationKind.updateRoomConfig] on failure. Backend gates
-  /// this on owner/admin role; non-privileged callers get a 403.
-  @internal
-  Future<ChatResult<void>> updateRoomConfig(
-    String roomId, {
-    String? name,
-    String? subject,
-    String? avatarUrl,
-    Map<String, dynamic>? custom,
-  }) => rooms.updateConfig(
-    roomId,
-    name: name,
-    subject: subject,
-    avatarUrl: avatarUrl,
-    custom: custom,
-  );
-
-  /// Uploads a freshly-picked avatar through the configured
-  /// [avatarStorage] and returns the resolved URL. Used as a building
-  /// block by [updateMyProfile] and [createGroupRoom]; consumers wiring
-  /// their own forms can call it directly.
-  @internal
-  Future<ChatResult<String>> uploadAvatar(
-    Uint8List bytes,
-    String mimeType,
-    AvatarKind kind,
-  ) => profile.uploadAvatar(bytes, mimeType, kind);
-
-  /// One-shot profile edit: optionally uploads a new avatar (or clears
-  /// it when [removeAvatar] is `true`) and then PATCHes `/v1/users/<id>`.
-  /// Returns the resolved avatar URL on success so the caller can update
-  /// optimistic UI without waiting for the [UserUpdatedEvent] echo.
-  ///
-  /// Pass [newAvatarBytes]/[newAvatarMimeType] together to replace; pass
-  /// `removeAvatar: true` to clear; omit both to leave the avatar
-  /// untouched.
-  @internal
-  Future<ChatResult<String?>> updateMyProfile({
-    String? displayName,
-    Uint8List? newAvatarBytes,
-    String? newAvatarMimeType,
-    bool removeAvatar = false,
-    String? bio,
-    String? email,
-  }) => profile.update(
-    displayName: displayName,
-    newAvatarBytes: newAvatarBytes,
-    newAvatarMimeType: newAvatarMimeType,
-    removeAvatar: removeAvatar,
-    bio: bio,
-    email: email,
-  );
-
-  /// Creates a group room in a single hop, optionally uploading an
-  /// avatar first. Returns the newly-created room id on success so the
-  /// caller can navigate straight into it.
-  @internal
-  Future<ChatResult<String>> createGroupRoom({
-    required String name,
-    required List<String> memberIds,
-    Uint8List? avatarBytes,
-    String? avatarMimeType,
-    String? subject,
-    bool allowInvitations = false,
-    RoomAudience audience = RoomAudience.contacts,
-    Map<String, dynamic>? custom,
-  }) => rooms.createGroup(
-    name: name,
-    memberIds: memberIds,
-    avatarBytes: avatarBytes,
-    avatarMimeType: avatarMimeType,
-    subject: subject,
-    allowInvitations: allowInvitations,
-    audience: audience,
-    custom: custom,
-  );
-
-  void _applyOptimisticCurrentUser({
-    String? displayName,
-    String? avatarUrl,
-    required bool avatarFieldTouched,
-    String? bio,
-    String? email,
-  }) {
-    final updated = currentUser.copyWith(
-      displayName: displayName ?? currentUser.displayName,
-      avatarUrl: avatarFieldTouched ? avatarUrl : currentUser.avatarUrl,
-      bio: bio ?? currentUser.bio,
-      email: email ?? currentUser.email,
-    );
-    _currentUser = updated;
-    _currentUserListenable.value = updated;
-    cacheUsers([updated]);
-  }
-
-  /// Replaces the in-memory `currentUser` with the freshest snapshot
-  /// from the backend (avatarUrl, displayName, bio, email, custom). Use
-  /// it after a successful `users.create` / `users.update` to push
-  /// fields the adapter cannot infer locally — typically the avatarUrl
-  /// uploaded during onboarding, which is committed to the server but
-  /// never makes it back to `adapter.currentUser` unless we refetch.
-  /// Idempotent: if the backend returns the same data nothing visible
-  /// changes; if it returns more (bio, email...) the adapter cache and
-  /// downstream widgets see it on the next rebuild.
-  Future<void> refreshCurrentUser() async {
-    if (_disposed) return;
-    final result = await client.users.get(_currentUser.id);
-    if (_disposed || result.isFailure) return;
-    final fresh = result.dataOrThrow;
-    _currentUser = fresh;
-    _currentUserListenable.value = fresh;
-    cacheUsers([fresh]);
-  }
-
-  /// Removes [userId] from [roomId] — used by admins to kick a member.
-  /// The backend rejects the call (403) if the caller lacks the
-  /// permission; the SDK surfaces the failure via [operationErrors] like
-  /// any other adapter op. On success the backend emits `UserLeftEvent`
-  /// to all participants, which `ChatEventRouter` already handles.
-  @internal
-  Future<ChatResult<void>> removeMember(String roomId, String userId) =>
-      rooms.removeMember(roomId, userId);
-
-  /// Updates [userId]'s [RoomRole] inside [roomId] — admins promote
-  /// members or demote other admins. Backend rejects if the caller lacks
-  /// the permission (the SDK surfaces the failure via [operationErrors]).
-  /// On success the backend emits `UserRoleChangedEvent` and the event
-  /// router refreshes member lists.
-  @internal
-  Future<ChatResult<void>> updateMemberRole(
-    String roomId,
-    String userId,
-    RoomRole role,
-  ) => rooms.updateMemberRole(roomId, userId, role);
-
-  /// Leaves a room and removes it from the list.
-  @internal
-  Future<ChatResult<void>> leaveRoom(String roomId) => rooms.leave(roomId);
+  @override
+  bool _currentUserAvatarProbed = false;
 
   /// Retries sending a failed message.
   @internal
@@ -2453,17 +1556,6 @@ class ChatUiAdapter {
   Future<ChatResult<List<ReadReceipt>>> loadReceipts(String roomId) =>
       messages.loadReceipts(roomId);
 
-  /// Accepts a room invitation.
-  @internal
-  Future<ChatResult<void>> acceptInvitation(String roomId) =>
-      rooms.acceptInvitation(roomId);
-
-  /// Rejects a room invitation and removes it from the list. Restores the
-  /// row on failure so a network glitch does not silently lose the invite.
-  @internal
-  Future<ChatResult<void>> rejectInvitation(String roomId) =>
-      rooms.rejectInvitation(roomId);
-
   /// Pins a message in a room with optimistic update. Restores on failure.
   @internal
   Future<ChatResult<void>> pinMessage(String roomId, String messageId) =>
@@ -2483,6 +1575,7 @@ class ChatUiAdapter {
   /// Routes a real-time event from the SDK to the right adapter helper.
   /// All cases live in [ChatEventRouter] so this facade only carries the
   /// one-line delegate.
+  @override
   late final ChatEventRouter _eventRouter = ChatEventRouter(
     ChatEventRouterDeps(
       client: client,
@@ -2507,9 +1600,22 @@ class ChatUiAdapter {
       confirmDeliveredFn: _deliveredCoord.confirm,
       refreshMessageFn: _refreshMessage,
       refreshReactionsFn: _refreshReactions,
-      handleUserJoinedFn: _memberEventHandler.handleUserJoined,
-      handleUserLeftFn: _memberEventHandler.handleUserLeft,
-      handleUserRejoinedFn: _memberEventHandler.handleUserRejoined,
+      handleUserJoinedFn: (roomId, userId) {
+        _roomRosters.add(roomId, userId);
+        _memberEventHandler.handleUserJoined(roomId, userId);
+      },
+      handleUserLeftFn: (roomId, userId, {String? actorUserId}) {
+        _roomRosters.remove(roomId, userId);
+        _memberEventHandler.handleUserLeft(
+          roomId,
+          userId,
+          actorUserId: actorUserId,
+        );
+      },
+      handleUserRejoinedFn: (roomId, userId) {
+        _roomRosters.add(roomId, userId);
+        _memberEventHandler.handleUserRejoined(roomId, userId);
+      },
       addSystemMessageFn: _memberEventHandler.addSystemMessage,
       addRoomFromDetailFn: _addRoomFromDetail,
       enrichRoomFromDetailFn: _enrichRoomFromDetail,
@@ -2539,178 +1645,6 @@ class ChatUiAdapter {
       },
     ),
   );
-
-  void _handleEvent(ChatEvent event) => _eventRouter.handle(event);
-
-  void _handleStateChange(ChatConnectionState state) {
-    connectionStateNotifier.value = state;
-  }
-
-  void _refreshReactions(String roomId, String messageId) {
-    final controller = _chatControllers[roomId];
-    if (controller == null) return;
-    client.messages
-        .getReactions(roomId, messageId, cachePolicy: CachePolicy.networkOnly)
-        .then((result) {
-          if (_disposed) return;
-          final active = _chatControllers[roomId];
-          if (active == null) return;
-          if (result.isFailure) {
-            active.clearReactions(messageId);
-            return;
-          }
-          final aggregated = result.dataOrThrow;
-          final map = <String, int>{};
-          final ownEmojis = <String>{};
-          for (final r in aggregated) {
-            map[r.emoji] = r.count;
-            if (r.users.contains(currentUser.id)) {
-              ownEmojis.add(r.emoji);
-            }
-          }
-          active.setReactions(messageId, map);
-          active.setUserReactions(messageId, ownEmojis);
-        })
-        .catchError((Object e) {
-          logger?.call(
-            'warn',
-            'Failed to refresh reactions for $messageId: $e',
-          );
-        });
-  }
-
-  /// Returns the cached presence for a contact user, or null when unknown.
-  /// Populated by the internal presence bootstrap (after every reconnect)
-  /// and live `PresenceChangedEvent`s.
-  ChatPresence? presenceFor(String userId) => _presence.presenceFor(userId);
-
-  /// Stream of presence updates filtered to a single user. Useful for widgets
-  /// like the Suggestions list that need to subscribe per-user.
-  Stream<ChatPresence> presenceStreamFor(String userId) {
-    return client.events
-        .where((e) => e is PresenceChangedEvent)
-        .map((e) {
-          final ev = e as PresenceChangedEvent;
-          return ChatPresence(
-            userId: ev.userId,
-            online: ev.online,
-            status: ev.status,
-            statusText: ev.statusText,
-            lastSeen: ev.lastSeen,
-          );
-        })
-        .where((p) => p.userId == userId);
-  }
-
-  /// Adds a room to the controller AFTER a successful detail fetch.
-  ///
-  /// Used when the adapter learns about a new room via realtime events
-  /// (`NewMessageEvent`, `RoomCreatedEvent`) and the room is not yet in the
-  /// controller. We deliberately do NOT add a placeholder `RoomListItem(id:)`
-  /// because doing so would cause the UI to briefly render a "ghost" room
-  /// (raw roomId as title, no avatar) until the detail enrichment succeeds.
-  ///
-  /// If the detail fetch fails, the room is not added. The next `loadRooms`
-  /// call will pick it up if the server still knows about it.
-  void _addRoomFromDetail(String roomId, {ChatMessage? lastMessage}) =>
-      _enricher.addFromDetail(roomId, lastMessage: lastMessage);
-
-  void _enrichRoomFromDetail(String roomId) => _enricher.refreshRoom(roomId);
-
-  void _refreshMessage(String roomId, String messageId) {
-    final controller = _chatControllers[roomId];
-    if (controller == null) return;
-    client.messages
-        .get(roomId, messageId)
-        .then((result) {
-          if (_disposed) return;
-          final active = _chatControllers[roomId];
-          if (active == null) return;
-          final updated = result.dataOrNull;
-          if (updated != null) {
-            // This helper is shared by the `message_updated` (edit) and
-            // `message_deleted` refresh paths. For an edit fallback the
-            // REST projection may omit `text_history`, dropping the
-            // "edited" marker; force it on so the tag survives — but only
-            // for a live (non-deleted) row, since a deleted message is
-            // never "edited" and the delete path must keep isEdited as-is.
-            final refreshed = updated.isDeleted
-                ? updated
-                : updated.copyWith(isEdited: true);
-            active.updateMessage(refreshed);
-            _cache?.updateMessage(roomId, refreshed);
-          }
-        })
-        .catchError((Object e) {
-          logger?.call('warn', 'Failed to refresh message $messageId: $e');
-        });
-  }
-
-  /// "Delete kicked chat" — WhatsApp's option to manually remove a
-  /// chat the user was kicked from. Drops it from the room list,
-  /// clears the local cache for the room (messages, detail,
-  /// unreads), and unmarks the kicked flag. No network call — the
-  /// server already considers the user removed.
-  ///
-  /// Surfaced via [ChatRoomOption.deleteKickedChat] in the room
-  /// options menu when `room.isParticipating == false`. Safe to
-  /// call on participating rooms too (does the same cleanup), but
-  /// the UI only exposes it after a kick.
-  @internal
-  Future<void> deleteKickedChat(String roomId) => rooms.deleteKicked(roomId);
-
-  /// Snapshots the current subscriptions into locals and nulls the fields
-  /// SYNCHRONOUSLY, before awaiting either cancellation. [connect] calls
-  /// this (unawaited) and then immediately calls [start] — which reassigns
-  /// `_eventSub`/`_stateSub` to a fresh pair before this function's first
-  /// `await` has a chance to resume. Re-reading the instance fields after
-  /// that first await (the previous shape of this method) meant the second
-  /// `await _stateSub?.cancel()` picked up [start]'s brand-new subscription
-  /// instead of the stale one, killing it right after creation — silently
-  /// disabling `client.stateChanges` delivery (`connecting`/`authenticating`/
-  /// `reconnecting` never reached `connectionStateNotifier`) while orphaning
-  /// the stale `_eventSub` (nulled but never actually cancelled, leaking a
-  /// listener that piles up on every reconnect cycle). Operating on local
-  /// snapshots makes this safe regardless of what the fields get reassigned
-  /// to in between.
-  Future<void> _cancelSubscriptions() async {
-    final eventSub = _eventSub;
-    final stateSub = _stateSub;
-    _eventSub = null;
-    _stateSub = null;
-    await eventSub?.cancel();
-    await stateSub?.cancel();
-  }
-
-  /// Token-first, like [mapExceptionToFailure] does for the edit/delete
-  /// windows: the stable `error` token wins over the legacy `detail`
-  /// string match. Sending into a blocked room answers
-  /// `403 {"detail":"blocked","error":"blocked"}`, but creating the 1:1
-  /// room answers `403 {"detail":"Cannot create room with blocked user:
-  /// ID","error":"blocked"}` — prose in `detail`, the token only in
-  /// `error`. Matching on `detail` alone made every room-materialization
-  /// path miss the block.
-  bool _isBlockedError(ChatFailure? failure) {
-    if (failure is! ForbiddenFailure) return false;
-    if (failure.errorToken == ChatErrorTokens.blocked) return true;
-    final body = failure.body;
-    if (body is Map) {
-      return body['detail'] == ChatErrorTokens.blocked;
-    }
-    return false;
-  }
-
-  /// A send rejected because an admin muted the user in this room. The
-  /// backend returns `403 {"detail":"muted"}` (see `guard_not_muted/2`),
-  /// the mute sibling of the `"blocked"` detail handled above.
-  bool _isMutedError(ChatFailure? failure) {
-    if (failure is! ForbiddenFailure) return false;
-    final body = failure.body;
-    if (body is Map) {
-      return body['detail'] == 'muted';
-    }
-    return false;
-  }
 }
 
 // Note: the `_PendingMarkAsRead` tracker now lives inside

@@ -59,10 +59,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Not found'), findsOneWidget);
+      expect(find.text(l10n.loadFailed), findsOneWidget);
+      for (final text in tester.widgetList<Text>(find.byType(Text))) {
+        expect(text.data ?? '', isNot(contains('Failure')));
+        expect(text.data ?? '', isNot(contains('Not found')));
+      }
     });
 
-    testWidgets('falls back to the raw id when display name is empty', (
+    testWidgets('leaves the name blank when nobody can name the peer', (
       tester,
     ) async {
       client.seedUser(const ChatUser(id: 'u3', displayName: ''));
@@ -70,7 +74,7 @@ void main() {
       await tester.pumpWidget(wrap('u3'));
       await tester.pumpAndSettle();
 
-      expect(find.text('u3'), findsOneWidget);
+      expect(find.text('u3'), findsNothing);
     });
   });
 

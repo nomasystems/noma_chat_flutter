@@ -16,6 +16,21 @@ bool paintsAttachmentFailure({
   required ValueListenable<double>? uploadProgress,
 }) => isFailed && uploadProgress == null;
 
+/// Name the cancel-upload target of one attachment row answers to, both as
+/// its `ValueKey` and as its `Semantics(identifier:)`.
+///
+/// Rendered inside a `MessageBubble` only the `ValueKey` half is reachable:
+/// the bubble merges its subtree into a single announcement
+/// (`excludeSemantics: true`), so no descendant reaches a native dump. Same
+/// caveat as the delivery tick — see the note in `README.md`.
+String attachmentUploadCancelSemanticsId(String messageId) =>
+    'chat_message_${messageId}_upload_cancel';
+
+/// Name the retry target of one failed attachment row answers to, on both
+/// halves. Carries the [attachmentUploadCancelSemanticsId] caveat.
+String attachmentRetrySemanticsId(String messageId) =>
+    'chat_message_${messageId}_upload_retry';
+
 /// Upload-progress ring shown centered over a media placeholder while a
 /// photo/video/file attachment is still uploading — the WhatsApp-style
 /// "blurred placeholder + filling ring" treatment, shared by [ImageBubble],
@@ -43,11 +58,18 @@ class AttachmentUploadRing extends StatelessWidget {
     required this.theme,
     this.size = 48,
     this.onCancel,
+    this.messageId,
   });
 
   final ValueListenable<double> progress;
   final ChatTheme theme;
   final double size;
+
+  /// Id of the message this ring belongs to. Names the cancel target
+  /// ([attachmentUploadCancelSemanticsId]); `null` — the default, and what a
+  /// bubble rendered standalone outside a room passes — leaves it unnamed
+  /// rather than publishing a name two rows could answer to.
+  final String? messageId;
 
   /// Cancels the upload. `null` (default) renders the center icon as a
   /// plain, non-interactive glyph instead of a dead button — same
@@ -63,6 +85,10 @@ class AttachmentUploadRing extends StatelessWidget {
         final clamped = value.clamp(0.0, 1.0);
         final l10n = theme.l10nOf(context);
         final cancel = onCancel;
+        final id = messageId;
+        final cancelId = id == null
+            ? null
+            : attachmentUploadCancelSemanticsId(id);
         const icon = Icon(Icons.close, size: 16, color: Colors.white);
         return Semantics(
           label: l10n.attachmentUploadingLabel((clamped * 100).round()),
@@ -96,6 +122,8 @@ class AttachmentUploadRing extends StatelessWidget {
                 cancel == null
                     ? icon
                     : Semantics(
+                        key: cancelId == null ? null : ValueKey(cancelId),
+                        identifier: cancelId,
                         button: true,
                         label: l10n.cancelUploadLabel,
                         child: GestureDetector(onTap: cancel, child: icon),
@@ -121,6 +149,7 @@ class AttachmentUploadPlaceholder extends StatelessWidget {
     required this.height,
     this.icon = Icons.image,
     this.onCancel,
+    this.messageId,
   });
 
   final ValueListenable<double> progress;
@@ -130,6 +159,9 @@ class AttachmentUploadPlaceholder extends StatelessWidget {
 
   /// Forwarded to the embedded [AttachmentUploadRing].
   final VoidCallback? onCancel;
+
+  /// Forwarded to the embedded [AttachmentUploadRing].
+  final String? messageId;
 
   @override
   Widget build(BuildContext context) {
@@ -149,6 +181,7 @@ class AttachmentUploadPlaceholder extends StatelessWidget {
             progress: progress,
             theme: theme,
             onCancel: onCancel,
+            messageId: messageId,
           ),
         ],
       ),
@@ -172,10 +205,17 @@ class AttachmentRetryIcon extends StatelessWidget {
     required this.theme,
     this.size = 48,
     this.onRetry,
+    this.messageId,
   });
 
   final ChatTheme theme;
   final double size;
+
+  /// Id of the message this badge belongs to. Names the retry target
+  /// ([attachmentRetrySemanticsId]); `null` — the default, and what a bubble
+  /// rendered standalone outside a room passes — leaves it unnamed rather
+  /// than publishing a name two rows could answer to.
+  final String? messageId;
 
   /// Retries the failed upload/send. Callers must forward the same
   /// callback `MessageBubble.onRetry` already wires to the status-row
@@ -189,6 +229,8 @@ class AttachmentRetryIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = theme.l10nOf(context);
     final retry = onRetry;
+    final id = messageId;
+    final retryId = id == null ? null : attachmentRetrySemanticsId(id);
     return SizedBox(
       width: size,
       height: size,
@@ -211,6 +253,8 @@ class AttachmentRetryIcon extends StatelessWidget {
                   ),
                 )
               : Semantics(
+                  key: retryId == null ? null : ValueKey(retryId),
+                  identifier: retryId,
                   button: true,
                   label: l10n.retryUploadLabel,
                   child: GestureDetector(
@@ -244,6 +288,7 @@ class AttachmentFailedPlaceholder extends StatelessWidget {
     required this.height,
     this.icon = Icons.image,
     this.onRetry,
+    this.messageId,
   });
 
   final ChatTheme theme;
@@ -252,6 +297,9 @@ class AttachmentFailedPlaceholder extends StatelessWidget {
 
   /// Forwarded to the embedded [AttachmentRetryIcon].
   final VoidCallback? onRetry;
+
+  /// Forwarded to the embedded [AttachmentRetryIcon].
+  final String? messageId;
 
   @override
   Widget build(BuildContext context) {
@@ -267,7 +315,11 @@ class AttachmentFailedPlaceholder extends StatelessWidget {
             size: 40,
             color: theme.videoPlaceholderIconColor ?? Colors.white54,
           ),
-          AttachmentRetryIcon(theme: theme, onRetry: onRetry),
+          AttachmentRetryIcon(
+            theme: theme,
+            onRetry: onRetry,
+            messageId: messageId,
+          ),
         ],
       ),
     );

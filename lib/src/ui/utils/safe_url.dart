@@ -28,14 +28,52 @@ Uri? webUrlOrNull(String? raw) {
   return uri;
 }
 
+final RegExp _emailPath = RegExp(
+  r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?'
+  r'(\.[A-Za-z0-9]([A-Za-z0-9\-]*[A-Za-z0-9])?)*\.[A-Za-z]{2,}$',
+);
+
+final RegExp _telPath = RegExp(r'^\+?[0-9][0-9 \-.()]{6,20}$');
+
+/// Returns [raw] as a [Uri] the platform is allowed to open on a tap in the
+/// message body: a web address, an email address or a phone number.
+///
+/// A superset of [webUrlOrNull] by exactly two schemes, and no more. The
+/// bubble linkifies `chiara@example.com` and `+34655000011` as well as web
+/// addresses, and a blue underline that does nothing when tapped is worse
+/// than no underline at all — so `mailto:` and `tel:` are launchable, while
+/// `javascript:`, `file:`, `intent:` and host deep links stay out for the
+/// same reason they are out of [webUrlOrNull]: the string was written by
+/// whoever sent the message.
+///
+/// Both extra schemes are validated by shape, not just by prefix: a
+/// `mailto:` has to carry something that looks like an address and a `tel:`
+/// something that looks like a number, so a crafted `tel:` cannot smuggle
+/// arbitrary payload past the launcher.
+Uri? launchableUrlOrNull(String? raw) {
+  final trimmed = raw?.trim() ?? '';
+  if (trimmed.isEmpty) return null;
+  final uri = Uri.tryParse(trimmed);
+  if (uri == null) return webUrlOrNull(trimmed);
+  switch (uri.scheme.toLowerCase()) {
+    case 'mailto':
+      return _emailPath.hasMatch(uri.path) ? uri : null;
+    case 'tel':
+      return _telPath.hasMatch(uri.path) ? uri : null;
+    default:
+      return webUrlOrNull(trimmed);
+  }
+}
+
 /// Fallback link handler shared by every view that renders message text:
-/// opens [url] in the system browser, and only when [webUrlOrNull] accepts
-/// it as a web address. Best effort — bad URLs and non-web schemes are
-/// silently skipped. Views take it as the `??` default so a host that
-/// passes its own handler (in-app webview, deep-link router, confirmation
-/// dialog) always wins and owns the filtering from there.
+/// hands [url] to the platform, and only when [launchableUrlOrNull] accepts
+/// it as a web, mail or phone address. Best effort — bad URLs and schemes
+/// outside that allowlist are silently skipped. Views take it as the `??`
+/// default so a host that passes its own handler (in-app webview,
+/// deep-link router, confirmation dialog) always wins and owns the
+/// filtering from there.
 Future<void> openWebUrl(String url) async {
-  final uri = webUrlOrNull(url);
+  final uri = launchableUrlOrNull(url);
   if (uri == null) return;
   await launchUrl(uri, mode: LaunchMode.externalApplication);
 }

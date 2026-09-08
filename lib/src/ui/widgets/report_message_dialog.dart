@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/chat_theme.dart';
+import '../utils/text_selection_menu.dart';
 
 /// WhatsApp-style "report message" dialog: a single free-text reason field
 /// with a Cancel / Report action pair.
@@ -78,6 +79,7 @@ class _ReportMessageDialogState extends State<ReportMessageDialog> {
       content: TextField(
         controller: _reasonController,
         autofocus: true,
+        contextMenuBuilder: buildTextSelectionMenu,
         decoration: InputDecoration(hintText: widget.reasonHint ?? l10n.reason),
         onChanged: (_) => setState(() {}),
       ),

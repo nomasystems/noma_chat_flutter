@@ -6,11 +6,13 @@ void main() {
   late int sends;
   late int retakes;
   late int discards;
+  String? lastCaption;
 
   setUp(() {
     sends = 0;
     retakes = 0;
     discards = 0;
+    lastCaption = null;
   });
 
   Future<void> pumpReview(
@@ -29,7 +31,10 @@ void main() {
             ),
             theme: theme,
             videoPreviewBuilder: videoPreviewBuilder,
-            onSend: () => sends++,
+            onSend: (caption) {
+              sends++;
+              lastCaption = caption;
+            },
             onRetake: () => retakes++,
             onDiscard: () => discards++,
           ),
@@ -55,6 +60,32 @@ void main() {
     await tester.tap(find.byIcon(Icons.close));
     await tester.pump();
     expect([sends, retakes, discards], [1, 1, 1]);
+  });
+
+  testWidgets('the caption written under the capture travels with the send', (
+    tester,
+  ) async {
+    await pumpReview(tester, isVideo: false);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('chat_attachment_review_caption')),
+      '  a line under it  ',
+    );
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    expect(sends, 1);
+    expect(lastCaption, 'a line under it');
+  });
+
+  testWidgets('an empty caption field sends no caption at all', (tester) async {
+    await pumpReview(tester, isVideo: false);
+
+    await tester.tap(find.byIcon(Icons.send));
+    await tester.pump();
+
+    expect(sends, 1);
+    expect(lastCaption, isNull);
   });
 
   testWidgets(

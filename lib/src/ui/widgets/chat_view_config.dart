@@ -55,6 +55,38 @@ enum BlockedContentPolicy {
   show,
 }
 
+/// Why a room refuses to take a message.
+///
+/// The three are not interchangeable to a reader: one is what the room
+/// *is*, one is something an admin did to this person, and one is a
+/// setting the room's owner can turn off again. A host that paints its
+/// own notice usually wants to word them differently — and to offer a
+/// way out of exactly one of them.
+enum ReadOnlyReason {
+  /// An announcement channel and the viewer does not own it. Everyone
+  /// but the owner reads; nothing about this person is special.
+  announcement,
+
+  /// An admin or owner silenced this person in this room.
+  selfMuted,
+
+  /// The room's write policy is owner-only
+  /// (`RoomWritePolicy.ownerOnly`) and the viewer is not the owner — a
+  /// conversation that has been closed to replies.
+  ownerOnly,
+}
+
+/// Replaces the strip [ChatView] paints where the composer would be when
+/// the room is read-only.
+///
+/// Receives why the room is read-only so one notice can speak for all
+/// three cases. Returning `null` falls back to the SDK's own notice,
+/// which is a labelled bar carrying the `chat_read_only_notice`
+/// identifier — keep that identifier in a replacement if anything (a
+/// test, an accessibility audit) looks for it.
+typedef ReadOnlyNoticeBuilder =
+    Widget? Function(BuildContext context, ReadOnlyReason reason);
+
 /// Visual builder / resolver overrides for [ChatView].
 ///
 /// Group all `Widget Function(...)`, `String Function(...)` and similar
@@ -71,6 +103,7 @@ class ChatViewBuilders {
     this.headerBuilder,
     this.blockedBannerBuilder,
     this.notParticipatingBannerBuilder,
+    this.readOnlyNoticeBuilder,
     this.displayNameResolver,
     this.avatarUrlResolver,
     this.userFetcher,
@@ -183,6 +216,13 @@ class ChatViewBuilders {
   /// Optional override for the not-participating banner. When `null`,
   /// the SDK renders its default banner.
   final WidgetBuilder? notParticipatingBannerBuilder;
+
+  /// Optional override for the notice shown in place of the composer in
+  /// a read-only room. Receives the reason so one builder can cover an
+  /// announcement channel, a muted member and an owner-only room.
+  /// Returning `null` — for the reason at hand or for all of them —
+  /// falls back to the SDK's own notice.
+  final ReadOnlyNoticeBuilder? readOnlyNoticeBuilder;
 
   /// Optional sync resolver from userId → display name. Forwarded to
   /// [MessageList.displayNameResolver]. Wire it to
@@ -487,6 +527,7 @@ class ChatViewBehaviors {
     this.emptySubtitle,
     bool? readOnly,
     this.readOnlyLabel,
+    this.readOnlyReason,
     bool? enableLinkPreview,
     bool? enableMentions,
     bool? showOperationFeedback,
@@ -704,6 +745,13 @@ class ChatViewBehaviors {
   /// when the SDK marks the room read-only; otherwise the host's is used.
   final String? readOnlyLabel;
 
+  /// Which of the three read-only causes applies, passed on to
+  /// [ChatViewBuilders.readOnlyNoticeBuilder] so a host-supplied notice can
+  /// word each one differently. `null` when the reason has not been
+  /// classified — the default notice ignores it either way and just shows
+  /// [readOnlyLabel].
+  final ReadOnlyReason? readOnlyReason;
+
   /// Forwarded to the composer. When true (default), URLs typed in the input
   /// trigger an Open Graph fetch and a preview banner above the text field.
   bool get enableLinkPreview => _enableLinkPreview ?? true;
@@ -811,6 +859,7 @@ class ChatViewBehaviors {
     emptySubtitle: emptySubtitle ?? base.emptySubtitle,
     readOnly: _readOnly ?? base._readOnly,
     readOnlyLabel: readOnlyLabel ?? base.readOnlyLabel,
+    readOnlyReason: readOnlyReason ?? base.readOnlyReason,
     enableLinkPreview: _enableLinkPreview ?? base._enableLinkPreview,
     enableMentions: _enableMentions ?? base._enableMentions,
     showOperationFeedback:
@@ -842,6 +891,7 @@ class ChatViewBehaviors {
   /// a contact gate, a per-app permission — is not silently re-opened by a
   /// room that happens to be writable. The room's [readOnlyLabel] still wins
   /// whenever the room itself is read-only; the host's is used otherwise.
+  /// [readOnlyReason] follows the same rule as [readOnlyLabel].
   ChatViewBehaviors withRoomState({
     required String? initialMessageId,
     required String? unreadBoundaryMessageId,
@@ -850,6 +900,7 @@ class ChatViewBehaviors {
     required bool isParticipating,
     required bool readOnly,
     required String? readOnlyLabel,
+    ReadOnlyReason? readOnlyReason,
     required bool? isGroup,
     Set<String>? blockedSenderIds,
   }) => ChatViewBehaviors(
@@ -886,6 +937,9 @@ class ChatViewBehaviors {
     isParticipating: isParticipating,
     readOnly: readOnly || (_readOnly ?? false),
     readOnlyLabel: readOnly ? readOnlyLabel : this.readOnlyLabel,
+    readOnlyReason: readOnly
+        ? (readOnlyReason ?? this.readOnlyReason)
+        : this.readOnlyReason,
     isGroup: isGroup,
     restoreComposerOnEditFailure: _restoreComposerOnEditFailure,
     confirmDeleteForEveryone: _confirmDeleteForEveryone,

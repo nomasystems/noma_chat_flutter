@@ -124,16 +124,25 @@ class ThreadView extends StatelessWidget {
                               ? replies.length
                               : controller.messages.length,
                         ),
-                    style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
               ],
             ),
           ),
           if (onClose != null)
-            IconButton(
-              icon: const Icon(Icons.close),
-              tooltip: theme.l10nOf(context).close,
-              onPressed: onClose,
+            Semantics(
+              key: const ValueKey('chat_thread_close_button'),
+              identifier: 'chat_thread_close_button',
+              button: true,
+              label: theme.l10nOf(context).close,
+              child: IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: theme.l10nOf(context).close,
+                onPressed: onClose,
+              ),
             ),
         ],
       ),

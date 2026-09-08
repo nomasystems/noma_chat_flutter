@@ -247,6 +247,7 @@ class _ScriptedClient implements ChatClient {
     Map<String, dynamic>? metadata,
     String? tempId,
     String? clientMessageId,
+    String? referencedMessageId,
   }) => _delegate.enqueueOfflineAttachment(
     roomId: roomId,
     bytes: bytes,
@@ -258,6 +259,7 @@ class _ScriptedClient implements ChatClient {
     metadata: metadata,
     tempId: tempId,
     clientMessageId: clientMessageId,
+    referencedMessageId: referencedMessageId,
   );
 
   @override
@@ -377,6 +379,40 @@ void main() {
     expect(status.roomCount, 0);
     expect(status.type, 'all');
   });
+
+  test(
+    'a kicked room stubbed from cache keeps the role the listing knew',
+    () async {
+      final cache = MemoryChatLocalDatasource();
+      await cache.markKicked('k1');
+      await cache.saveUnreads(const [
+        UnreadRoom(
+          roomId: 'k1',
+          unreadMessages: 0,
+          userRole: RoomRole.owner,
+          writePolicy: RoomWritePolicy.ownerOnly,
+        ),
+      ]);
+      final withCache = buildEnricher(cache: cache);
+      addTearDown(withCache.dispose);
+      mock.seedRoom(const ChatRoom(id: 'a1', name: 'A room'));
+      client.rooms.networkResult = ChatSuccess(roomsWith(['a1']));
+
+      await withCache.loadAll();
+      await pumpEventQueue();
+
+      final kicked = roomList.rooms.where((r) => r.id == 'k1').single;
+      expect(kicked.isParticipating, isFalse);
+      expect(kicked.writePolicy, RoomWritePolicy.ownerOnly);
+      expect(
+        kicked.userRole,
+        RoomRole.owner,
+        reason:
+            'the stub has no detail, so the role can only come from the '
+            'listing snapshot the policy already comes from',
+      );
+    },
+  );
 
   test(
     'a cache with rooms reports hydrated and how many rows were painted',

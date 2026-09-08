@@ -37,6 +37,11 @@ class RoomMapper {
     userRole: _parseRoomRole(dto.userRole),
     config: RoomConfig(
       allowInvitations: jsonBoolOr(dto.config?['allowInvitations'], false),
+      // Read only from `config.writePolicy` — never from `custom`, which
+      // carries unrelated app-defined flags (e.g. a support room's
+      // `support`/`reportRef`). Missing or unrecognised resolves to
+      // `members` (see RoomWritePolicyWire.fromWire).
+      writePolicy: RoomWritePolicyWire.fromWire(dto.config?['writePolicy']),
     ),
     muted: dto.muted,
     muteUntil: dto.muteUntil != null ? DateTime.tryParse(dto.muteUntil!) : null,
@@ -186,6 +191,13 @@ class RoomMapper {
       pinned: jsonBoolOr(json['pinned'], false),
       hidden: jsonBoolOr(json['hidden'], false),
       selfMuted: jsonBoolOr(json['selfMuted'], false),
+      // Single source for the write policy, in the listing exactly as in the
+      // detail: the room's `config`. Never `custom`, which carries host data.
+      writePolicy: RoomWritePolicyWire.fromWire(
+        (json['config'] is Map<String, dynamic>
+            ? json['config'] as Map<String, dynamic>
+            : const <String, dynamic>{})['writePolicy'],
+      ),
     );
   }
 
