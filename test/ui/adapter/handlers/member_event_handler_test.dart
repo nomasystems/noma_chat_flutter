@@ -21,8 +21,10 @@ void main() {
   late List<String> ensuredUsers;
   late MemberEventHandler handler;
 
-  ChatResult<void> swallow(Object _) =>
-      const ChatFailureResult<void>(UnexpectedFailure('cache mutator threw'));
+  ChatResult<void> Function(Object) swallow({String? op, String? roomId}) =>
+      (Object _) => const ChatFailureResult<void>(
+        UnexpectedFailure('cache mutator threw'),
+      );
 
   setUp(() {
     client = MockChatClient(currentUserId: 'u1');

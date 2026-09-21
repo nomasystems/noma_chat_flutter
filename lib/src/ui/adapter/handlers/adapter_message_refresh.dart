@@ -64,7 +64,12 @@ extension _AdapterMessageRefresh on ChatUiAdapter {
           unawaited(
             cache
                 .deletePendingMessage(roomId, p.message.id)
-                .catchError(_swallowCacheThrow),
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'rehydratePendingMessages',
+                    roomId: roomId,
+                  ),
+                ),
           );
           continue;
         }

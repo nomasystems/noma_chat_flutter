@@ -41,7 +41,12 @@ mixin _AdapterSessionLifecycle on _AdapterCore {
     unawaited(
       _cache
               ?.deletePendingMessage(roomId, tempId)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(
+                  op: 'handleOfflineMessageSent',
+                  roomId: roomId,
+                ),
+              ) ??
           Future.value(),
     );
     _roomListMutator.updateRoomLastMessage(roomId, confirmed);

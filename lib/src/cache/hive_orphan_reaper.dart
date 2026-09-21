@@ -56,10 +56,23 @@ extension _HiveOrphanReaper on HiveChatDatasource {
     final name = _messagesBoxName(roomId);
     final box = await _box(name);
     await _safeWrite('orphanSweep clear', () => box.clear());
-    if (!await _deleteBoxFromDisk(name)) return false;
+    if (!await _deleteBoxFromDisk(name)) {
+      logs?.cache(
+        ChatLogLevel.warn,
+        'Orphan reaper: could not delete message box from disk, retrying '
+        'next launch',
+        fields: {'roomId': roomId},
+      );
+      return false;
+    }
     _msgIdIndex.invalidateRoom(roomId);
     await _deleteBoxFromDisk(_pendingBoxName(roomId));
     await _deleteBoxFromDisk(_reactionsBoxName(roomId));
+    logs?.cache(
+      ChatLogLevel.debug,
+      'Orphan reaper: reclaimed room boxes',
+      fields: {'roomId': roomId},
+    );
     return true;
   }
 

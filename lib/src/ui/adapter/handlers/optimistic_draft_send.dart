@@ -57,7 +57,12 @@ extension _OptimisticDraftSend on OptimisticHandler {
     unawaited(
       cache
               ?.savePendingMessage(draftKey, optimistic, isFailed: true)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(
+                  op: 'sendDraftAsDirectMessage',
+                  roomId: draftKey,
+                ),
+              ) ??
           Future.value(),
     );
 
@@ -123,7 +128,12 @@ extension _OptimisticDraftSend on OptimisticHandler {
       unawaited(
         cache
                 ?.deletePendingMessage(draftKey, tempId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendDraftAsDirectMessage',
+                    roomId: draftKey,
+                  ),
+                ) ??
             Future.value(),
       );
     }
@@ -144,7 +154,9 @@ extension _OptimisticDraftSend on OptimisticHandler {
     unawaited(
       cache
               ?.deletePendingMessage(draftKey, messageId)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'discardDraftPending', roomId: draftKey),
+              ) ??
           Future.value(),
     );
   }

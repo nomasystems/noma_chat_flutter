@@ -68,7 +68,11 @@ class OptimisticHandler {
       String? userId,
     })
     emitOperationSuccess,
-    required ChatResult<void> Function(Object _) swallowCacheThrow,
+    required ChatResult<void> Function(Object) Function({
+      String? op,
+      String? roomId,
+    })
+    swallowCacheThrow,
     required void Function(ChatAnalyticsEvent event) analyticsEmit,
     ChatLogger? logs,
   }) : _currentUser = currentUser,
@@ -81,7 +85,7 @@ class OptimisticHandler {
        _onModerationLock = onModerationLock,
        _emitFailure = emitFailure,
        _emitOperationSuccess = emitOperationSuccess,
-       _swallowCacheThrow = swallowCacheThrow,
+       _cacheThrowHandler = swallowCacheThrow,
        _analyticsEmit = analyticsEmit,
        _logs = logs;
 
@@ -137,7 +141,12 @@ class OptimisticHandler {
     String? userId,
   })
   _emitOperationSuccess;
-  final ChatResult<void> Function(Object _) _swallowCacheThrow;
+
+  /// Builds a cache-write error handler tagged with the call site's
+  /// operation name and, when known, its room id — see
+  /// `chat_ui_adapter.dart`'s `_cacheThrowHandler` for the actual log.
+  final ChatResult<void> Function(Object) Function({String? op, String? roomId})
+  _cacheThrowHandler;
 
   /// See `ChatUiAdapter.emitAnalyticsEvent` — already guards against a
   /// throwing sink, so [sendMessage] calls this directly.
@@ -321,7 +330,9 @@ class OptimisticHandler {
     unawaited(
       cache
               ?.savePendingMessage(effectiveRoomId, optimistic)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'sendMessage', roomId: effectiveRoomId),
+              ) ??
           Future.value(),
     );
 
@@ -399,7 +410,12 @@ class OptimisticHandler {
       unawaited(
         cache
                 ?.deletePendingMessage(effectiveRoomId, tempId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendMessage',
+                    roomId: effectiveRoomId,
+                  ),
+                ) ??
             Future.value(),
       );
       _updateRoomLastMessage(effectiveRoomId, confirmed);
@@ -411,7 +427,12 @@ class OptimisticHandler {
                   optimistic,
                   isFailed: true,
                 )
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendMessage',
+                    roomId: effectiveRoomId,
+                  ),
+                ) ??
             Future.value(),
       );
       // 403 "muted": the user was muted by an admin (possibly while this
@@ -480,16 +501,24 @@ class OptimisticHandler {
     unawaited(
       cache
               ?.deletePendingMessage(roomId, tempId)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'swallowBlockedAsSent', roomId: roomId),
+              ) ??
           Future.value(),
     );
     unawaited(
       client.messages
           .saveLocalMessage(roomId, sent)
-          .catchError(_swallowCacheThrow),
+          .catchError(
+            _cacheThrowHandler(op: 'swallowBlockedAsSent', roomId: roomId),
+          ),
     );
     unawaited(
-      cache?.saveMessages(roomId, [sent]).catchError(_swallowCacheThrow) ??
+      cache
+              ?.saveMessages(roomId, [sent])
+              .catchError(
+                _cacheThrowHandler(op: 'swallowBlockedAsSent', roomId: roomId),
+              ) ??
           Future.value(),
     );
     _updateRoomLastMessage(roomId, sent);
@@ -862,7 +891,9 @@ class OptimisticHandler {
     unawaited(
       cache
               ?.savePendingMessage(roomId, message)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'retrySend', roomId: roomId),
+              ) ??
           Future.value(),
     );
 
@@ -893,7 +924,9 @@ class OptimisticHandler {
       unawaited(
         cache
                 ?.deletePendingMessage(roomId, messageId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(op: 'retrySend', roomId: roomId),
+                ) ??
             Future.value(),
       );
     } else {
@@ -909,7 +942,9 @@ class OptimisticHandler {
       unawaited(
         cache
                 ?.savePendingMessage(roomId, message, isFailed: true)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(op: 'retrySend', roomId: roomId),
+                ) ??
             Future.value(),
       );
     }

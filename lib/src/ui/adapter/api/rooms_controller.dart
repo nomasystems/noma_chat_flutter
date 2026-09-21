@@ -178,20 +178,44 @@ interface class ChatRoomsController {
     final now = DateTime.now().toUtc();
     final clearedResult = await _a.client.messages
         .setLocalClearedAt(roomId, now)
-        .catchError(_swallowCacheThrow);
+        .catchError(
+          _cacheThrowHandler(
+            op: 'deleteRoom.setLocalClearedAt',
+            roomId: roomId,
+          ),
+        );
     final markedResult = await _a.client.rooms
         .markRoomDeleted(roomId)
-        .catchError(_swallowCacheThrow);
+        .catchError(
+          _cacheThrowHandler(op: 'deleteRoom.markRoomDeleted', roomId: roomId),
+        );
     var markerPersisted = markedResult.isSuccess;
     // Persist the cutoff so any prior history stays hidden if the room is
     // re-fetched later (twin of the never-evictable deleted marker).
     if (cache != null) {
-      await cache.setClearedAt(roomId, now).catchError(_swallowCacheThrow);
-      await cache.clearMessages(roomId).catchError(_swallowCacheThrow);
-      await cache.clearPendingMessages(roomId).catchError(_swallowCacheThrow);
+      await cache
+          .setClearedAt(roomId, now)
+          .catchError(
+            _cacheThrowHandler(op: 'deleteRoom.setClearedAt', roomId: roomId),
+          );
+      await cache
+          .clearMessages(roomId)
+          .catchError(
+            _cacheThrowHandler(op: 'deleteRoom.clearMessages', roomId: roomId),
+          );
+      await cache
+          .clearPendingMessages(roomId)
+          .catchError(
+            _cacheThrowHandler(
+              op: 'deleteRoom.clearPendingMessages',
+              roomId: roomId,
+            ),
+          );
       final adapterMarked = await cache
           .addDeletedRoom(roomId)
-          .catchError(_swallowCacheThrow);
+          .catchError(
+            _cacheThrowHandler(op: 'deleteRoom.addDeletedRoom', roomId: roomId),
+          );
       markerPersisted = markerPersisted || adapterMarked.isSuccess;
     }
     // Also clear the open controller's in-memory history so re-opening the
@@ -223,7 +247,11 @@ interface class ChatRoomsController {
       }
       final cache = _a._cache;
       if (cache != null) {
-        await cache.markKicked(roomId).catchError(_swallowCacheThrow);
+        await cache
+            .markKicked(roomId)
+            .catchError(
+              _cacheThrowHandler(op: 'leaveRoom.markKicked', roomId: roomId),
+            );
       }
     }
     return _a._emitFailure(result, OperationKind.leaveRoom, roomId: roomId);

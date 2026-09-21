@@ -15,6 +15,7 @@ import '../models/room.dart';
 import '../_internal/api_factory.dart';
 import '../_internal/cache/cache_config.dart';
 import '../_internal/cache/cache_manager.dart';
+import '../cache/hive_chat_datasource.dart';
 import '../cache/local_datasource.dart';
 import '../_internal/cache/offline_queue.dart';
 import '../_internal/http/chat_exception.dart';
@@ -141,6 +142,7 @@ class NomaChatClient implements ChatClient {
                config: config.cacheConfig!,
                datasource: config.localDatasource,
                onMetric: config.metricCallback,
+               logs: config.logs,
              )
            : null,
        _offlineQueueMaxAttachmentBytes =
@@ -150,11 +152,22 @@ class NomaChatClient implements ChatClient {
        _logger = config.logger,
        _onAuthFailure = config.onAuthFailure {
     onOperationDropped = _markOperationPermanentlyFailed;
+    // A pre-existing datasource (typically `HiveChatDatasource.create()`,
+    // built by the host before this config existed) only gets structured
+    // logging here when the host didn't already wire one of its own — the
+    // migration/box-open logging `create()` runs internally happened
+    // before `config.logs` could reach it either way, but every write from
+    // here on (orphan reclaim, TTL eviction, …) still benefits.
+    final cache = _cache;
+    if (cache is HiveChatDatasource) {
+      cache.logs ??= config.logs;
+    }
     _offlineQueue = config.cacheConfig != null
         ? OfflineQueue(
             maxRetries: config.cacheConfig!.offlineQueueMaxRetries,
             store: config.localDatasource,
             logger: config.logger,
+            logs: config.logs,
             metricCallback: config.metricCallback,
             // Forwards through the field instead of binding
             // `_markOperationPermanentlyFailed` directly so a caller can

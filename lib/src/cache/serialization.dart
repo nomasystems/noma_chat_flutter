@@ -9,6 +9,35 @@ import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
 
+/// Recursively converts a value read back from a `Map<dynamic, dynamic>`
+/// store (Hive decodes every nested map/list this way regardless of what
+/// was written) into plain `Map<String, dynamic>` / `List<dynamic>` shapes.
+///
+/// A shallow `.cast<String, dynamic>()` only retypes the outer map: a map
+/// nested inside it (e.g. `custom['meta']`) still comes back untyped after
+/// that cast, which fails a strict map-type check downstream — or a
+/// host's own cast on a value it read out of `custom`/`metadata` — even
+/// though the outer cast succeeded.
+dynamic _deepCastFreeValue(dynamic value) {
+  if (value is Map) {
+    return value.map(
+      (key, v) => MapEntry(key as String, _deepCastFreeValue(v)),
+    );
+  }
+  if (value is List) {
+    return value.map(_deepCastFreeValue).toList();
+  }
+  return value;
+}
+
+/// Applies [_deepCastFreeValue] to an opaque, host-supplied map (`custom`,
+/// `metadata`, …) read back from the cache. Returns `null` when [value]
+/// isn't a map (including `null` itself).
+Map<String, dynamic>? _deepCastFreeMap(dynamic value) {
+  if (value is! Map) return null;
+  return value.map((key, v) => MapEntry(key as String, _deepCastFreeValue(v)));
+}
+
 /// Serialises [msg] into the shape the cache stores.
 ///
 /// [previous] is the row already held under the same key, when there is
@@ -80,7 +109,7 @@ ChatMessage messageFromMap(
   clientMessageId: map['clientMessageId'] as String?,
   reaction: map['reaction'] as String?,
   reply: map['reply'] as String?,
-  metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+  metadata: _deepCastFreeMap(map['metadata']),
   receipt: _parseReceiptStatus(map['receipt'] as String?, onWarning: onWarning),
   isEdited: map['isEdited'] as bool? ?? false,
   isDeleted: map['isDeleted'] as bool? ?? false,
@@ -135,7 +164,7 @@ ChatRoom roomFromMap(
     members: (map['members'] as List?)?.cast<String>() ?? [],
     publicToken: map['publicToken'] as String?,
     avatarUrl: map['avatarUrl'] as String?,
-    custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+    custom: _deepCastFreeMap(map['custom']),
   );
 }
 
@@ -177,7 +206,7 @@ ChatUser userFromMap(
     email: map['email'] as String?,
     role: role,
     active: map['active'] as bool? ?? true,
-    custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+    custom: _deepCastFreeMap(map['custom']),
     configuration: map['configuration'] != null
         ? _configurationFromMap(
             (map['configuration'] as Map).cast<String, dynamic>(),
@@ -242,7 +271,7 @@ RoomDetail roomDetailFromMap(
         ? DateTime.parse(map['createdAt'] as String)
         : null,
     avatarUrl: map['avatarUrl'] as String?,
-    custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+    custom: _deepCastFreeMap(map['custom']),
   );
 }
 
@@ -363,7 +392,7 @@ UnreadRoom unreadRoomFromMap(
   hidden: map['hidden'] as bool? ?? false,
   selfMuted: map['selfMuted'] as bool? ?? false,
   writePolicy: RoomWritePolicyWire.fromWire(map['writePolicy']),
-  custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+  custom: _deepCastFreeMap(map['custom']),
 );
 
 Map<String, dynamic> invitedRoomToMap(InvitedRoom invited) => {
@@ -435,7 +464,7 @@ UserConfiguration _configurationFromMap(
   Map<String, dynamic> map, {
   void Function(String)? onWarning,
 }) => UserConfiguration(
-  metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+  metadata: _deepCastFreeMap(map['metadata']),
   webhook: map['webhook'] != null
       ? _webhookFromMap(
           (map['webhook'] as Map).cast<String, dynamic>(),

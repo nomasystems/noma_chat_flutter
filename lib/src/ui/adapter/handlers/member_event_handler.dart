@@ -64,7 +64,11 @@ class MemberEventHandler {
     required void Function(String roomId) removeChatController,
     required void Function(String roomId) notifyRoomMembersChanged,
     required bool Function() isDisposed,
-    required ChatResult<void> Function(Object _) swallowCacheThrow,
+    required ChatResult<void> Function(Object) Function({
+      String? op,
+      String? roomId,
+    })
+    swallowCacheThrow,
     this.membershipBannerFilter,
     this.logger,
   }) : _l10n = l10n,
@@ -75,7 +79,7 @@ class MemberEventHandler {
        _removeChatController = removeChatController,
        _notifyRoomMembersChanged = notifyRoomMembersChanged,
        _isDisposed = isDisposed,
-       _swallowCacheThrow = swallowCacheThrow;
+       _cacheThrowHandler = swallowCacheThrow;
 
   final ChatClient client;
   final ChatControllerRegistry chatControllers;
@@ -96,7 +100,12 @@ class MemberEventHandler {
   final void Function(String roomId) _removeChatController;
   final void Function(String roomId) _notifyRoomMembersChanged;
   final bool Function() _isDisposed;
-  final ChatResult<void> Function(Object _) _swallowCacheThrow;
+
+  /// Builds a cache-write error handler tagged with the call site's
+  /// operation name and, when known, its room id — see
+  /// `chat_ui_adapter.dart`'s `_cacheThrowHandler` for the actual log.
+  final ChatResult<void> Function(Object) Function({String? op, String? roomId})
+  _cacheThrowHandler;
 
   /// Opt-in veto over the membership banners minted here.
   ///
@@ -250,7 +259,11 @@ class MemberEventHandler {
     final c = cache;
     if (c != null) {
       unawaited(
-        c.saveMessages(roomId, [systemMsg]).catchError(_swallowCacheThrow),
+        c
+            .saveMessages(roomId, [systemMsg])
+            .catchError(
+              _cacheThrowHandler(op: 'addSystemMessage', roomId: roomId),
+            ),
       );
     }
     _ensureRoomIsListed(roomId);
@@ -302,11 +315,56 @@ class MemberEventHandler {
     _removeChatController(roomId);
     final c = cache;
     if (c != null) {
-      unawaited(c.unmarkKicked(roomId).catchError(_swallowCacheThrow));
-      unawaited(c.deleteRoom(roomId).catchError(_swallowCacheThrow));
-      unawaited(c.deleteRoomDetail(roomId).catchError(_swallowCacheThrow));
-      unawaited(c.clearMessages(roomId).catchError(_swallowCacheThrow));
-      unawaited(c.deleteUnread(roomId).catchError(_swallowCacheThrow));
+      unawaited(
+        c
+            .unmarkKicked(roomId)
+            .catchError(
+              _cacheThrowHandler(
+                op: 'deleteKickedChat.unmarkKicked',
+                roomId: roomId,
+              ),
+            ),
+      );
+      unawaited(
+        c
+            .deleteRoom(roomId)
+            .catchError(
+              _cacheThrowHandler(
+                op: 'deleteKickedChat.deleteRoom',
+                roomId: roomId,
+              ),
+            ),
+      );
+      unawaited(
+        c
+            .deleteRoomDetail(roomId)
+            .catchError(
+              _cacheThrowHandler(
+                op: 'deleteKickedChat.deleteRoomDetail',
+                roomId: roomId,
+              ),
+            ),
+      );
+      unawaited(
+        c
+            .clearMessages(roomId)
+            .catchError(
+              _cacheThrowHandler(
+                op: 'deleteKickedChat.clearMessages',
+                roomId: roomId,
+              ),
+            ),
+      );
+      unawaited(
+        c
+            .deleteUnread(roomId)
+            .catchError(
+              _cacheThrowHandler(
+                op: 'deleteKickedChat.deleteUnread',
+                roomId: roomId,
+              ),
+            ),
+      );
     }
   }
 }
