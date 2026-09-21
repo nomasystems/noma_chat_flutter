@@ -36,7 +36,9 @@ mixin _$ChatRoomListTheme {
  Color? get searchBackgroundColor;/// Style of the search field text.
  TextStyle? get searchTextStyle;/// Style of the section headers ("Chats", "Channels", ...).
  TextStyle? get headerStyle;/// Style of a section header when its tab is selected.
- TextStyle? get headerSelectedStyle;
+ TextStyle? get headerSelectedStyle;/// Max lines painted for the last-message preview (bottom line).
+/// `null` resolves to `1` — the current, unconfigured behavior.
+ int? get previewMaxLines;
 /// Create a copy of ChatRoomListTheme
 /// with the given fields replaced by the non-null parameter values.
 @JsonKey(includeFromJson: false, includeToJson: false)
@@ -47,16 +49,16 @@ $ChatRoomListThemeCopyWith<ChatRoomListTheme> get copyWith => _$ChatRoomListThem
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChatRoomListTheme&&(identical(other.tileBackgroundColor, tileBackgroundColor) || other.tileBackgroundColor == tileBackgroundColor)&&(identical(other.tileSelectedColor, tileSelectedColor) || other.tileSelectedColor == tileSelectedColor)&&(identical(other.nameStyle, nameStyle) || other.nameStyle == nameStyle)&&(identical(other.previewStyle, previewStyle) || other.previewStyle == previewStyle)&&(identical(other.previewUnreadStyle, previewUnreadStyle) || other.previewUnreadStyle == previewUnreadStyle)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.timestampUnreadStyle, timestampUnreadStyle) || other.timestampUnreadStyle == timestampUnreadStyle)&&(identical(other.unreadBadgeColor, unreadBadgeColor) || other.unreadBadgeColor == unreadBadgeColor)&&(identical(other.unreadBadgeTextStyle, unreadBadgeTextStyle) || other.unreadBadgeTextStyle == unreadBadgeTextStyle)&&(identical(other.mutedIconColor, mutedIconColor) || other.mutedIconColor == mutedIconColor)&&(identical(other.pinnedIconColor, pinnedIconColor) || other.pinnedIconColor == pinnedIconColor)&&(identical(other.suggestionsTitleStyle, suggestionsTitleStyle) || other.suggestionsTitleStyle == suggestionsTitleStyle)&&(identical(other.suggestionsNameStyle, suggestionsNameStyle) || other.suggestionsNameStyle == suggestionsNameStyle)&&(identical(other.searchBackgroundColor, searchBackgroundColor) || other.searchBackgroundColor == searchBackgroundColor)&&(identical(other.searchTextStyle, searchTextStyle) || other.searchTextStyle == searchTextStyle)&&(identical(other.headerStyle, headerStyle) || other.headerStyle == headerStyle)&&(identical(other.headerSelectedStyle, headerSelectedStyle) || other.headerSelectedStyle == headerSelectedStyle));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is ChatRoomListTheme&&(identical(other.tileBackgroundColor, tileBackgroundColor) || other.tileBackgroundColor == tileBackgroundColor)&&(identical(other.tileSelectedColor, tileSelectedColor) || other.tileSelectedColor == tileSelectedColor)&&(identical(other.nameStyle, nameStyle) || other.nameStyle == nameStyle)&&(identical(other.previewStyle, previewStyle) || other.previewStyle == previewStyle)&&(identical(other.previewUnreadStyle, previewUnreadStyle) || other.previewUnreadStyle == previewUnreadStyle)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.timestampUnreadStyle, timestampUnreadStyle) || other.timestampUnreadStyle == timestampUnreadStyle)&&(identical(other.unreadBadgeColor, unreadBadgeColor) || other.unreadBadgeColor == unreadBadgeColor)&&(identical(other.unreadBadgeTextStyle, unreadBadgeTextStyle) || other.unreadBadgeTextStyle == unreadBadgeTextStyle)&&(identical(other.mutedIconColor, mutedIconColor) || other.mutedIconColor == mutedIconColor)&&(identical(other.pinnedIconColor, pinnedIconColor) || other.pinnedIconColor == pinnedIconColor)&&(identical(other.suggestionsTitleStyle, suggestionsTitleStyle) || other.suggestionsTitleStyle == suggestionsTitleStyle)&&(identical(other.suggestionsNameStyle, suggestionsNameStyle) || other.suggestionsNameStyle == suggestionsNameStyle)&&(identical(other.searchBackgroundColor, searchBackgroundColor) || other.searchBackgroundColor == searchBackgroundColor)&&(identical(other.searchTextStyle, searchTextStyle) || other.searchTextStyle == searchTextStyle)&&(identical(other.headerStyle, headerStyle) || other.headerStyle == headerStyle)&&(identical(other.headerSelectedStyle, headerSelectedStyle) || other.headerSelectedStyle == headerSelectedStyle)&&(identical(other.previewMaxLines, previewMaxLines) || other.previewMaxLines == previewMaxLines));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,tileBackgroundColor,tileSelectedColor,nameStyle,previewStyle,previewUnreadStyle,timestampStyle,timestampUnreadStyle,unreadBadgeColor,unreadBadgeTextStyle,mutedIconColor,pinnedIconColor,suggestionsTitleStyle,suggestionsNameStyle,searchBackgroundColor,searchTextStyle,headerStyle,headerSelectedStyle);
+int get hashCode => Object.hash(runtimeType,tileBackgroundColor,tileSelectedColor,nameStyle,previewStyle,previewUnreadStyle,timestampStyle,timestampUnreadStyle,unreadBadgeColor,unreadBadgeTextStyle,mutedIconColor,pinnedIconColor,suggestionsTitleStyle,suggestionsNameStyle,searchBackgroundColor,searchTextStyle,headerStyle,headerSelectedStyle,previewMaxLines);
 
 @override
 String toString() {
-  return 'ChatRoomListTheme(tileBackgroundColor: $tileBackgroundColor, tileSelectedColor: $tileSelectedColor, nameStyle: $nameStyle, previewStyle: $previewStyle, previewUnreadStyle: $previewUnreadStyle, timestampStyle: $timestampStyle, timestampUnreadStyle: $timestampUnreadStyle, unreadBadgeColor: $unreadBadgeColor, unreadBadgeTextStyle: $unreadBadgeTextStyle, mutedIconColor: $mutedIconColor, pinnedIconColor: $pinnedIconColor, suggestionsTitleStyle: $suggestionsTitleStyle, suggestionsNameStyle: $suggestionsNameStyle, searchBackgroundColor: $searchBackgroundColor, searchTextStyle: $searchTextStyle, headerStyle: $headerStyle, headerSelectedStyle: $headerSelectedStyle)';
+  return 'ChatRoomListTheme(tileBackgroundColor: $tileBackgroundColor, tileSelectedColor: $tileSelectedColor, nameStyle: $nameStyle, previewStyle: $previewStyle, previewUnreadStyle: $previewUnreadStyle, timestampStyle: $timestampStyle, timestampUnreadStyle: $timestampUnreadStyle, unreadBadgeColor: $unreadBadgeColor, unreadBadgeTextStyle: $unreadBadgeTextStyle, mutedIconColor: $mutedIconColor, pinnedIconColor: $pinnedIconColor, suggestionsTitleStyle: $suggestionsTitleStyle, suggestionsNameStyle: $suggestionsNameStyle, searchBackgroundColor: $searchBackgroundColor, searchTextStyle: $searchTextStyle, headerStyle: $headerStyle, headerSelectedStyle: $headerSelectedStyle, previewMaxLines: $previewMaxLines)';
 }
 
 
@@ -67,7 +69,7 @@ abstract mixin class $ChatRoomListThemeCopyWith<$Res>  {
   factory $ChatRoomListThemeCopyWith(ChatRoomListTheme value, $Res Function(ChatRoomListTheme) _then) = _$ChatRoomListThemeCopyWithImpl;
 @useResult
 $Res call({
- Color? tileBackgroundColor, Color? tileSelectedColor, TextStyle? nameStyle, TextStyle? previewStyle, TextStyle? previewUnreadStyle, TextStyle? timestampStyle, TextStyle? timestampUnreadStyle, Color? unreadBadgeColor, TextStyle? unreadBadgeTextStyle, Color? mutedIconColor, Color? pinnedIconColor, TextStyle? suggestionsTitleStyle, TextStyle? suggestionsNameStyle, Color? searchBackgroundColor, TextStyle? searchTextStyle, TextStyle? headerStyle, TextStyle? headerSelectedStyle
+ Color? tileBackgroundColor, Color? tileSelectedColor, TextStyle? nameStyle, TextStyle? previewStyle, TextStyle? previewUnreadStyle, TextStyle? timestampStyle, TextStyle? timestampUnreadStyle, Color? unreadBadgeColor, TextStyle? unreadBadgeTextStyle, Color? mutedIconColor, Color? pinnedIconColor, TextStyle? suggestionsTitleStyle, TextStyle? suggestionsNameStyle, Color? searchBackgroundColor, TextStyle? searchTextStyle, TextStyle? headerStyle, TextStyle? headerSelectedStyle, int? previewMaxLines
 });
 
 
@@ -84,7 +86,7 @@ class _$ChatRoomListThemeCopyWithImpl<$Res>
 
 /// Create a copy of ChatRoomListTheme
 /// with the given fields replaced by the non-null parameter values.
-@pragma('vm:prefer-inline') @override $Res call({Object? tileBackgroundColor = freezed,Object? tileSelectedColor = freezed,Object? nameStyle = freezed,Object? previewStyle = freezed,Object? previewUnreadStyle = freezed,Object? timestampStyle = freezed,Object? timestampUnreadStyle = freezed,Object? unreadBadgeColor = freezed,Object? unreadBadgeTextStyle = freezed,Object? mutedIconColor = freezed,Object? pinnedIconColor = freezed,Object? suggestionsTitleStyle = freezed,Object? suggestionsNameStyle = freezed,Object? searchBackgroundColor = freezed,Object? searchTextStyle = freezed,Object? headerStyle = freezed,Object? headerSelectedStyle = freezed,}) {
+@pragma('vm:prefer-inline') @override $Res call({Object? tileBackgroundColor = freezed,Object? tileSelectedColor = freezed,Object? nameStyle = freezed,Object? previewStyle = freezed,Object? previewUnreadStyle = freezed,Object? timestampStyle = freezed,Object? timestampUnreadStyle = freezed,Object? unreadBadgeColor = freezed,Object? unreadBadgeTextStyle = freezed,Object? mutedIconColor = freezed,Object? pinnedIconColor = freezed,Object? suggestionsTitleStyle = freezed,Object? suggestionsNameStyle = freezed,Object? searchBackgroundColor = freezed,Object? searchTextStyle = freezed,Object? headerStyle = freezed,Object? headerSelectedStyle = freezed,Object? previewMaxLines = freezed,}) {
   return _then(_self.copyWith(
 tileBackgroundColor: freezed == tileBackgroundColor ? _self.tileBackgroundColor : tileBackgroundColor // ignore: cast_nullable_to_non_nullable
 as Color?,tileSelectedColor: freezed == tileSelectedColor ? _self.tileSelectedColor : tileSelectedColor // ignore: cast_nullable_to_non_nullable
@@ -103,7 +105,8 @@ as TextStyle?,searchBackgroundColor: freezed == searchBackgroundColor ? _self.se
 as Color?,searchTextStyle: freezed == searchTextStyle ? _self.searchTextStyle : searchTextStyle // ignore: cast_nullable_to_non_nullable
 as TextStyle?,headerStyle: freezed == headerStyle ? _self.headerStyle : headerStyle // ignore: cast_nullable_to_non_nullable
 as TextStyle?,headerSelectedStyle: freezed == headerSelectedStyle ? _self.headerSelectedStyle : headerSelectedStyle // ignore: cast_nullable_to_non_nullable
-as TextStyle?,
+as TextStyle?,previewMaxLines: freezed == previewMaxLines ? _self.previewMaxLines : previewMaxLines // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 
@@ -188,10 +191,10 @@ return $default(_that);case _:
 /// }
 /// ```
 
-@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( Color? tileBackgroundColor,  Color? tileSelectedColor,  TextStyle? nameStyle,  TextStyle? previewStyle,  TextStyle? previewUnreadStyle,  TextStyle? timestampStyle,  TextStyle? timestampUnreadStyle,  Color? unreadBadgeColor,  TextStyle? unreadBadgeTextStyle,  Color? mutedIconColor,  Color? pinnedIconColor,  TextStyle? suggestionsTitleStyle,  TextStyle? suggestionsNameStyle,  Color? searchBackgroundColor,  TextStyle? searchTextStyle,  TextStyle? headerStyle,  TextStyle? headerSelectedStyle)?  $default,{required TResult orElse(),}) {final _that = this;
+@optionalTypeArgs TResult maybeWhen<TResult extends Object?>(TResult Function( Color? tileBackgroundColor,  Color? tileSelectedColor,  TextStyle? nameStyle,  TextStyle? previewStyle,  TextStyle? previewUnreadStyle,  TextStyle? timestampStyle,  TextStyle? timestampUnreadStyle,  Color? unreadBadgeColor,  TextStyle? unreadBadgeTextStyle,  Color? mutedIconColor,  Color? pinnedIconColor,  TextStyle? suggestionsTitleStyle,  TextStyle? suggestionsNameStyle,  Color? searchBackgroundColor,  TextStyle? searchTextStyle,  TextStyle? headerStyle,  TextStyle? headerSelectedStyle,  int? previewMaxLines)?  $default,{required TResult orElse(),}) {final _that = this;
 switch (_that) {
 case _ChatRoomListTheme() when $default != null:
-return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyle,_that.previewStyle,_that.previewUnreadStyle,_that.timestampStyle,_that.timestampUnreadStyle,_that.unreadBadgeColor,_that.unreadBadgeTextStyle,_that.mutedIconColor,_that.pinnedIconColor,_that.suggestionsTitleStyle,_that.suggestionsNameStyle,_that.searchBackgroundColor,_that.searchTextStyle,_that.headerStyle,_that.headerSelectedStyle);case _:
+return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyle,_that.previewStyle,_that.previewUnreadStyle,_that.timestampStyle,_that.timestampUnreadStyle,_that.unreadBadgeColor,_that.unreadBadgeTextStyle,_that.mutedIconColor,_that.pinnedIconColor,_that.suggestionsTitleStyle,_that.suggestionsNameStyle,_that.searchBackgroundColor,_that.searchTextStyle,_that.headerStyle,_that.headerSelectedStyle,_that.previewMaxLines);case _:
   return orElse();
 
 }
@@ -209,10 +212,10 @@ return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyl
 /// }
 /// ```
 
-@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( Color? tileBackgroundColor,  Color? tileSelectedColor,  TextStyle? nameStyle,  TextStyle? previewStyle,  TextStyle? previewUnreadStyle,  TextStyle? timestampStyle,  TextStyle? timestampUnreadStyle,  Color? unreadBadgeColor,  TextStyle? unreadBadgeTextStyle,  Color? mutedIconColor,  Color? pinnedIconColor,  TextStyle? suggestionsTitleStyle,  TextStyle? suggestionsNameStyle,  Color? searchBackgroundColor,  TextStyle? searchTextStyle,  TextStyle? headerStyle,  TextStyle? headerSelectedStyle)  $default,) {final _that = this;
+@optionalTypeArgs TResult when<TResult extends Object?>(TResult Function( Color? tileBackgroundColor,  Color? tileSelectedColor,  TextStyle? nameStyle,  TextStyle? previewStyle,  TextStyle? previewUnreadStyle,  TextStyle? timestampStyle,  TextStyle? timestampUnreadStyle,  Color? unreadBadgeColor,  TextStyle? unreadBadgeTextStyle,  Color? mutedIconColor,  Color? pinnedIconColor,  TextStyle? suggestionsTitleStyle,  TextStyle? suggestionsNameStyle,  Color? searchBackgroundColor,  TextStyle? searchTextStyle,  TextStyle? headerStyle,  TextStyle? headerSelectedStyle,  int? previewMaxLines)  $default,) {final _that = this;
 switch (_that) {
 case _ChatRoomListTheme():
-return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyle,_that.previewStyle,_that.previewUnreadStyle,_that.timestampStyle,_that.timestampUnreadStyle,_that.unreadBadgeColor,_that.unreadBadgeTextStyle,_that.mutedIconColor,_that.pinnedIconColor,_that.suggestionsTitleStyle,_that.suggestionsNameStyle,_that.searchBackgroundColor,_that.searchTextStyle,_that.headerStyle,_that.headerSelectedStyle);case _:
+return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyle,_that.previewStyle,_that.previewUnreadStyle,_that.timestampStyle,_that.timestampUnreadStyle,_that.unreadBadgeColor,_that.unreadBadgeTextStyle,_that.mutedIconColor,_that.pinnedIconColor,_that.suggestionsTitleStyle,_that.suggestionsNameStyle,_that.searchBackgroundColor,_that.searchTextStyle,_that.headerStyle,_that.headerSelectedStyle,_that.previewMaxLines);case _:
   throw StateError('Unexpected subclass');
 
 }
@@ -229,10 +232,10 @@ return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyl
 /// }
 /// ```
 
-@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( Color? tileBackgroundColor,  Color? tileSelectedColor,  TextStyle? nameStyle,  TextStyle? previewStyle,  TextStyle? previewUnreadStyle,  TextStyle? timestampStyle,  TextStyle? timestampUnreadStyle,  Color? unreadBadgeColor,  TextStyle? unreadBadgeTextStyle,  Color? mutedIconColor,  Color? pinnedIconColor,  TextStyle? suggestionsTitleStyle,  TextStyle? suggestionsNameStyle,  Color? searchBackgroundColor,  TextStyle? searchTextStyle,  TextStyle? headerStyle,  TextStyle? headerSelectedStyle)?  $default,) {final _that = this;
+@optionalTypeArgs TResult? whenOrNull<TResult extends Object?>(TResult? Function( Color? tileBackgroundColor,  Color? tileSelectedColor,  TextStyle? nameStyle,  TextStyle? previewStyle,  TextStyle? previewUnreadStyle,  TextStyle? timestampStyle,  TextStyle? timestampUnreadStyle,  Color? unreadBadgeColor,  TextStyle? unreadBadgeTextStyle,  Color? mutedIconColor,  Color? pinnedIconColor,  TextStyle? suggestionsTitleStyle,  TextStyle? suggestionsNameStyle,  Color? searchBackgroundColor,  TextStyle? searchTextStyle,  TextStyle? headerStyle,  TextStyle? headerSelectedStyle,  int? previewMaxLines)?  $default,) {final _that = this;
 switch (_that) {
 case _ChatRoomListTheme() when $default != null:
-return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyle,_that.previewStyle,_that.previewUnreadStyle,_that.timestampStyle,_that.timestampUnreadStyle,_that.unreadBadgeColor,_that.unreadBadgeTextStyle,_that.mutedIconColor,_that.pinnedIconColor,_that.suggestionsTitleStyle,_that.suggestionsNameStyle,_that.searchBackgroundColor,_that.searchTextStyle,_that.headerStyle,_that.headerSelectedStyle);case _:
+return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyle,_that.previewStyle,_that.previewUnreadStyle,_that.timestampStyle,_that.timestampUnreadStyle,_that.unreadBadgeColor,_that.unreadBadgeTextStyle,_that.mutedIconColor,_that.pinnedIconColor,_that.suggestionsTitleStyle,_that.suggestionsNameStyle,_that.searchBackgroundColor,_that.searchTextStyle,_that.headerStyle,_that.headerSelectedStyle,_that.previewMaxLines);case _:
   return null;
 
 }
@@ -244,7 +247,7 @@ return $default(_that.tileBackgroundColor,_that.tileSelectedColor,_that.nameStyl
 
 
 class _ChatRoomListTheme implements ChatRoomListTheme {
-  const _ChatRoomListTheme({this.tileBackgroundColor, this.tileSelectedColor, this.nameStyle, this.previewStyle, this.previewUnreadStyle, this.timestampStyle, this.timestampUnreadStyle, this.unreadBadgeColor, this.unreadBadgeTextStyle, this.mutedIconColor, this.pinnedIconColor, this.suggestionsTitleStyle, this.suggestionsNameStyle, this.searchBackgroundColor, this.searchTextStyle, this.headerStyle, this.headerSelectedStyle});
+  const _ChatRoomListTheme({this.tileBackgroundColor, this.tileSelectedColor, this.nameStyle, this.previewStyle, this.previewUnreadStyle, this.timestampStyle, this.timestampUnreadStyle, this.unreadBadgeColor, this.unreadBadgeTextStyle, this.mutedIconColor, this.pinnedIconColor, this.suggestionsTitleStyle, this.suggestionsNameStyle, this.searchBackgroundColor, this.searchTextStyle, this.headerStyle, this.headerSelectedStyle, this.previewMaxLines});
   
 
 /// Background of an idle room tile.
@@ -286,6 +289,9 @@ class _ChatRoomListTheme implements ChatRoomListTheme {
 @override final  TextStyle? headerStyle;
 /// Style of a section header when its tab is selected.
 @override final  TextStyle? headerSelectedStyle;
+/// Max lines painted for the last-message preview (bottom line).
+/// `null` resolves to `1` — the current, unconfigured behavior.
+@override final  int? previewMaxLines;
 
 /// Create a copy of ChatRoomListTheme
 /// with the given fields replaced by the non-null parameter values.
@@ -297,16 +303,16 @@ _$ChatRoomListThemeCopyWith<_ChatRoomListTheme> get copyWith => __$ChatRoomListT
 
 @override
 bool operator ==(Object other) {
-  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChatRoomListTheme&&(identical(other.tileBackgroundColor, tileBackgroundColor) || other.tileBackgroundColor == tileBackgroundColor)&&(identical(other.tileSelectedColor, tileSelectedColor) || other.tileSelectedColor == tileSelectedColor)&&(identical(other.nameStyle, nameStyle) || other.nameStyle == nameStyle)&&(identical(other.previewStyle, previewStyle) || other.previewStyle == previewStyle)&&(identical(other.previewUnreadStyle, previewUnreadStyle) || other.previewUnreadStyle == previewUnreadStyle)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.timestampUnreadStyle, timestampUnreadStyle) || other.timestampUnreadStyle == timestampUnreadStyle)&&(identical(other.unreadBadgeColor, unreadBadgeColor) || other.unreadBadgeColor == unreadBadgeColor)&&(identical(other.unreadBadgeTextStyle, unreadBadgeTextStyle) || other.unreadBadgeTextStyle == unreadBadgeTextStyle)&&(identical(other.mutedIconColor, mutedIconColor) || other.mutedIconColor == mutedIconColor)&&(identical(other.pinnedIconColor, pinnedIconColor) || other.pinnedIconColor == pinnedIconColor)&&(identical(other.suggestionsTitleStyle, suggestionsTitleStyle) || other.suggestionsTitleStyle == suggestionsTitleStyle)&&(identical(other.suggestionsNameStyle, suggestionsNameStyle) || other.suggestionsNameStyle == suggestionsNameStyle)&&(identical(other.searchBackgroundColor, searchBackgroundColor) || other.searchBackgroundColor == searchBackgroundColor)&&(identical(other.searchTextStyle, searchTextStyle) || other.searchTextStyle == searchTextStyle)&&(identical(other.headerStyle, headerStyle) || other.headerStyle == headerStyle)&&(identical(other.headerSelectedStyle, headerSelectedStyle) || other.headerSelectedStyle == headerSelectedStyle));
+  return identical(this, other) || (other.runtimeType == runtimeType&&other is _ChatRoomListTheme&&(identical(other.tileBackgroundColor, tileBackgroundColor) || other.tileBackgroundColor == tileBackgroundColor)&&(identical(other.tileSelectedColor, tileSelectedColor) || other.tileSelectedColor == tileSelectedColor)&&(identical(other.nameStyle, nameStyle) || other.nameStyle == nameStyle)&&(identical(other.previewStyle, previewStyle) || other.previewStyle == previewStyle)&&(identical(other.previewUnreadStyle, previewUnreadStyle) || other.previewUnreadStyle == previewUnreadStyle)&&(identical(other.timestampStyle, timestampStyle) || other.timestampStyle == timestampStyle)&&(identical(other.timestampUnreadStyle, timestampUnreadStyle) || other.timestampUnreadStyle == timestampUnreadStyle)&&(identical(other.unreadBadgeColor, unreadBadgeColor) || other.unreadBadgeColor == unreadBadgeColor)&&(identical(other.unreadBadgeTextStyle, unreadBadgeTextStyle) || other.unreadBadgeTextStyle == unreadBadgeTextStyle)&&(identical(other.mutedIconColor, mutedIconColor) || other.mutedIconColor == mutedIconColor)&&(identical(other.pinnedIconColor, pinnedIconColor) || other.pinnedIconColor == pinnedIconColor)&&(identical(other.suggestionsTitleStyle, suggestionsTitleStyle) || other.suggestionsTitleStyle == suggestionsTitleStyle)&&(identical(other.suggestionsNameStyle, suggestionsNameStyle) || other.suggestionsNameStyle == suggestionsNameStyle)&&(identical(other.searchBackgroundColor, searchBackgroundColor) || other.searchBackgroundColor == searchBackgroundColor)&&(identical(other.searchTextStyle, searchTextStyle) || other.searchTextStyle == searchTextStyle)&&(identical(other.headerStyle, headerStyle) || other.headerStyle == headerStyle)&&(identical(other.headerSelectedStyle, headerSelectedStyle) || other.headerSelectedStyle == headerSelectedStyle)&&(identical(other.previewMaxLines, previewMaxLines) || other.previewMaxLines == previewMaxLines));
 }
 
 
 @override
-int get hashCode => Object.hash(runtimeType,tileBackgroundColor,tileSelectedColor,nameStyle,previewStyle,previewUnreadStyle,timestampStyle,timestampUnreadStyle,unreadBadgeColor,unreadBadgeTextStyle,mutedIconColor,pinnedIconColor,suggestionsTitleStyle,suggestionsNameStyle,searchBackgroundColor,searchTextStyle,headerStyle,headerSelectedStyle);
+int get hashCode => Object.hash(runtimeType,tileBackgroundColor,tileSelectedColor,nameStyle,previewStyle,previewUnreadStyle,timestampStyle,timestampUnreadStyle,unreadBadgeColor,unreadBadgeTextStyle,mutedIconColor,pinnedIconColor,suggestionsTitleStyle,suggestionsNameStyle,searchBackgroundColor,searchTextStyle,headerStyle,headerSelectedStyle,previewMaxLines);
 
 @override
 String toString() {
-  return 'ChatRoomListTheme(tileBackgroundColor: $tileBackgroundColor, tileSelectedColor: $tileSelectedColor, nameStyle: $nameStyle, previewStyle: $previewStyle, previewUnreadStyle: $previewUnreadStyle, timestampStyle: $timestampStyle, timestampUnreadStyle: $timestampUnreadStyle, unreadBadgeColor: $unreadBadgeColor, unreadBadgeTextStyle: $unreadBadgeTextStyle, mutedIconColor: $mutedIconColor, pinnedIconColor: $pinnedIconColor, suggestionsTitleStyle: $suggestionsTitleStyle, suggestionsNameStyle: $suggestionsNameStyle, searchBackgroundColor: $searchBackgroundColor, searchTextStyle: $searchTextStyle, headerStyle: $headerStyle, headerSelectedStyle: $headerSelectedStyle)';
+  return 'ChatRoomListTheme(tileBackgroundColor: $tileBackgroundColor, tileSelectedColor: $tileSelectedColor, nameStyle: $nameStyle, previewStyle: $previewStyle, previewUnreadStyle: $previewUnreadStyle, timestampStyle: $timestampStyle, timestampUnreadStyle: $timestampUnreadStyle, unreadBadgeColor: $unreadBadgeColor, unreadBadgeTextStyle: $unreadBadgeTextStyle, mutedIconColor: $mutedIconColor, pinnedIconColor: $pinnedIconColor, suggestionsTitleStyle: $suggestionsTitleStyle, suggestionsNameStyle: $suggestionsNameStyle, searchBackgroundColor: $searchBackgroundColor, searchTextStyle: $searchTextStyle, headerStyle: $headerStyle, headerSelectedStyle: $headerSelectedStyle, previewMaxLines: $previewMaxLines)';
 }
 
 
@@ -317,7 +323,7 @@ abstract mixin class _$ChatRoomListThemeCopyWith<$Res> implements $ChatRoomListT
   factory _$ChatRoomListThemeCopyWith(_ChatRoomListTheme value, $Res Function(_ChatRoomListTheme) _then) = __$ChatRoomListThemeCopyWithImpl;
 @override @useResult
 $Res call({
- Color? tileBackgroundColor, Color? tileSelectedColor, TextStyle? nameStyle, TextStyle? previewStyle, TextStyle? previewUnreadStyle, TextStyle? timestampStyle, TextStyle? timestampUnreadStyle, Color? unreadBadgeColor, TextStyle? unreadBadgeTextStyle, Color? mutedIconColor, Color? pinnedIconColor, TextStyle? suggestionsTitleStyle, TextStyle? suggestionsNameStyle, Color? searchBackgroundColor, TextStyle? searchTextStyle, TextStyle? headerStyle, TextStyle? headerSelectedStyle
+ Color? tileBackgroundColor, Color? tileSelectedColor, TextStyle? nameStyle, TextStyle? previewStyle, TextStyle? previewUnreadStyle, TextStyle? timestampStyle, TextStyle? timestampUnreadStyle, Color? unreadBadgeColor, TextStyle? unreadBadgeTextStyle, Color? mutedIconColor, Color? pinnedIconColor, TextStyle? suggestionsTitleStyle, TextStyle? suggestionsNameStyle, Color? searchBackgroundColor, TextStyle? searchTextStyle, TextStyle? headerStyle, TextStyle? headerSelectedStyle, int? previewMaxLines
 });
 
 
@@ -334,7 +340,7 @@ class __$ChatRoomListThemeCopyWithImpl<$Res>
 
 /// Create a copy of ChatRoomListTheme
 /// with the given fields replaced by the non-null parameter values.
-@override @pragma('vm:prefer-inline') $Res call({Object? tileBackgroundColor = freezed,Object? tileSelectedColor = freezed,Object? nameStyle = freezed,Object? previewStyle = freezed,Object? previewUnreadStyle = freezed,Object? timestampStyle = freezed,Object? timestampUnreadStyle = freezed,Object? unreadBadgeColor = freezed,Object? unreadBadgeTextStyle = freezed,Object? mutedIconColor = freezed,Object? pinnedIconColor = freezed,Object? suggestionsTitleStyle = freezed,Object? suggestionsNameStyle = freezed,Object? searchBackgroundColor = freezed,Object? searchTextStyle = freezed,Object? headerStyle = freezed,Object? headerSelectedStyle = freezed,}) {
+@override @pragma('vm:prefer-inline') $Res call({Object? tileBackgroundColor = freezed,Object? tileSelectedColor = freezed,Object? nameStyle = freezed,Object? previewStyle = freezed,Object? previewUnreadStyle = freezed,Object? timestampStyle = freezed,Object? timestampUnreadStyle = freezed,Object? unreadBadgeColor = freezed,Object? unreadBadgeTextStyle = freezed,Object? mutedIconColor = freezed,Object? pinnedIconColor = freezed,Object? suggestionsTitleStyle = freezed,Object? suggestionsNameStyle = freezed,Object? searchBackgroundColor = freezed,Object? searchTextStyle = freezed,Object? headerStyle = freezed,Object? headerSelectedStyle = freezed,Object? previewMaxLines = freezed,}) {
   return _then(_ChatRoomListTheme(
 tileBackgroundColor: freezed == tileBackgroundColor ? _self.tileBackgroundColor : tileBackgroundColor // ignore: cast_nullable_to_non_nullable
 as Color?,tileSelectedColor: freezed == tileSelectedColor ? _self.tileSelectedColor : tileSelectedColor // ignore: cast_nullable_to_non_nullable
@@ -353,7 +359,8 @@ as TextStyle?,searchBackgroundColor: freezed == searchBackgroundColor ? _self.se
 as Color?,searchTextStyle: freezed == searchTextStyle ? _self.searchTextStyle : searchTextStyle // ignore: cast_nullable_to_non_nullable
 as TextStyle?,headerStyle: freezed == headerStyle ? _self.headerStyle : headerStyle // ignore: cast_nullable_to_non_nullable
 as TextStyle?,headerSelectedStyle: freezed == headerSelectedStyle ? _self.headerSelectedStyle : headerSelectedStyle // ignore: cast_nullable_to_non_nullable
-as TextStyle?,
+as TextStyle?,previewMaxLines: freezed == previewMaxLines ? _self.previewMaxLines : previewMaxLines // ignore: cast_nullable_to_non_nullable
+as int?,
   ));
 }
 

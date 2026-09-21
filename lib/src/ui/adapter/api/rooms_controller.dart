@@ -429,6 +429,13 @@ interface class ChatRoomsController {
   /// found"), or [NetworkFailure] / [TimeoutFailure] (transient — retry,
   /// don't tell the user the chat is gone).
   ///
+  /// While the client is `disconnected` a room the device already has on
+  /// disk is served from there instead of failing: a push opened with no
+  /// connection lands on the conversation instead of an error. As soon as
+  /// the client is (or might be) online the detail always comes from the
+  /// server, so a room the user has meanwhile been removed from, renamed
+  /// or reconfigured is never served stale.
+  ///
   /// Pass `fetchIfMissing: false` to restrict the lookup to what's already
   /// in the room list (returns [NotFoundFailure] instead of hitting the
   /// network) — e.g. for a caller that wants to distinguish "known room" UI
@@ -448,11 +455,21 @@ interface class ChatRoomsController {
     // fresh REST round-trip is very unlikely to fare any better. Only
     // `disconnected` counts as "known offline" — `connecting` /
     // `reconnecting` / `authenticating` are still actively trying and a
-    // REST call can succeed independently of the WS state.
+    // REST call can succeed independently of the WS state. Disk is the one
+    // thing still worth asking: a detail cached earlier lands the user on
+    // the conversation instead of an error.
     if (_a.connectionState == ChatConnectionState.disconnected) {
-      return const ChatFailureResult<ChatController>(
-        NetworkFailure('Offline: room not fetched'),
+      final cached = await _a.client.rooms.get(
+        roomId,
+        cachePolicy: CachePolicy.cacheOnly,
       );
+      if (cached.isFailure) {
+        return const ChatFailureResult<ChatController>(
+          NetworkFailure('Offline: room not fetched'),
+        );
+      }
+      _a._enricher.applyFetchedDetail(roomId, cached.dataOrThrow);
+      return ChatSuccess(_a.getChatController(roomId));
     }
     final result = await _a.client.rooms.get(
       roomId,

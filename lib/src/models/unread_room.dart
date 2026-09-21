@@ -75,5 +75,13 @@ abstract class UnreadRoom with _$UnreadRoom {
     /// A backend that does not emit the field leaves it at
     /// [RoomWritePolicy.members].
     @Default(RoomWritePolicy.members) RoomWritePolicy writePolicy,
+
+    /// Host-defined data mirrored from the room's `custom` map (e.g. a
+    /// support room's `support` flag), as the listing projection reports
+    /// it. Lets the list act on a host flag without waiting for a per-room
+    /// detail fetch, and keeps it across a cold start from cache. A backend
+    /// that does not emit the field leaves it `null`, and enrichment then
+    /// degrades to the room detail and to whatever is already painted.
+    Map<String, dynamic>? custom,
   }) = _UnreadRoom;
 }

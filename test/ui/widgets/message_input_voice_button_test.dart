@@ -140,7 +140,7 @@ void main() {
         expect(find.byType(VoiceRecorderButton), findsOneWidget);
         expect(tester.takeException(), isNull);
 
-        await gesture.up();
+        await gesture.up(timeStamp: const Duration(milliseconds: 300));
         await tester.pump(const Duration(milliseconds: 60));
 
         expect(find.byType(VoiceRecorderButton), findsOneWidget);
@@ -169,7 +169,7 @@ void main() {
       expect(find.byType(TextField), findsNothing);
       expect(find.byType(VoiceRecorderButton), findsOneWidget);
 
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 300));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -202,7 +202,7 @@ void main() {
       expect(find.byType(VoiceRecorderButton), findsNothing);
       expect(find.byType(CompositedTransformTarget), findsNothing);
 
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
     });
 
@@ -309,7 +309,7 @@ void main() {
       expect(fake.startCalls, 1);
       expect(find.byType(TextField), findsNothing);
 
-      await allowed.up();
+      await allowed.up(timeStamp: const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
     });
@@ -325,7 +325,7 @@ void main() {
 
       expect(fake.startCalls, 1);
 
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 300));
       await tester.pumpAndSettle();
     });
   });

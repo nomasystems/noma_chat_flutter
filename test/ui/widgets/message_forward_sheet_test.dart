@@ -24,6 +24,21 @@ void main() {
       expect(find.byType(CheckboxListTile), findsNWidgets(3));
     });
 
+    testWidgets('an unnamed room shows the placeholder instead of its id', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        wrap(
+          const MessageForwardSheet(
+            rooms: [RoomListItem(id: '5f3e0a1c-77b2-4d0e-9a11-0c2b6d8e4f31')],
+          ),
+        ),
+      );
+
+      expect(find.text('5f3e0a1c-77b2-4d0e-9a11-0c2b6d8e4f31'), findsNothing);
+      expect(find.text(l10n.unnamedChat), findsOneWidget);
+    });
+
     testWidgets('shows the empty state when there are no rooms', (
       tester,
     ) async {

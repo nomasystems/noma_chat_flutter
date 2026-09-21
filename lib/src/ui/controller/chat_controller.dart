@@ -557,8 +557,12 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Idempotent by design: the server keeps one reaction per user
+  /// (last writer wins), so re-applying an emoji the user already has
+  /// must not bump the count on the optimistic side either.
   void addOwnReaction(String messageId, String emoji) {
     final existing = _userReactions[messageId];
+    if (existing != null && existing.contains(emoji)) return;
     if (existing != null && existing.isNotEmpty) {
       for (final old in existing.toList()) {
         if (old != emoji) removeReaction(messageId, old);

@@ -131,5 +131,29 @@ abstract class ChatInputTheme with _$ChatInputTheme {
 
     /// Style for the message snippet inside the reply preview.
     TextStyle? replyPreviewTextStyle,
+
+    /// Padding around the whole composer row — the band between the
+    /// screen edges and the first/last button. Defaults to
+    /// `EdgeInsets.symmetric(horizontal: 16, vertical: 8)`.
+    EdgeInsets? rowPadding,
+
+    /// Gap between the text field and the buttons on either side of it
+    /// (attach on the leading edge, send or camera on the trailing one).
+    /// Defaults to 16.
+    double? iconGap,
+
+    /// Gap between the two trailing buttons when both are shown — camera
+    /// and microphone. Defaults to 12.
+    double? secondaryIconGap,
+
+    /// Padding inside the text field itself. Defaults to
+    /// `EdgeInsets.symmetric(horizontal: 16, vertical: 8)`.
+    EdgeInsets? fieldContentPadding,
+
+    /// Trailing inset of the persistent microphone button, which floats
+    /// over the composer rows rather than sitting inside them. Keep it
+    /// equal to the trailing side of [rowPadding] or the button will not
+    /// land on the slot each row reserves for it. Defaults to 16.
+    double? voiceButtonInset,
   }) = _ChatInputTheme;
 }

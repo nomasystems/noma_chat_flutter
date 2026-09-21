@@ -475,6 +475,8 @@ class RoomTile extends StatelessWidget {
         : _resolvePrefix(context);
     final fullText = '$prefix$body';
 
+    final previewMaxLines = theme.roomList.previewMaxLines ?? 1;
+
     if (showReceipt) {
       return Row(
         children: [
@@ -483,7 +485,7 @@ class RoomTile extends StatelessWidget {
           Expanded(
             child: Text(
               fullText,
-              maxLines: 1,
+              maxLines: previewMaxLines,
               overflow: TextOverflow.ellipsis,
               style: style,
             ),
@@ -494,7 +496,7 @@ class RoomTile extends StatelessWidget {
 
     return Text(
       fullText,
-      maxLines: 1,
+      maxLines: previewMaxLines,
       overflow: TextOverflow.ellipsis,
       style: style,
     );

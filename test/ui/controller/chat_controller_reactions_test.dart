@@ -55,6 +55,38 @@ void main() {
     });
   });
 
+  group('addOwnReaction', () {
+    test(
+      'the same emoji twice leaves the count at one and does not notify',
+      () {
+        controller.addOwnReaction('msg1', '👍');
+
+        var notified = false;
+        controller.addListener(() => notified = true);
+        controller.addOwnReaction('msg1', '👍');
+
+        expect(controller.reactions['msg1'], {'👍': 1});
+        expect(controller.userReactions['msg1'], {'👍'});
+        expect(notified, false);
+      },
+    );
+
+    test('a different emoji replaces mine rather than adding to it', () {
+      controller.addOwnReaction('msg1', '👍');
+      controller.addOwnReaction('msg1', '❤️');
+
+      expect(controller.reactions['msg1'], {'❤️': 1});
+      expect(controller.userReactions['msg1'], {'❤️'});
+    });
+
+    test('mine does not swallow someone else\'s identical emoji', () {
+      controller.addReaction('msg1', '👍');
+      controller.addOwnReaction('msg1', '👍');
+
+      expect(controller.reactions['msg1'], {'👍': 2});
+    });
+  });
+
   group('receipts', () {
     test('updateReceipt stores status and notifies', () {
       var notified = false;

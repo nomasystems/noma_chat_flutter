@@ -543,10 +543,10 @@ class RoomEnricher {
   /// long-standing "don't add a ghost row" behavior.
   ///
   /// Shared by [addFromDetail] (which fetches the detail itself) and
-  /// [ChatRoomsController.open] (which already has a freshly-fetched
-  /// detail in hand from its own network call) — factored out so a
-  /// deep-linked room open never issues two network calls for the same
-  /// detail.
+  /// [ChatRoomsController.open] (which already has the detail in hand from
+  /// its own lookup — the network while online, disk while offline) —
+  /// factored out so a deep-linked room open never issues two network
+  /// calls for the same detail.
   void applyFetchedDetail(
     String roomId,
     RoomDetail? detail, {

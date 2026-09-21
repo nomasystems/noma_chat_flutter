@@ -711,6 +711,92 @@ void main() {
       expect(result.isFailure, true);
       expect(controller.reactions.containsKey('msg1'), false);
     });
+
+    test('the same emoji twice does not double the count', () async {
+      final controller = adapter.getChatController('room1');
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Hello',
+        ),
+      );
+
+      await adapter.messages.sendReaction(
+        'room1',
+        messageId: 'msg1',
+        emoji: '👍',
+      );
+      await adapter.messages.sendReaction(
+        'room1',
+        messageId: 'msg1',
+        emoji: '👍',
+      );
+
+      expect(controller.reactions['msg1'], {'👍': 1});
+    });
+
+    test(
+      'a failed re-send keeps the reaction the server still holds',
+      () async {
+        final controller = adapter.getChatController('room1');
+        controller.addMessage(
+          ChatMessage(
+            id: 'msg1',
+            from: 'u2',
+            timestamp: DateTime(2026, 1, 1),
+            text: 'Hello',
+          ),
+        );
+
+        await adapter.messages.sendReaction(
+          'room1',
+          messageId: 'msg1',
+          emoji: '👍',
+        );
+
+        failableClient.failableMessages.failAddReaction = true;
+        final result = await adapter.messages.sendReaction(
+          'room1',
+          messageId: 'msg1',
+          emoji: '👍',
+        );
+
+        expect(result.isFailure, true);
+        expect(controller.reactions['msg1'], {'👍': 1});
+        expect(controller.userReactions['msg1'], {'👍'});
+      },
+    );
+
+    test('a failed switch of emoji puts the previous one back', () async {
+      final controller = adapter.getChatController('room1');
+      controller.addMessage(
+        ChatMessage(
+          id: 'msg1',
+          from: 'u2',
+          timestamp: DateTime(2026, 1, 1),
+          text: 'Hello',
+        ),
+      );
+
+      await adapter.messages.sendReaction(
+        'room1',
+        messageId: 'msg1',
+        emoji: '👍',
+      );
+
+      failableClient.failableMessages.failAddReaction = true;
+      final result = await adapter.messages.sendReaction(
+        'room1',
+        messageId: 'msg1',
+        emoji: '❤️',
+      );
+
+      expect(result.isFailure, true);
+      expect(controller.reactions['msg1'], {'👍': 1});
+      expect(controller.userReactions['msg1'], {'👍'});
+    });
   });
 
   group('F3.1 optimistic muteRoom/unmuteRoom', () {

@@ -193,6 +193,10 @@ extension _RoomEnricherHydration on RoomEnricher {
           RoomWritePolicy.members,
       pinned: unread?.pinned ?? false,
       hidden: unread?.hidden ?? false,
+      // Same degradation as the live enrichment pass: the detail is
+      // authoritative when cached, otherwise fall back to whatever the room
+      // itself carried at kick time.
+      custom: detail?.custom ?? room?.custom,
       // The defining flag — composer is replaced by the
       // "no longer a participant" banner; the chat itself is fully
       // browsable.

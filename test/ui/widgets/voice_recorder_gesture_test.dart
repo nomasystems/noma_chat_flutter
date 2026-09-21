@@ -744,7 +744,7 @@ void main() {
           tester.getCenter(find.byType(Container)),
         );
         await tester.pump();
-        await gesture.up();
+        await gesture.up(timeStamp: const Duration(milliseconds: 500));
         await tester.pump();
 
         fake.startGate!.complete();
@@ -779,7 +779,7 @@ void main() {
         tester.getCenter(find.byType(Container)),
       );
       await tester.pump();
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 500));
       await tester.pump();
 
       fake.startGate!.complete();
@@ -924,7 +924,7 @@ void main() {
       // Well past kLongPressTimeout: a gesture recognizer here would have
       // claimed the arena by now and the child would never see its tap.
       await tester.pump(const Duration(milliseconds: 700));
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 700));
       await tester.pumpAndSettle();
 
       expect(micTaps, 1);
@@ -994,7 +994,9 @@ void main() {
         tester.getCenter(find.byType(Container)),
       );
       await tester.pump();
-      await gesture.up();
+      // Past the tap window and short of the send minimum: the touch this
+      // prompt exists for is a hold that did not last, not a tap.
+      await gesture.up(timeStamp: const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
       expect(fake.stopCalls, 1);
@@ -1004,6 +1006,200 @@ void main() {
       await tester.pump();
 
       expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a quick tap locks into hands-free recording', (tester) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 120));
+      await tester.pumpAndSettle();
+
+      expect(fake.lockCalled, isTrue);
+      expect(controller.isLocked, isTrue);
+      expect(fake.stopCalls, 0);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a quick tap released while the recorder arms still locks', (
+      tester,
+    ) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 120));
+      await tester.pump();
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      // Arming outlives the tap on a real device, so the touch cannot veto
+      // the recording it asked to carry on hands-free.
+      expect(fake.armed, isTrue);
+      expect(controller.isLocked, isTrue);
+      expect(fake.cancelCalled, isFalse);
+      expect(find.byType(HoldToRecordHintPill), findsNothing);
+    });
+
+    testWidgets('a quick tap is discarded when tap-to-record is off', (
+      tester,
+    ) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            tapToRecordLocked: false,
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 120));
+      await tester.pumpAndSettle();
+
+      expect(fake.lockCalled, isFalse);
+      expect(controller.isAnyRecordingState, isFalse);
+      expect(fake.stopCalls, 1);
+      expect(find.byType(HoldToRecordHintPill), findsOneWidget);
+    });
+
+    testWidgets('a drag away from the button is never read as a tap', (
+      tester,
+    ) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      // Well past the touch slop and short of both trip points: a move
+      // this deliberate is not a tap, whatever it went on to reach.
+      await gesture.moveBy(const Offset(0, -40));
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 120));
+      await tester.pumpAndSettle();
+
+      expect(fake.lockCalled, isFalse);
+      expect(fake.stopCalls, 1);
+    });
+
+    testWidgets('a tap that rolls within the touch slop still locks', (
+      tester,
+    ) async {
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      // A thumb leaving a small button never lifts off exactly where it
+      // landed; travel the framework itself calls stationary must not cost
+      // the user the recording.
+      await gesture.moveBy(const Offset(10, 6));
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 120));
+      await tester.pumpAndSettle();
+
+      expect(controller.isLocked, isTrue);
+      expect(fake.stopCalls, 0);
+    });
+
+    testWidgets('a tap stops claiming an arming that drags on', (tester) async {
+      fake.startGate = Completer<void>();
+      final link = LayerLink();
+      await tester.pumpWidget(
+        wrap(
+          VoiceRecorderGesture(
+            controller: controller,
+            layerLink: link,
+            theme: ChatTheme.defaults,
+            onPermissionDenied: null,
+            onVoiceMessageReady: (data) => fail('nothing may be sent: $data'),
+            child: Container(color: Colors.blue, width: 40, height: 40),
+          ),
+        ),
+      );
+
+      final gesture = await tester.startGesture(
+        tester.getCenter(find.byType(Container)),
+      );
+      await tester.pump();
+      await gesture.up(timeStamp: const Duration(milliseconds: 120));
+      await tester.pump(const Duration(seconds: 3));
+
+      fake.startGate!.complete();
+      await tester.pumpAndSettle();
+
+      // A permission dialog answered long after the touch: the tap is no
+      // longer the last thing the user did, so nothing opens hands-free.
+      expect(fake.armed, isFalse);
+      expect(controller.isAnyRecordingState, isFalse);
+      expect(fake.lockCalled, isFalse);
+      expect(find.byType(HoldToRecordHintPill), findsOneWidget);
     });
 
     testWidgets('a release before the recorder arms prompts the user', (
@@ -1028,7 +1224,7 @@ void main() {
         tester.getCenter(find.byType(Container)),
       );
       await tester.pump();
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 500));
       await tester.pump();
 
       fake.startGate!.complete();
@@ -1061,7 +1257,7 @@ void main() {
         tester.getCenter(find.byType(Container)),
       );
       await tester.pump();
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 500));
       await tester.pump();
 
       fake.startGate!.complete();
@@ -1236,7 +1432,7 @@ void main() {
         tester.getCenter(find.byType(Container)),
       );
       await tester.pump();
-      await gesture.up();
+      await gesture.up(timeStamp: const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
       expect(fake.stopCalls, 1);

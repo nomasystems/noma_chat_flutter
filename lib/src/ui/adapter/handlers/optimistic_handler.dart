@@ -692,6 +692,13 @@ class OptimisticHandler {
     required String emoji,
   }) async {
     final controller = controllers[roomId];
+    // A failed POST must leave behind exactly what the server still holds:
+    // nothing was applied when the emoji was already the user's, and
+    // switching emoji took the previous one away optimistically, so the
+    // whole set is kept and not just a flag.
+    final previous = Set<String>.of(
+      controller?.userReactions[messageId] ?? const <String>{},
+    );
     controller?.addOwnReaction(messageId, emoji);
 
     // Canonical reactions endpoint: a reaction is a sub-resource of the
@@ -704,7 +711,15 @@ class OptimisticHandler {
     );
 
     if (result.isFailure) {
-      controller?.removeOwnReaction(messageId, emoji);
+      if (!previous.contains(emoji)) {
+        controller?.removeOwnReaction(messageId, emoji);
+        for (final old in previous) {
+          controller?.addReaction(messageId, old);
+        }
+        if (previous.isNotEmpty) {
+          controller?.setUserReactions(messageId, previous);
+        }
+      }
     } else {
       _updateRoomReactionPreview(roomId, emoji, _currentUser().id, messageId);
     }

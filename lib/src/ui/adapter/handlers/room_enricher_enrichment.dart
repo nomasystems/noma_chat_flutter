@@ -239,7 +239,14 @@ extension _RoomEnrichment on RoomEnricher {
         userRole: detail?.userRole ?? unread.userRole,
         memberCount: detail?.memberCount,
         otherUserId: knownPeerId,
-        custom: detail?.custom,
+        // Degrades like `writePolicy` above, one step further, so a pass
+        // with neither a fresh detail nor a backend that emits `custom` in
+        // the listing keeps whatever this same room already painted rather
+        // than blanking a flag such as a support room's `custom.support`.
+        custom:
+            detail?.custom ??
+            unread.custom ??
+            roomList.getRoomById(unread.roomId)?.custom,
       );
 
       // Custom resolver may already produce an effective title from the

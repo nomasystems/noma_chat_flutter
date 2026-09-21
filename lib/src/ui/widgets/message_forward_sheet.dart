@@ -346,7 +346,7 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
                           ),
                           title: Text(
                             room.displayName.isEmpty
-                                ? room.id
+                                ? l10n.unnamedChat
                                 : room.displayName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

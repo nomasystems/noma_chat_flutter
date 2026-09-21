@@ -308,6 +308,7 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.selfMuted) 'selfMuted': true,
   if (unread.writePolicy != RoomWritePolicy.members)
     'writePolicy': unread.writePolicy.wireValue,
+  if (unread.custom != null) 'custom': unread.custom,
 };
 
 UnreadRoom unreadRoomFromMap(
@@ -362,6 +363,7 @@ UnreadRoom unreadRoomFromMap(
   hidden: map['hidden'] as bool? ?? false,
   selfMuted: map['selfMuted'] as bool? ?? false,
   writePolicy: RoomWritePolicyWire.fromWire(map['writePolicy']),
+  custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
 );
 
 Map<String, dynamic> invitedRoomToMap(InvitedRoom invited) => {
