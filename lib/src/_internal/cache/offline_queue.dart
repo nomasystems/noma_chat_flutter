@@ -5,6 +5,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../../models/message.dart';
+import '../../cache/deep_cast.dart';
 import '../../cache/local_datasource.dart';
 import '../../observability/chat_logger.dart';
 import 'cache_manager.dart' show MetricCallback;
@@ -310,7 +311,7 @@ class OfflineQueue {
             attachmentUrl: map['attachmentUrl'] as String?,
             attachmentId: map['attachmentId'] as String?,
             sourceRoomId: map['sourceRoomId'] as String?,
-            metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            metadata: deepCastFreeMap(map['metadata']),
             tempId: map['tempId'] as String?,
             clientMessageId: map['clientMessageId'] as String?,
           );
@@ -326,7 +327,7 @@ class OfflineQueue {
             messageType: _parseMessageType(map['messageType'] as String?),
             text: map['text'] as String?,
             referencedMessageId: map['referencedMessageId'] as String?,
-            metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            metadata: deepCastFreeMap(map['metadata']),
             tempId: map['tempId'] as String?,
             clientMessageId: map['clientMessageId'] as String?,
           );
@@ -341,7 +342,7 @@ class OfflineQueue {
             referencedMessageId: map['referencedMessageId'] as String?,
             reaction: map['reaction'] as String?,
             attachmentUrl: map['attachmentUrl'] as String?,
-            metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            metadata: deepCastFreeMap(map['metadata']),
             clientMessageId: map['clientMessageId'] as String?,
           );
         case 'editMessage':
@@ -352,7 +353,7 @@ class OfflineQueue {
             roomId: map['roomId'] as String,
             messageId: map['messageId'] as String,
             text: map['text'] as String,
-            metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+            metadata: deepCastFreeMap(map['metadata']),
           );
         case 'deleteMessage':
           return PendingDeleteMessage(
