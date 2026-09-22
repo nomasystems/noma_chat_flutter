@@ -1,9 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/src/ui/adapter/services/connection_lifecycle.dart';
+
+import '../../../_helpers/matchers.dart';
 
 void main() {
   group('ConnectionLifecycle', () {
@@ -47,7 +48,7 @@ void main() {
       // Notifier disposed — addListener now throws.
       expect(
         () => l.connectionState.addListener(() {}),
-        throwsA(isA<FlutterError>()),
+        throwsDisposedNotifierError,
       );
     });
 
