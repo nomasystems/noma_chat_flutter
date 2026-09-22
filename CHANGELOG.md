@@ -19,16 +19,16 @@ still typed.
 ### Added
 
 - **`MessageInput.tapToRecordLocked`** (default `true`) and
-  **`MessageInput.tapToRecordMaxDuration`** (250 ms), mirrored on
-  `VoiceRecorderGesture` — a tap on the mic button is too short to be a
-  hold that went wrong, so it now carries the capture on hands-free instead
-  of being discarded with the "hold to record" prompt. It lands on the very
-  row a slide upwards reaches: bin, pause, preview and send. "Tap" means a
-  release inside `tapToRecordMaxDuration` that never travelled past
-  `kTouchSlop` — the framework's own margin for a stationary finger, so the
-  roll of a thumb coming off a 40pt button is not read as a drag.
-  Everything between that window and `minSendDuration` is still a short
-  hold and still discarded with the prompt that says so. A tap that
+  **`MessageInput.tapToRecordMaxDuration`** (250 ms) — a tap on the mic
+  button is too short to be a hold that went wrong, so it now carries the
+  capture on hands-free instead of being discarded with the "hold to
+  record" prompt. It lands on the very row a slide upwards reaches: bin,
+  pause, preview and send. "Tap" means a release inside
+  `tapToRecordMaxDuration` that never travelled past `kTouchSlop` — the
+  framework's own margin for a stationary finger, so the roll of a thumb
+  coming off a 40pt button is not read as a drag. Everything between that
+  window and `minSendDuration` is still a short hold and still discarded
+  with the prompt that says so. A tap that
   interrupts a recorder which has not come up yet (a first-run permission
   dialog) keeps its claim on it for one second and then gives it up, so a
   capture never opens by itself long after the touch that asked for it.
@@ -76,19 +76,18 @@ still typed.
 - **`VoiceRecorderButton.diameter` (40), `.tapTarget` (44) and
   `.tapBleed` (2)** as `static const` — the circle the button paints, the
   square it answers touches on, and how far the second reaches past the
-  first. The composer subtracts the bleed from the themed inset so
-  enlarging the target left the circle exactly where it was.
+  first. The composer subtracts the bleed from the themed inset, so
+  enlarging the target leaves the circle exactly where it was.
 - **`ChatUiLocalizations.unnamedChat`** — the title the default forward-sheet
   row falls back to for a room whose display name resolves to nothing.
   Translated in the eleven bundled locales.
-- **`HiveChatDatasource.create(logs:)`, `HiveChatDatasource.logs`,
-  `OfflineQueue(logs:)` and `CacheManager(logs:)`** (`ChatLogger?`) —
-  `NomaChatClient` wires all of them from `ChatConfig.logs`, and adopts an
-  already-built `HiveChatDatasource` the host passed as `localDatasource`
-  when that host has not wired a logger of its own. Box opening, schema
-  migration and orphan reaping all run inside `create()`, so a caller that
-  wants to observe those passes `logs` there rather than assigning it
-  afterwards.
+- **`HiveChatDatasource.create(logs:)` and `HiveChatDatasource.logs`**
+  (`ChatLogger?`) — box opening, schema migration and orphan reaping all run
+  inside `create()`, so a caller that wants to observe those passes `logs`
+  there rather than assigning it afterwards. `NomaChatClient` also routes
+  `ChatConfig.logs` into the offline queue and the TTL cache manager, and
+  adopts an already-built datasource the host passed as `localDatasource`
+  when that host has not wired a logger of its own.
 
 ### Changed
 
@@ -184,11 +183,11 @@ still typed.
   now carries a session token the late builds fail, the strip is only
   placed while its own sheet route is current, and leaving the tree tears
   it down.
-- **The recording row ignored the composer's themed padding.** The active
-  and locked recording rows used the old hard-coded 16/8 inset rather than
-  `ChatInputTheme.rowPadding`, so a host that narrowed the composer saw the
-  mic button jump sideways the moment capture replaced one row with the
-  other.
+- **The recording row ignored the composer's themed padding.**
+  `ActiveRecordingRow` kept the old hard-coded 16/8 inset rather than
+  reading `ChatInputTheme.rowPadding`, so a host that narrowed the composer
+  saw the mic button jump sideways the moment capture replaced the idle row
+  with it.
 - **A failed reaction POST could leave the wrong reactions on screen.** The
   optimistic rollback removed the emoji it had just applied and stopped
   there, so a request that failed after switching from one emoji to another
