@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 
@@ -16,7 +17,24 @@ const _phoneWidth = 375.0;
 const _boostedScale = 1.18;
 const _largeSystemScale = 1.18 * 1.7;
 
+/// Width [text] lays out to, so the fitted-label tests can pick slots
+/// relative to the real metrics of the font the test paints with instead of
+/// hardcoding numbers that only hold for one font.
+double _measure(String text, TextStyle style, double textScale) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.linear(textScale),
+    maxLines: 1,
+  )..layout();
+  final width = painter.width;
+  painter.dispose();
+  return width;
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   Widget wrap(Widget child, {required double textScale}) => MaterialApp(
     home: MediaQuery(
       data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
@@ -139,6 +157,262 @@ void main() {
         audioBubbleTimeLabel(const Duration(seconds: 7), Duration.zero),
         '00:07',
       );
+    });
+
+    test('mid-playback the total stays in sight next to the position', () {
+      expect(
+        audioBubbleTimeLabel(
+          const Duration(seconds: 9),
+          const Duration(minutes: 1, seconds: 11),
+          withTotal: true,
+        ),
+        '00:09 / 01:11',
+      );
+    });
+
+    test('at rest the pair collapses to the total alone', () {
+      expect(
+        audioBubbleTimeLabel(
+          Duration.zero,
+          const Duration(minutes: 1, seconds: 11),
+          withTotal: true,
+        ),
+        '01:11',
+      );
+    });
+
+    test(
+      'the last figure of a finished note is its exact total, not a pair',
+      () {
+        expect(
+          audioBubbleTimeLabel(
+            const Duration(minutes: 1, seconds: 12),
+            const Duration(minutes: 1, seconds: 11),
+            withTotal: true,
+          ),
+          '01:11',
+        );
+      },
+    );
+
+    test('with no total known there is no second half to print', () {
+      expect(
+        audioBubbleTimeLabel(
+          const Duration(seconds: 7),
+          Duration.zero,
+          withTotal: true,
+        ),
+        '00:07',
+      );
+    });
+  });
+
+  group('audioBubbleFittedTimeLabel', () {
+    const style = TextStyle(fontSize: 11);
+
+    String fitted(double maxWidth, {bool isPlaying = true}) =>
+        audioBubbleFittedTimeLabel(
+          position: const Duration(seconds: 9),
+          total: const Duration(minutes: 1, seconds: 11),
+          isPlaying: isPlaying,
+          style: style,
+          textScaler: const TextScaler.linear(_boostedScale),
+          maxWidth: maxWidth,
+        );
+
+    test('a bubble with room for it prints the spaced pair', () {
+      expect(fitted(200), '00:09 / 01:11');
+    });
+
+    test('a bubble that is a few points short squeezes the spaces out '
+        'rather than dropping a figure', () {
+      final spaced = _measure('00:09 / 01:11', style, _boostedScale);
+      final compact = _measure('00:09/01:11', style, _boostedScale);
+      expect(compact, lessThan(spaced));
+
+      expect(fitted(spaced - 1), '00:09/01:11');
+      expect(fitted(compact), '00:09/01:11');
+    });
+
+    test('a bubble too narrow for either pair keeps the moving half while '
+        'the note plays', () {
+      expect(fitted(24), '00:09');
+    });
+
+    test('a bubble too narrow for either pair falls back to the total, not '
+        'the position, once the note stops', () {
+      expect(fitted(24, isPlaying: false), '01:11');
+    });
+
+    test('at rest the pair never comes up, however wide the bubble', () {
+      expect(
+        audioBubbleFittedTimeLabel(
+          position: Duration.zero,
+          total: const Duration(minutes: 1, seconds: 11),
+          isPlaying: false,
+          style: style,
+          textScaler: const TextScaler.linear(_boostedScale),
+          maxWidth: 1000,
+        ),
+        '01:11',
+      );
+    });
+
+    test('a finished note reads its exact total, not a pair', () {
+      expect(
+        audioBubbleFittedTimeLabel(
+          position: const Duration(minutes: 1, seconds: 12),
+          total: const Duration(minutes: 1, seconds: 11),
+          isPlaying: false,
+          style: style,
+          textScaler: const TextScaler.linear(_boostedScale),
+          maxWidth: 1000,
+        ),
+        '01:11',
+      );
+    });
+
+    test('an unbounded slot never has to drop anything', () {
+      expect(fitted(double.infinity), '00:09 / 01:11');
+    });
+  });
+
+  group('AudioTimeLabel in the slots a real bubble grants it', () {
+    /// Widths a `MessageBubble` leaves the time label on a 375pt phone,
+    /// measured by pumping one: the bubble caps itself at 75 % of the
+    /// screen, an incoming note carries more horizontal padding than an
+    /// outgoing one, and a seek bar is inset 12pt against the waveform's 4.
+    const slots = <String, double>{
+      'waveform, outgoing': 141.25,
+      'waveform, incoming': 121.25,
+      'seek bar, outgoing': 125.25,
+      'seek bar, incoming': 105.25,
+    };
+
+    /// The label is 11pt in the SDK's own theme, but the font a widget test
+    /// paints with is not the one a device uses, so a fixed size would
+    /// measure the test font rather than the ladder. These two bracket it:
+    /// one small enough that the pair fits every slot, one large enough
+    /// that neither pair does.
+    const roomyStyle = TextStyle(fontSize: 4);
+    const crampedStyle = TextStyle(fontSize: 20);
+
+    Widget pumpLabel({
+      required double width,
+      required TextStyle style,
+      required bool isPlaying,
+      TextDirection textDirection = TextDirection.ltr,
+    }) => MaterialApp(
+      home: Directionality(
+        textDirection: textDirection,
+        child: Center(
+          child: SizedBox(
+            width: width,
+            child: AudioTimeLabel(
+              position: const Duration(seconds: 9),
+              total: const Duration(minutes: 1, seconds: 11),
+              isPlaying: isPlaying,
+              style: style,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    slots.forEach((slot, width) {
+      testWidgets('$slot prints the pair when it fits, and never overflows', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          pumpLabel(width: width, style: roomyStyle, isPlaying: true),
+        );
+
+        expect(find.text('00:09 / 01:11'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('$slot still shows the total when the note is paused and '
+          'no pair fits', (tester) async {
+        await tester.pumpWidget(
+          pumpLabel(width: width, style: crampedStyle, isPlaying: false),
+        );
+
+        expect(find.text('01:11'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('$slot keeps the position while playing and no pair fits', (
+        tester,
+      ) async {
+        await tester.pumpWidget(
+          pumpLabel(width: width, style: crampedStyle, isPlaying: true),
+        );
+
+        expect(find.text('00:09'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    });
+
+    for (final waveform in const [true, false]) {
+      for (final outgoing in const [true, false]) {
+        testWidgets('the slot a real bubble grants is the one these tests '
+            'pump (waveform=$waveform, outgoing=$outgoing)', (tester) async {
+          await tester.pumpWidget(
+            MaterialApp(
+              home: MediaQuery(
+                data: const MediaQueryData(size: Size(_phoneWidth, 812)),
+                child: Scaffold(
+                  body: MessageBubble(
+                    message: voiceNote(
+                      metadata: {
+                        'duration': 71000,
+                        if (waveform) 'waveform': _cappedWaveform,
+                      },
+                    ),
+                    isOutgoing: outgoing,
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          final box = tester.renderObject<RenderBox>(
+            find.descendant(
+              of: find.byType(AudioTimeLabel),
+              matching: find.byType(LayoutBuilder),
+            ),
+          );
+          final slot =
+              slots['${waveform ? 'waveform' : 'seek bar'}, '
+                  '${outgoing ? 'outgoing' : 'incoming'}']!;
+          expect(box.constraints.maxWidth, closeTo(slot, 0.01));
+        });
+      }
+    }
+
+    testWidgets('under an RTL host the pair keeps elapsed-then-total order', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        pumpLabel(
+          width: slots['waveform, outgoing']!,
+          style: roomyStyle,
+          isPlaying: true,
+          textDirection: TextDirection.rtl,
+        ),
+      );
+
+      final paragraph = tester.renderObject<RenderParagraph>(
+        find.text('00:09 / 01:11'),
+      );
+      double runLeft(int start, int end) => paragraph
+          .getBoxesForSelection(
+            TextSelection(baseOffset: start, extentOffset: end),
+          )
+          .first
+          .left;
+
+      expect(runLeft(0, 5), lessThan(runLeft(8, 13)));
     });
   });
 

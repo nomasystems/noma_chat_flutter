@@ -30,6 +30,14 @@ String audioSpeedSemanticsId(String messageId) =>
 /// The time one voice bubble reads: the playback position once it has
 /// moved, the announced total while the note sits at rest.
 ///
+/// [withTotal] asks for the pair WhatsApp shows while a note plays —
+/// `00:09 / 01:11` — so the reference of how much is left never leaves the
+/// bubble halfway through. The pair collapses back to the total alone at
+/// both ends of the run: at rest, and once the position has reached the
+/// total, so the last figure a finished note shows is its exact length
+/// rather than `01:11 / 01:11`. It also collapses when no total is known,
+/// since there is no second half to print.
+///
 /// [position] is held at [total] because the two are measured by different
 /// clocks — the total is the length the sender took while recording,
 /// truncated to the second, and the position is the player's own read of
@@ -38,9 +46,147 @@ String audioSpeedSemanticsId(String messageId) =>
 /// contradicts the seek bar, which is scaled against [total] and stays full.
 /// A [total] of zero means nothing is known about the length yet, so there
 /// is nothing to clamp against and the position is shown as it comes.
-String audioBubbleTimeLabel(Duration position, Duration total) {
-  final capped = total > Duration.zero && position > total ? total : position;
-  return _formatDuration(capped > Duration.zero ? capped : total);
+String audioBubbleTimeLabel(
+  Duration position,
+  Duration total, {
+  bool withTotal = false,
+}) {
+  final capped = _cappedPosition(position, total);
+  if (capped <= Duration.zero) return _formatDuration(total);
+  if (withTotal && capped < total) {
+    return '${_formatDuration(capped)} / ${_formatDuration(total)}';
+  }
+  return _formatDuration(capped);
+}
+
+Duration _cappedPosition(Duration position, Duration total) =>
+    total > Duration.zero && position > total ? total : position;
+
+/// The widest time label that still fits on one line in a bubble [maxWidth]
+/// points across, measured in the [style] and [textScaler] it will be
+/// painted with.
+///
+/// Mid-run there are two figures worth printing and room for both is not a
+/// given, so the label walks down a ladder until one rung fits:
+///
+///  1. `00:09 / 01:11`, the pair WhatsApp shows, so the reference of how
+///     much is left never leaves the bubble halfway through.
+///  2. `00:09/01:11`, the same pair with the spaces squeezed out. It buys
+///     about a tenth of the width and keeps both figures on the three
+///     narrower of the four slots the bubble offers — an incoming note is
+///     some 20pt tighter than an outgoing one, and a seek bar eats 16pt more
+///     padding than a waveform.
+///  3. One figure alone, and which one depends on what the note is doing.
+///     While it plays the elapsed time wins, because it is the half that
+///     moves and the run is not over. The moment it stops — paused, or at
+///     rest before the first tap — the total wins, so a note parked at 00:09
+///     still answers "how long is this?" at any width.
+///
+/// Rung 1 holds through the app's ordinary range and into the large system
+/// setting; only near the top of the supported scale, where an 11pt label is
+/// painted at twice its size, does the ladder start dropping rungs. Rung 3
+/// is therefore the accessibility case, not dead code.
+///
+/// The pair is measured and painted left-to-right whatever the ambient
+/// direction: elapsed-then-total is an ordering, not prose, and under an RTL
+/// `Directionality` the runs swap and the label reads `01:11 / 00:09`.
+String audioBubbleFittedTimeLabel({
+  required Duration position,
+  required Duration total,
+  required bool isPlaying,
+  required TextStyle style,
+  required TextScaler textScaler,
+  required double maxWidth,
+  Locale? locale,
+}) {
+  final capped = _cappedPosition(position, total);
+  if (capped <= Duration.zero || capped >= total) {
+    return audioBubbleTimeLabel(position, total);
+  }
+  final elapsed = _formatDuration(capped);
+  final totalText = _formatDuration(total);
+  for (final candidate in ['$elapsed / $totalText', '$elapsed/$totalText']) {
+    if (_fitsOnOneLine(candidate, style, textScaler, locale, maxWidth)) {
+      return candidate;
+    }
+  }
+  return isPlaying ? elapsed : totalText;
+}
+
+bool _fitsOnOneLine(
+  String text,
+  TextStyle style,
+  TextScaler textScaler,
+  Locale? locale,
+  double maxWidth,
+) {
+  if (!maxWidth.isFinite) return true;
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style, locale: locale),
+    textDirection: TextDirection.ltr,
+    textScaler: textScaler,
+    locale: locale,
+    maxLines: 1,
+  )..layout();
+  final width = painter.width;
+  painter.dispose();
+  return width <= maxWidth;
+}
+
+/// The one-line time a voice bubble prints under its waveform or seek bar,
+/// laid out by [audioBubbleFittedTimeLabel] against the width the bubble
+/// actually grants it.
+///
+/// Split out of the bubble so the ladder can be pumped at the widths a real
+/// bubble offers — those depend on the incoming/outgoing padding and on
+/// whether a waveform or a seek bar sits above the label — without a player
+/// to drive a position.
+@visibleForTesting
+class AudioTimeLabel extends StatelessWidget {
+  const AudioTimeLabel({
+    super.key,
+    required this.position,
+    required this.total,
+    required this.isPlaying,
+    required this.style,
+  });
+
+  final Duration position;
+  final Duration total;
+  final bool isPlaying;
+
+  /// Style asked for by the theme, merged over the ambient
+  /// `DefaultTextStyle` so the text is measured in the same style it is
+  /// painted in.
+  final TextStyle style;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final resolved = DefaultTextStyle.of(context).style.merge(style);
+        final locale = Localizations.maybeLocaleOf(context);
+        return Directionality(
+          textDirection: TextDirection.ltr,
+          child: Text(
+            audioBubbleFittedTimeLabel(
+              position: position,
+              total: total,
+              isPlaying: isPlaying,
+              style: resolved,
+              textScaler: MediaQuery.textScalerOf(context),
+              maxWidth: constraints.maxWidth,
+              locale: locale,
+            ),
+            style: resolved,
+            locale: locale,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      },
+    );
+  }
 }
 
 String _formatDuration(Duration d) {
@@ -362,6 +508,11 @@ class _AudioBubbleState extends State<AudioBubble> {
         try {
           await player.seek(Duration.zero);
         } catch (_) {}
+        // The seek above rewinds the file; this rewinds everything the
+        // position drives — waveform, seek bar and label — on the platforms
+        // that emit no position for it, so a finished note lands back in the
+        // same rest state a fresh one starts from, reading its exact total.
+        _positionNotifier.value = Duration.zero;
         final coordinator = widget.coordinator;
         final messageId = widget.messageId;
         if (coordinator != null && messageId != null) {
@@ -779,11 +930,10 @@ class _AudioBubbleState extends State<AudioBubble> {
               const SizedBox(height: 2),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: Text(
-                  audioBubbleTimeLabel(position, duration),
-                  style:
-                      widget.theme.audioDurationTextStyle ??
-                      TextStyle(fontSize: 11, color: defaultDurationColor),
+                child: _buildTimeLabel(
+                  position,
+                  duration,
+                  defaultDurationColor,
                 ),
               ),
             ],
@@ -813,16 +963,26 @@ class _AudioBubbleState extends State<AudioBubble> {
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Text(
-                audioBubbleTimeLabel(position, duration),
-                style:
-                    widget.theme.audioDurationTextStyle ??
-                    TextStyle(fontSize: 11, color: defaultDurationColor),
-              ),
+              child: _buildTimeLabel(position, duration, defaultDurationColor),
             ),
           ],
         );
       },
+    );
+  }
+
+  Widget _buildTimeLabel(
+    Duration position,
+    Duration total,
+    Color defaultDurationColor,
+  ) {
+    return AudioTimeLabel(
+      position: position,
+      total: total,
+      isPlaying: _playerState == PlayerState.playing,
+      style:
+          widget.theme.audioDurationTextStyle ??
+          TextStyle(fontSize: 11, color: defaultDurationColor),
     );
   }
 
