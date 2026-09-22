@@ -147,15 +147,37 @@ extension _RoomEnricherHydration on RoomEnricher {
   /// structural fields — so the kicked room never silently vanishes. The
   /// flag stays in `kickedRoomIds` and the room comes back richer on the
   /// next successful hydration.
+  ///
+  /// Returns `null` only when all three reads SUCCEEDED and all three came
+  /// back empty. There is then nothing to rebuild from: the stub would
+  /// carry no name, no preview and no `custom` — an unnamed empty row the
+  /// user cannot get rid of, and one a [DeletedRoomPolicyResolver] could
+  /// not recognise either, since the very field it decides on is the
+  /// `custom` that is missing. The caller drops the orphan marker instead.
+  ///
+  /// A read that FAILED is not proof of anything and never reaches that
+  /// branch: the only consequence of answering "nothing is cached" there is
+  /// destructive — a durable marker dropped over one unreadable pass — so
+  /// an unreadable pass paints the degraded stub, exactly as it did before.
   Future<RoomListItem?> _hydrateKickedRoomFromCache(
     ChatLocalDatasource cache,
     String roomId,
   ) async {
-    final room = (await cache.getRoom(roomId)).dataOrNull;
-    final detail = (await cache.getRoomDetail(roomId)).dataOrNull;
-    final unreads =
-        (await cache.getUnreads()).dataOrNull ?? const <UnreadRoom>[];
+    final roomResult = await cache.getRoom(roomId);
+    final detailResult = await cache.getRoomDetail(roomId);
+    final unreadsResult = await cache.getUnreads();
+    final room = roomResult.dataOrNull;
+    final detail = detailResult.dataOrNull;
+    final unreads = unreadsResult.dataOrNull ?? const <UnreadRoom>[];
     final unread = unreads.where((u) => u.roomId == roomId).firstOrNull;
+    if (room == null &&
+        detail == null &&
+        unread == null &&
+        roomResult.isSuccess &&
+        detailResult.isSuccess &&
+        unreadsResult.isSuccess) {
+      return null;
+    }
     final base = RoomListItem(
       id: roomId,
       name: room?.name ?? detail?.name ?? detail?.subject,

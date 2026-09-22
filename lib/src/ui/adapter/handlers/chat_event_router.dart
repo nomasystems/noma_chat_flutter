@@ -290,9 +290,10 @@ class ChatEventRouter {
   /// A `room_deleted` for a room this device has never listed answers
   /// `keepReadOnly` because there is nothing to hand the resolver. That is
   /// not a hole in a purge policy: the branch below then only persists the
-  /// kicked marker, and the enricher re-asks the question with the row it
-  /// rebuilds from cache on the very next pass, which is where such a room
-  /// is purged instead.
+  /// kicked marker, and the enricher re-asks the question on the very next
+  /// pass with the row it rebuilds from cache — and when the cache holds
+  /// nothing to rebuild from either, it drops the orphan marker instead,
+  /// so no row is painted under either policy.
   DeletedRoomPolicy _deletedRoomPolicyFor(RoomListItem? room) =>
       resolveDeletedRoomPolicy(_deps.deletedRoomPolicy, room);
 
@@ -302,6 +303,7 @@ class ChatEventRouter {
     cache: _cache,
     removeChatController: _removeChatController,
     swallowCacheThrow: _deps.swallowCacheThrow,
+    tombstone: true,
     op: 'roomDeleted.purge',
   );
 

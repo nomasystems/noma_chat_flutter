@@ -20,6 +20,23 @@ DeletedRoomPolicy _supportPurges(RoomListItem room) =>
 
 const _me = ChatUser(id: 'u1', displayName: 'Me');
 
+/// A cache whose three kicked-room reads are unreadable while the rest of
+/// it still answers — the shape of a corrupted box or a failed disk read,
+/// which must never be mistaken for "this room was never cached".
+class _UnreadableRoomCache extends MemoryChatLocalDatasource {
+  @override
+  Future<ChatResult<ChatRoom?>> getRoom(String roomId) async =>
+      const ChatFailureResult(StorageFailure('box unreadable'));
+
+  @override
+  Future<ChatResult<RoomDetail?>> getRoomDetail(String roomId) async =>
+      const ChatFailureResult(StorageFailure('box unreadable'));
+
+  @override
+  Future<ChatResult<List<UnreadRoom>>> getUnreads() async =>
+      const ChatFailureResult(StorageFailure('box unreadable'));
+}
+
 void main() {
   group('room_deleted over the realtime transport', () {
     late MockChatClient mockClient;
@@ -223,6 +240,169 @@ void main() {
         expect((await cache.getKickedRoomIds()).dataOrThrow, isEmpty);
       },
     );
+
+    test('a purge tombstones the room, so a listing already in flight '
+        'cannot resurrect it', () async {
+      final adapter = await buildAdapter(policy: _supportPurges);
+      await seedSupportRoom(adapter);
+
+      mockClient.emitEvent(const ChatEvent.roomDeleted(roomId: 'support1'));
+      await pumpEventQueue();
+
+      // The `getUserRooms` request that was already on the wire when the
+      // room was deleted lands now, still carrying the room. Without the
+      // tombstone it would come back fully writable and stay: the kicked
+      // marker is gone and no second `room_deleted` is coming.
+      adapter.roomListController.mergeRooms(const [
+        RoomListItem(id: 'support1', name: 'Support'),
+      ], authoritative: true);
+
+      expect(
+        adapter.roomListController.rooms.map((r) => r.id),
+        isNot(contains('support1')),
+      );
+      expect(
+        (await cache.getDeletedRoomIds()).dataOrThrow,
+        contains('support1'),
+      );
+    });
+
+    test(
+      'the user-driven delete of a kicked chat leaves no tombstone, as before',
+      () async {
+        // `ChatRoomOption.deleteKickedChat` shares the purge helper but must
+        // stay the operation it always was — a plain removal, so a peer
+        // writing again can still bring the conversation back.
+        final adapter = await buildAdapter();
+        await seedSupportRoom(adapter);
+
+        await adapter.rooms.deleteKicked('support1');
+        await pumpEventQueue();
+
+        expect(adapter.roomListController.getRoomById('support1'), isNull);
+        expect((await cache.getDeletedRoomIds()).dataOrThrow, isEmpty);
+      },
+    );
+  });
+
+  group('membership revoked without a room_deleted', () {
+    late MockChatClient mockClient;
+    late MemoryChatLocalDatasource cache;
+
+    setUp(() {
+      mockClient = MockChatClient(currentUserId: 'u1');
+      cache = MemoryChatLocalDatasource();
+    });
+
+    tearDown(() async => mockClient.dispose());
+
+    Future<ChatUiAdapter> buildAdapter({
+      DeletedRoomPolicyResolver? policy,
+    }) async {
+      final adapter = ChatUiAdapter(
+        client: mockClient,
+        currentUser: _me,
+        cache: cache,
+        deletedRoomPolicy: policy,
+      );
+      addTearDown(adapter.dispose);
+      await adapter.connect();
+      adapter.roomListController.addRoom(
+        const RoomListItem(
+          id: 'support1',
+          name: 'Support',
+          custom: {'support': true},
+        ),
+      );
+      adapter.getChatController('support1');
+      await cache.saveRooms(const [ChatRoom(id: 'support1', name: 'Support')]);
+      return adapter;
+    }
+
+    test('an operator kick ends a purge-policy room right away', () async {
+      // The operator removes the user instead of deleting the room. Under
+      // `keepReadOnly` that leaves a browsable read-only row; under `purge`
+      // the conversation is over, and the host hears about it now rather
+      // than whenever the next room-list pass happens to run.
+      final adapter = await buildAdapter(policy: _supportPurges);
+      final removed = <String>[];
+      adapter.onRoomRemoved = (roomId, _, _) => removed.add(roomId);
+
+      mockClient.emitEvent(
+        const ChatEvent.userLeft(
+          roomId: 'support1',
+          userId: 'u1',
+          actorUserId: 'operator',
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(adapter.roomListController.getRoomById('support1'), isNull);
+      expect(removed, ['support1']);
+      expect((await cache.getKickedRoomIds()).dataOrThrow, isEmpty);
+      expect((await cache.getRoom('support1')).dataOrThrow, isNull);
+      expect(
+        (await cache.getDeletedRoomIds()).dataOrThrow,
+        contains('support1'),
+      );
+    });
+
+    test('an operator kick still keeps a default room read-only', () async {
+      final adapter = await buildAdapter();
+      final removed = <String>[];
+      adapter.onRoomRemoved = (roomId, _, _) => removed.add(roomId);
+
+      mockClient.emitEvent(
+        const ChatEvent.userLeft(
+          roomId: 'support1',
+          userId: 'u1',
+          actorUserId: 'operator',
+        ),
+      );
+      await pumpEventQueue();
+
+      final room = adapter.roomListController.getRoomById('support1');
+      expect(room, isNotNull);
+      expect(room!.isParticipating, isFalse);
+      expect(removed, isEmpty);
+      expect(
+        (await cache.getKickedRoomIds()).dataOrThrow,
+        contains('support1'),
+      );
+    });
+
+    test('leaving a purge-policy room ends it too', () async {
+      final adapter = await buildAdapter(policy: _supportPurges);
+      final removed = <String>[];
+      adapter.onRoomRemoved = (roomId, _, _) => removed.add(roomId);
+
+      final result = await adapter.rooms.leave('support1');
+      await pumpEventQueue();
+
+      expect(result.isSuccess, isTrue);
+      expect(adapter.roomListController.getRoomById('support1'), isNull);
+      expect(removed, ['support1']);
+      expect((await cache.getKickedRoomIds()).dataOrThrow, isEmpty);
+    });
+
+    test(
+      'leaving a default room keeps it browsable, as it always did',
+      () async {
+        final adapter = await buildAdapter();
+
+        final result = await adapter.rooms.leave('support1');
+        await pumpEventQueue();
+
+        expect(result.isSuccess, isTrue);
+        final room = adapter.roomListController.getRoomById('support1');
+        expect(room, isNotNull);
+        expect(room!.isParticipating, isFalse);
+        expect(
+          (await cache.getKickedRoomIds()).dataOrThrow,
+          contains('support1'),
+        );
+      },
+    );
   });
 
   group('cold start: the kicked marker replayed from cache', () {
@@ -259,6 +439,8 @@ void main() {
     RoomEnricher buildEnricher({
       DeletedRoomPolicyResolver? policy,
       List<String>? removedControllers,
+      List<String>? roomsRemoved,
+      ChatLocalDatasource? cacheOverride,
     }) {
       final enricher = RoomEnricher(
         client: mock,
@@ -274,7 +456,7 @@ void main() {
           isDisposed: () => false,
         ),
         currentUser: () => _me,
-        cache: cache,
+        cache: cacheOverride ?? cache,
         l10n: () => ChatUiLocalizations.en,
         initializedNotifier: ValueNotifier<bool>(false),
         connectionStateNotifier: ValueNotifier<ChatConnectionState>(
@@ -288,6 +470,9 @@ void main() {
         updateRoomLastMessage: (_, _) {},
         removeChatController: (id) => removedControllers?.add(id),
         deletedRoomPolicy: policy,
+        onRoomRemoved: () => roomsRemoved == null
+            ? null
+            : (roomId, _, _) => roomsRemoved.add(roomId),
       );
       addTearDown(enricher.dispose);
       return enricher;
@@ -336,6 +521,88 @@ void main() {
 
       expect(roomList.allRooms.map((r) => r.id), isNot(contains('support1')));
       expect(roomList.allRooms.map((r) => r.id), contains('live1'));
+    });
+
+    test('the purge reports itself, so a view open on the room pops', () async {
+      // The reachable shape: the user was kicked out of the support room
+      // while sitting inside it (the kick keeps the controller alive by
+      // design), and it is this pass — not the event — that purges. A
+      // controller disposed under a mounted `NomaChatView` with no
+      // `onRoomRemoved` would leave the user staring at a dead screen.
+      final removedRooms = <String>[];
+      final removedControllers = <String>[];
+      final enricher = buildEnricher(
+        policy: _supportPurges,
+        removedControllers: removedControllers,
+        roomsRemoved: removedRooms,
+      );
+
+      await enricher.loadAll();
+      await pumpEventQueue();
+
+      expect(removedRooms, ['support1']);
+      expect(removedControllers, contains('support1'));
+      expect(roomList.allRooms.map((r) => r.id), isNot(contains('support1')));
+    });
+
+    test('a stale cache listing that still names the purged room paints '
+        'no row', () async {
+      // Non-authoritative pass: the room is still in the cached listing, so
+      // the marker's id is among the ids this pass carries and the
+      // hydration branch is never reached. The row has to be dropped from
+      // the batch before it is painted.
+      mock.seedRoom(
+        const ChatRoom(
+          id: 'support1',
+          name: 'Support',
+          custom: {'support': true},
+        ),
+      );
+      final enricher = buildEnricher(policy: _supportPurges);
+
+      await enricher.hydrateFromCache();
+      await pumpEventQueue();
+
+      expect(roomList.allRooms.map((r) => r.id), isNot(contains('support1')));
+      expect((await cache.getKickedRoomIds()).dataOrThrow, isEmpty);
+      expect((await cache.getRoom('support1')).dataOrThrow, isNull);
+    });
+
+    test('a kicked marker with nothing cached behind it is dropped, not '
+        'painted', () async {
+      // The half-state a failed `unmarkKicked` (or an eviction that took
+      // the rows but not the never-evictable marker) leaves behind. There
+      // is no `custom` to decide on, so no policy can recognise the room:
+      // painting the stub would strand an unnamed, empty, read-only row
+      // that nothing can ever remove.
+      await cache.clear();
+      await cache.markKicked('ghost1');
+      final enricher = buildEnricher(policy: _supportPurges);
+
+      await enricher.loadAll();
+      await pumpEventQueue();
+
+      expect(roomList.allRooms.map((r) => r.id), isNot(contains('ghost1')));
+      expect((await cache.getKickedRoomIds()).dataOrThrow, isEmpty);
+    });
+
+    test('an unreadable cache is not taken for an empty one — the marker '
+        'outlives the pass', () async {
+      // Dropping a durable marker is destructive and irreversible, so it
+      // may only follow a read that actually answered. A failed one leaves
+      // the historical degraded stub in place instead.
+      final broken = _UnreadableRoomCache();
+      await broken.markKicked('support1');
+      final enricher = buildEnricher(cacheOverride: broken);
+
+      await enricher.loadAll();
+      await pumpEventQueue();
+
+      expect(roomList.allRooms.map((r) => r.id), contains('support1'));
+      expect(
+        (await broken.getKickedRoomIds()).dataOrThrow,
+        contains('support1'),
+      );
     });
   });
 }

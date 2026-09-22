@@ -35,10 +35,21 @@ ChatResult<void> Function(Object) _silentCacheThrow({
 /// (`ChatRoomOption.deleteKickedChat`) — the two must stay literally the
 /// same operation, so they share this function.
 ///
-/// The kicked marker is cleared FIRST in intent (all five writes are fired
-/// together and not awaited, matching every other cache write in the
-/// adapter): without that, the next room-list enrichment pass would rebuild
-/// the row from whatever the cache still held and the room would come back.
+/// The kicked marker is cleared BEFORE the destructive writes, which only
+/// start once that one has settled. Firing all of them together would leave
+/// a reachable half-state: `deleteRoom` lands, `unmarkKicked` does not (a
+/// failed write, or the process killed in between), and the next cold start
+/// finds an id in `kickedRoomIds` with nothing cached behind it.
+///
+/// [tombstone] additionally records the room in the never-evictable
+/// per-user deleted set — in memory through
+/// [RoomListController.markDeleted] and on disk through
+/// [ChatLocalDatasource.addDeletedRoom]. Without it a room-list request
+/// already in flight when the purge ran re-inserts the row, fully writable,
+/// and nothing is left to take it away again. Pass `true` from every
+/// [DeletedRoomPolicy.purge] call site; the user-driven
+/// `deleteKickedChat` keeps the historical `false` so that path stays
+/// byte-for-byte what it was.
 ///
 /// Attachment blobs the deleted messages referenced are not touched here.
 /// They become orphans and the datasource's own reaper collects them on its
@@ -51,9 +62,14 @@ void purgeDeletedRoom({
   required ChatLocalDatasource? cache,
   required void Function(String roomId) removeChatController,
   CacheThrowHandlerFactory? swallowCacheThrow,
+  bool tombstone = false,
   String op = 'purgeDeletedRoom',
 }) {
-  roomList.removeRoom(roomId);
+  if (tombstone) {
+    roomList.markDeleted(roomId);
+  } else {
+    roomList.removeRoom(roomId);
+  }
   removeChatController(roomId);
   final c = cache;
   if (c == null) return;
@@ -63,11 +79,17 @@ void purgeDeletedRoom({
     String step,
   ) => future.catchError(report(op: '$op.$step', roomId: roomId));
 
-  unawaited(guard(c.unmarkKicked(roomId), 'unmarkKicked'));
-  unawaited(guard(c.deleteRoom(roomId), 'deleteRoom'));
-  unawaited(guard(c.deleteRoomDetail(roomId), 'deleteRoomDetail'));
-  unawaited(guard(c.clearMessages(roomId), 'clearMessages'));
-  unawaited(guard(c.deleteUnread(roomId), 'deleteUnread'));
+  unawaited(
+    guard(c.unmarkKicked(roomId), 'unmarkKicked').then<void>((_) async {
+      await Future.wait<ChatResult<void>>([
+        if (tombstone) guard(c.addDeletedRoom(roomId), 'addDeletedRoom'),
+        guard(c.deleteRoom(roomId), 'deleteRoom'),
+        guard(c.deleteRoomDetail(roomId), 'deleteRoomDetail'),
+        guard(c.clearMessages(roomId), 'clearMessages'),
+        guard(c.deleteUnread(roomId), 'deleteUnread'),
+      ]);
+    }),
+  );
 }
 
 /// Applies [resolver] to [room], defaulting to

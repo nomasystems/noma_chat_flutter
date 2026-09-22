@@ -10,6 +10,7 @@ import '../../../models/user.dart';
 import '../../controller/room_list_controller.dart';
 import '../../l10n/chat_ui_localizations.dart';
 import '../../l10n/system_message_text.dart';
+import '../deleted_room_policy.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/user_cache_service.dart';
 import 'deleted_room_purge.dart';
@@ -24,7 +25,9 @@ import 'deleted_room_purge.dart';
 /// 2. **`UserLeftEvent`** (with optional `actorUserId` for kicks) —
 ///    `handleUserLeft` either flips `isParticipating` to `false` and
 ///    marks the room kicked (when the local user is the kick target)
-///    or drops the leaver from `otherUsers`.
+///    or drops the leaver from `otherUsers`. A kick target whose room the
+///    host's [DeletedRoomPolicy] purges is removed outright instead, and
+///    `onRoomRemoved` fires.
 /// 3. **Local-user re-add** — `handleUserRejoined` runs alongside
 ///    `handleUserJoined` for self and restores `isParticipating` plus
 ///    clears the kicked flag.
@@ -70,6 +73,8 @@ class MemberEventHandler {
       String? roomId,
     })
     swallowCacheThrow,
+    DeletedRoomPolicyResolver? deletedRoomPolicy,
+    void Function(String, String?, String?)? Function()? onRoomRemoved,
     this.membershipBannerFilter,
     this.logger,
   }) : _l10n = l10n,
@@ -80,7 +85,9 @@ class MemberEventHandler {
        _removeChatController = removeChatController,
        _notifyRoomMembersChanged = notifyRoomMembersChanged,
        _isDisposed = isDisposed,
-       _cacheThrowHandler = swallowCacheThrow;
+       _cacheThrowHandler = swallowCacheThrow,
+       _deletedRoomPolicy = deletedRoomPolicy,
+       _onRoomRemovedAccessor = onRoomRemoved;
 
   final ChatClient client;
   final ChatControllerRegistry chatControllers;
@@ -107,6 +114,19 @@ class MemberEventHandler {
   /// `chat_ui_adapter.dart`'s `_cacheThrowHandler` for the actual log.
   final ChatResult<void> Function(Object) Function({String? op, String? roomId})
   _cacheThrowHandler;
+
+  /// Host policy for a room the local user has just stopped belonging to.
+  /// Consulted on the self-kick branch of [handleUserLeft] for the same
+  /// reason the event router consults it on `room_deleted`: an operator who
+  /// removes the user from a purge-policy room ends that conversation just
+  /// as definitively as deleting it.
+  final DeletedRoomPolicyResolver? _deletedRoomPolicy;
+
+  /// Late-bound accessor for the adapter's `onRoomRemoved` hook, fired when
+  /// the branch above purges — the room's chat controller is disposed, so
+  /// a `NomaChatView` open on it has to pop.
+  final void Function(String, String?, String?)? Function()?
+  _onRoomRemovedAccessor;
 
   /// Opt-in veto over the membership banners minted here.
   ///
@@ -168,6 +188,24 @@ class MemberEventHandler {
     if (userId == me.id) {
       if (isKick) {
         final room = roomListController.getRoomById(roomId);
+        if (resolveDeletedRoomPolicy(_deletedRoomPolicy, room) ==
+            DeletedRoomPolicy.purge) {
+          purgeDeletedRoom(
+            roomId: roomId,
+            roomList: roomListController,
+            cache: cache,
+            removeChatController: _removeChatController,
+            swallowCacheThrow: _cacheThrowHandler,
+            tombstone: true,
+            op: 'userKicked.purge',
+          );
+          try {
+            _onRoomRemovedAccessor?.call()?.call(roomId, null, null);
+          } catch (_) {
+            // Defensive: host navigation code must not break event dispatch.
+          }
+          return;
+        }
         if (room != null) {
           roomListController.updateRoom(room.copyWith(isParticipating: false));
         }

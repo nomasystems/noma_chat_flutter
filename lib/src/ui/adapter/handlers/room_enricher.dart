@@ -174,6 +174,7 @@ class RoomEnricher {
     required void Function(String roomId) removeChatController,
     CacheThrowHandlerFactory? swallowCacheThrow,
     DeletedRoomPolicyResolver? deletedRoomPolicy,
+    void Function(String, String?, String?)? Function()? onRoomRemoved,
     void Function(String level, String message)? logger,
     void Function(List<RoomListItem> rooms)? onRoomsLoaded,
     void Function(String roomId, String contactUserId)? Function()?
@@ -195,6 +196,7 @@ class RoomEnricher {
        _removeChatController = removeChatController,
        _swallowCacheThrow = swallowCacheThrow,
        _deletedRoomPolicy = deletedRoomPolicy,
+       _onRoomRemovedAccessor = onRoomRemoved,
        _logger = logger,
        _onRoomsLoaded = onRoomsLoaded,
        _onDmContactResolved = onDmContactResolved,
@@ -230,6 +232,16 @@ class RoomEnricher {
   /// makes [DeletedRoomPolicy.purge] survive a cold start: the row rebuilt
   /// from cache is purged instead of merged back into the list.
   final DeletedRoomPolicyResolver? _deletedRoomPolicy;
+
+  /// Late-bound accessor for the adapter's `onRoomRemoved` hook, resolved
+  /// on every fire for the same reason [_onDmContactResolved] is. A purge
+  /// driven from here disposes the room's chat controller, so the host —
+  /// and `NomaChatView`, which pops itself off this callback — has to hear
+  /// about it exactly as it does when the purge comes from the event
+  /// router.
+  final void Function(String, String?, String?)? Function()?
+  _onRoomRemovedAccessor;
+
   final void Function(String level, String message)? _logger;
   final void Function(List<RoomListItem> rooms)? _onRoomsLoaded;
 
@@ -350,14 +362,23 @@ class RoomEnricher {
   DeletedRoomPolicy _deletedRoomPolicyFor(RoomListItem? room) =>
       resolveDeletedRoomPolicy(_deletedRoomPolicy, room);
 
-  void _purgeDeletedRoom(String roomId) => purgeDeletedRoom(
-    roomId: roomId,
-    roomList: roomList,
-    cache: cache,
-    removeChatController: _removeChatController,
-    swallowCacheThrow: _swallowCacheThrow,
-    op: 'kickedRoomHydration.purge',
-  );
+  void _purgeDeletedRoom(String roomId) {
+    purgeDeletedRoom(
+      roomId: roomId,
+      roomList: roomList,
+      cache: cache,
+      removeChatController: _removeChatController,
+      swallowCacheThrow: _swallowCacheThrow,
+      tombstone: true,
+      op: 'kickedRoomHydration.purge',
+    );
+    try {
+      _onRoomRemovedAccessor?.call()?.call(roomId, null, null);
+    } catch (_) {
+      // Defensive, exactly as the event router is: host navigation code
+      // must not be able to break a room-list pass halfway through.
+    }
+  }
 
   /// Rearms [hasHydratedFromCache] so the next session hydrates again.
   /// Invoked from the adapter's shared session-teardown inventory.

@@ -2701,6 +2701,49 @@ cached yet or clear the cache.
 rest of the membership handling — the roster still refreshes and a room the
 list did not know about is still added.
 
+### deletedRoomPolicy
+
+Decides, per room, what happens when the local user stops belonging to it.
+The default — and the only behaviour before this hook existed — is
+`DeletedRoomPolicy.keepReadOnly`: the row stays in the chat list with its
+full history, the composer is replaced by the "no longer a participant"
+banner, and the user removes it by hand through
+`ChatRoomOption.deleteKickedChat`. Return `DeletedRoomPolicy.purge` for
+rooms whose history means nothing once the backend ends them:
+
+```dart
+deletedRoomPolicy: (room) => room.custom?['support'] == true
+    ? DeletedRoomPolicy.purge
+    : DeletedRoomPolicy.keepReadOnly,
+```
+
+A purge leaves nothing: no row, no open chat controller, and no cached
+room, detail, message, unread snapshot or kicked marker.
+
+**Where it is consulted.** All five paths that strip the user of a room:
+
+1. a `room_deleted` frame over WebSocket/SSE;
+2. the same event the polling transport synthesizes when a room drops out
+   of the listing;
+3. a `user_left` frame naming the local user as the target of a kick;
+4. `chat.adapter.rooms.leave(roomId)`;
+5. the cached kicked marker replayed on a cold start, where the room is
+   purged instead of being rebuilt from disk.
+
+**The user is taken out of the room.** Whichever path fires, the SDK calls
+`onRoomRemoved` and `NomaChatView` pops itself. Hosts driving their own
+navigation should wire `onRoomRemoved` rather than watch the room list.
+
+**It is final.** The purged id joins the never-evictable per-user deleted
+set. That is what keeps a room-list response that was already in flight
+from re-inserting the row a moment after the purge — and it also means
+re-adding the user to the same room id will not bring the room back. Use
+`purge` only for rooms the backend never revives.
+
+**The resolver runs inside event dispatch** and inside every room-list
+pass, so keep it pure and fast. One that throws is treated as
+`keepReadOnly`, so a host bug can never destroy a conversation.
+
 ### RoomTitleResolver
 
 Controls what title is displayed in `RoomTile`, `ChatRoomAppBar` and anywhere

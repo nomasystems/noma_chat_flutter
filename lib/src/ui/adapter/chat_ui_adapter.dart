@@ -51,6 +51,7 @@ import 'room_title_resolver.dart';
 import 'user_directory_resolver.dart';
 
 import 'handlers/chat_event_router.dart';
+import 'handlers/deleted_room_purge.dart';
 import 'handlers/member_event_handler.dart';
 import 'handlers/optimistic_handler.dart';
 import 'services/presence_registry.dart';
@@ -418,10 +419,12 @@ class ChatUiAdapter extends _AdapterCore
   /// What happens to a room the backend says the local user no longer
   /// belongs to, decided per room.
   ///
-  /// Consulted on every path that can turn a room into a deleted one: the
+  /// Consulted on every path that strips the local user of a room: the
   /// `room_deleted` frame over WS/SSE, the same event the polling transport
-  /// synthesizes when a room drops out of the listing, and the cached
-  /// kicked marker replayed on a cold start. `null` (the default) means
+  /// synthesizes when a room drops out of the listing, the `user_left`
+  /// frame that names the local user as the target of a kick,
+  /// [ChatRoomsController.leave], and the cached kicked marker replayed on
+  /// a cold start. `null` (the default) means
   /// [DeletedRoomPolicy.keepReadOnly] everywhere — the read-only,
   /// full-history row the SDK has always left behind.
   ///
@@ -438,6 +441,11 @@ class ChatUiAdapter extends _AdapterCore
   /// room as it happens, [onRoomRemoved] fires as it already does for any
   /// other membership revocation and `NomaChatView` pops itself — hosts
   /// driving their own navigation should wire [onRoomRemoved].
+  ///
+  /// A purge is final: the id joins the never-evictable per-user deleted
+  /// set, so a room-list response that was already in flight cannot put the
+  /// room back, and neither can a later re-add of the same id. Use it only
+  /// for rooms the backend never revives.
   final DeletedRoomPolicyResolver? deletedRoomPolicy;
 
   final RoomTitleResolver? roomTitleResolver;
@@ -872,6 +880,7 @@ class ChatUiAdapter extends _AdapterCore
     removeChatController: removeChatController,
     swallowCacheThrow: _cacheThrowHandler,
     deletedRoomPolicy: deletedRoomPolicy,
+    onRoomRemoved: () => onRoomRemoved,
     logger: logger,
     onRoomsLoaded: onRoomsLoaded,
     onDmContactResolved: () => onDmContactResolved,
@@ -976,6 +985,8 @@ class ChatUiAdapter extends _AdapterCore
     notifyRoomMembersChanged: notifyRoomMembersChanged,
     isDisposed: () => _disposed,
     swallowCacheThrow: _cacheThrowHandler,
+    deletedRoomPolicy: deletedRoomPolicy,
+    onRoomRemoved: () => onRoomRemoved,
     membershipBannerFilter: membershipBannerFilter,
     logger: logger,
   );

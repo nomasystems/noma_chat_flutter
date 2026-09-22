@@ -1,9 +1,15 @@
 import '../models/room_list_item.dart';
 
-/// What the SDK does with a room the backend says the local user no longer
-/// belongs to — a `room_deleted` event over WS/SSE, the equivalent event the
-/// polling transport synthesizes when a room drops out of the listing, and
-/// the cached "kicked" marker replayed on a cold start.
+/// What the SDK does with a room the local user has stopped belonging to.
+///
+/// Consulted on all five paths that produce one:
+///
+/// 1. a `room_deleted` event over WS/SSE;
+/// 2. the equivalent event the polling transport synthesizes when a room
+///    drops out of the listing;
+/// 3. a `user_left` event naming the local user as the target of a kick;
+/// 4. `ChatRoomsController.leave`;
+/// 5. the cached "kicked" marker replayed on a cold start.
 ///
 /// Chosen per room by a [DeletedRoomPolicyResolver]; when no resolver is
 /// wired every room gets [keepReadOnly], which is what the SDK has always
@@ -32,7 +38,13 @@ enum DeletedRoomPolicy {
   /// the operator, a transient broadcast room. A user sitting inside such a
   /// room when it is purged is taken out of it: the SDK fires
   /// `ChatUiAdapter.onRoomRemoved` (and `NomaChatView` pops itself) exactly
-  /// as it already does for any other membership revocation.
+  /// as it already does for any other membership revocation, on every one
+  /// of the five paths above.
+  ///
+  /// Irreversible by design. The id is written to the never-evictable
+  /// per-user deleted set, which is what keeps a room-list response that
+  /// was already in flight from re-inserting the row — and what also means
+  /// that re-adding the user to the same room id will not bring it back.
   purge,
 }
 
