@@ -27,6 +27,32 @@ String audioPlaySemanticsId(String messageId) =>
 String audioSpeedSemanticsId(String messageId) =>
     'chat_message_${messageId}_audio_speed';
 
+/// The time one voice bubble reads: the playback position once it has
+/// moved, the announced total while the note sits at rest.
+///
+/// [position] is held at [total] because the two are measured by different
+/// clocks — the total is the length the sender took while recording,
+/// truncated to the second, and the position is the player's own read of
+/// the file, which can run a little past it. Left unclamped the label keeps
+/// counting over a total that already stopped (01:06 of 01:05) and
+/// contradicts the seek bar, which is scaled against [total] and stays full.
+/// A [total] of zero means nothing is known about the length yet, so there
+/// is nothing to clamp against and the position is shown as it comes.
+String audioBubbleTimeLabel(Duration position, Duration total) {
+  final capped = total > Duration.zero && position > total ? total : position;
+  return _formatDuration(capped > Duration.zero ? capped : total);
+}
+
+String _formatDuration(Duration d) {
+  final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
+  final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
+  return '$minutes:$seconds';
+}
+
+/// Side of the square the bubble's own controls answer touches on, whatever
+/// they paint inside it. Both platforms ask for 44pt as the minimum.
+const double _kMinTapTarget = 44;
+
 /// Bubble for a voice message: play/pause, waveform, duration, and optional
 /// upload-progress overlay while the audio is still being sent.
 class AudioBubble extends StatefulWidget {
@@ -52,6 +78,7 @@ class AudioBubble extends StatefulWidget {
     this.attachmentRef,
     this.urlResolver,
     this.mediaLoader,
+    this.duration,
   });
 
   final String audioUrl;
@@ -59,14 +86,25 @@ class AudioBubble extends StatefulWidget {
   final bool isOutgoing;
   final ChatTheme theme;
   final List<int>? waveform;
+
+  /// How long the note actually is, as measured while it was recorded and
+  /// shipped with the message (`metadata['duration']`). This is the total
+  /// the bubble announces, so it reads the same as the chat list row and
+  /// does not change once playback loads the file.
+  ///
+  /// `null` for notes that carry no such metadata — anything sent before
+  /// it existed, or by a client that does not write it. The bubble then
+  /// falls back to the player's own duration and, failing that, to the
+  /// waveform estimate; see [_AudioBubbleState._announcedDuration].
+  final Duration? duration;
   final bool isListened;
   final AudioPlaybackCoordinator? coordinator;
   final ValueChanged<bool>? onListenedChanged;
 
   /// Fires the first time this voice message is played, alongside
   /// [onListenedChanged]. `durationMs` is the best duration known at that
-  /// moment (the player's own once it reported one, else the
-  /// waveform-sample estimate); `firstListen` is always `true` from this
+  /// moment — the same one the bubble announces, so the message's own
+  /// [duration] first; `firstListen` is always `true` from this
   /// call site. Used by `MessageBubble`/`MessageList` to surface a
   /// `ChatAnalyticsEvent.voicePlayed` up to `ChatUiAdapter`.
   ///
@@ -390,12 +428,6 @@ class _AudioBubbleState extends State<AudioBubble> {
     super.dispose();
   }
 
-  String _formatDuration(Duration d) {
-    final minutes = d.inMinutes.remainder(60).toString().padLeft(2, '0');
-    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
-  }
-
   Future<void> _togglePlayPause() async {
     try {
       // Flip the slot from avatar → speed pill the moment the user
@@ -425,7 +457,7 @@ class _AudioBubbleState extends State<AudioBubble> {
           if (widget.coordinator != null && widget.messageId != null) {
             widget.coordinator!.markListened(widget.messageId!);
           }
-          final duration = _resolvedDuration ?? _waveformEstimatedDuration;
+          final duration = _announcedDuration;
           try {
             widget.onVoicePlayed?.call(duration.inMilliseconds, true);
           } catch (_) {}
@@ -649,31 +681,60 @@ class _AudioBubbleState extends State<AudioBubble> {
       button: true,
       child: GestureDetector(
         onTap: _togglePlayPause,
-        child: Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(color: playColor, shape: BoxShape.circle),
-          child: Icon(
-            playing ? Icons.pause : Icons.play_arrow,
-            color: widget.theme.audioPlayIconColor ?? Colors.white,
-            size: 20,
+        behavior: HitTestBehavior.opaque,
+        child: SizedBox(
+          width: _kMinTapTarget,
+          height: _kMinTapTarget,
+          child: Center(
+            child: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: playColor,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                playing ? Icons.pause : Icons.play_arrow,
+                color: widget.theme.audioPlayIconColor ?? Colors.white,
+                size: 20,
+              ),
+            ),
           ),
         ),
       ),
     );
   }
 
+  /// Length guessed from the waveform, one sample per amplitude tick.
+  ///
+  /// A guess of last resort, and a bad one for anything long: the sender
+  /// downsamples the waveform to a fixed number of buckets before shipping
+  /// it, so past that cap the bucket count stops tracking how long the
+  /// recording was and every note announces the very same total. Only used
+  /// when neither [AudioBubble.duration] nor the player knows better.
   Duration get _waveformEstimatedDuration {
     final w = widget.waveform;
     if (w == null || w.isEmpty) return Duration.zero;
     return Duration(milliseconds: w.length * 100);
   }
 
+  /// The total this bubble announces, best source first: the length the
+  /// sender measured and sent with the message, then the one the player
+  /// reports once it has loaded the file, then the waveform estimate.
+  ///
+  /// Taking the sender's measurement first is what keeps the number
+  /// steady: it is known before the file is touched, so the total shown at
+  /// rest is the same one the seek bar is scaled against during playback.
+  Duration get _announcedDuration {
+    final fromMessage = widget.duration;
+    if (fromMessage != null && fromMessage > Duration.zero) return fromMessage;
+    final fromPlayer = _resolvedDuration;
+    if (fromPlayer != null && fromPlayer > Duration.zero) return fromPlayer;
+    return _waveformEstimatedDuration;
+  }
+
   Widget _buildSeekArea() {
-    Duration duration = _resolvedDuration ?? Duration.zero;
-    if (duration <= Duration.zero) {
-      duration = _waveformEstimatedDuration;
-    }
+    final duration = _announcedDuration;
     final maxMs = duration.inMilliseconds.toDouble();
 
     final outgoingTextColor =
@@ -719,9 +780,7 @@ class _AudioBubbleState extends State<AudioBubble> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 4),
                 child: Text(
-                  _formatDuration(
-                    position > Duration.zero ? position : duration,
-                  ),
+                  audioBubbleTimeLabel(position, duration),
                   style:
                       widget.theme.audioDurationTextStyle ??
                       TextStyle(fontSize: 11, color: defaultDurationColor),
@@ -755,7 +814,7 @@ class _AudioBubbleState extends State<AudioBubble> {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
               child: Text(
-                _formatDuration(position > Duration.zero ? position : duration),
+                audioBubbleTimeLabel(position, duration),
                 style:
                     widget.theme.audioDurationTextStyle ??
                     TextStyle(fontSize: 11, color: defaultDurationColor),
@@ -811,26 +870,36 @@ class _AudioBubbleState extends State<AudioBubble> {
       button: true,
       child: GestureDetector(
         onTap: _cycleSpeed,
-        child: Container(
-          // Slightly larger than before (was 32×24) because the pill
-          // now occupies the focal slot vacated by the avatar and the
-          // text label needs to feel like the primary control.
-          width: 44,
-          height: 28,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            color: pillColor,
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            _speedLabel,
-            style:
-                widget.theme.audioSpeedTextStyle ??
-                TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: outgoing ? outgoingText : Colors.white,
-                ),
+        behavior: HitTestBehavior.opaque,
+        // The pill is drawn flatter than the minimum touch target, so the
+        // target is the box around it rather than the pill itself. It fits
+        // inside the lateral slot, which is larger still.
+        child: SizedBox(
+          width: _kMinTapTarget,
+          height: _kMinTapTarget,
+          child: Center(
+            child: Container(
+              // Slightly larger than before (was 32×24) because the pill
+              // now occupies the focal slot vacated by the avatar and the
+              // text label needs to feel like the primary control.
+              width: 44,
+              height: 28,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(14),
+                color: pillColor,
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                _speedLabel,
+                style:
+                    widget.theme.audioSpeedTextStyle ??
+                    TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: outgoing ? outgoingText : Colors.white,
+                    ),
+              ),
+            ),
           ),
         ),
       ),

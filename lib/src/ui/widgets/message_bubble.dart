@@ -390,6 +390,19 @@ class MessageBubble extends StatelessWidget {
     return null;
   }
 
+  /// How long the voice note is, as its sender measured it. `sendVoice`
+  /// writes it to `metadata['duration']` in milliseconds and the chat list
+  /// row reads it from there too, so the bubble and the row announce the
+  /// same number.
+  ///
+  /// `null` for notes that never carried it, which is what tells the
+  /// bubble to fall back to the player.
+  Duration? _extractVoiceDuration() {
+    final raw = message.metadata?['duration'];
+    if (raw is num && raw > 0) return Duration(milliseconds: raw.toInt());
+    return null;
+  }
+
   MessageDeliveryState? get _deliveryState {
     if (!isOutgoing) return null;
     if (isFailed) return MessageDeliveryState.failed;

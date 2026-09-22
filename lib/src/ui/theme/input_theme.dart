@@ -154,6 +154,11 @@ abstract class ChatInputTheme with _$ChatInputTheme {
     /// over the composer rows rather than sitting inside them. Keep it
     /// equal to the trailing side of [rowPadding] or the button will not
     /// land on the slot each row reserves for it. Defaults to 16.
+    ///
+    /// The value places the 40pt circle. Its touch target is 44pt, so it
+    /// reaches 2pt further out on each side than the circle does, and an
+    /// inset below 2 leaves nothing to take that from — the circle then
+    /// sits further in than asked, by whatever is missing.
     double? voiceButtonInset,
   }) = _ChatInputTheme;
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
@@ -832,7 +833,15 @@ class _MessageInputState extends State<MessageInput> {
   /// Reserves the footprint of the mic button inside a composer row. The
   /// button itself is painted over the rows — see
   /// [_withPersistentVoiceButton].
-  static const Widget _voiceButtonSlot = SizedBox(width: 40, height: 40);
+  ///
+  /// This is the footprint of the *circle*, not of the button's touch
+  /// target: the target is wider (see [VoiceRecorderButton.tapTarget]) and
+  /// is allowed to reach into the gaps around the slot, which stay clear of
+  /// the neighbouring buttons' own targets.
+  static const Widget _voiceButtonSlot = SizedBox(
+    width: VoiceRecorderButton.diameter,
+    height: VoiceRecorderButton.diameter,
+  );
 
   /// Trailing inset of the persistent mic button. Matches the horizontal
   /// padding of the composer rows, so the floating button lands exactly on
@@ -840,6 +849,18 @@ class _MessageInputState extends State<MessageInput> {
   /// [ChatInputTheme] a host shrinks the rows with. Directional, like the
   /// rows themselves: the slot is the last child of a `Row`, so it swaps
   /// sides under an RTL [Directionality] and the button has to follow.
+  ///
+  /// [VoiceRecorderButton.tapBleed] comes off the themed value because the
+  /// button is that much wider than the circle on each side: without the
+  /// subtraction the enlarged touch target would push the circle in off the
+  /// margin the host asked for. An inset smaller than the bleed has nothing
+  /// left to give, so the circle does move in — documented on
+  /// [ChatInputTheme.voiceButtonInset].
   static EdgeInsetsDirectional _voiceButtonInset(ChatTheme theme) =>
-      EdgeInsetsDirectional.only(end: theme.input.voiceButtonInset ?? 16);
+      EdgeInsetsDirectional.only(
+        end: math.max(
+          0,
+          (theme.input.voiceButtonInset ?? 16) - VoiceRecorderButton.tapBleed,
+        ),
+      );
 }

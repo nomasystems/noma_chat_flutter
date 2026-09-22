@@ -20,18 +20,38 @@ void main() {
 
   tearDown(() => chat.dispose());
 
-  Widget wrap(ChatTheme theme) => MaterialApp(
-    home: Scaffold(
-      body: Align(
-        alignment: Alignment.bottomCenter,
-        child: MessageInput(
-          controller: chat,
-          onSendMessageRequest: (_) => true,
-          onVoiceMessageReady: (_) {},
-          onPickCamera: () {},
-          theme: theme,
+  Widget wrap(ChatTheme theme, {double textScale = 1.0}) => MaterialApp(
+    home: MediaQuery(
+      data: MediaQueryData(textScaler: TextScaler.linear(textScale)),
+      child: Scaffold(
+        body: Align(
+          alignment: Alignment.bottomCenter,
+          child: SizedBox(
+            width: 375,
+            child: MessageInput(
+              controller: chat,
+              onSendMessageRequest: (_) => true,
+              onVoiceMessageReady: (_) {},
+              onPickCamera: () {},
+              theme: theme,
+            ),
+          ),
         ),
       ),
+    ),
+  );
+
+  /// The spacing WB ships: every gap halved from the SDK defaults.
+  final tightTheme = ChatTheme.defaults.copyWith(
+    input: ChatTheme.defaults.input.copyWith(
+      rowPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      iconGap: 8,
+      secondaryIconGap: 8,
+      fieldContentPadding: const EdgeInsets.symmetric(
+        horizontal: 8,
+        vertical: 8,
+      ),
+      voiceButtonInset: 8,
     ),
   );
 
@@ -64,6 +84,15 @@ void main() {
       .decoration!
       .contentPadding;
 
+  /// The painted mic circle, the only `Container` the button builds inside
+  /// its (wider) touch target.
+  Finder micCircle() => find
+      .descendant(
+        of: find.byType(VoiceRecorderButton),
+        matching: find.byType(Container),
+      )
+      .first;
+
   EdgeInsetsGeometry? voiceInsetOf(WidgetTester tester) => tester
       .widget<Padding>(
         find
@@ -90,7 +119,14 @@ void main() {
         fieldPaddingOf(tester),
         const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       );
-      expect(voiceInsetOf(tester), const EdgeInsetsDirectional.only(end: 16));
+      // The themed inset is 16; the button carries it minus the bleed its
+      // touch target adds on each side, so the circle still lands on 16.
+      expect(
+        voiceInsetOf(tester),
+        const EdgeInsetsDirectional.only(
+          end: 16 - VoiceRecorderButton.tapBleed,
+        ),
+      );
     });
 
     testWidgets('the theme drives every horizontal gap of the composer', (
@@ -120,28 +156,67 @@ void main() {
         fieldPaddingOf(tester),
         const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
       );
-      expect(voiceInsetOf(tester), const EdgeInsetsDirectional.only(end: 8));
+      expect(
+        voiceInsetOf(tester),
+        const EdgeInsetsDirectional.only(end: 8 - VoiceRecorderButton.tapBleed),
+      );
     });
 
-    testWidgets('the mic button stays on the slot the row reserves for it', (
-      tester,
-    ) async {
-      final theme = ChatTheme.defaults.copyWith(
-        input: ChatTheme.defaults.input.copyWith(
-          rowPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-          iconGap: 8,
-          secondaryIconGap: 8,
-          voiceButtonInset: 8,
-        ),
-      );
-
-      await tester.pumpWidget(wrap(theme));
+    testWidgets('the mic circle stays on the slot the row reserves for it, '
+        'even though its touch target is wider', (tester) async {
+      await tester.pumpWidget(wrap(tightTheme));
 
       final composer = tester.getRect(find.byType(MessageInput));
-      final button = tester.getRect(find.byType(VoiceRecorderButton));
+      final circle = tester.getRect(micCircle());
 
-      expect(button.right, moreOrLessEquals(composer.right - 8, epsilon: 0.5));
-      expect(button.width, 40);
+      expect(circle.right, moreOrLessEquals(composer.right - 8, epsilon: 0.5));
+      expect(circle.width, VoiceRecorderButton.diameter);
+    });
+
+    for (final scale in const [1.18, 1.18 * 1.7]) {
+      testWidgets('every composer button clears the 44pt minimum touch '
+          'target on a 375pt screen (text scale $scale)', (tester) async {
+        await tester.pumpWidget(wrap(tightTheme, textScale: scale));
+
+        for (final id in const [
+          'chat_attach_button',
+          'chat_camera_button',
+          'chat_voice_button',
+        ]) {
+          final size = tester.getSize(find.byKey(ValueKey(id)));
+          expect(size.width, greaterThanOrEqualTo(44), reason: id);
+          expect(size.height, greaterThanOrEqualTo(44), reason: id);
+        }
+      });
+
+      testWidgets('the send button clears it too once there is text to send '
+          '(text scale $scale)', (tester) async {
+        await tester.pumpWidget(wrap(tightTheme, textScale: scale));
+        await tester.enterText(
+          find.byKey(const ValueKey('chat_message_input')),
+          'hi',
+        );
+        await tester.pump();
+
+        final size = tester.getSize(
+          find.byKey(const ValueKey('chat_send_button')),
+        );
+        expect(size.width, greaterThanOrEqualTo(44));
+        expect(size.height, greaterThanOrEqualTo(44));
+      });
+    }
+
+    testWidgets('the mic touch target never overlaps the camera one', (
+      tester,
+    ) async {
+      await tester.pumpWidget(wrap(tightTheme));
+
+      final camera = tester.getRect(
+        find.byKey(const ValueKey('chat_camera_button')),
+      );
+      final mic = tester.getRect(find.byType(VoiceRecorderButton));
+
+      expect(mic.left, greaterThanOrEqualTo(camera.right));
     });
   });
 

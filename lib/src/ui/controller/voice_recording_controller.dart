@@ -610,11 +610,13 @@ class VoiceRecordingController extends ChangeNotifier {
     }
 
     final waveform = _subsampleWaveform();
+    // Samples as they were taken, not the capped list _subsampleWaveform
+    // returns: only the former still stands for elapsed time.
     final duration = _currentDuration.inMilliseconds > 0
         ? _currentDuration
         : Duration(
             milliseconds:
-                waveform.length * _kAmplitudeSampleInterval.inMilliseconds,
+                _liveWaveform.length * _kAmplitudeSampleInterval.inMilliseconds,
           );
 
     _cleanupFile();
