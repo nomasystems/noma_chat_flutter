@@ -124,6 +124,7 @@ export 'src/ui/models/voice_message_data.dart';
 // same for the hooks declared next to the adapter itself:
 // `AttachmentShrinker`, `ShrunkAttachment` and `NoAttachmentShrinker`.
 export 'src/ui/adapter/chat_ui_adapter.dart';
+export 'src/ui/adapter/deleted_room_policy.dart';
 export 'src/ui/adapter/room_title_resolver.dart';
 export 'src/ui/adapter/user_directory_resolver.dart';
 export 'src/ui/adapter/operation_error.dart';

@@ -45,6 +45,7 @@ import '../utils/last_message_preview.dart';
 import '../utils/mime_classifier.dart';
 import '../widgets/chat_room_options_menu.dart';
 import '../widgets/chat_view.dart';
+import 'deleted_room_policy.dart';
 import 'operation_error.dart';
 import 'room_title_resolver.dart';
 import 'user_directory_resolver.dart';
@@ -193,6 +194,7 @@ class ChatUiAdapter extends _AdapterCore
     this.onRoomsLoaded,
     this.isDmRoom,
     this.membershipBannerFilter,
+    this.deletedRoomPolicy,
     this.roomTitleResolver,
     this.userDirectoryResolver,
     this.userDirectoryTtl = const Duration(hours: 12),
@@ -412,6 +414,31 @@ class ChatUiAdapter extends _AdapterCore
   /// keeps every banner, which is what every consumer got before this
   /// hook existed.
   final MembershipBannerFilter? membershipBannerFilter;
+
+  /// What happens to a room the backend says the local user no longer
+  /// belongs to, decided per room.
+  ///
+  /// Consulted on every path that can turn a room into a deleted one: the
+  /// `room_deleted` frame over WS/SSE, the same event the polling transport
+  /// synthesizes when a room drops out of the listing, and the cached
+  /// kicked marker replayed on a cold start. `null` (the default) means
+  /// [DeletedRoomPolicy.keepReadOnly] everywhere — the read-only,
+  /// full-history row the SDK has always left behind.
+  ///
+  /// Return [DeletedRoomPolicy.purge] for rooms whose history the user has
+  /// no business keeping once the backend ends them:
+  ///
+  /// ```dart
+  /// deletedRoomPolicy: (room) => room.custom?['support'] == true
+  ///     ? DeletedRoomPolicy.purge
+  ///     : DeletedRoomPolicy.keepReadOnly,
+  /// ```
+  ///
+  /// A purge leaves no row and no cached trace. When the user is inside the
+  /// room as it happens, [onRoomRemoved] fires as it already does for any
+  /// other membership revocation and `NomaChatView` pops itself — hosts
+  /// driving their own navigation should wire [onRoomRemoved].
+  final DeletedRoomPolicyResolver? deletedRoomPolicy;
 
   final RoomTitleResolver? roomTitleResolver;
 
@@ -843,6 +870,8 @@ class ChatUiAdapter extends _AdapterCore
     updateRoomLastMessage: (roomId, message) =>
         _roomListMutator.updateRoomLastMessage(roomId, message),
     removeChatController: removeChatController,
+    swallowCacheThrow: _cacheThrowHandler,
+    deletedRoomPolicy: deletedRoomPolicy,
     logger: logger,
     onRoomsLoaded: onRoomsLoaded,
     onDmContactResolved: () => onDmContactResolved,
@@ -1713,6 +1742,8 @@ class ChatUiAdapter extends _AdapterCore
       triggerResync: () {
         if (enableReconnectResync) unawaited(resync());
       },
+      swallowCacheThrow: _cacheThrowHandler,
+      deletedRoomPolicy: deletedRoomPolicy,
     ),
   );
 }

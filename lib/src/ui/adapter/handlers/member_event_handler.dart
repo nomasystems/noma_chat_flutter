@@ -12,6 +12,7 @@ import '../../l10n/chat_ui_localizations.dart';
 import '../../l10n/system_message_text.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/user_cache_service.dart';
+import 'deleted_room_purge.dart';
 
 /// Centralises room-membership realtime side-effects.
 ///
@@ -309,62 +310,20 @@ class MemberEventHandler {
     }
   }
 
+  /// Host-driven counterpart of `DeletedRoomPolicy.purge`: the WhatsApp
+  /// "delete this chat" option on a room the user is no longer part of.
+  /// Same operation, same helper — see [purgeDeletedRoom].
+  ///
+  /// Stays a `Future` because `ChatRoomsController.deleteKicked` returns it
+  /// as public API; the cache writes it starts are fire-and-forget, so it
+  /// completes as soon as the row and the controller are gone.
   @internal
-  Future<void> deleteKickedChat(String roomId) async {
-    roomListController.removeRoom(roomId);
-    _removeChatController(roomId);
-    final c = cache;
-    if (c != null) {
-      unawaited(
-        c
-            .unmarkKicked(roomId)
-            .catchError(
-              _cacheThrowHandler(
-                op: 'deleteKickedChat.unmarkKicked',
-                roomId: roomId,
-              ),
-            ),
-      );
-      unawaited(
-        c
-            .deleteRoom(roomId)
-            .catchError(
-              _cacheThrowHandler(
-                op: 'deleteKickedChat.deleteRoom',
-                roomId: roomId,
-              ),
-            ),
-      );
-      unawaited(
-        c
-            .deleteRoomDetail(roomId)
-            .catchError(
-              _cacheThrowHandler(
-                op: 'deleteKickedChat.deleteRoomDetail',
-                roomId: roomId,
-              ),
-            ),
-      );
-      unawaited(
-        c
-            .clearMessages(roomId)
-            .catchError(
-              _cacheThrowHandler(
-                op: 'deleteKickedChat.clearMessages',
-                roomId: roomId,
-              ),
-            ),
-      );
-      unawaited(
-        c
-            .deleteUnread(roomId)
-            .catchError(
-              _cacheThrowHandler(
-                op: 'deleteKickedChat.deleteUnread',
-                roomId: roomId,
-              ),
-            ),
-      );
-    }
-  }
+  Future<void> deleteKickedChat(String roomId) async => purgeDeletedRoom(
+    roomId: roomId,
+    roomList: roomListController,
+    cache: cache,
+    removeChatController: _removeChatController,
+    swallowCacheThrow: _cacheThrowHandler,
+    op: 'deleteKickedChat',
+  );
 }

@@ -15,6 +15,7 @@ import '../storage/avatar_storage.dart';
 import '../events/chat_event.dart';
 import '../models/user.dart';
 import '../ui/adapter/chat_ui_adapter.dart';
+import '../ui/adapter/deleted_room_policy.dart';
 import '../ui/adapter/room_title_resolver.dart';
 import '../ui/adapter/user_directory_resolver.dart';
 import '../ui/controller/chat_controller.dart';
@@ -159,6 +160,7 @@ class NomaChat {
     ChatUiLocalizations l10n = ChatUiLocalizations.en,
     IsDmRoomPredicate? isDmRoom,
     MembershipBannerFilter? membershipBannerFilter,
+    DeletedRoomPolicyResolver? deletedRoomPolicy,
     RoomTitleResolver? roomTitleResolver,
     UserDirectoryResolver? userDirectoryResolver,
     Duration userDirectoryTtl = const Duration(hours: 12),
@@ -243,6 +245,7 @@ class NomaChat {
       cache: config != null ? config.localDatasource : effectiveDatasource,
       isDmRoom: isDmRoom,
       membershipBannerFilter: membershipBannerFilter,
+      deletedRoomPolicy: deletedRoomPolicy,
       roomTitleResolver: roomTitleResolver,
       userDirectoryResolver: userDirectoryResolver,
       userDirectoryTtl: userDirectoryTtl,
@@ -311,6 +314,7 @@ class NomaChat {
     ChatUiLocalizations l10n = ChatUiLocalizations.en,
     IsDmRoomPredicate? isDmRoom,
     MembershipBannerFilter? membershipBannerFilter,
+    DeletedRoomPolicyResolver? deletedRoomPolicy,
     RoomTitleResolver? roomTitleResolver,
     UserDirectoryResolver? userDirectoryResolver,
     Duration userDirectoryTtl = const Duration(hours: 12),
@@ -341,6 +345,7 @@ class NomaChat {
       cache: config.localDatasource,
       isDmRoom: isDmRoom,
       membershipBannerFilter: membershipBannerFilter,
+      deletedRoomPolicy: deletedRoomPolicy,
       roomTitleResolver: roomTitleResolver,
       userDirectoryResolver: userDirectoryResolver,
       userDirectoryTtl: userDirectoryTtl,
@@ -391,6 +396,13 @@ class NomaChat {
   /// notice for a room use it so the two do not show up side by side.
   /// When `null` (default) every banner is kept.
   ///
+  /// [deletedRoomPolicy] — per-room choice between keeping a room the
+  /// backend removed the user from as a read-only row with its history
+  /// (`DeletedRoomPolicy.keepReadOnly`) and erasing it outright
+  /// (`DeletedRoomPolicy.purge`). When `null` (default) every such room is
+  /// kept read-only, as it always was. See
+  /// [ChatUiAdapter.deletedRoomPolicy].
+  ///
   /// [autoMarkAsRead] — when `true` (default) the adapter automatically
   /// marks rooms as read when the user opens them.
   ///
@@ -416,6 +428,7 @@ class NomaChat {
     ChatLocalDatasource? cache,
     IsDmRoomPredicate? isDmRoom,
     MembershipBannerFilter? membershipBannerFilter,
+    DeletedRoomPolicyResolver? deletedRoomPolicy,
     RoomTitleResolver? roomTitleResolver,
     UserDirectoryResolver? userDirectoryResolver,
     Duration userDirectoryTtl = const Duration(hours: 12),
@@ -440,6 +453,7 @@ class NomaChat {
       cache: cache,
       isDmRoom: isDmRoom,
       membershipBannerFilter: membershipBannerFilter,
+      deletedRoomPolicy: deletedRoomPolicy,
       roomTitleResolver: roomTitleResolver,
       userDirectoryResolver: userDirectoryResolver,
       userDirectoryTtl: userDirectoryTtl,
