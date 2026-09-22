@@ -6,6 +6,196 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.35.0 - 2026-09-22
+
+A tap on the mic button now starts a hands-free recording instead of being
+thrown away, a voice note announces the length it was really recorded at,
+the composer's spacing is themable, and the room list carries the host's
+own `custom` flags from the listing. On the cache side, every failure it
+swallows is reported through the structured logger with the operation that
+caused it, and a free-form map stored there comes back with its nested maps
+still typed.
+
+### Added
+
+- **`MessageInput.tapToRecordLocked`** (default `true`) and
+  **`MessageInput.tapToRecordMaxDuration`** (250 ms), mirrored on
+  `VoiceRecorderGesture` — a tap on the mic button is too short to be a
+  hold that went wrong, so it now carries the capture on hands-free instead
+  of being discarded with the "hold to record" prompt. It lands on the very
+  row a slide upwards reaches: bin, pause, preview and send. "Tap" means a
+  release inside `tapToRecordMaxDuration` that never travelled past
+  `kTouchSlop` — the framework's own margin for a stationary finger, so the
+  roll of a thumb coming off a 40pt button is not read as a drag.
+  Everything between that window and `minSendDuration` is still a short
+  hold and still discarded with the prompt that says so. A tap that
+  interrupts a recorder which has not come up yet (a first-run permission
+  dialog) keeps its claim on it for one second and then gives it up, so a
+  capture never opens by itself long after the touch that asked for it.
+  Pass `tapToRecordLocked: false` for the 0.34 behaviour.
+- **`MessageInputVoiceController.lockRecording()`** — hands the live
+  capture over to the locked row, which is what a slide past the lock
+  threshold has always done internally and what the tap above calls. A
+  no-op unless capture is live.
+- **`ChatInputTheme.rowPadding`, `.iconGap`, `.secondaryIconGap`,
+  `.fieldContentPadding` and `.voiceButtonInset`** — the composer's own
+  spacing, every one of them nullable and resolving to the literal that was
+  hard-coded before (16/8 padding, 16 between the field and the buttons
+  beside it, 12 between camera and microphone, 16/8 inside the field, 16 of
+  trailing inset for the floating mic), so an unconfigured composer is
+  pixel-identical to 0.34. `voiceButtonInset` places the 40pt circle; its
+  touch target reaches 2pt further out on each side, and an inset below 2
+  has nothing left to give it, so the circle then does move inwards.
+- **`ChatRoomListTheme.previewMaxLines`** (`int?`, resolves to `1`) — how
+  many lines the last-message preview at the bottom of a room row may take.
+- **`UnreadRoom.custom`** (`Map<String, dynamic>?`) — the host-defined map
+  the listing projection reports for a room, so the list can act on a flag
+  of its own (a support room's `custom.support`, say) without waiting for a
+  per-room detail fetch. It survives a cold start from cache, and the
+  enricher degrades it in three steps — fresh detail, then the listing row,
+  then whatever this same room already painted — so a backend that does not
+  emit the field never blanks a flag that was already on screen.
+- **`MessageForwardSearchTextResolver`** (`String Function(BuildContext,
+  RoomListItem)`) and the matching **`searchTextResolver`** parameter on
+  `MessageForwardSheet` and `MessageForwardSheet.show` — the text the
+  forward sheet's search narrows a target by. Pair it with `rowBuilder` and
+  return the same string the row paints, so a host that titles rooms its
+  own way does not leave a visible row unreachable by exactly what it says.
+- **`AudioBubble.duration`** (`Duration?`) — the length measured while the
+  note was recorded and shipped with the message in
+  `metadata['duration']`. It is the total the bubble announces, so the
+  bubble and the chat list row read the same number and it does not change
+  once playback loads the file. `null` (a note sent before the field
+  existed, or by a client that does not write it) falls back to the
+  player's own duration and then to the waveform estimate.
+- **`audioBubbleTimeLabel(position, total, {withTotal})`** and
+  **`audioBubbleFittedTimeLabel(...)`** — the time text a voice bubble
+  prints, with the position clamped to the total and, mid-run, the
+  `00:09 / 01:11` pair collapsed down a ladder of narrower forms until one
+  fits the width the bubble actually grants it.
+- **`VoiceRecorderButton.diameter` (40), `.tapTarget` (44) and
+  `.tapBleed` (2)** as `static const` — the circle the button paints, the
+  square it answers touches on, and how far the second reaches past the
+  first. The composer subtracts the bleed from the themed inset so
+  enlarging the target left the circle exactly where it was.
+- **`ChatUiLocalizations.unnamedChat`** — the title the default forward-sheet
+  row falls back to for a room whose display name resolves to nothing.
+  Translated in the eleven bundled locales.
+- **`HiveChatDatasource.create(logs:)`, `HiveChatDatasource.logs`,
+  `OfflineQueue(logs:)` and `CacheManager(logs:)`** (`ChatLogger?`) —
+  `NomaChatClient` wires all of them from `ChatConfig.logs`, and adopts an
+  already-built `HiveChatDatasource` the host passed as `localDatasource`
+  when that host has not wired a logger of its own. Box opening, schema
+  migration and orphan reaping all run inside `create()`, so a caller that
+  wants to observe those passes `logs` there rather than assigning it
+  afterwards.
+
+### Changed
+
+- **The cache reports what it swallows.** Every discard, degradation and
+  wipe the cache layer used to report only through the untagged
+  `onWarning` string — corrupted records, failed writes and cascades,
+  rollbacks, offline-queue persist and deserialize failures, a schema
+  migration with no path, a downgrade, an orphan box that would not leave
+  the disk — now also emits a `ChatLogTag.cache` record through
+  `ChatLogger`, at `warn`, with the error attached. Box opening, TTL
+  timestamp restore/persist and a reclaimed orphan room log at `debug`.
+  The generic "cache mutator threw" the adapter's 20+ best-effort cache
+  writes shared now carries `op` (the call site: `sendMessage`,
+  `deleteRoom.clearMessages`, `leaveRoom.markKicked`, …) and, when known,
+  `roomId`, so it can be traced back to one of them instead of reading as
+  indistinguishable noise. `onWarning` is untouched and still fires.
+- **`ChatUiAdapter.logger` is a getter/setter pair rather than a plain
+  field**, same type and same semantics for a host that assigns it.
+  Assigning it now builds `logs` eagerly instead of waiting for some other
+  lazy field to touch it first, so the very first cache write is already
+  logged even when it comes from a path that runs before `connect()`.
+- **`ChatController.addOwnReaction` is idempotent.** The server keeps one
+  reaction per user (last writer wins), so re-applying an emoji the user
+  already has no longer bumps the count on the optimistic side either.
+- **Picking an emoji the user already reacted with takes it back.** The
+  long-press reaction row and the expanded emoji picker now toggle, the
+  same way the chips under the bubble always have, calling
+  `onDeleteReaction` instead of `onReactionSelected` — and only when the
+  host wired that callback, so the pick is never swallowed.
+- **`rooms.open` serves a room from disk while the client is
+  `disconnected`.** A push opened with no connection used to fail with
+  `NetworkFailure` even for a room the device already had cached; it now
+  lands on the conversation. Nothing changes as soon as the client is, or
+  might be, online — `connecting` / `reconnecting` / `authenticating` still
+  go to the server — so a room the user has meanwhile been removed from,
+  renamed or reconfigured is never served stale.
+- **A voice note that is playing shows position and total.** The bubble
+  printed the elapsed time alone once playback started, so the length of
+  what was being listened to left the screen halfway through. It now reads
+  `00:09 / 01:11` while the note runs, freezes on pause, and returns to the
+  total alone when the note finishes or sits at rest. Under a narrow bubble
+  or a large text scale the label drops to the squeezed `00:09/01:11` and
+  then to a single figure — elapsed while playing, total while stopped.
+- **The default forward-sheet row and filter never touch a room id.** A
+  room with no resolvable name showed its raw id as the row title and could
+  be found by typing it; the row now falls back to
+  `ChatUiLocalizations.unnamedChat` and the default filter refuses to match
+  an opaque identifier — the room id, the peer id a fresh DM's name is
+  seeded with, or any bare uuid. A target is only reachable by text
+  somebody can read on it.
+
+### Fixed
+
+- **A voice note longer than 20 seconds announced `00:20`.** The duration
+  was estimated from the waveform, one sample per amplitude tick — but the
+  sender downsamples the waveform to a fixed number of buckets before
+  shipping it, so past that cap the bucket count stopped tracking how long
+  the recording was and every longer note claimed the same total. The
+  recorder now measures the length off the live samples rather than the
+  capped list, ships it in `metadata['duration']`, and the bubble announces
+  that. The counter also no longer runs past the total during playback: the
+  recorded length and the player's own read of the file are measured by
+  different clocks, so the position is clamped, and a note that finishes
+  rewinds its label and seek bar to the exact total instead of stopping a
+  second over it.
+- **Three controls answered touches on less than 44pt.** The composer's
+  mic button, and the play button and speed pill of an audio bubble, were
+  hit-tested on the shapes they paint — 40pt circles and a 44×28 pill.
+  Each now answers on a 44×44 box around the same drawing, which is
+  unchanged: the mic's extra 2pt per side come off its trailing inset, and
+  the bubble's boxes fit inside slots that were already larger.
+- **Nested maps came back from the cache untyped.** Hive decodes every map
+  it stores as `Map<dynamic, dynamic>`, and the shallow
+  `.cast<String, dynamic>()` the read path used only retyped the outer one
+  — a map nested inside `custom` (`ChatRoom`, `ChatUser`, `RoomDetail`,
+  `UnreadRoom`) or `metadata` (`ChatMessage`, `UserConfiguration`) still
+  came back untyped and threw on a host's own cast of a value it read out
+  of there. Both are now re-typed in depth. A list is only rebuilt when it
+  actually holds a map or a list, so a `List<String>` or a `Uint8List`
+  keeps its static type, and a nested map with non-`String` keys — legal,
+  since the values are typed `dynamic` — is returned untouched instead of
+  throwing.
+- **Queued offline operations lost the typing of their `metadata`.** The
+  same shallow cast, on the same Hive round trip, for every operation the
+  offline queue reads back from disk: send, attachment, reaction and edit.
+  Metadata written with a nested map came back with it untyped and failed
+  on replay.
+- **The reaction strip came back after the long-press menu closed.** The
+  sheet's route keeps rebuilding all through its exit animation, and each
+  of those builds re-armed the strip's anchor, leaving it floating in the
+  root overlay with no sheet left to dismiss it — and, because that overlay
+  outlives the screen, still there after leaving the room. Each long press
+  now carries a session token the late builds fail, the strip is only
+  placed while its own sheet route is current, and leaving the tree tears
+  it down.
+- **The recording row ignored the composer's themed padding.** The active
+  and locked recording rows used the old hard-coded 16/8 inset rather than
+  `ChatInputTheme.rowPadding`, so a host that narrowed the composer saw the
+  mic button jump sideways the moment capture replaced one row with the
+  other.
+- **A failed reaction POST could leave the wrong reactions on screen.** The
+  optimistic rollback removed the emoji it had just applied and stopped
+  there, so a request that failed after switching from one emoji to another
+  left the message with neither. It now restores the exact set the user had
+  before the attempt, and applies nothing at all when the emoji was already
+  theirs.
+
 ## 0.34.0 - 2026-09-06
 
 A host application directory can now answer who a chat id belongs to,
