@@ -238,10 +238,34 @@ interface class ChatRoomsController {
   /// marker is persisted, so a voluntary leave lands in the same
   /// kicked-read-only mechanism as a server-side kick and survives sync.
   /// The open chat controller is preserved so the chat stays browsable.
+  ///
+  /// Unless the host's [ChatUiAdapter.deletedRoomPolicy] answers
+  /// [DeletedRoomPolicy.purge] for the room, in which case leaving ends it:
+  /// the row, the controller and every cached trace go, and `onRoomRemoved`
+  /// fires so an open `NomaChatView` pops.
   Future<ChatResult<void>> leave(String roomId) async {
     final result = await _a.client.members.leave(roomId);
     if (result.isSuccess) {
       final room = _a.roomListController.getRoomById(roomId);
+      if (resolveDeletedRoomPolicy(_a.deletedRoomPolicy, room) ==
+          DeletedRoomPolicy.purge) {
+        purgeDeletedRoom(
+          roomId: roomId,
+          roomList: _a.roomListController,
+          cache: _a._cache,
+          removeChatController: _a.removeChatController,
+          swallowCacheThrow: _cacheThrowHandler,
+          tombstone: true,
+          op: 'leaveRoom.purge',
+        );
+        try {
+          _a.onRoomRemoved?.call(roomId, null, null);
+        } catch (_) {
+          // Defensive: host navigation code must not turn a successful
+          // leave into a failed one.
+        }
+        return _a._emitFailure(result, OperationKind.leaveRoom, roomId: roomId);
+      }
       if (room != null && room.isParticipating) {
         _a.roomListController.updateRoom(room.copyWith(isParticipating: false));
       }

@@ -13,11 +13,14 @@ import '../../../models/read_receipt.dart';
 import '../../../models/user.dart';
 import '../../controller/chat_controller.dart';
 import '../../controller/room_list_controller.dart';
+import '../../models/room_list_item.dart';
+import '../deleted_room_policy.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/dm_contact_registry.dart';
 import '../services/pending_reactions_registry.dart';
 import '../services/user_cache_service.dart';
 import '../services/presence_registry.dart';
+import 'deleted_room_purge.dart';
 
 /// Bundle of dependencies the [ChatEventRouter] needs. Grouped into
 /// a struct so the constructor isn't a 30-parameter list. The
@@ -65,6 +68,8 @@ class ChatEventRouterDeps {
     required this.onReconnected,
     required this.onRoomRemoved,
     required this.triggerResync,
+    required this.swallowCacheThrow,
+    this.deletedRoomPolicy,
   });
 
   final ChatClient client;
@@ -155,6 +160,15 @@ class ChatEventRouterDeps {
   /// ._onConnected] rather than as a second reconnect-detection point, so
   /// there's exactly one place that decides "we just reconnected".
   final void Function() triggerResync;
+
+  /// The adapter's tagged cache-error swallower, so a purge's fire-and-forget
+  /// cache writes report through the same channel as every other one.
+  final CacheThrowHandlerFactory swallowCacheThrow;
+
+  /// Host policy for a room the backend just took away — keep it read-only
+  /// (the default when this is `null`) or purge it. See
+  /// [DeletedRoomPolicyResolver].
+  final DeletedRoomPolicyResolver? deletedRoomPolicy;
 }
 
 /// Routes a `ChatEvent` to the right handlers / services / callbacks.
@@ -269,6 +283,30 @@ class ChatEventRouter {
   void Function(String, String?, String?)? get _onRoomRemoved =>
       _deps.onRoomRemoved();
 
+  /// The host's verdict for [room], or [DeletedRoomPolicy.keepReadOnly] when
+  /// no resolver is wired, the row is unknown to the list, or the resolver
+  /// threw.
+  ///
+  /// A `room_deleted` for a room this device has never listed answers
+  /// `keepReadOnly` because there is nothing to hand the resolver. That is
+  /// not a hole in a purge policy: the branch below then only persists the
+  /// kicked marker, and the enricher re-asks the question on the very next
+  /// pass with the row it rebuilds from cache — and when the cache holds
+  /// nothing to rebuild from either, it drops the orphan marker instead,
+  /// so no row is painted under either policy.
+  DeletedRoomPolicy _deletedRoomPolicyFor(RoomListItem? room) =>
+      resolveDeletedRoomPolicy(_deps.deletedRoomPolicy, room);
+
+  void _purgeDeletedRoom(String roomId) => purgeDeletedRoom(
+    roomId: roomId,
+    roomList: _roomList,
+    cache: _cache,
+    removeChatController: _removeChatController,
+    swallowCacheThrow: _deps.swallowCacheThrow,
+    tombstone: true,
+    op: 'roomDeleted.purge',
+  );
+
   /// Resets the reconnect-detection latch for an explicit, adapter-driven
   /// disconnect (`ChatUiAdapter.disconnect`/`signOut`). Those calls cancel
   /// the router's event subscription BEFORE telling the transport to
@@ -336,6 +374,14 @@ class ChatEventRouter {
           _roomList.removeRoom(roomId);
           _removeChatController(roomId);
           _cache?.deleteRoom(roomId);
+        } else if (_deletedRoomPolicyFor(_roomList.getRoomById(roomId)) ==
+            DeletedRoomPolicy.purge) {
+          // The host declared this room's history worthless once the
+          // backend ends it (a closed support conversation, say). Leave
+          // nothing behind: no row, no controller, no cached trace, and
+          // crucially no kicked marker for the enricher to rebuild from
+          // on the next sync or the next cold start.
+          _purgeDeletedRoom(roomId);
         } else {
           // Any other room_deleted — per-room ban, kick, voluntary leave,
           // or the group being deleted — KEEPS the chat read-only with

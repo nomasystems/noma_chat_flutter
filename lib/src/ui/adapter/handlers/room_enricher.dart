@@ -15,12 +15,14 @@ import '../../../models/user_rooms.dart';
 import '../../controller/room_list_controller.dart';
 import '../../l10n/chat_ui_localizations.dart';
 import '../../models/room_list_item.dart';
+import '../deleted_room_policy.dart';
 import '../room_title_resolver.dart';
 import '../services/blocked_users_registry.dart';
 import '../services/chat_controller_registry.dart';
 import '../services/dm_contact_registry.dart';
 import '../services/user_cache_service.dart';
 import '../services/presence_registry.dart';
+import 'deleted_room_purge.dart';
 
 part 'room_enricher_dm.dart';
 part 'room_enricher_enrichment.dart';
@@ -170,6 +172,9 @@ class RoomEnricher {
     required void Function(String roomId, ChatMessage message)
     updateRoomLastMessage,
     required void Function(String roomId) removeChatController,
+    CacheThrowHandlerFactory? swallowCacheThrow,
+    DeletedRoomPolicyResolver? deletedRoomPolicy,
+    void Function(String, String?, String?)? Function()? onRoomRemoved,
     void Function(String level, String message)? logger,
     void Function(List<RoomListItem> rooms)? onRoomsLoaded,
     void Function(String roomId, String contactUserId)? Function()?
@@ -189,6 +194,9 @@ class RoomEnricher {
        _ensureUserCachedFn = ensureUserCached,
        _updateRoomLastMessage = updateRoomLastMessage,
        _removeChatController = removeChatController,
+       _swallowCacheThrow = swallowCacheThrow,
+       _deletedRoomPolicy = deletedRoomPolicy,
+       _onRoomRemovedAccessor = onRoomRemoved,
        _logger = logger,
        _onRoomsLoaded = onRoomsLoaded,
        _onDmContactResolved = onDmContactResolved,
@@ -217,6 +225,23 @@ class RoomEnricher {
   final void Function(String roomId, ChatMessage message)
   _updateRoomLastMessage;
   final void Function(String roomId) _removeChatController;
+  final CacheThrowHandlerFactory? _swallowCacheThrow;
+
+  /// Host policy for rooms the backend has taken away. Consulted on every
+  /// pass for each id still carrying the cached kicked marker, which is what
+  /// makes [DeletedRoomPolicy.purge] survive a cold start: the row rebuilt
+  /// from cache is purged instead of merged back into the list.
+  final DeletedRoomPolicyResolver? _deletedRoomPolicy;
+
+  /// Late-bound accessor for the adapter's `onRoomRemoved` hook, resolved
+  /// on every fire for the same reason [_onDmContactResolved] is. A purge
+  /// driven from here disposes the room's chat controller, so the host —
+  /// and `NomaChatView`, which pops itself off this callback — has to hear
+  /// about it exactly as it does when the purge comes from the event
+  /// router.
+  final void Function(String, String?, String?)? Function()?
+  _onRoomRemovedAccessor;
+
   final void Function(String level, String message)? _logger;
   final void Function(List<RoomListItem> rooms)? _onRoomsLoaded;
 
@@ -331,6 +356,29 @@ class RoomEnricher {
   /// adapter was disposed or a [resetSession] happened while the pass
   /// that captured it was awaiting.
   bool _stale(int epoch) => _isDisposed() || epoch != _sessionEpoch;
+
+  /// The host's [DeletedRoomPolicy] for a room the local kicked marker still
+  /// names, asked with the row as this pass reconstructed it.
+  DeletedRoomPolicy _deletedRoomPolicyFor(RoomListItem? room) =>
+      resolveDeletedRoomPolicy(_deletedRoomPolicy, room);
+
+  void _purgeDeletedRoom(String roomId) {
+    purgeDeletedRoom(
+      roomId: roomId,
+      roomList: roomList,
+      cache: cache,
+      removeChatController: _removeChatController,
+      swallowCacheThrow: _swallowCacheThrow,
+      tombstone: true,
+      op: 'kickedRoomHydration.purge',
+    );
+    try {
+      _onRoomRemovedAccessor?.call()?.call(roomId, null, null);
+    } catch (_) {
+      // Defensive, exactly as the event router is: host navigation code
+      // must not be able to break a room-list pass halfway through.
+    }
+  }
 
   /// Rearms [hasHydratedFromCache] so the next session hydrates again.
   /// Invoked from the adapter's shared session-teardown inventory.

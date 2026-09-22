@@ -347,7 +347,25 @@ extension _RoomEnrichment on RoomEnricher {
                 // stale snapshot can't wipe the kicked state before the
                 // authoritative network pass reconciles.
                 final idx = items.indexWhere((r) => r.id == kickedId);
-                if (idx != -1 && items[idx].isParticipating) {
+                if (idx == -1) continue;
+                // …unless the host purges this room, in which case the
+                // stale row must not be painted at all: drop it from the
+                // batch and clear the cache behind it. The authoritative
+                // pass that follows cannot resurrect it either — the
+                // backend no longer lists a room the user was removed
+                // from, which is why the id was in `kickedRoomIds`.
+                if (_deletedRoomPolicyFor(items[idx]) ==
+                    DeletedRoomPolicy.purge) {
+                  // Both effects share the epoch gate: a pass that is about
+                  // to be discarded whole must not mutate the batch it is
+                  // carrying either.
+                  if (!_stale(epoch)) {
+                    items.removeAt(idx);
+                    _purgeDeletedRoom(kickedId);
+                  }
+                  continue;
+                }
+                if (items[idx].isParticipating) {
                   items[idx] = items[idx].copyWith(isParticipating: false);
                 }
               }
@@ -357,7 +375,37 @@ extension _RoomEnrichment on RoomEnricher {
               localCache,
               kickedId,
             );
-            if (hydrated != null) items.add(hydrated);
+            if (hydrated == null) {
+              // The marker names a room the cache has nothing left for —
+              // no room, no detail, no unread snapshot. There is no row to
+              // paint and no `custom` to ask the resolver about, so the id
+              // is an orphan: drop it rather than keep re-asking a question
+              // nothing can answer. Reachable when a purge's `unmarkKicked`
+              // was the one write that failed, and on an eviction that took
+              // the room's rows but not the never-evictable marker.
+              if (!_stale(epoch)) {
+                unawaited(
+                  localCache
+                      .unmarkKicked(kickedId)
+                      .catchError(
+                        (Object _) => const ChatFailureResult<void>(
+                          UnexpectedFailure('cache mutator threw'),
+                        ),
+                      ),
+                );
+              }
+              continue;
+            }
+            // Cold start with a purge policy: the row the cache can still
+            // rebuild is exactly what must NOT come back. Purging here
+            // (rather than merely skipping the merge) is what makes the
+            // removal stick — it drops the kicked marker, so the question
+            // is never asked again.
+            if (_deletedRoomPolicyFor(hydrated) == DeletedRoomPolicy.purge) {
+              if (!_stale(epoch)) _purgeDeletedRoom(kickedId);
+              continue;
+            }
+            items.add(hydrated);
           }
         }
       } catch (_) {
