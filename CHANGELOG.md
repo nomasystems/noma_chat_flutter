@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.35.1 - 2026-09-22
+
+No public API changes; the dispose tests now pass on newer Flutter SDKs too.
+
+### Changed
+
+- **The shared `throwsDisposedNotifierError` matcher (`test/_helpers/matchers.dart`) now accepts `StateError` in addition to `FlutterError`.** Flutter SDKs past 3.44 moved the disposed-notifier assertion out of `flutter/foundation.dart` and into `package:listen`, which throws `StateError` instead of `FlutterError`. The dispose tests across the UI adapter now go through this shared matcher instead of asserting the exception type directly, so the same assertions pass on both older and newer SDKs without changing what they verify.
+
 ## 0.35.0 - 2026-09-22
 
 A tap on the mic button now starts a hands-free recording instead of being
