@@ -3,6 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 
+import '../../_helpers/matchers.dart';
+
 /// Wiring tests for the adapter-owned collaborators whose behaviour is
 /// opt-in by construction:
 ///
@@ -210,7 +212,7 @@ void main() {
 
       expect(
         () => notifier.addListener(() {}),
-        throwsFlutterError,
+        throwsDisposedNotifierError,
         reason: 'the adapter owns the enricher, so it owns its notifier',
       );
     });

@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 
+import '../../_helpers/matchers.dart';
+
 void main() {
   const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
@@ -25,11 +27,11 @@ void main() {
     // notifiers instead of leaking.
     expect(
       () => blockedUsersListenable.addListener(() {}),
-      throwsA(isA<AssertionError>()),
+      throwsDisposedNotifierError,
     );
     expect(
       () => userCacheListenable.addListener(() {}),
-      throwsA(isA<AssertionError>()),
+      throwsDisposedNotifierError,
     );
   });
 }
