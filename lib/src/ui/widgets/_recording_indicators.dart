@@ -43,7 +43,12 @@ class ActiveRecordingRow extends StatelessWidget {
         theme.voiceRecorderHintStyle ??
         TextStyle(color: hintColor, fontSize: 16);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      // Same inset the idle composer row uses, so the mic button this row
+      // reserves a slot for does not shift sideways the moment capture
+      // replaces one row with the other.
+      padding:
+          theme.input.rowPadding ??
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: SizedBox(
         height: 40,
         child: Row(

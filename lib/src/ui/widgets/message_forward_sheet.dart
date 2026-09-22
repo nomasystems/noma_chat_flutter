@@ -42,6 +42,24 @@ typedef MessageForwardConfirmBuilder =
 /// chat" page, show a dialog, etc. instead of the default snackbar.
 typedef MessageForwardEmptyCallback = void Function(BuildContext context);
 
+/// Signature for the text the search field narrows a target by.
+///
+/// - [context] is the sheet's own build context, so the text can be
+///   localized exactly like the row that shows it.
+/// - [room] is the candidate target.
+///
+/// Return the very string the row paints: the point of the hook is that a
+/// visible row is reachable by what the person reading it can see.
+typedef MessageForwardSearchTextResolver =
+    String Function(BuildContext context, RoomListItem room);
+
+/// A bare backend identifier: a uuid, as every id the SDK handles is shaped.
+/// The default filter refuses to narrow a target by one.
+final RegExp _opaqueIdPattern = RegExp(
+  r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+  caseSensitive: false,
+);
+
 /// "Forward to…" picker.
 ///
 /// Renders a modal bottom sheet listing every candidate target room
@@ -51,9 +69,11 @@ typedef MessageForwardEmptyCallback = void Function(BuildContext context);
 ///
 /// Designed to be the most-configurable forwarding surface in the
 /// SDK — every visual chunk has an override (title, row, confirm
-/// button, empty state) and the empty-rooms case has both a
-/// short-circuit callback ([MessageForwardSheet.show.onEmpty]) AND an
-/// in-sheet builder ([emptyStateBuilder]). Consumers can mix-and-match.
+/// button, empty state), the search narrows by whatever text the host
+/// says it should ([searchTextResolver]), and the empty-rooms case has
+/// both a short-circuit callback ([MessageForwardSheet.show.onEmpty])
+/// AND an in-sheet builder ([emptyStateBuilder]). Consumers can
+/// mix-and-match.
 ///
 /// Wraps the standard "show modal + collect selection" flow as a
 /// static helper so most call sites are a single line:
@@ -73,6 +93,7 @@ class MessageForwardSheet extends StatefulWidget {
     this.initialSelectedIds = const [],
     this.maxSelection,
     this.searchEnabled = false,
+    this.searchTextResolver,
     this.title,
     this.titleBuilder,
     this.rowBuilder,
@@ -98,8 +119,34 @@ class MessageForwardSheet extends StatefulWidget {
 
   /// When `true`, a search field is rendered above the list and the
   /// row list is filtered by case-insensitive substring match on the
-  /// room display name as the user types.
+  /// room display name as the user types. [searchTextResolver] replaces
+  /// what that match runs against.
   final bool searchEnabled;
+
+  /// Text each target is narrowed by while the user types. Read only when
+  /// [searchEnabled] is `true`.
+  ///
+  /// Pair it with [rowBuilder] and return the same string the row paints:
+  /// a host that titles rooms its own way (a nickname book, "Chat with
+  /// Ana", a plan's subject) otherwise filters on
+  /// [RoomListItem.displayName], which nobody on screen ever read — so a
+  /// visible row can be missed by typing exactly what it says.
+  ///
+  /// ```dart
+  /// MessageForwardSheet(
+  ///   rooms: rooms,
+  ///   searchEnabled: true,
+  ///   rowBuilder: myRow(directory),
+  ///   searchTextResolver: (context, room) => myTitle(context, room),
+  /// )
+  /// ```
+  ///
+  /// `null` (the default) keeps the SDK's own rule: the resolved display
+  /// name and the raw server name, minus anything that is an opaque
+  /// identifier — [RoomListItem.id], the peer id a fresh DM's name is
+  /// seeded with, or a bare uuid. The default row paints no identifiers,
+  /// so no target is reachable by one either.
+  final MessageForwardSearchTextResolver? searchTextResolver;
 
   /// Sheet title text. Overridden by [titleBuilder] when both are
   /// supplied. Defaults to `theme.l10nOf(context).forwardTo`.
@@ -152,6 +199,7 @@ class MessageForwardSheet extends StatefulWidget {
     List<String> initialSelectedIds = const [],
     int? maxSelection,
     bool searchEnabled = false,
+    MessageForwardSearchTextResolver? searchTextResolver,
     String? title,
     WidgetBuilder? titleBuilder,
     MessageForwardRowBuilder? rowBuilder,
@@ -185,6 +233,7 @@ class MessageForwardSheet extends StatefulWidget {
         initialSelectedIds: initialSelectedIds,
         maxSelection: maxSelection,
         searchEnabled: searchEnabled,
+        searchTextResolver: searchTextResolver,
         title: title,
         titleBuilder: titleBuilder,
         rowBuilder: rowBuilder,
@@ -230,13 +279,35 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
     if (_query.isEmpty) return widget.rooms;
     return [
       for (final r in widget.rooms)
-        if (_matches(r.displayName) || _matches(r.name)) r,
+        if (_matchesRoom(r)) r,
     ];
   }
 
-  /// Same rule the room list itself applies: the resolved title *and* the
-  /// raw server name are searched, so a host title resolver that renames a
-  /// group never makes it unforwardable-to by the name everyone still sees.
+  /// The host's text when it gave one, so the picker narrows by the very
+  /// title its rows paint.
+  ///
+  /// Otherwise the same rule the room list itself applies: the resolved
+  /// title *and* the raw server name are searched, so a host title resolver
+  /// that renames a group never makes it unforwardable-to by the name
+  /// everyone still sees.
+  bool _matchesRoom(RoomListItem room) {
+    final resolver = widget.searchTextResolver;
+    if (resolver != null) return _matches(resolver(context, room));
+    return _matches(_searchableLabel(room.displayName, room)) ||
+        _matches(_searchableLabel(room.name, room));
+  }
+
+  /// Drops a candidate that is a bare identifier — the room id, the peer id
+  /// the SDK seeds a fresh DM's `name` with, or any uuid. The default row
+  /// paints none of them, so narrowing by one would surface a target by
+  /// text its reader never saw.
+  String? _searchableLabel(String? value, RoomListItem room) {
+    final v = value?.trim();
+    if (v == null || v.isEmpty) return null;
+    if (v == room.id || v == room.otherUserId) return null;
+    return _opaqueIdPattern.hasMatch(v) ? null : v;
+  }
+
   bool _matches(String? value) {
     if (value == null || value.isEmpty) return false;
     return value.toLowerCase().contains(_query);
@@ -346,7 +417,7 @@ class _MessageForwardSheetState extends State<MessageForwardSheet> {
                           ),
                           title: Text(
                             room.displayName.isEmpty
-                                ? room.id
+                                ? l10n.unnamedChat
                                 : room.displayName,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

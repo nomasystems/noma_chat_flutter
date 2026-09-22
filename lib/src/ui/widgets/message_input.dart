@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import '../../models/message.dart';
@@ -46,6 +47,8 @@ class MessageInput extends StatefulWidget {
     this.canStartRecording,
     this.onRecordingRejected,
     this.maxRecordingDuration = const Duration(minutes: 15),
+    this.tapToRecordLocked = true,
+    this.tapToRecordMaxDuration = const Duration(milliseconds: 250),
     this.maxLines = 5,
     this.showAttachButton = true,
     this.showVoiceButton = true,
@@ -124,6 +127,24 @@ class MessageInput extends StatefulWidget {
   final VoidCallback? onRecordingRejected;
 
   final Duration maxRecordingDuration;
+
+  /// Whether a tap on the mic button starts a hands-free recording
+  /// instead of being discarded.
+  ///
+  /// Holding to record and releasing to send is unchanged; what changes
+  /// is the touch too short to be either. It now leaves the recording
+  /// running on the locked row — bin, pause, preview and send — the same
+  /// row a slide upwards reaches, which is how every messenger that
+  /// offers hands-free recording opens it.
+  ///
+  /// Set it to false to keep discarding taps with the "hold to record"
+  /// prompt.
+  final bool tapToRecordLocked;
+
+  /// How long a touch may last and still count as a tap for
+  /// [tapToRecordLocked]. Well under the one-second floor a hold has to
+  /// clear to be sent, so a short hold keeps being a short hold.
+  final Duration tapToRecordMaxDuration;
 
   final int maxLines;
   final bool showAttachButton;
@@ -782,6 +803,8 @@ class _MessageInputState extends State<MessageInput> {
         onVoiceMessageReady: widget.onVoiceMessageReady,
         canStartRecording: widget.canStartRecording,
         onRecordingRejected: widget.onRecordingRejected,
+        tapToRecordLocked: widget.tapToRecordLocked,
+        tapToRecordMaxDuration: widget.tapToRecordMaxDuration,
         voiceButtonKey: _voiceButtonKey,
         child: inputArea,
       );
@@ -810,13 +833,34 @@ class _MessageInputState extends State<MessageInput> {
   /// Reserves the footprint of the mic button inside a composer row. The
   /// button itself is painted over the rows — see
   /// [_withPersistentVoiceButton].
-  static const Widget _voiceButtonSlot = SizedBox(width: 40, height: 40);
+  ///
+  /// This is the footprint of the *circle*, not of the button's touch
+  /// target: the target is wider (see [VoiceRecorderButton.tapTarget]) and
+  /// is allowed to reach into the gaps around the slot, which stay clear of
+  /// the neighbouring buttons' own targets.
+  static const Widget _voiceButtonSlot = SizedBox(
+    width: VoiceRecorderButton.diameter,
+    height: VoiceRecorderButton.diameter,
+  );
 
   /// Trailing inset of the persistent mic button. Matches the horizontal
   /// padding of the composer rows, so the floating button lands exactly on
-  /// the slot each row reserves for it. Directional, like the rows
-  /// themselves: the slot is the last child of a `Row`, so it swaps sides
-  /// under an RTL [Directionality] and the button has to follow.
-  static const EdgeInsetsDirectional _voiceButtonInset =
-      EdgeInsetsDirectional.only(end: 16);
+  /// the slot each row reserves for it — which is why it reads the same
+  /// [ChatInputTheme] a host shrinks the rows with. Directional, like the
+  /// rows themselves: the slot is the last child of a `Row`, so it swaps
+  /// sides under an RTL [Directionality] and the button has to follow.
+  ///
+  /// [VoiceRecorderButton.tapBleed] comes off the themed value because the
+  /// button is that much wider than the circle on each side: without the
+  /// subtraction the enlarged touch target would push the circle in off the
+  /// margin the host asked for. An inset smaller than the bleed has nothing
+  /// left to give, so the circle does move in — documented on
+  /// [ChatInputTheme.voiceButtonInset].
+  static EdgeInsetsDirectional _voiceButtonInset(ChatTheme theme) =>
+      EdgeInsetsDirectional.only(
+        end: math.max(
+          0,
+          (theme.input.voiceButtonInset ?? 16) - VoiceRecorderButton.tapBleed,
+        ),
+      );
 }

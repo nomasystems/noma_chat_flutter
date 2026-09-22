@@ -67,5 +67,9 @@ abstract class ChatRoomListTheme with _$ChatRoomListTheme {
 
     /// Style of a section header when its tab is selected.
     TextStyle? headerSelectedStyle,
+
+    /// Max lines painted for the last-message preview (bottom line).
+    /// `null` resolves to `1` — the current, unconfigured behavior.
+    int? previewMaxLines,
   }) = _ChatRoomListTheme;
 }

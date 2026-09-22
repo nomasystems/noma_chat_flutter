@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/gestures.dart' show kTouchSlop;
 import 'package:flutter/material.dart';
 
 import '../controller/voice_recording_controller.dart';
@@ -212,12 +213,25 @@ class MessageInputVoiceController extends ChangeNotifier {
       return;
     }
     if (_dragOffsetY < thresholds.lockThreshold) {
-      _dragOffsetX = 0;
-      _dragOffsetY = 0;
-      _recording!.lockRecording();
-      notifyListeners();
+      lockRecording();
       return;
     }
+    notifyListeners();
+  }
+
+  /// Carries the live capture on hands-free, exactly as a slide past the
+  /// lock threshold does. Separate from that slide because a tap asks for
+  /// the same thing without ever moving: the gesture calls it on a release
+  /// too brief to be a hold.
+  ///
+  /// A no-op unless capture is live — there is nothing to hand over while
+  /// the recorder is still arming, and a locked recording is already
+  /// there.
+  void lockRecording() {
+    if (_recording?.state != VoiceRecordingState.recording) return;
+    _dragOffsetX = 0;
+    _dragOffsetY = 0;
+    _recording!.lockRecording();
     notifyListeners();
   }
 
@@ -349,6 +363,8 @@ class VoiceRecorderGesture extends StatefulWidget {
     this.onUnsupported,
     this.canStartRecording,
     this.onRecordingRejected,
+    this.tapToRecordLocked = true,
+    this.tapToRecordMaxDuration = const Duration(milliseconds: 250),
   });
 
   final MessageInputVoiceController controller;
@@ -402,6 +418,31 @@ class VoiceRecorderGesture extends StatefulWidget {
   /// that never had a veto keep doing.
   final bool Function()? canStartRecording;
 
+  /// Whether a tap on the mic button carries the recording on hands-free
+  /// instead of throwing it away.
+  ///
+  /// Holding the button to record and letting go to send is the gesture
+  /// this recorder is built around, and a release under
+  /// [VoiceRecordingController.minSendDuration] is normally a touch that
+  /// asked for nothing. A tap is different: it is too short to be a hold
+  /// that went wrong, and every messenger that offers hands-free
+  /// recording starts it exactly that way. So a release inside
+  /// [tapToRecordMaxDuration] that never travelled locks the capture
+  /// instead, landing on the same row the slide-up gesture reaches —
+  /// bin, pause, preview and send.
+  ///
+  /// Turn it off and a tap goes back to being discarded with the "hold to
+  /// record" prompt.
+  final bool tapToRecordLocked;
+
+  /// How long a touch may last and still count as a tap.
+  ///
+  /// Sits far below [VoiceRecordingController.minSendDuration] on
+  /// purpose: everything between the two is a short hold, and a short
+  /// hold keeps being discarded with the prompt that says so. Widen this
+  /// past that floor and the prompt becomes unreachable.
+  final Duration tapToRecordMaxDuration;
+
   /// Called when [canStartRecording] vetoed a touch, so the host can say
   /// why in its own words. Falls back to a prompt floated over the mic
   /// button with [ChatUiLocalizations.recordingNotAllowed] when not
@@ -411,6 +452,18 @@ class VoiceRecorderGesture extends StatefulWidget {
   @override
   State<VoiceRecorderGesture> createState() => _VoiceRecorderGestureState();
 }
+
+/// How long a tap's claim on a recording that is still arming stays good
+/// for.
+///
+/// The arming can outlive the touch by a wide margin — a first-run
+/// permission dialog is answered whenever the user gets round to it — and
+/// a capture that opens hands-free seconds after the tap that asked for it
+/// reads as the app recording on its own. Past this the tap is treated
+/// like any other release that came before the recorder: the capture is
+/// dropped and the user is told, which is what an unasked-for release has
+/// always done.
+const Duration _kTapLockGrace = Duration(seconds: 1);
 
 class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     with WidgetsBindingObserver {
@@ -426,6 +479,8 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
   bool _startInFlight = false;
   bool _releasedBeforeStart = false;
   bool _pointerCancelled = false;
+  bool _lockOnceStarted = false;
+  Timer? _tapLockTimer;
 
   double get _screenWidth => MediaQuery.maybeSizeOf(context)?.width ?? 360;
 
@@ -449,6 +504,7 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     widget.controller.removeListener(_onControllerChanged);
+    _tapLockTimer?.cancel();
     _removeLockHintOverlay();
     _removeHoldHint();
     super.dispose();
@@ -470,7 +526,16 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
       _activePointer = null;
       _releasedBeforeStart = true;
       _pointerCancelled = true;
+      _clearTapLock();
     }
+  }
+
+  /// Drops any standing claim a tap left on a recording that had not come
+  /// up yet, timer included.
+  void _clearTapLock() {
+    _tapLockTimer?.cancel();
+    _tapLockTimer = null;
+    _lockOnceStarted = false;
   }
 
   void _onControllerChanged() {
@@ -506,6 +571,7 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     _releaseHeldFor = Duration.zero;
     _releasedBeforeStart = false;
     _pointerCancelled = false;
+    _clearTapLock();
     _startInFlight = true;
     unawaited(_startRecording());
   }
@@ -538,6 +604,8 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     } finally {
       _startInFlight = false;
     }
+    final lockOnceStarted = _lockOnceStarted;
+    _clearTapLock();
     if (!mounted) return;
     if (result == StartRecordingResult.aborted) {
       _releasedBeforeStart = false;
@@ -545,6 +613,10 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
       return;
     }
     if (result == StartRecordingResult.started) {
+      if (lockOnceStarted) {
+        widget.controller.lockRecording();
+        return;
+      }
       if (_releasedBeforeStart) {
         // The veto lost the race: the recorder was already armed when the
         // finger lifted (an OS permission dialog, for instance, answers
@@ -642,11 +714,47 @@ class _VoiceRecorderGestureState extends State<VoiceRecorderGesture>
     if (event.pointer != _activePointer) return;
     _activePointer = null;
     _releaseHeldFor = event.timeStamp - _touchDownStamp;
+    final tapped = _releaseWasTap();
     if (_startInFlight) {
-      _releasedBeforeStart = true;
+      // A tap is the one release that does not veto the arming it
+      // interrupted: it wants the recording that is on its way, hands
+      // free, and vetoing it here would leave nothing to lock. The claim
+      // only holds for as long as the tap is still the last thing the
+      // user did — see [_kTapLockGrace].
+      if (tapped) {
+        _lockOnceStarted = true;
+        _tapLockTimer = Timer(_kTapLockGrace, () {
+          _tapLockTimer = null;
+          _lockOnceStarted = false;
+          _releasedBeforeStart = true;
+        });
+      } else {
+        _releasedBeforeStart = true;
+      }
+      return;
+    }
+    if (tapped && widget.controller.isRecording) {
+      widget.controller.lockRecording();
       return;
     }
     unawaited(_handleRelease());
+  }
+
+  /// Whether the touch that just ended was a tap rather than a hold: short
+  /// enough, and still where it landed.
+  ///
+  /// "Still where it landed" is [kTouchSlop], the same margin the rest of
+  /// the framework allows a stationary finger before it calls the touch a
+  /// drag. A thumb on a 40px button rolls several pixels on its way off,
+  /// and a tighter margin than the platform's own would read that roll as
+  /// a drag and throw away the recording the tap asked for — the exact
+  /// failure this gesture exists to remove. Anything past the slop is a
+  /// deliberate move and keeps its old meaning: the two drags this button
+  /// acts on if it reaches them, a discard with the prompt if it does not.
+  bool _releaseWasTap() {
+    if (!widget.tapToRecordLocked) return false;
+    if (_releaseHeldFor > widget.tapToRecordMaxDuration) return false;
+    return (_lastPointerPosition - _touchOrigin).distance <= kTouchSlop;
   }
 
   void _handlePointerCancel(PointerCancelEvent event) {

@@ -177,4 +177,43 @@ void main() {
       expect(back.owner, 'u1');
     });
   });
+
+  group('serialization — unread room custom data', () {
+    test('unreadRoomToMap/unreadRoomFromMap round-trip custom', () {
+      const unread = UnreadRoom(
+        roomId: 'r1',
+        unreadMessages: 2,
+        custom: {'support': true, 'proposalFrom': 'u9'},
+      );
+
+      final map = unreadRoomToMap(unread);
+      expect(map['custom'], {'support': true, 'proposalFrom': 'u9'});
+
+      final back = unreadRoomFromMap(map);
+      expect(back.custom, {'support': true, 'proposalFrom': 'u9'});
+    });
+
+    test('a row cached before the field existed reads back null', () {
+      final back = unreadRoomFromMap({'roomId': 'r1', 'unreadMessages': 0});
+
+      expect(back.custom, isNull);
+    });
+
+    test('a custom map stored with dynamic keys is read back typed', () {
+      final stored = <String, dynamic>{
+        'roomId': 'r1',
+        'unreadMessages': 0,
+        'custom': <dynamic, dynamic>{'support': true},
+      };
+
+      expect(unreadRoomFromMap(stored).custom, {'support': true});
+    });
+
+    test('a room without custom keeps the key out of the stored map', () {
+      expect(
+        unreadRoomToMap(const UnreadRoom(roomId: 'r1', unreadMessages: 0)),
+        isNot(contains('custom')),
+      );
+    });
+  });
 }

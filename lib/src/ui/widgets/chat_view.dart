@@ -114,10 +114,33 @@ class _ChatViewState extends State<ChatView> {
   /// that route and not whatever happens to be on top.
   BuildContext? _menuSheetContext;
 
+  /// Monotonic id of the current long-press session. The sheet's route
+  /// keeps rebuilding all through its exit animation, and every one of
+  /// those builds runs [_menuContentWithRow] again; without a token to
+  /// compare against, a build belonging to a session already closed
+  /// re-arms [_menuSheetContext] and the row comes back with no sheet
+  /// left to dismiss it.
+  int _menuSession = 0;
+
+  /// Whether a long-press session is still entitled to place the row.
+  bool _menuOpen = false;
+
   @override
   void initState() {
     super.initState();
     _audioCoordinator = AudioPlaybackCoordinator();
+  }
+
+  /// Leaving the tree ends the session: the row lives in the ROOT overlay
+  /// and would otherwise outlive the screen it belongs to. Runs while the
+  /// element is still mounted but no state may be set, hence the plain
+  /// teardown instead of [_dismissReactionRow].
+  @override
+  void deactivate() {
+    _teardownReactionRow();
+    _contextMenuInset = 0;
+    _reactionAnchorMessageId = null;
+    super.deactivate();
   }
 
   @override
@@ -211,6 +234,8 @@ class _ChatViewState extends State<ChatView> {
     final actions = withReactionRow
         ? (behaviors.contextMenuActions.toSet()..remove(MessageAction.react))
         : behaviors.contextMenuActions;
+    final session = ++_menuSession;
+    _menuOpen = true;
     try {
       return await MessageContextMenu.show(
         context,
@@ -220,14 +245,20 @@ class _ChatViewState extends State<ChatView> {
         isFailed: widget.controller.isFailed(message.id),
         enabledActions: actions,
         builder: withReactionRow
-            ? (sheetContext, msg, outgoing) =>
-                  _menuContentWithRow(sheetContext, msg, outgoing, actions)
+            ? (sheetContext, msg, outgoing) => _menuContentWithRow(
+                sheetContext,
+                msg,
+                outgoing,
+                actions,
+                session,
+              )
             : widget.builders.contextMenuBuilder,
         theme: widget.theme,
         editWindow: behaviors.editWindow,
         deleteWindow: behaviors.deleteWindow,
       );
     } finally {
+      _menuOpen = false;
       _dismissReactionRow();
     }
   }
@@ -241,8 +272,11 @@ class _ChatViewState extends State<ChatView> {
     ChatMessage message,
     bool isOutgoing,
     Set<MessageAction> actions,
+    int session,
   ) {
-    _menuSheetContext = sheetContext;
+    if (_menuOpen && session == _menuSession) {
+      _menuSheetContext = sheetContext;
+    }
     final host = widget.builders.contextMenuBuilder;
     final content = host != null
         ? host(sheetContext, message, isOutgoing)
@@ -317,7 +351,7 @@ class _ChatViewState extends State<ChatView> {
   /// Reserves [_insetFor] at the bottom of the list, then places the row
   /// over the message once the list has settled into its new position.
   void _liftListAbove(double sheetHeight, ChatMessage message) {
-    if (!mounted) return;
+    if (!mounted || !_menuOpen) return;
     _menuSheetHeight = sheetHeight;
     _menuMessage = message;
     _startSettling(message);
@@ -337,9 +371,9 @@ class _ChatViewState extends State<ChatView> {
   /// The notification arrives during layout, when no state can be set.
   bool _onConversationResized(SizeChangedLayoutNotification notification) {
     final message = _menuMessage;
-    if (message != null && _menuSheetHeight > 0) {
+    if (_menuOpen && message != null && _menuSheetHeight > 0) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _menuSheetContext == null) return;
+        if (!mounted || !_menuOpen || _menuSheetContext == null) return;
         if (_menuMessage?.id != message.id) return;
         _startSettling(message);
       });
@@ -408,6 +442,14 @@ class _ChatViewState extends State<ChatView> {
   /// and the top edge of the open sheet: above that band the platform eats
   /// the taps, below it the row covers the very menu it sits beside.
   void _placeReactionRow(ChatMessage message) {
+    if (!_menuOpen) return;
+    final sheetContext = _menuSheetContext;
+    final sheetRoute = sheetContext == null
+        ? null
+        : ModalRoute.of(sheetContext);
+    if (sheetRoute == null || !sheetRoute.isActive || !sheetRoute.isCurrent) {
+      return;
+    }
     final overlay = Overlay.maybeOf(context, rootOverlay: true);
     if (overlay == null) return;
     final rect = _messageListKey.currentState?.rectForMessage(message.id);
@@ -455,12 +497,34 @@ class _ChatViewState extends State<ChatView> {
     }
   }
 
+  /// Whether [emoji] is already this user's reaction on [message], in
+  /// which case picking it again means taking it back — the same toggle
+  /// the chips under the bubble have always done.
+  bool _isOwnReaction(ChatMessage message, String emoji) {
+    final mine =
+        widget.behaviors.userReactions[message.id] ??
+        widget.controller.userReactions[message.id];
+    return mine?.contains(emoji) ?? false;
+  }
+
+  /// The toggle is only offered when the host wired the other half of it,
+  /// the same way the chips under the bubble do it: a picker that swallowed
+  /// the pick because `onDeleteReaction` is null would be a dead gesture.
+  void _applyPickedReaction(ChatMessage message, String emoji) {
+    final onDelete = widget.callbacks.onDeleteReaction;
+    if (onDelete != null && _isOwnReaction(message, emoji)) {
+      onDelete(message, emoji);
+    } else {
+      widget.callbacks.onReactionSelected?.call(message, emoji);
+    }
+  }
+
   /// Tapping an emoji closes BOTH the row and the sheet, which is the
   /// whole point of showing them together.
   void _pickReactionFromRow(ChatMessage message, String emoji) {
     _closeContextMenuSheet();
     _dismissReactionRow();
-    widget.callbacks.onReactionSelected?.call(message, emoji);
+    _applyPickedReaction(message, emoji);
   }
 
   Future<void> _expandReactionRow(ChatMessage message) async {
@@ -480,7 +544,8 @@ class _ChatViewState extends State<ChatView> {
     Navigator.of(sheetContext).pop();
   }
 
-  void _dismissReactionRow() {
+  void _teardownReactionRow() {
+    _menuOpen = false;
     _reactionRowEntry?.remove();
     _reactionRowEntry = null;
     _menuSheetContext = null;
@@ -488,6 +553,10 @@ class _ChatViewState extends State<ChatView> {
     _menuSheetHeight = 0;
     _menuMessage = null;
     _settleRun++;
+  }
+
+  void _dismissReactionRow() {
+    _teardownReactionRow();
     if (!mounted) return;
     if (_contextMenuInset != 0 || _reactionAnchorMessageId != null) {
       setState(() {
@@ -519,7 +588,7 @@ class _ChatViewState extends State<ChatView> {
         theme: widget.theme,
       );
       if (emoji != null && context.mounted) {
-        widget.callbacks.onReactionSelected?.call(message, emoji);
+        _applyPickedReaction(message, emoji);
       }
     } finally {
       if (mounted) setState(() => _reactionAnchorMessageId = null);

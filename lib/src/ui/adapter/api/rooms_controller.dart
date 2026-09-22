@@ -178,20 +178,44 @@ interface class ChatRoomsController {
     final now = DateTime.now().toUtc();
     final clearedResult = await _a.client.messages
         .setLocalClearedAt(roomId, now)
-        .catchError(_swallowCacheThrow);
+        .catchError(
+          _cacheThrowHandler(
+            op: 'deleteRoom.setLocalClearedAt',
+            roomId: roomId,
+          ),
+        );
     final markedResult = await _a.client.rooms
         .markRoomDeleted(roomId)
-        .catchError(_swallowCacheThrow);
+        .catchError(
+          _cacheThrowHandler(op: 'deleteRoom.markRoomDeleted', roomId: roomId),
+        );
     var markerPersisted = markedResult.isSuccess;
     // Persist the cutoff so any prior history stays hidden if the room is
     // re-fetched later (twin of the never-evictable deleted marker).
     if (cache != null) {
-      await cache.setClearedAt(roomId, now).catchError(_swallowCacheThrow);
-      await cache.clearMessages(roomId).catchError(_swallowCacheThrow);
-      await cache.clearPendingMessages(roomId).catchError(_swallowCacheThrow);
+      await cache
+          .setClearedAt(roomId, now)
+          .catchError(
+            _cacheThrowHandler(op: 'deleteRoom.setClearedAt', roomId: roomId),
+          );
+      await cache
+          .clearMessages(roomId)
+          .catchError(
+            _cacheThrowHandler(op: 'deleteRoom.clearMessages', roomId: roomId),
+          );
+      await cache
+          .clearPendingMessages(roomId)
+          .catchError(
+            _cacheThrowHandler(
+              op: 'deleteRoom.clearPendingMessages',
+              roomId: roomId,
+            ),
+          );
       final adapterMarked = await cache
           .addDeletedRoom(roomId)
-          .catchError(_swallowCacheThrow);
+          .catchError(
+            _cacheThrowHandler(op: 'deleteRoom.addDeletedRoom', roomId: roomId),
+          );
       markerPersisted = markerPersisted || adapterMarked.isSuccess;
     }
     // Also clear the open controller's in-memory history so re-opening the
@@ -223,7 +247,11 @@ interface class ChatRoomsController {
       }
       final cache = _a._cache;
       if (cache != null) {
-        await cache.markKicked(roomId).catchError(_swallowCacheThrow);
+        await cache
+            .markKicked(roomId)
+            .catchError(
+              _cacheThrowHandler(op: 'leaveRoom.markKicked', roomId: roomId),
+            );
       }
     }
     return _a._emitFailure(result, OperationKind.leaveRoom, roomId: roomId);
@@ -429,6 +457,13 @@ interface class ChatRoomsController {
   /// found"), or [NetworkFailure] / [TimeoutFailure] (transient — retry,
   /// don't tell the user the chat is gone).
   ///
+  /// While the client is `disconnected` a room the device already has on
+  /// disk is served from there instead of failing: a push opened with no
+  /// connection lands on the conversation instead of an error. As soon as
+  /// the client is (or might be) online the detail always comes from the
+  /// server, so a room the user has meanwhile been removed from, renamed
+  /// or reconfigured is never served stale.
+  ///
   /// Pass `fetchIfMissing: false` to restrict the lookup to what's already
   /// in the room list (returns [NotFoundFailure] instead of hitting the
   /// network) — e.g. for a caller that wants to distinguish "known room" UI
@@ -448,11 +483,21 @@ interface class ChatRoomsController {
     // fresh REST round-trip is very unlikely to fare any better. Only
     // `disconnected` counts as "known offline" — `connecting` /
     // `reconnecting` / `authenticating` are still actively trying and a
-    // REST call can succeed independently of the WS state.
+    // REST call can succeed independently of the WS state. Disk is the one
+    // thing still worth asking: a detail cached earlier lands the user on
+    // the conversation instead of an error.
     if (_a.connectionState == ChatConnectionState.disconnected) {
-      return const ChatFailureResult<ChatController>(
-        NetworkFailure('Offline: room not fetched'),
+      final cached = await _a.client.rooms.get(
+        roomId,
+        cachePolicy: CachePolicy.cacheOnly,
       );
+      if (cached.isFailure) {
+        return const ChatFailureResult<ChatController>(
+          NetworkFailure('Offline: room not fetched'),
+        );
+      }
+      _a._enricher.applyFetchedDetail(roomId, cached.dataOrThrow);
+      return ChatSuccess(_a.getChatController(roomId));
     }
     final result = await _a.client.rooms.get(
       roomId,

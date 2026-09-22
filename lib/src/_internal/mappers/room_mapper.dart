@@ -198,6 +198,7 @@ class RoomMapper {
             ? json['config'] as Map<String, dynamic>
             : const <String, dynamic>{})['writePolicy'],
       ),
+      custom: jsonMapOrNull(json['custom']),
     );
   }
 

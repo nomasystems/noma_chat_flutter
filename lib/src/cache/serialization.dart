@@ -8,6 +8,7 @@ import '../models/room.dart';
 import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
+import 'deep_cast.dart';
 
 /// Serialises [msg] into the shape the cache stores.
 ///
@@ -80,7 +81,7 @@ ChatMessage messageFromMap(
   clientMessageId: map['clientMessageId'] as String?,
   reaction: map['reaction'] as String?,
   reply: map['reply'] as String?,
-  metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+  metadata: deepCastFreeMap(map['metadata']),
   receipt: _parseReceiptStatus(map['receipt'] as String?, onWarning: onWarning),
   isEdited: map['isEdited'] as bool? ?? false,
   isDeleted: map['isDeleted'] as bool? ?? false,
@@ -135,7 +136,7 @@ ChatRoom roomFromMap(
     members: (map['members'] as List?)?.cast<String>() ?? [],
     publicToken: map['publicToken'] as String?,
     avatarUrl: map['avatarUrl'] as String?,
-    custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+    custom: deepCastFreeMap(map['custom']),
   );
 }
 
@@ -177,7 +178,7 @@ ChatUser userFromMap(
     email: map['email'] as String?,
     role: role,
     active: map['active'] as bool? ?? true,
-    custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+    custom: deepCastFreeMap(map['custom']),
     configuration: map['configuration'] != null
         ? _configurationFromMap(
             (map['configuration'] as Map).cast<String, dynamic>(),
@@ -242,7 +243,7 @@ RoomDetail roomDetailFromMap(
         ? DateTime.parse(map['createdAt'] as String)
         : null,
     avatarUrl: map['avatarUrl'] as String?,
-    custom: (map['custom'] as Map?)?.cast<String, dynamic>(),
+    custom: deepCastFreeMap(map['custom']),
   );
 }
 
@@ -308,6 +309,7 @@ Map<String, dynamic> unreadRoomToMap(UnreadRoom unread) => {
   if (unread.selfMuted) 'selfMuted': true,
   if (unread.writePolicy != RoomWritePolicy.members)
     'writePolicy': unread.writePolicy.wireValue,
+  if (unread.custom != null) 'custom': unread.custom,
 };
 
 UnreadRoom unreadRoomFromMap(
@@ -362,6 +364,7 @@ UnreadRoom unreadRoomFromMap(
   hidden: map['hidden'] as bool? ?? false,
   selfMuted: map['selfMuted'] as bool? ?? false,
   writePolicy: RoomWritePolicyWire.fromWire(map['writePolicy']),
+  custom: deepCastFreeMap(map['custom']),
 );
 
 Map<String, dynamic> invitedRoomToMap(InvitedRoom invited) => {
@@ -433,7 +436,7 @@ UserConfiguration _configurationFromMap(
   Map<String, dynamic> map, {
   void Function(String)? onWarning,
 }) => UserConfiguration(
-  metadata: (map['metadata'] as Map?)?.cast<String, dynamic>(),
+  metadata: deepCastFreeMap(map['metadata']),
   webhook: map['webhook'] != null
       ? _webhookFromMap(
           (map['webhook'] as Map).cast<String, dynamic>(),

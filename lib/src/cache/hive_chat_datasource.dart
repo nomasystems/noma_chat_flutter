@@ -15,6 +15,7 @@ import '../models/room.dart';
 import '../models/room_user.dart';
 import '../models/unread_room.dart';
 import '../models/user.dart';
+import '../observability/chat_logger.dart';
 import 'local_datasource.dart';
 import '_box_registry.dart';
 import '_message_eviction_policy.dart';
@@ -102,7 +103,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
        _cipher = cipher {
     _registry = HiveBoxRegistry(
       cipher: cipher,
-      onWarning: (m) => onWarning?.call(m),
+      onWarning: (m) => _warn(m),
       onMetric: (k, d) => onMetric?.call(k, d),
       onBoxRecreated: (name) =>
           _msgIdIndex.invalidateBoxByPrefix(name, _physical(_msgBoxPrefix)),
@@ -191,6 +192,11 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
   /// instructions, and nothing in it says how old they are.
   ///
   /// Throws [ArgumentError] when supplied without [userId].
+  ///
+  /// [logs] — wired before box-open, migration and orphan reaping run
+  /// inside this call, so a caller that wants to observe those (tests
+  /// included) must pass it here rather than setting [HiveChatDatasource.logs]
+  /// on the returned instance, which would already be too late for them.
   static Future<HiveChatDatasource> create({
     String? basePath,
     String? userId,
@@ -205,6 +211,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
     Duration orphanGracePeriod = const Duration(days: 7),
     Duration unscopedCacheRetention = const Duration(days: 30),
     HiveCipher? encryptionCipher,
+    ChatLogger? logs,
     @visibleForTesting Map<int, Future<void> Function()>? migrations,
   }) async {
     if (adoptUnscopedCacheFor != null && userId == null) {
@@ -233,6 +240,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
       cipher: encryptionCipher,
     );
     if (migrations != null) ds.migrations.addAll(migrations);
+    ds.logs = logs;
     ds._metaBox = await Hive.openBox<Map<dynamic, dynamic>>(
       ds._physical(_boxMeta),
       encryptionCipher: encryptionCipher,
@@ -264,7 +272,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
       final value = await body();
       return ChatSuccess(value);
     } catch (e, st) {
-      onWarning?.call('Hive op failed: $e\n$st');
+      _warn('Hive op failed: $e\n$st');
       return ChatFailureResult(UnexpectedFailure(e.toString()));
     }
   }
@@ -281,11 +289,13 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
       },
       onWarning: (level, message) => onWarning?.call(message),
       onMetric: onMetric,
+      logs: logs,
     );
     await migrator.migrateIfNeeded();
   }
 
   Future<void> _openCoreBoxes() async {
+    logs?.cache(ChatLogLevel.debug, 'Opening core cache boxes');
     await _box(_boxRooms);
     await _box(_boxRoomDetails);
     await _box(_boxUsers);
@@ -424,7 +434,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
     try {
       await action();
     } catch (e) {
-      onWarning?.call('Hive write failed ($operation): $e');
+      _warn('Hive write failed ($operation): $e');
     }
   }
 
@@ -457,12 +467,12 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
       try {
         await steps[i]();
       } catch (e) {
-        onWarning?.call('Cascade "$operation" failed at step $i: $e');
+        _warn('Cascade "$operation" failed at step $i: $e');
         if (onRollback != null) {
           try {
             await onRollback();
           } catch (re) {
-            onWarning?.call('Rollback for "$operation" also failed: $re');
+            _warn('Rollback for "$operation" also failed: $re');
           }
         }
         return;
@@ -472,6 +482,20 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
 
   void Function(String message)? onWarning;
   void Function(String metric, Map<String, dynamic> data)? onMetric;
+
+  /// Structured logger, tagged [ChatLogTag.cache] — additive to
+  /// [onWarning]: every discard [_warn] reports also reaches here as a
+  /// [ChatLogLevel.warn] record, and a handful of routine points (box
+  /// open, migration, orphan reaping) log at [ChatLogLevel.debug].
+  ChatLogger? logs;
+
+  /// Reports a discarded/degraded-cache condition through both
+  /// [onWarning] (legacy, untagged) and [logs] (structured, tagged
+  /// [ChatLogTag.cache], level [ChatLogLevel.warn]).
+  void _warn(String message) {
+    onWarning?.call(message);
+    logs?.cache(ChatLogLevel.warn, message);
+  }
 
   List<T> _safeDeserialize<T>(
     Iterable<Map<dynamic, dynamic>> values,
@@ -486,11 +510,11 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
         result.add(fromMap(Map<String, dynamic>.from(e)));
       } catch (err) {
         skipped++;
-        onWarning?.call('Discarding corrupted record$boxSuffix: $err');
+        _warn('Discarding corrupted record$boxSuffix: $err');
       }
     }
     if (skipped > 0) {
-      onWarning?.call('Skipped $skipped corrupted records$boxSuffix');
+      _warn('Skipped $skipped corrupted records$boxSuffix');
     }
     return result;
   }
@@ -606,7 +630,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
             ),
           );
         } catch (e) {
-          onWarning?.call('Skipped corrupted message at key "$key": $e');
+          _warn('Skipped corrupted message at key "$key": $e');
         }
       }
       return result;
@@ -702,7 +726,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
           final isFailed = entry['isFailed'] == true;
           result.add(PendingChatMessage(msg, isFailed: isFailed));
         } catch (e) {
-          onWarning?.call('Skipped corrupted pending message: $e');
+          _warn('Skipped corrupted pending message: $e');
         }
       }
       result.sort((a, b) => a.message.timestamp.compareTo(b.message.timestamp));
@@ -1619,7 +1643,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
       check('unreadCount', unreads.length);
       check('invitedRoomCount', invitedRooms.length);
       if (mismatches.isNotEmpty) {
-        onWarning?.call('Import validation mismatch: ${mismatches.join(', ')}');
+        _warn('Import validation mismatch: ${mismatches.join(', ')}');
       }
     }
 

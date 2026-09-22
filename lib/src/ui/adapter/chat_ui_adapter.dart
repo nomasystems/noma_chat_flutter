@@ -89,15 +89,60 @@ part 'handlers/adapter_profile_actions.dart';
 part 'handlers/adapter_room_actions.dart';
 part 'handlers/adapter_session_lifecycle.dart';
 
-/// Adapter-local helper for best-effort cache writes wrapped in
-/// [unawaited]. Returns a [ChatFailureResult] so the new
+/// The most recently built [ChatUiAdapter.logs] of any live adapter —
+/// captured as soon as one exists: eagerly when [ChatUiAdapter.logger] is
+/// assigned (see its setter), or on first access to [ChatUiAdapter.logs]
+/// for the rarer host that never sets [ChatUiAdapter.logger] at all but
+/// still reads [ChatUiAdapter.logs] directly. Either way the capture does
+/// not depend on some unrelated lazy field (presence, attachment
+/// resolution, …) having been touched first — a cache mutator can throw
+/// before any of those exist.
+///
+/// [_cacheThrowHandler] is called from 20+ call sites spread across
+/// several handler files this change does not own (optimistic send/retry,
+/// mark-as-read, session teardown — see the file's own history for which),
+/// every one of which references it as the bare top-level function it has
+/// always been. Turning it into an adapter instance method would break
+/// every one of those call sites, which are out of scope here. A
+/// module-level capture is the only way to reach a [ChatLogger] from a
+/// plain top-level function without touching them.
+///
+/// A host that runs more than one [ChatUiAdapter] at once (multi-account)
+/// has the last-built one win this slot — an accepted simplification: the
+/// alternative is no logging from this call site at all.
+ChatLogger? _swallowCacheThrowLogs;
+
+/// Builds a best-effort cache-write error handler tagged with [op] (the
+/// call site's operation name, e.g. `'sendMessage'`, `'retrySend'`) and,
+/// when known, [roomId] — so the generic "cache mutator threw" warn can be
+/// traced back to one of the 20+ call sites that share this handler
+/// instead of reading as indistinguishable noise. Callers wrap this in
+/// [unawaited]. Returns a [ChatFailureResult] so the
 /// `Future<ChatResult<void>>` signature of [ChatLocalDatasource] mutators
 /// is satisfied — `unawaited` still drops the outcome, preserving the
-/// previous fire-and-forget semantics. The cache impls bundled with
-/// the SDK never throw, but a custom datasource could; this keeps the
-/// callsite quiet regardless.
-ChatResult<void> _swallowCacheThrow(Object _) =>
-    const ChatFailureResult<void>(UnexpectedFailure('cache mutator threw'));
+/// previous fire-and-forget semantics. The cache impls bundled with the
+/// SDK never throw, but a custom datasource could; this keeps the
+/// callsite quiet regardless, while still surfacing the throw through
+/// [_swallowCacheThrowLogs] when a host has wired [ChatUiAdapter.logger].
+ChatResult<void> Function(Object error) _cacheThrowHandler({
+  String? op,
+  String? roomId,
+}) {
+  return (Object error) {
+    _swallowCacheThrowLogs?.cache(
+      ChatLogLevel.warn,
+      'cache mutator threw',
+      fields: {
+        'error': '$error',
+        if (op != null) 'op': op,
+        if (roomId != null) 'roomId': roomId,
+      },
+    );
+    return const ChatFailureResult<void>(
+      UnexpectedFailure('cache mutator threw'),
+    );
+  };
+}
 
 /// Predicate the adapter uses to decide whether a room is a DM and therefore
 /// should be tracked in the contact-to-room cache. When `null`, falls back to
@@ -471,14 +516,24 @@ class ChatUiAdapter extends _AdapterCore
   /// existed. Cached from whatever [logger] holds at first access, same as
   /// [_attachmentResolver] always has — reassigning [logger] afterwards
   /// does not retarget an already-built [logs].
+  ///
+  /// Also captures itself into [_swallowCacheThrowLogs] on first build —
+  /// see that variable for why. In practice the [logger] setter below
+  /// already forces that build the moment a host wires a callback, so this
+  /// getter only does the capturing itself for the rarer caller that reads
+  /// [logs] before ever assigning [logger].
   @override
-  ChatLogger? get logs => logger == null
-      ? null
-      : (_logs ??= ChatLogger(
-          sink: CallbackChatLogSink(logger!),
-          minLevel: logLevel,
-          logMessageContent: logMessageContent,
-        ));
+  ChatLogger? get logs {
+    if (logger == null) return null;
+    final built = _logs ??= ChatLogger(
+      sink: CallbackChatLogSink(logger!),
+      minLevel: logLevel,
+      logMessageContent: logMessageContent,
+    );
+    _swallowCacheThrowLogs = built;
+    return built;
+  }
+
   ChatLogger? _logs;
 
   /// When `true` (default), the adapter fires [markAsRead] automatically
@@ -592,8 +647,23 @@ class ChatUiAdapter extends _AdapterCore
     return true;
   }
 
+  /// Setting this eagerly builds [logs] (and, with it,
+  /// [_swallowCacheThrowLogs]) right away instead of waiting for some
+  /// other lazy field to touch [logs] first — a host that wires [logger]
+  /// before calling [connect]/[start] is guaranteed a working
+  /// [_cacheThrowHandler] logger even if the very first cache write comes
+  /// from a call site this file does not own (offline-queue drain,
+  /// pending-message rehydration, …), before [messages], presence or
+  /// attachment resolution ever run.
   @override
-  void Function(String level, String message)? logger;
+  void Function(String level, String message)? get logger => _logger;
+
+  set logger(void Function(String level, String message)? value) {
+    _logger = value;
+    if (value != null) logs;
+  }
+
+  void Function(String level, String message)? _logger;
 
   /// Minimum level a record must reach to pass through [logs]. Mirrors
   /// [ChatConfig.logLevel] — set it to the same value passed to
@@ -852,7 +922,7 @@ class ChatUiAdapter extends _AdapterCore
           messageId: messageId,
           userId: userId,
         ),
-    swallowCacheThrow: _swallowCacheThrow,
+    swallowCacheThrow: _cacheThrowHandler,
     analyticsEmit: emitAnalyticsEvent,
     logs: logs,
   );
@@ -876,7 +946,7 @@ class ChatUiAdapter extends _AdapterCore
     removeChatController: removeChatController,
     notifyRoomMembersChanged: notifyRoomMembersChanged,
     isDisposed: () => _disposed,
-    swallowCacheThrow: _swallowCacheThrow,
+    swallowCacheThrow: _cacheThrowHandler,
     membershipBannerFilter: membershipBannerFilter,
     logger: logger,
   );

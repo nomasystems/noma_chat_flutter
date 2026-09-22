@@ -103,7 +103,9 @@ extension _MessageFailedRows on ChatMessagesController {
     unawaited(
       _a._cache
               ?.deletePendingMessage(roomId, messageId)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'discardFailedRow', roomId: roomId),
+              ) ??
           Future.value(),
     );
   }

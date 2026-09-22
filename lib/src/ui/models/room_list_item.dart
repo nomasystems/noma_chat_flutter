@@ -141,7 +141,8 @@ abstract class RoomListItem with _$RoomListItem {
   ///    because exposing an opaque server identifier as a chat title is
   ///    actively worse than blank space (it confuses users and looks like
   ///    a bug). Consumers that want a placeholder should render their own
-  ///    fallback string when [displayName] is empty.
+  ///    fallback string when [displayName] is empty — the SDK's own rows
+  ///    use `ChatUiLocalizations.unnamedChat`.
   String get displayName {
     final eff = effectiveDisplayName?.trim();
     if (eff != null && eff.isNotEmpty) return eff;

@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:hive_ce/hive_ce.dart';
 
+import '../observability/chat_logger.dart';
+
 /// Stamps + advances the cache `schemaVersion` key inside Hive's meta
 /// box, calling the registered [migrations] step-by-step or falling back
 /// to [wipeStrategy] when no migration path is available.
@@ -20,6 +22,7 @@ class CacheSchemaMigrator {
     required this.versionKey,
     this.onWarning,
     this.onMetric,
+    this.logs,
   });
 
   /// The `chat_meta` Hive box that holds the persisted schema version
@@ -53,6 +56,10 @@ class CacheSchemaMigrator {
   /// Optional metric sink. Currently emits `schema_migration_wipe`
   /// with `{from, to, reason}` tags whenever a wipe path runs.
   final void Function(String name, Map<String, dynamic> tags)? onMetric;
+
+  /// Structured logger, tagged [ChatLogTag.cache] — additive to
+  /// [onWarning], fired on the same wipe paths.
+  final ChatLogger? logs;
 
   /// Reads the stored schema version, advances it through the
   /// registered migrations (or wipes the cache when no path is
@@ -95,6 +102,11 @@ class CacheSchemaMigrator {
             'Schema migration: no migration from v$storedVersion '
                 'to v$targetVersion, wiping cache',
           );
+          logs?.cache(
+            ChatLogLevel.warn,
+            'Schema migration: no migration path, wiping cache',
+            fields: {'from': storedVersion, 'to': targetVersion},
+          );
           onMetric?.call('schema_migration_wipe', {
             'from': storedVersion,
             'to': targetVersion,
@@ -110,6 +122,11 @@ class CacheSchemaMigrator {
         'warn',
         'Schema migration: downgrade from v$storedVersion '
             'to v$targetVersion, wiping cache',
+      );
+      logs?.cache(
+        ChatLogLevel.warn,
+        'Schema migration: downgrade detected, wiping cache',
+        fields: {'from': storedVersion, 'to': targetVersion},
       );
       onMetric?.call('schema_migration_wipe', {
         'from': storedVersion,

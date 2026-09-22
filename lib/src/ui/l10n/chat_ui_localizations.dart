@@ -117,6 +117,7 @@ class ChatUiLocalizations {
     this.forwardedToCountTemplate = 'Forwarded to {count} room(s)',
     this.noChatsToForward = 'No chats to forward to',
     this.searchChats = 'Search chats',
+    this.unnamedChat = 'Unnamed chat',
     this.newMessageSingularTemplate = '{count} new message',
     this.newMessagesPluralTemplate = '{count} new messages',
     this.deleteForMe = 'Delete for me',
@@ -503,6 +504,10 @@ class ChatUiLocalizations {
   /// Placeholder for the optional search field inside the forward
   /// sheet (rendered when `MessageForwardSheet.searchEnabled` is true).
   final String searchChats;
+
+  /// Title the default `MessageForwardSheet` row falls back to for a room
+  /// whose display name resolves to nothing — never its id.
+  final String unnamedChat;
 
   /// Template for the singular form of the unread divider label —
   /// rendered by [UnreadDivider] when `count == 1`. `{count}` is
@@ -1298,6 +1303,7 @@ class ChatUiLocalizations {
     String? forwardedToCountTemplate,
     String? noChatsToForward,
     String? searchChats,
+    String? unnamedChat,
     String? newMessageSingularTemplate,
     String? newMessagesPluralTemplate,
     String? deleteForMe,
@@ -1593,6 +1599,7 @@ class ChatUiLocalizations {
           forwardedToCountTemplate ?? this.forwardedToCountTemplate,
       noChatsToForward: noChatsToForward ?? this.noChatsToForward,
       searchChats: searchChats ?? this.searchChats,
+      unnamedChat: unnamedChat ?? this.unnamedChat,
       newMessageSingularTemplate:
           newMessageSingularTemplate ?? this.newMessageSingularTemplate,
       newMessagesPluralTemplate:
@@ -2067,6 +2074,7 @@ class ChatUiLocalizations {
     forwardTo: 'Reenviar a…',
     noChatsToForward: 'No tienes otros chats donde reenviar',
     searchChats: 'Buscar chats',
+    unnamedChat: 'Chat sin nombre',
     newMessageSingularTemplate: '{count} mensaje nuevo',
     newMessagesPluralTemplate: '{count} mensajes nuevos',
     deleteForMe: 'Eliminar para mí',
@@ -2410,6 +2418,7 @@ class ChatUiLocalizations {
     reported: 'Signalé',
     save: 'Enregistrer',
     searchChats: 'Rechercher des conversations',
+    unnamedChat: 'Conversation sans nom',
     selectContacts: 'Sélectionner des contacts',
     selfChatTitleTemplate: '{name} (Vous)',
     tapToUnblock: 'Appuyez pour débloquer',
@@ -2754,6 +2763,7 @@ class ChatUiLocalizations {
     reported: 'Gemeldet',
     save: 'Speichern',
     searchChats: 'Chats durchsuchen',
+    unnamedChat: 'Chat ohne Namen',
     selectContacts: 'Kontakte auswählen',
     selfChatTitleTemplate: '{name} (Du)',
     tapToUnblock: 'Zum Entsperren tippen',
@@ -3097,6 +3107,7 @@ class ChatUiLocalizations {
     reported: 'Segnalato',
     save: 'Salva',
     searchChats: 'Cerca chat',
+    unnamedChat: 'Chat senza nome',
     selectContacts: 'Seleziona contatti',
     selfChatTitleTemplate: '{name} (Tu)',
     tapToUnblock: 'Tocca per sbloccare',
@@ -3437,6 +3448,7 @@ class ChatUiLocalizations {
     reported: 'Denunciado',
     save: 'Salvar',
     searchChats: 'Pesquisar conversas',
+    unnamedChat: 'Conversa sem nome',
     selectContacts: 'Selecionar contatos',
     selfChatTitleTemplate: '{name} (Você)',
     tapToUnblock: 'Toque para desbloquear',
@@ -3776,6 +3788,7 @@ class ChatUiLocalizations {
     reported: 'Denunciat',
     save: 'Desar',
     searchChats: 'Cercar xats',
+    unnamedChat: 'Xat sense nom',
     selectContacts: 'Seleccionar contactes',
     selfChatTitleTemplate: '{name} (Tu)',
     tapToUnblock: 'Toca per desbloquejar',
@@ -4104,6 +4117,7 @@ class ChatUiLocalizations {
     forwardTo: 'Vidarebefordra till…',
     noChatsToForward: 'Inga chattar att vidarebefordra till',
     searchChats: 'Sök chattar',
+    unnamedChat: 'Namnlös chatt',
     deleteForMe: 'Ta bort för mig',
     blockedContactBannerText: 'Du har blockerat den här kontakten',
     tapToUnblock: 'Tryck för att avblockera',
@@ -4308,6 +4322,7 @@ class ChatUiLocalizations {
     forwardTo: 'Videresend til…',
     noChatsToForward: 'Ingen chatter å videresende til',
     searchChats: 'Søk i chatter',
+    unnamedChat: 'Navnløs chat',
     deleteForMe: 'Slett for meg',
     blockedContactBannerText: 'Du har blokkert denne kontakten',
     tapToUnblock: 'Trykk for å oppheve blokkering',
@@ -4511,6 +4526,7 @@ class ChatUiLocalizations {
     forwardTo: 'Videresend til…',
     noChatsToForward: 'Ingen chats at videresende til',
     searchChats: 'Søg i chats',
+    unnamedChat: 'Chat uden navn',
     deleteForMe: 'Slet for mig',
     blockedContactBannerText: 'Du har blokeret denne kontakt',
     tapToUnblock: 'Tryk for at fjerne blokering',
@@ -4715,6 +4731,7 @@ class ChatUiLocalizations {
     forwardTo: 'Przekaż do…',
     noChatsToForward: 'Brak czatów do przekazania',
     searchChats: 'Szukaj czatów',
+    unnamedChat: 'Czat bez nazwy',
     deleteForMe: 'Usuń dla mnie',
     blockedContactBannerText: 'Zablokowałeś ten kontakt',
     tapToUnblock: 'Dotknij, aby odblokować',
@@ -4919,6 +4936,7 @@ class ChatUiLocalizations {
     forwardTo: 'Přeposlat do…',
     noChatsToForward: 'Žádné chaty k přeposlání',
     searchChats: 'Hledat chaty',
+    unnamedChat: 'Chat bez názvu',
     deleteForMe: 'Smazat pro mě',
     blockedContactBannerText: 'Tento kontakt jste zablokovali',
     tapToUnblock: 'Klepnutím odblokujete',
@@ -5287,6 +5305,7 @@ class ChatUiLocalizations {
     String? forwardedToCountTemplate,
     String? noChatsToForward,
     String? searchChats,
+    String? unnamedChat,
     String? newMessageSingularTemplate,
     String? newMessagesPluralTemplate,
     String? deleteForMe,
@@ -5610,6 +5629,7 @@ class ChatUiLocalizations {
         forwardedToCountTemplate: forwardedToCountTemplate,
         noChatsToForward: noChatsToForward,
         searchChats: searchChats,
+        unnamedChat: unnamedChat,
         newMessageSingularTemplate: newMessageSingularTemplate,
         newMessagesPluralTemplate: newMessagesPluralTemplate,
         deleteForMe: deleteForMe,

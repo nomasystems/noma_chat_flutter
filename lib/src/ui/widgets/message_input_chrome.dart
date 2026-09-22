@@ -213,14 +213,18 @@ extension _MessageInputChrome on _MessageInputState {
 
   Widget _buildInputRow() {
     final showSend = _hasText || !widget.showVoiceButton;
+    final input = widget.theme.input;
+    final iconGap = input.iconGap ?? 16;
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding:
+          input.rowPadding ??
+          const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           if (widget.showAttachButton) ...[
             _buildAttachButton(),
-            const SizedBox(width: 16),
+            SizedBox(width: iconGap),
           ],
           Expanded(
             child: Semantics(
@@ -246,22 +250,21 @@ extension _MessageInputChrome on _MessageInputState {
                   filled: true,
                   fillColor:
                       widget.theme.input.fillColor ?? Colors.grey.shade100,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
+                  contentPadding:
+                      input.fieldContentPadding ??
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                   isDense: true,
                 ),
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          SizedBox(width: iconGap),
           if (showSend)
             _buildSendButton()
           else ...[
             if (widget.onPickCamera != null) ...[
               _buildCameraButton(),
-              const SizedBox(width: 12),
+              SizedBox(width: input.secondaryIconGap ?? 12),
             ],
             _MessageInputState._voiceButtonSlot,
           ],
@@ -428,7 +431,7 @@ extension _MessageInputChrome on _MessageInputState {
       children: [
         content,
         Padding(
-          padding: _MessageInputState._voiceButtonInset,
+          padding: _MessageInputState._voiceButtonInset(widget.theme),
           child: KeyedSubtree(
             key: _voiceButtonKey,
             child: _voiceButtonVisible

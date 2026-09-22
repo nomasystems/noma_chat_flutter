@@ -7,6 +7,7 @@ import '../../core/result.dart';
 import 'cache_config.dart';
 import '../../cache/cache_policy.dart';
 import '../../cache/local_datasource.dart';
+import '../../observability/chat_logger.dart';
 
 @experimental
 typedef MetricCallback =
@@ -18,6 +19,11 @@ class CacheManager {
   final ChatLocalDatasource? datasource;
   final Duration persistDebounce;
   final int maxEntries;
+
+  /// Structured logger, tagged [ChatLogTag.cache]. `null` unless the host
+  /// wires it — every call here is at [ChatLogLevel.debug] or
+  /// [ChatLogLevel.warn], never on the hot [resolve] path itself.
+  final ChatLogger? logs;
 
   final LinkedHashMap<String, DateTime> _timestamps =
       LinkedHashMap<String, DateTime>();
@@ -31,6 +37,7 @@ class CacheManager {
     this.datasource,
     this.persistDebounce = const Duration(seconds: 5),
     this.maxEntries = 1000,
+    this.logs,
   }) : assert(maxEntries > 0, 'maxEntries must be > 0');
 
   CachePolicy get defaultPolicy => config.defaultReadPolicy;
@@ -47,6 +54,11 @@ class CacheManager {
     while (_timestamps.length > maxEntries) {
       _timestamps.remove(_timestamps.keys.first);
     }
+    logs?.cache(
+      ChatLogLevel.debug,
+      'CacheManager: restored TTL timestamps',
+      fields: {'count': _timestamps.length},
+    );
   }
 
   Future<ChatResult<T>> resolve<T>({
@@ -150,6 +162,11 @@ class CacheManager {
     _dirty = false;
     final snapshot = Map<String, DateTime>.of(_timestamps);
     await datasource?.saveCacheTimestamps(snapshot);
+    logs?.cache(
+      ChatLogLevel.debug,
+      'CacheManager: persisted TTL timestamps',
+      fields: {'count': snapshot.length},
+    );
   }
 
   bool _isValid(String key, Duration ttl) {

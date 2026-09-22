@@ -167,7 +167,12 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, optimistic)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(
+                  op: 'sendUploadedAttachment',
+                  roomId: roomId,
+                ),
+              ) ??
           Future.value(),
     );
     _a._roomListMutator.updateRoomLastMessage(roomId, optimistic);
@@ -228,7 +233,12 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.deletePendingMessage(roomId, tempId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendUploadedAttachment',
+                    roomId: roomId,
+                  ),
+                ) ??
             Future.value(),
       );
       return uploadResult.castFailure<ChatMessage>();
@@ -239,7 +249,12 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.savePendingMessage(roomId, optimistic, isFailed: true)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendUploadedAttachment',
+                    roomId: roomId,
+                  ),
+                ) ??
             Future.value(),
       );
       // The offline queue below only takes the failures that prove the
@@ -334,7 +349,12 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, uploaded)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(
+                  op: 'sendUploadedAttachment',
+                  roomId: roomId,
+                ),
+              ) ??
           Future.value(),
     );
 
@@ -392,7 +412,12 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.deletePendingMessage(roomId, tempId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendUploadedAttachment',
+                    roomId: roomId,
+                  ),
+                ) ??
             Future.value(),
       );
       _a._roomListMutator.updateRoomLastMessage(roomId, sendResult.dataOrThrow);
@@ -409,7 +434,12 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.savePendingMessage(roomId, uploaded, isFailed: true)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(
+                    op: 'sendUploadedAttachment',
+                    roomId: roomId,
+                  ),
+                ) ??
             Future.value(),
       );
       _a.logs?.message(
@@ -652,7 +682,9 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, optimistic)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'sendUploadedVoice', roomId: roomId),
+              ) ??
           Future.value(),
     );
     _a._roomListMutator.updateRoomLastMessage(roomId, optimistic);
@@ -712,7 +744,9 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.deletePendingMessage(roomId, tempId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(op: 'sendUploadedVoice', roomId: roomId),
+                ) ??
             Future.value(),
       );
       return uploadResult.castFailure<ChatMessage>();
@@ -723,7 +757,9 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.savePendingMessage(roomId, optimistic, isFailed: true)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(op: 'sendUploadedVoice', roomId: roomId),
+                ) ??
             Future.value(),
       );
       // Enters the offline retry queue on a connectivity-flavored failure
@@ -779,7 +815,9 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
     unawaited(
       _a._cache
               ?.savePendingMessage(roomId, uploaded)
-              .catchError(_swallowCacheThrow) ??
+              .catchError(
+                _cacheThrowHandler(op: 'sendUploadedVoice', roomId: roomId),
+              ) ??
           Future.value(),
     );
 
@@ -836,7 +874,9 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.deletePendingMessage(roomId, tempId)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(op: 'sendUploadedVoice', roomId: roomId),
+                ) ??
             Future.value(),
       );
       _a._roomListMutator.updateRoomLastMessage(roomId, sendResult.dataOrThrow);
@@ -853,7 +893,9 @@ extension _MessageAttachmentPipeline on ChatMessagesController {
       unawaited(
         _a._cache
                 ?.savePendingMessage(roomId, uploaded, isFailed: true)
-                .catchError(_swallowCacheThrow) ??
+                .catchError(
+                  _cacheThrowHandler(op: 'sendUploadedVoice', roomId: roomId),
+                ) ??
             Future.value(),
       );
       _a.logs?.message(
