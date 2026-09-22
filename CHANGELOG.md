@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## 0.36.0 - 2026-09-22
+
+A host can now decide, per room, what happens when the local user stops
+belonging to it — kept read-only with history (the only behaviour before
+this release) or purged outright, with no row left behind.
+
+### Added
+
+- **`ChatUiAdapter.deletedRoomPolicy`** (`DeletedRoomPolicyResolver?`,
+  default `null`) — a `DeletedRoomPolicy Function(RoomListItem room)` hook
+  consulted on every path that strips the user of a room: a `room_deleted`
+  frame over WebSocket/SSE, the equivalent event the polling transport
+  synthesizes when a room drops out of the listing, a `user_left` frame
+  naming the local user as the target of a kick, `adapter.rooms.leave`, and
+  the cached kicked marker replayed on a cold start. Leaving it unset (or a
+  resolver throwing) keeps every room on `DeletedRoomPolicy.keepReadOnly`,
+  which is what the SDK has always done, so the hook is fully
+  backwards-compatible.
+- **`DeletedRoomPolicy`** enum:
+  - `keepReadOnly` — the row stays in the chat list with its full history,
+    flips to `isParticipating == false` (composer replaced by the "no
+    longer a participant" banner), and survives cold starts via the cached
+    kicked marker until the user removes it by hand through
+    `ChatRoomOption.deleteKickedChat`.
+  - `purge` — the room disappears entirely: the row leaves the chat list,
+    its open chat controller is disposed, and every cached trace (room,
+    detail, messages, unread snapshot, kicked marker) is deleted. The
+    purged id joins the never-evictable per-user deleted set, so a
+    room-list response already in flight cannot re-insert the row and
+    re-adding the user to the same room id will not bring it back. A user
+    sitting inside a purged room is taken out of it exactly as any other
+    membership revocation: `onRoomRemoved` fires and `NomaChatView` pops
+    itself.
+
+```dart
+final chat = await NomaChat.create(
+  // ...
+  deletedRoomPolicy: (room) => room.custom?['support'] == true
+      ? DeletedRoomPolicy.purge
+      : DeletedRoomPolicy.keepReadOnly,
+);
+```
+
+See `doc/DEVELOPER_GUIDE.md` § `deletedRoomPolicy` for the full reference.
+
 ## 0.35.1 - 2026-09-22
 
 No public API changes; the dispose tests now pass on newer Flutter SDKs too.
