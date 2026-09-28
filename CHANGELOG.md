@@ -70,6 +70,12 @@ onwards, breaking changes require a **major version bump**.
   opening a box with the wrong cipher throws instead of wiping it; the meta
   box is now wiped and recreated with a `box_corrupted` metric, the same
   recovery the other cache boxes already had.
+- **A scoped cache whose meta box lost its owner stamp is no longer claimed.**
+  When the meta box has to be recreated, or comes back empty while the
+  store's other boxes are still on disk, nothing proves whose those boxes
+  are, so the store is now cleared like one stamped for another user
+  instead of being served to the signed-in user. If it cannot be cleared the
+  session is refused, and the next launch tries again.
 
 ### Changed
 
