@@ -1634,9 +1634,10 @@ void main() {
       DeviceOrientation orientation, {
       CameraDescription lens = _backCamera,
       DeviceOrientation? pluginOrientation,
+      int? exifOrientation,
     }) async {
       camera.cameras = <CameraDescription>[lens];
-      camera.stillBytes = quadrantJpeg();
+      camera.stillBytes = quadrantJpeg(orientation: exifOrientation);
       final host = await pumpHostedPage(
         tester,
         orientationSource: () => held.stream,
@@ -1700,12 +1701,25 @@ void main() {
       expect(quadrantAt(sent, 4, 4), 'red');
     });
 
-    testWidgets('on the front lens, turned first and mirrored after', (
-      tester,
-    ) async {
+    testWidgets('on the front lens on its left side, mirrored first and '
+        'turned after, sky on top', (tester) async {
       final sent = await shootHeld(
         tester,
         DeviceOrientation.landscapeLeft,
+        lens: _frontCamera,
+      );
+
+      expect([sent.width, sent.height], [16, 32]);
+      expect(quadrantAt(sent, 4, 4), 'red');
+      expect(quadrantAt(sent, 12, 4), 'green');
+      expect(quadrantAt(sent, 4, 27), 'blue');
+      expect(quadrantAt(sent, 12, 27), 'white');
+    });
+
+    testWidgets('on the front lens on its right side', (tester) async {
+      final sent = await shootHeld(
+        tester,
+        DeviceOrientation.landscapeRight,
         lens: _frontCamera,
       );
 
@@ -1714,6 +1728,72 @@ void main() {
       expect(quadrantAt(sent, 12, 4), 'blue');
       expect(quadrantAt(sent, 4, 27), 'green');
       expect(quadrantAt(sent, 12, 27), 'red');
+    });
+
+    group('from a sensor-native buffer with its EXIF tag, as the plugins '
+        'write it', () {
+      const cases =
+          <(String, int, DeviceOrientation, CameraDescription, List<String>)>[
+            (
+              'tag 6, back lens, left side',
+              6,
+              DeviceOrientation.landscapeLeft,
+              _backCamera,
+              ['red', 'blue', 'green', 'white'],
+            ),
+            (
+              'tag 6, front lens, left side',
+              6,
+              DeviceOrientation.landscapeLeft,
+              _frontCamera,
+              ['green', 'white', 'red', 'blue'],
+            ),
+            (
+              'tag 8, back lens, right side',
+              8,
+              DeviceOrientation.landscapeRight,
+              _backCamera,
+              ['red', 'blue', 'green', 'white'],
+            ),
+            (
+              'tag 8, front lens, right side',
+              8,
+              DeviceOrientation.landscapeRight,
+              _frontCamera,
+              ['green', 'white', 'red', 'blue'],
+            ),
+            (
+              'tag 3, back lens, upside down',
+              3,
+              DeviceOrientation.portraitDown,
+              _backCamera,
+              ['red', 'blue', 'green', 'white'],
+            ),
+            (
+              'tag 3, front lens, upside down',
+              3,
+              DeviceOrientation.portraitDown,
+              _frontCamera,
+              ['blue', 'red', 'white', 'green'],
+            ),
+          ];
+      for (final (name, tag, heldIn, lens, corners) in cases) {
+        testWidgets(name, (tester) async {
+          final sent = await shootHeld(
+            tester,
+            heldIn,
+            lens: lens,
+            exifOrientation: tag,
+          );
+
+          expect([sent.width, sent.height], [32, 16]);
+          expect(sent.exif.imageIfd.orientation, anyOf(isNull, 1));
+          expect(quadrantAt(sent, 4, 4), corners[0]);
+          expect(quadrantAt(sent, 27, 4), corners[1]);
+          expect(quadrantAt(sent, 4, 12), corners[2]);
+          expect(quadrantAt(sent, 27, 12), corners[3]);
+        });
+      }
     });
 
     testWidgets('held upright, a back-lens still is left exactly as it came', (

@@ -956,19 +956,20 @@ const double _dragZoomTravel = 220;
 /// before a single pixel is allocated.
 const int _maxStillPixels = 50000000;
 
-/// A still that keeps the format it arrived in, turned [_StillJob.rotation]
-/// degrees clockwise and then, for the mirrored lens, flipped along the axis
-/// it is displayed on — or `null` when the bytes are not one this can
+/// A still that keeps the format it arrived in, flipped along the axis it is
+/// displayed on for the mirrored lens and then turned [_StillJob.rotation]
+/// degrees clockwise — or `null` when the bytes are not one this can
 /// rebuild, in which case the capture is left exactly as the sensor wrote it.
 ///
 /// Any EXIF orientation is baked into the pixels first, so both steps work on
 /// the picture as a viewer shows it: a horizontal flip of the stored buffer
 /// lands on the vertical axis once a viewer rotates the picture by its tag,
 /// which would leave the take upside down instead of unmirrored. The flip
-/// comes after the turn for the same reason — mirroring before it would
-/// mirror across what ends up as the horizon. The ICC profile the capture
-/// carries survives the rebuild, so a Display P3 photo still reads as one
-/// downstream.
+/// comes before the turn: the unmirrored front-lens file has the phone's
+/// right edge on its left, the reverse of a back-lens file, so only once it
+/// matches the viewfinder does the same turn put the sky on top. The ICC
+/// profile the capture carries survives the rebuild, so a Display P3 photo
+/// still reads as one downstream.
 Uint8List? _orientStillBytes(_StillJob job) {
   final bytes = job.bytes;
   final decoder = _stillDecoder(bytes);
@@ -980,10 +981,10 @@ Uint8List? _orientStillBytes(_StillJob job) {
     final decoded = decoder.decode(bytes, frame: 0);
     if (decoded == null) return null;
     var oriented = img.bakeOrientation(decoded);
+    if (job.mirror) oriented = img.flipHorizontal(oriented);
     if (job.rotation != 0) {
       oriented = img.copyRotate(oriented, angle: job.rotation);
     }
-    if (job.mirror) oriented = img.flipHorizontal(oriented);
     return decoder is img.PngDecoder
         ? img.PngEncoder().encode(oriented, singleFrame: true)
         : img.JpegEncoder(

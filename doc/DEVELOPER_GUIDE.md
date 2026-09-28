@@ -3245,7 +3245,9 @@ the plugin framed it for and the one the phone was actually held in — so
 it reaches the review step, the metadata pass and the bubble upright and
 with its real proportions. When the plugin already framed it right (iOS
 with the lock off) the difference is zero and the file is left untouched.
-On the front lens the turn comes first and the mirror flip after it.
+On the front lens the mirror flip comes first and the turn after it: the
+unmirrored file has the phone's right edge on its left, so the same turn
+applied before the flip would leave a sideways selfie upside down.
 
 The source is `CameraCapturePage.orientationSource`, a
 `Stream<DeviceOrientation> Function()` defaulting to

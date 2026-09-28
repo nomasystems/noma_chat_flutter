@@ -11,13 +11,14 @@ extension _CameraCaptureView on _CameraCapturePageState {
   /// worked out between the orientation the plugin framed the still for and
   /// the one gravity reported at the shutter.
   ///
-  /// [mirror] is set for front lenses, which preview mirrored on every platform the SDK builds for
-  /// (`camera_avfoundation` mirrors the video connection, `camera_android_
-  /// camerax` mirrors the preview widget) while the file the sensor writes
-  /// is not, so a selfie comes back reversed against the picture the user
-  /// was looking at. Flipping it here — at the source, before the review
-  /// step ever reads the path — is what makes the take, the file that gets
-  /// sent and the bubble's thumbnail agree.
+  /// [mirror] is set for front lenses, which preview mirrored on every
+  /// platform the SDK builds for (`camera_avfoundation` mirrors the video
+  /// connection, `camera_android_camerax` mirrors the preview widget) while
+  /// the file the sensor writes is not, so a selfie comes back reversed
+  /// against the picture the user was looking at. Flipping it here — at the
+  /// source, before the review step ever reads the path, and before the
+  /// turn — is what makes the take, the file that gets sent and the bubble's
+  /// thumbnail agree.
   ///
   /// Never throws: a capture that cannot be decoded is worth sending as it
   /// came, and this runs inside the shutter's own error handling.

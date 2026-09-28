@@ -39,7 +39,8 @@ onwards, breaking changes require a **major version bump**.
   between the orientation the plugin framed it for and the one gravity
   reported at the shutter, before the review step, so the take, the file
   sent and the bubble all show it upright and with its real proportions. On
-  the front lens the mirror flip is applied after the turn. Stills the
+  the front lens the still is mirrored first and turned after, so a
+  sideways selfie is not left upside down. Stills the
   plugin already framed right (iOS with the lock off) are left untouched.
 - **The iOS viewfinder squeezed a landscape frame into a portrait box** when
   the phone was turned with the rotation lock off: `camera_avfoundation`
