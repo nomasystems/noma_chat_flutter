@@ -29,6 +29,18 @@ onwards, breaking changes require a **major version bump**.
   `sensors_plus` dependency. `CaptureOrientation` also exposes the pure
   helpers it is built from: `fromGravity`, `counterclockwiseQuarterTurns`
   and `stillRotation`.
+- **`ChatMessage.countsAsUnread`** (`bool`, default `false`) — server-side
+  opt-in by which a system message counts as unread for every room member
+  except its sender. Read from the top-level `countsAsUnread` key of the
+  message JSON (REST and the `new_message` realtime event), never from
+  `metadata`; never sent by the client; persisted in the cache (rows cached
+  before the field existed read back `false`).
+- **`ChatMessage.raisesUnread`** — `!isSystem || countsAsUnread`, the single
+  predicate behind the local unread bump in the event router, the badge a
+  newly discovered room is seeded with, and the "N new messages" divider
+  (`resolveUnreadBoundary`). System messages without the opt-in keep being
+  excluded exactly as before, so hosts and backends that never set the flag
+  see no change.
 
 ### Fixed
 
@@ -52,6 +64,12 @@ onwards, breaking changes require a **major version bump**.
   rotates the preview buffer with the device, and the page forced a
   portrait aspect ratio around it. The preview is now turned back to match a
   portrait UI instead of being stretched.
+- **`HiveChatDatasource.create` no longer throws when the meta box cannot be
+  read** (for example a store written without a cipher reopened with
+  `encryptionCipher`, or the other way round). Since `hive_ce` 2.20.1,
+  opening a box with the wrong cipher throws instead of wiping it; the meta
+  box is now wiped and recreated with a `box_corrupted` metric, the same
+  recovery the other cache boxes already had.
 
 ### Changed
 

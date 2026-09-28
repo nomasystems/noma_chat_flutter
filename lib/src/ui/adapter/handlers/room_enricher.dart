@@ -650,11 +650,12 @@ class RoomEnricher {
       // when that message is from someone else (e.g. you were just
       // added to a group and the creator's first message arrives).
       // Without this the tile showed the preview but no badge. Own
-      // messages and system events stay at 0.
+      // messages and system events stay at 0, unless the server opted the
+      // system event in (`ChatMessage.raisesUnread`).
       unreadCount:
           (lastMessage != null &&
               lastMessage.from != _currentUser().id &&
-              !lastMessage.isSystem)
+              lastMessage.raisesUnread)
           ? 1
           : 0,
     );

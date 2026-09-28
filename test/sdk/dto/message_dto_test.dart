@@ -401,4 +401,61 @@ void main() {
       });
     });
   });
+
+  group('MessageDto countsAsUnread', () {
+    Map<String, dynamic> base() => {
+      'id': 'm1',
+      'from': 'u1',
+      'timestamp': '2026-01-01T00:00:00Z',
+      'metadata': {'system': true},
+    };
+
+    test('reads a top-level true', () {
+      final dto = MessageDto.fromJson({...base(), 'countsAsUnread': true});
+      expect(dto.countsAsUnread, isTrue);
+    });
+
+    test('is false when absent', () {
+      expect(MessageDto.fromJson(base()).countsAsUnread, isFalse);
+    });
+
+    test('is false for a non-boolean value', () {
+      final dto = MessageDto.fromJson({...base(), 'countsAsUnread': 'true'});
+      expect(dto.countsAsUnread, isFalse);
+    });
+
+    test('ignores the key when it only comes inside metadata', () {
+      final dto = MessageDto.fromJson({
+        ...base(),
+        'metadata': {'system': true, 'countsAsUnread': true},
+      });
+      expect(dto.countsAsUnread, isFalse);
+    });
+
+    test('toJson writes the key only when true', () {
+      const on = MessageDto(
+        id: 'm1',
+        from: 'u1',
+        timestamp: '2026-01-01T00:00:00Z',
+        countsAsUnread: true,
+      );
+      const off = MessageDto(
+        id: 'm1',
+        from: 'u1',
+        timestamp: '2026-01-01T00:00:00Z',
+      );
+      expect(on.toJson()['countsAsUnread'], true);
+      expect(off.toJson().containsKey('countsAsUnread'), isFalse);
+    });
+
+    test('toSendJson never carries it', () {
+      const dto = MessageDto(
+        id: 'm1',
+        from: 'u1',
+        timestamp: '2026-01-01T00:00:00Z',
+        countsAsUnread: true,
+      );
+      expect(dto.toSendJson().containsKey('countsAsUnread'), isFalse);
+    });
+  });
 }

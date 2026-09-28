@@ -807,7 +807,7 @@ class ChatEventRouter {
       // message as instantly read — mirrors WhatsApp's "you're in the
       // chat, you saw it the moment it landed" behaviour. The chat list
       // unread badge never blips up to 1 just to drop back to 0.
-      if (message.isSystem) {
+      if (!message.raisesUnread) {
         if (isActiveRoom) _updateRoomUnread(roomId, 0);
       } else {
         _updateRoomUnread(roomId, isActiveRoom ? 0 : existing.unreadCount + 1);

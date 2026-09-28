@@ -451,4 +451,47 @@ void main() {
       expect(msg.thumbnailAttachmentId, isNull);
     });
   });
+
+  group('MessageMapper countsAsUnread', () {
+    Map<String, dynamic> systemJson() => {
+      'id': 'm1',
+      'from': 'plan-owner',
+      'timestamp': '2026-01-01T00:00:00Z',
+      'text': 'plan_vote_reminder',
+      'metadata': {'system': true, 'messageType': 'system'},
+    };
+
+    test('a top-level flag on a system message raises unread', () {
+      final msg = MessageMapper.fromJson({
+        ...systemJson(),
+        'countsAsUnread': true,
+      });
+      expect(msg.isSystem, isTrue);
+      expect(msg.countsAsUnread, isTrue);
+      expect(msg.raisesUnread, isTrue);
+    });
+
+    test('a system message without the flag does not raise unread', () {
+      final msg = MessageMapper.fromJson(systemJson());
+      expect(msg.countsAsUnread, isFalse);
+      expect(msg.raisesUnread, isFalse);
+    });
+
+    test('the flag only inside metadata is not honoured', () {
+      final msg = MessageMapper.fromJson({
+        ...systemJson(),
+        'metadata': {'system': true, 'countsAsUnread': true},
+      });
+      expect(msg.countsAsUnread, isFalse);
+      expect(msg.raisesUnread, isFalse);
+    });
+
+    test('the flag survives a cache round-trip', () {
+      final msg = MessageMapper.fromJson({
+        ...systemJson(),
+        'countsAsUnread': true,
+      });
+      expect(messageFromMap(messageToMap(msg)).countsAsUnread, isTrue);
+    });
+  });
 }
