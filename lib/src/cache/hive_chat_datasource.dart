@@ -54,6 +54,10 @@ part 'hive_orphan_reaper.dart';
 class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
   late final HiveBoxRegistry _registry;
   late final Box<Map<dynamic, dynamic>> _metaBox;
+
+  /// Whether [_openMetaBox] had to wipe an unreadable meta box, losing the
+  /// owner stamp with it.
+  bool _metaBoxRecreated = false;
   final int maxMessagesPerRoom;
   final int? maxRooms;
   final int? maxUsers;
@@ -241,10 +245,7 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
     );
     if (migrations != null) ds.migrations.addAll(migrations);
     ds.logs = logs;
-    ds._metaBox = await Hive.openBox<Map<dynamic, dynamic>>(
-      ds._physical(_boxMeta),
-      encryptionCipher: encryptionCipher,
-    );
+    ds._metaBox = await ds._openMetaBox(encryptionCipher);
     // First of all, and before a single box is read: this store is only
     // usable if it is this user's.
     await ds._takeOwnership();
@@ -262,6 +263,34 @@ class HiveChatDatasource implements ChatLocalDatasource, HostUserStore {
       );
     }
     return ds;
+  }
+
+  /// Opens the meta box, wiping and recreating it when Hive cannot read it
+  /// (corruption or a cipher that does not match the one it was written
+  /// with), mirroring the recovery [HiveBoxRegistry] applies to the other
+  /// boxes. A recreated box has lost the owner stamp, so [_takeOwnership]
+  /// treats the rest of the store as somebody else's.
+  Future<Box<Map<dynamic, dynamic>>> _openMetaBox(HiveCipher? cipher) async {
+    final name = _physical(_boxMeta);
+    try {
+      return await Hive.openBox<Map<dynamic, dynamic>>(
+        name,
+        encryptionCipher: cipher,
+      );
+    } catch (e) {
+      _warn('Box "$name" corrupted, deleting and recreating: $e');
+      onMetric?.call('box_corrupted', {'box': name, 'error': '$e'});
+      try {
+        await Hive.deleteBoxFromDisk(name);
+      } catch (deleteErr) {
+        _warn('Failed to delete corrupted box "$name": $deleteErr');
+      }
+      _metaBoxRecreated = true;
+      return Hive.openBox<Map<dynamic, dynamic>>(
+        name,
+        encryptionCipher: cipher,
+      );
+    }
   }
 
   /// Wraps a Hive operation in [ChatResult], converting any exception

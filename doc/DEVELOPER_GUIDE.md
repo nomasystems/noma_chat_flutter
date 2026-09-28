@@ -2964,36 +2964,62 @@ room titles from the room list and unstars through the adapter. Use the primary
 constructor (`load` / `onUnstar` / `onOpen` / `roomTitleFor` / `itemBuilder`) for
 full control. Each entry is a lightweight `StarredMessage` (ids + `starredAt`).
 
-### Unread counting excludes system messages
+### Unread counting and system messages
 
 `RoomListItem.unreadCount` is server-authoritative: `GET` rooms returns
 `unreadMessages` and the `UnreadUpdatedEvent` WS frame (`roomId`, `count`)
 carries live deltas, both reconciled into the room list as-is. The client
 only adds to that count locally, between reconciliations, when a `NewMessageEvent`
-arrives for a room the user isn't currently viewing — and it skips that
-local bump entirely for a message with `ChatMessage.isSystem == true`
-(plan lifecycle notices, membership changes, …), so a room whose only
-unseen activity is system messages never shows unread. The Messaggi-tab
-badge (`RoomListController.unreadRoomCount`) and the row badge both read
-`unreadCount`, so they inherit this for free. `NomaChatView`'s "N new
-messages" divider (`resolveUnreadBoundary`) applies the same exclusion
+arrives for a room the user isn't currently viewing.
+
+By default a system message (`ChatMessage.isSystem == true`: plan lifecycle
+notices, membership changes, …) does not count. The local bump is skipped,
+so a room whose only unseen activity is system messages never shows unread.
+The Messaggi-tab badge (`RoomListController.unreadRoomCount`) and the row
+badge both read `unreadCount`, so they inherit this for free. `NomaChatView`'s
+"N new messages" divider (`resolveUnreadBoundary`) applies the same rule
 independently, since it derives its own boundary from the loaded message
 list rather than from `unreadCount`.
+
+A producer can opt a single system message in, when it asks the reader to do
+something (a "you can rate the plan now" reminder, for instance). The server
+stores and emits it with a top-level `countsAsUnread: true`, and the SDK
+surfaces it as `ChatMessage.countsAsUnread`. Such a message counts exactly
+like a human-authored one for every member except its sender: it bumps the
+row badge, sits below the divider and is covered by mark-as-read.
+
+All three client-side decisions read one predicate, `ChatMessage.raisesUnread`
+(`!isSystem || countsAsUnread`). It says nothing about who is reading; the
+sender's own messages are skipped separately, as before. Read it instead of
+`isSystem` in custom UI that counts or highlights unread messages:
+
+```dart
+final unseen = messages.where(
+  (m) => m.from != currentUserId && m.raisesUnread,
+);
+```
+
+The flag is read only from the top level of the message JSON, never from
+`metadata`, and a client cannot set it: `toSendJson` does not carry it. The
+cache persists it, and rows cached before it existed read back `false`.
 
 The very first event for a room the device doesn't know yet takes a
 different path: `RoomEnricher.addFromDetail` fetches the room detail and
 builds a brand-new `RoomListItem` around it, rather than updating an
-existing one. That fresh row applies the same exclusion when seeding its
-initial `unreadCount` — an unknown room's first message being a system
-notice does not seed the row with a badge that the next reconciliation
-would then have to clear.
+existing one. That fresh row applies the same rule when seeding its
+initial `unreadCount`: an unknown room whose first message is a plain
+system notice starts without a badge, and one whose first message is an
+opted-in system message starts at 1.
 
 This is a two-sided contract: the backend's own `unreadMessages` /
-`UnreadUpdatedEvent.count` must already exclude system messages (messages
-carrying `metadata.system == true` / `type == "system"`) for the two halves
-to agree once `loadRooms` reconciles the server value. A backend that still
-counts system messages will show a badge that briefly clears (the client's
-local skip) and then reappears on the next room-list refresh.
+`UnreadUpdatedEvent.count` must follow the same rule (a message counts for
+user `U` when it is not from `U` and either is not a system message or
+carries `countsAsUnread`) for the two halves to agree once `loadRooms`
+reconciles the server value. With a backend that predates the opt-in the
+flag never arrives, so every system message keeps being excluded on both
+sides. A backend that still counts every system message shows a badge that
+briefly clears (the client's local skip) and then reappears on the next
+room-list refresh.
 
 ### Mention badge & Archived chats
 
@@ -3233,6 +3259,47 @@ the Send button, default the send-green) and
 `cameraCaptureHintStyle`). Its labels are `ChatUiLocalizations.send`,
 `.cameraRetake` and `.cameraDiscard`; the clip preview announces
 `.playPreview` / `.pausePreview`.
+
+**Which way up a still is.** Neither camera plugin knows the phone was
+turned in two common cases: an app whose UI is locked to portrait on
+Android (the plugin reports the UI orientation), and any iPhone with the
+system rotation lock on (`UIDevice` orientation stops updating). A photo
+shot on its side then comes back framed as a portrait with the scene lying
+down. The capture screen reads gravity instead, through `sensors_plus`, and
+at the shutter turns the still by the difference between the orientation
+the plugin framed it for and the one the phone was actually held in — so
+it reaches the review step, the metadata pass and the bubble upright and
+with its real proportions. When the plugin already framed it right (iOS
+with the lock off) the difference is zero and the file is left untouched.
+On the front lens the mirror flip comes first and the turn after it: the
+unmirrored file has the phone's right edge on its left, so the same turn
+applied before the flip would leave a sideways selfie upside down.
+
+The source is `CameraCapturePage.orientationSource`, a
+`Stream<DeviceOrientation> Function()` defaulting to
+`CaptureOrientation.accelerometer`. Pass `() => const Stream.empty()` to
+keep every still as the plugin framed it, or your own stream if the app
+already tracks device orientation. A source that throws only costs the
+turn.
+
+On iOS the live preview follows the same rule: `camera_avfoundation` turns
+the preview buffer with the device, so in a portrait UI the viewfinder
+turns it back instead of squeezing a landscape frame into a portrait box.
+
+Two consequences for hosts:
+
+- **iOS** reads the accelerometer through Core Motion, which needs no
+  permission prompt; `sensors_plus` still asks for an
+  `NSMotionUsageDescription` entry in `Info.plist` because the plugin links
+  the barometer API.
+- **Widget tests** that mount `CameraCapturePage` (or open the camera from
+  `NomaChatView`) run without the plugin: pass an `orientationSource`, or
+  register a mock stream handler for
+  `dev.fluttercommunity.plus/sensors/accelerometer` and a method handler for
+  `dev.fluttercommunity.plus/sensors/method`.
+
+Clips are not turned: a clip recorded with the phone on its side keeps the
+frame the plugin gave it. See `ISSUES.md`.
 
 ### userDirectoryResolver — host user directory
 
@@ -3504,6 +3571,42 @@ ChatTheme(
 ```
 
 See the `ChatTheme` class documentation for the complete field reference.
+
+### Voice notes on the outgoing bubble
+
+The audio slots (`waveformActiveColor`, `waveformInactiveColor`,
+`audioSeekBarActiveColor`, `audioSeekBarColor`, `audioPlayIconColor`,
+`audioDurationTextStyle`, `audioSpeedTextStyle`) are shared by both
+directions, so a colour chosen for the incoming surface can disappear on a
+brand-coloured outgoing bubble — a light grey waveform on an orange bubble,
+for instance. The `outgoing*` counterparts apply only to the local user's own
+voice notes:
+
+| Outgoing slot | Paints | Unset falls back to |
+|---|---|---|
+| `outgoingWaveformActiveColor` | Played part of the waveform | `waveformActiveColor`, then the outgoing text colour |
+| `outgoingWaveformInactiveColor` | Unplayed part of the waveform | `waveformInactiveColor`, then the outgoing text colour at 40% |
+| `outgoingAudioSeekBarActiveColor` | Played track and thumb (notes without a waveform) | `audioSeekBarActiveColor`, then the outgoing text colour |
+| `outgoingAudioSeekBarColor` | Unplayed track (notes without a waveform) | `audioSeekBarColor`, then the outgoing text colour at 40% |
+| `outgoingAudioPlayIconColor` | Play / pause glyph and upload ring | `audioPlayIconColor`, then white |
+| `outgoingAudioPlayButtonColor` | Play / pause circle | The outgoing text colour at 30% |
+| `outgoingAudioDurationTextStyle` | Elapsed / total time | `audioDurationTextStyle`, then 11pt in the outgoing text colour at 70% |
+| `outgoingAudioSpeedButtonColor` | Playback-speed pill | The outgoing text colour at 35% |
+| `outgoingAudioSpeedTextStyle` | Playback-speed label | `audioSpeedTextStyle`, then 12pt bold in the outgoing text colour |
+
+Leaving them all unset paints exactly what the SDK painted before they
+existed, with one exception: the seek-bar thumb of an outgoing note without
+a waveform now takes the played-track colour instead of
+`ColorScheme.primary`, which vanished on a bubble filled with the brand
+primary.
+
+```dart
+theme.copyWith(
+  waveformInactiveColor: const Color(0xFFD2D2D2),        // incoming, on white
+  outgoingWaveformActiveColor: const Color(0xFF233941),  // outgoing, on orange
+  outgoingWaveformInactiveColor: const Color(0xFF6F6F6E),
+)
+```
 
 ---
 

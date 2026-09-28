@@ -62,4 +62,20 @@ void main() {
     expect(room, isNotNull);
     expect(room!.unreadCount, 1);
   });
+
+  test('a system message opted in with countsAsUnread about a room the device '
+      'has never seen adds it with the badge', () async {
+    client.emitEvent(
+      NewMessageEvent(
+        message: systemMsg('s1').copyWith(countsAsUnread: true),
+        roomId: 'r1',
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+
+    final room = adapter.roomListController.getRoomById('r1');
+    expect(room, isNotNull);
+    expect(room!.unreadCount, 1);
+    expect(room.lastMessageId, 's1');
+  });
 }

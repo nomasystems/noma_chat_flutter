@@ -69,6 +69,10 @@ const int _schemaVersion = 2;
 /// the only proof of ownership the cache has.
 const String _cacheOwnerKey = 'cacheOwner';
 
+// Stamp of a store whose owner is unknown. Starts with a NUL character,
+// which no real user id carries, so it never matches the signed-in user.
+const String _unknownOwnerId = '\u0000unknown';
+
 /// Outcome of the one-shot unscoped → scoped adoption. Its presence is
 /// what stops the migration from running twice.
 const String _unscopedMigrationKey = 'unscopedMigration';
@@ -359,7 +363,11 @@ extension _HiveUnscopedAdoption on HiveChatDatasource {
   // wrong account cannot be undone. An unstamped store is claimed rather
   // than destroyed — the only way to reach a scoped namespace without a
   // stamp is to have crashed mid-adoption in it, which is this user's own
-  // interrupted work.
+  // interrupted work. A meta box that lost its contents is the
+  // exception — recreated because Hive could not read it, or emptied by
+  // Hive's own recovery while the other boxes are still on disk: its
+  // stamp was lost, not missing, so nothing proves whose the other boxes
+  // are and the store is destroyed like a foreign one.
   //
   // When the destruction cannot be completed, the session is refused
   // outright. Returning here would hand the caller a working datasource
@@ -370,9 +378,16 @@ extension _HiveUnscopedAdoption on HiveChatDatasource {
   Future<void> _takeOwnership() async {
     if (_scopePrefix.isEmpty) return;
     final stamped = _readOwnerUserId(_metaBox);
-    if (stamped != null && stamped != _normalizeId(userId)) {
+    final foreign = stamped != null && stamped != _normalizeId(userId);
+    final lostStamp =
+        !foreign &&
+        stamped == null &&
+        (_metaBoxRecreated || (_metaBox.isEmpty && await _scopedDataOnDisk()));
+    if (foreign || lostStamp) {
       onWarning?.call(
-        'Cache namespace is stamped for another user — clearing it',
+        foreign
+            ? 'Cache namespace is stamped for another user — clearing it'
+            : 'Cache owner stamp was lost with the meta box — clearing it',
       );
       onMetric?.call('cache_foreign_store_cleared', const {});
       if (!await _evictForeignStore()) {
@@ -382,6 +397,7 @@ extension _HiveUnscopedAdoption on HiveChatDatasource {
         // unclaimed store and adopting the remains.
         onWarning?.call('Foreign cache could not be cleared — refusing it');
         onMetric?.call('cache_foreign_store_clear_failed', const {});
+        if (!foreign) await _stampUnknownOwner();
         await _closeMetaBoxQuietly();
         throw StateError(
           'The local cache for this user still holds another account\'s '
@@ -392,6 +408,30 @@ extension _HiveUnscopedAdoption on HiveChatDatasource {
       }
     }
     await _stampOwner();
+  }
+
+  /// Whether any global box of this namespace other than the meta box is
+  /// on disk, which a store that never had a meta box cannot have.
+  Future<bool> _scopedDataOnDisk() async {
+    for (final name in _globalBoxNames) {
+      if (name == _boxMeta) continue;
+      try {
+        if (await Hive.boxExists(_physical(name))) return true;
+      } catch (_) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /// Marks a store whose stamp was lost as nobody's, so a launch after a
+  /// failed eviction destroys it again instead of claiming what survived.
+  Future<void> _stampUnknownOwner() async {
+    try {
+      await _metaBox.put(_cacheOwnerKey, const {'userId': _unknownOwnerId});
+    } catch (e) {
+      onWarning?.call('Lost cache owner could not be recorded: $e');
+    }
   }
 
   /// Releases the handle on a store this instance has just refused, so a

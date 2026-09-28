@@ -400,4 +400,35 @@ void main() {
       expect(item.hidden, isFalse);
     });
   });
+
+  group('ChatMessage.raisesUnread', () {
+    ChatMessage build({bool isSystem = false, bool countsAsUnread = false}) =>
+        ChatMessage(
+          id: 'm1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          isSystem: isSystem,
+          countsAsUnread: countsAsUnread,
+        );
+
+    test('a regular message raises unread', () {
+      expect(build().raisesUnread, isTrue);
+    });
+
+    test('a system message without the opt-in does not', () {
+      expect(build(isSystem: true).raisesUnread, isFalse);
+    });
+
+    test('a system message opted in with countsAsUnread does', () {
+      expect(build(isSystem: true, countsAsUnread: true).raisesUnread, isTrue);
+    });
+
+    test('the flag on a regular message changes nothing', () {
+      expect(build(countsAsUnread: true).raisesUnread, isTrue);
+    });
+
+    test('countsAsUnread defaults to false', () {
+      expect(build().countsAsUnread, isFalse);
+    });
+  });
 }

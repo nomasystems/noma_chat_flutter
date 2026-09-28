@@ -12,12 +12,14 @@ void main() {
     String from,
     int minute, {
     bool isSystem = false,
+    bool countsAsUnread = false,
   }) => ChatMessage(
     id: id,
     from: from,
     timestamp: DateTime(2026, 1, 1, 10, minute),
     text: id,
     isSystem: isSystem,
+    countsAsUnread: countsAsUnread,
   );
 
   // Three incoming messages the user answered at the end. The room badge
@@ -162,6 +164,50 @@ void main() {
 
       expect(boundary?.messageId, 'm1');
       expect(boundary?.count, 1);
+    });
+  });
+
+  group('includes system messages opted in with countsAsUnread', () {
+    test('an opted-in system row anchors the line; a plain one does not', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [
+          msg('sys1', 'plan-owner', 1, isSystem: true),
+          msg('rate', 'plan-owner', 2, isSystem: true, countsAsUnread: true),
+          msg('sys2', 'plan-owner', 3, isSystem: true),
+        ],
+        currentUserId: me,
+        fallbackUnreadCount: 1,
+      );
+
+      expect(boundary?.messageId, 'rate');
+      expect(boundary?.count, 1);
+    });
+
+    test('after the read cursor it counts alongside person messages', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [
+          msg('m1', 'u1', 1),
+          msg('sys1', 'plan-owner', 2, isSystem: true),
+          msg('rate', 'plan-owner', 3, isSystem: true, countsAsUnread: true),
+          msg('m2', 'u1', 4),
+        ],
+        currentUserId: me,
+        fallbackUnreadCount: 2,
+        ownReadCursor: const ReadReceipt(userId: me, lastReadMessageId: 'm1'),
+      );
+
+      expect(boundary?.messageId, 'rate');
+      expect(boundary?.count, 2);
+    });
+
+    test('an opted-in system row the local user sent never counts', () {
+      final boundary = resolveUnreadBoundary(
+        messages: [msg('rate', me, 1, isSystem: true, countsAsUnread: true)],
+        currentUserId: me,
+        fallbackUnreadCount: 1,
+      );
+
+      expect(boundary, isNull);
     });
   });
 }

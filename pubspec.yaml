@@ -3,7 +3,7 @@ description: >-
   Plug & play Flutter chat: SDK with REST + real-time client, offline Hive
   cache, UI adapter and ready-to-use UI components for the Nomasystems chat
   backend.
-version: 0.36.0
+version: 0.37.0
 
 homepage: https://github.com/nomasystems/noma_chat_flutter
 repository: https://github.com/nomasystems/noma_chat_flutter
@@ -131,6 +131,16 @@ dependencies:
   # not ship a second video stack can swap the preview out through
   # `CameraCapturePage(videoPreviewBuilder: …)`.
   video_player: ^2.9.2
+  # Tells `CameraCapturePage` which way up the phone is held, so a still shot
+  # on its side is turned upright (`CaptureOrientation`). Neither camera
+  # plugin can: Android reports the UI orientation, which never leaves
+  # portrait in a portrait-locked app, and iOS stops updating `UIDevice`
+  # orientation under the rotation lock. Gravity is the only reading that
+  # holds in both. Federated for android / ios / web, the same targets that
+  # reach the capture screen, so the `platforms:` block is unaffected for the
+  # reason `camera` states. Replaceable through
+  # `CameraCapturePage(orientationSource: …)`.
+  sensors_plus: ^7.1.0
   characters: ^1.4.0
   shared_preferences: ^2.2.0
   uuid: ^4.0.0

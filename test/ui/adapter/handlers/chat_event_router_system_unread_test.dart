@@ -22,6 +22,9 @@ void main() {
     metadata: const {'system': true},
   );
 
+  ChatMessage optedInSystemMsg(String id, {String from = 'plan-owner'}) =>
+      systemMsg(id, from: from).copyWith(countsAsUnread: true);
+
   ChatMessage personMsg(String id, {String from = 'u2'}) => ChatMessage(
     id: id,
     from: from,
@@ -73,5 +76,63 @@ void main() {
     await Future<void>.delayed(const Duration(milliseconds: 10));
 
     expect(adapter.roomListController.getRoomById('r1')!.lastMessageId, 's1');
+  });
+
+  group('system message opted in with countsAsUnread', () {
+    test('from someone else in an inactive room bumps the counter', () async {
+      client.emitEvent(
+        NewMessageEvent(message: optedInSystemMsg('s1'), roomId: 'r1'),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 1);
+      expect(adapter.roomListController.unreadRoomCount(), 1);
+    });
+
+    test('in the active room stays at 0 and is marked read', () async {
+      adapter.setActiveRoom('r1');
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      client.messages.resetMarkRoomAsReadCalls();
+
+      client.emitEvent(
+        NewMessageEvent(message: optedInSystemMsg('s1'), roomId: 'r1'),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
+      expect(client.messages.markRoomAsReadCalls, isNotEmpty);
+      expect(client.messages.markRoomAsReadCalls.last.roomId, 'r1');
+      expect(client.messages.markRoomAsReadCalls.last.lastReadMessageId, 's1');
+    });
+
+    test('sent by the current user leaves the counter alone', () async {
+      client.emitEvent(
+        NewMessageEvent(
+          message: optedInSystemMsg('s1', from: 'me'),
+          roomId: 'r1',
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
+    });
+
+    test(
+      'mixed with plain system messages counts only the opted-in one',
+      () async {
+        client.emitEvent(
+          NewMessageEvent(message: systemMsg('s1'), roomId: 'r1'),
+        );
+        client.emitEvent(
+          NewMessageEvent(message: optedInSystemMsg('s2'), roomId: 'r1'),
+        );
+        client.emitEvent(
+          NewMessageEvent(message: systemMsg('s3'), roomId: 'r1'),
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+
+        expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 1);
+      },
+    );
   });
 }

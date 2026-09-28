@@ -19,6 +19,7 @@ class MessageDto {
   final String? receipt;
   final String? sourceRoomId;
   final String? clientMessageId;
+  final bool countsAsUnread;
 
   const MessageDto({
     required this.id,
@@ -36,6 +37,7 @@ class MessageDto {
     this.receipt,
     this.sourceRoomId,
     this.clientMessageId,
+    this.countsAsUnread = false,
   });
 
   factory MessageDto.fromJson(Map<String, dynamic> json) {
@@ -89,6 +91,7 @@ class MessageDto {
           ? json['sourceRoomId'] as String
           : null,
       clientMessageId: cmid is String ? cmid : null,
+      countsAsUnread: json['countsAsUnread'] == true,
     );
   }
 
@@ -118,6 +121,7 @@ class MessageDto {
     if (metadata != null) 'metadata': metadata,
     if (receipt != null) 'receipt': receipt,
     if (clientMessageId != null) 'clientMessageId': clientMessageId,
+    if (countsAsUnread) 'countsAsUnread': true,
   };
 
   static String? _metadataAttachmentId(Map<String, dynamic>? metadata) {

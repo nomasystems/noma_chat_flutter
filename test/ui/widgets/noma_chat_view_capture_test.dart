@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 
+import '../../_helpers/fake_sensors.dart';
+
 const _permissionChannel = MethodChannel(
   'flutter.baseflow.com/permissions/methods',
 );
@@ -128,10 +130,12 @@ void main() {
   late File capture;
   late File clip;
   late _FakeCameraPlatform camera;
+  final sensors = FakeSensors();
 
   const currentUser = ChatUser(id: 'u1', displayName: 'Me');
 
   setUp(() {
+    sensors.install();
     mockClient = MockChatClient(currentUserId: 'u1');
     adapter = ChatUiAdapter(client: mockClient, currentUser: currentUser);
     adapter.roomListController.addRoom(
@@ -161,6 +165,7 @@ void main() {
   });
 
   tearDown(() async {
+    sensors.uninstall();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_permissionChannel, null);
     await adapter.dispose();

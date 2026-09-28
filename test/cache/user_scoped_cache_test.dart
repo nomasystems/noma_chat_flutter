@@ -415,6 +415,62 @@ void main() {
       expect(await readScopedMeta('alice', 'cacheOwner'), {'userId': 'alice'});
     });
 
+    Future<void> replaceMetaWithUnreadable(String userId) async {
+      Hive.init(tempDir.path);
+      final name = HiveChatDatasource.physicalBoxName(
+        'chat_meta',
+        userId: userId,
+      );
+      await Hive.deleteBoxFromDisk(name);
+      final box = await Hive.openBox<Map>(
+        name,
+        encryptionCipher: HiveAesCipher(Hive.generateSecureKey()),
+      );
+      await box.put('cacheOwner', {'userId': 'mallory'});
+      await Hive.close();
+    }
+
+    test('a store whose meta box had to be recreated is destroyed, not '
+        'claimed', () async {
+      var ds = await open(userId: 'alice');
+      await ds.saveRooms([const ChatRoom(id: 'room-a', name: 'Mallory room')]);
+      await ds.saveMessages('room-a', [message('m-a', text: 'mallory secret')]);
+      await close(ds);
+
+      await replaceMetaWithUnreadable('alice');
+
+      ds = await open(userId: 'alice');
+      expect(scopedFile('alice', 'chat_messages_room-a').existsSync(), isFalse);
+      expect((await ds.getRooms()).dataOrNull, isEmpty);
+      expect((await ds.getMessages('room-a')).dataOrNull, isEmpty);
+      await close(ds);
+
+      expect(await readScopedMeta('alice', 'cacheOwner'), {'userId': 'alice'});
+    });
+
+    test('a recreated meta box whose store cannot be emptied stays refused '
+        'on the next launch', () async {
+      var ds = await open(userId: 'alice');
+      await ds.saveRooms([const ChatRoom(id: 'room-a', name: 'Mallory room')]);
+      await ds.saveMessages('room-a', [message('m-a', text: 'mallory secret')]);
+      await close(ds);
+
+      await replaceMetaWithUnreadable('alice');
+
+      HiveChatDatasource.debugFailForeignEviction = true;
+      addTearDown(() => HiveChatDatasource.debugFailForeignEviction = false);
+      await expectLater(open(userId: 'alice'), throwsA(isA<StateError>()));
+      await Hive.close();
+      await expectLater(open(userId: 'alice'), throwsA(isA<StateError>()));
+      await Hive.close();
+
+      HiveChatDatasource.debugFailForeignEviction = false;
+      ds = await open(userId: 'alice');
+      expect((await ds.getMessages('room-a')).dataOrNull, isEmpty);
+      await close(ds);
+      expect(await readScopedMeta('alice', 'cacheOwner'), {'userId': 'alice'});
+    });
+
     test('the device-wide layout is not guarded by a stamp', () async {
       // It has no owner by construction: every account on the device
       // shares it, which is the whole reason scoping exists.
