@@ -4,9 +4,14 @@ part of 'camera_capture_page.dart';
 /// the still or video review that follows a capture, the pinch-to-zoom
 /// gesture the viewfinder answers and the shutter button itself.
 extension _CameraCaptureView on _CameraCapturePageState {
-  /// Rewrites [file] so the still matches the viewfinder it was framed in.
+  /// Rewrites [file] so the still is upright for the way the phone was held
+  /// and matches the viewfinder it was framed in.
   ///
-  /// Front lenses preview mirrored on every platform the SDK builds for
+  /// [rotation] is the clockwise turn [CaptureOrientation.stillRotation]
+  /// worked out between the orientation the plugin framed the still for and
+  /// the one gravity reported at the shutter.
+  ///
+  /// [mirror] is set for front lenses, which preview mirrored on every platform the SDK builds for
   /// (`camera_avfoundation` mirrors the video connection, `camera_android_
   /// camerax` mirrors the preview widget) while the file the sensor writes
   /// is not, so a selfie comes back reversed against the picture the user
@@ -16,23 +21,31 @@ extension _CameraCaptureView on _CameraCapturePageState {
   ///
   /// Never throws: a capture that cannot be decoded is worth sending as it
   /// came, and this runs inside the shutter's own error handling.
-  Future<void> _matchViewfinderMirror(XFile file) async {
+  Future<void> _orientStill(
+    XFile file, {
+    required int rotation,
+    required bool mirror,
+  }) async {
     try {
       final source = File(file.path);
-      final bytes = await source.readAsBytes();
-      final flipped = PlatformSupport.supportsBackgroundIsolates
+      final _StillJob job = (
+        bytes: await source.readAsBytes(),
+        rotation: rotation,
+        mirror: mirror,
+      );
+      final oriented = PlatformSupport.supportsBackgroundIsolates
           ? await compute(
-              _flipStillHorizontally,
-              bytes,
-              debugLabel: 'noma_chat capture mirror',
+              _orientStillBytes,
+              job,
+              debugLabel: 'noma_chat capture orientation',
             )
-          : _flipStillHorizontally(bytes);
-      if (flipped == null) return;
-      await source.writeAsBytes(flipped, flush: true);
+          : _orientStillBytes(job);
+      if (oriented == null) return;
+      await source.writeAsBytes(oriented, flush: true);
     } on Object catch (error, stack) {
       uiDebugLog(
         'CameraCapturePage',
-        'could not match the viewfinder mirror: $error\n$stack',
+        'could not orient the still: $error\n$stack',
       );
     }
   }
@@ -261,12 +274,35 @@ extension _CameraCaptureView on _CameraCapturePageState {
       onScaleStart: _handleScaleStart,
       onScaleUpdate: _handleScaleUpdate,
       child: Center(
-        child: AspectRatio(
-          aspectRatio: 1 / controller.value.aspectRatio,
+        child: ValueListenableBuilder<CameraValue>(
+          valueListenable: controller,
+          builder: (context, value, preview) => RotatedBox(
+            quarterTurns: _viewfinderQuarterTurns(context, value),
+            child: preview,
+          ),
           child: CameraPreview(controller),
         ),
       ),
     );
+  }
+
+  /// Quarter turns clockwise that put the live preview upright on screen.
+  ///
+  /// `camera_avfoundation` turns the preview buffer itself to follow the
+  /// device, and `CameraPreview` only compensates for that where the UI
+  /// turns too. In a portrait UI with the phone on its side the buffer comes
+  /// back landscape and would be squeezed into the portrait box, so it is
+  /// turned back here. Android previews already follow the UI, and a
+  /// landscape UI already matches the buffer.
+  int _viewfinderQuarterTurns(BuildContext context, CameraValue value) {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return 0;
+    if (MediaQuery.orientationOf(context) != Orientation.portrait) return 0;
+    final applied = value.isRecordingVideo
+        ? (value.recordingOrientation ?? value.deviceOrientation)
+        : (value.previewPauseOrientation ??
+              value.lockedCaptureOrientation ??
+              value.deviceOrientation);
+    return CaptureOrientation.counterclockwiseQuarterTurns(applied);
   }
 
   /// Turns the gesture over the preview into a zoom.

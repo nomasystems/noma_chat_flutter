@@ -13,6 +13,7 @@ import '../../_internal/ui_debug_log.dart';
 import '../l10n/chat_ui_localizations.dart';
 import '../models/camera_capture_result.dart';
 import '../room_defaults.dart';
+import '../services/capture_orientation.dart';
 import '../theme/chat_theme.dart';
 import '../theme/default_palette.dart';
 import '../utils/chat_notice.dart';
@@ -60,9 +61,21 @@ class CameraCapturePage extends StatefulWidget {
     this.theme = ChatTheme.defaults,
     this.videoPreviewBuilder,
     this.allowCaption = true,
+    this.orientationSource = CaptureOrientation.accelerometer,
   });
 
   final ChatTheme theme;
+
+  /// Which way up the phone is physically held, read while the viewfinder
+  /// is open and consulted at the shutter to turn the still upright.
+  ///
+  /// The default reads gravity through `sensors_plus`, which is what keeps a
+  /// photo shot with the phone on its side a landscape photo in an app whose
+  /// UI is locked to portrait, or with the system rotation lock on — neither
+  /// camera plugin knows the phone was turned in those cases. Pass
+  /// `() => const Stream.empty()` to leave every still framed the way the
+  /// camera plugin framed it. See [CaptureOrientation].
+  final CaptureOrientationSource orientationSource;
 
   /// Whether the review step offers a caption field. See
   /// [CameraCaptureReview.allowCaption].
@@ -82,6 +95,8 @@ class CameraCapturePage extends StatefulWidget {
     bool fullscreenDialog = true,
     CameraVideoPreviewBuilder? videoPreviewBuilder,
     bool allowCaption = true,
+    CaptureOrientationSource orientationSource =
+        CaptureOrientation.accelerometer,
   }) {
     if (!PlatformSupport.supportsInAppCameraCapture) {
       return Future<CameraCaptureSubmission?>.value();
@@ -93,6 +108,7 @@ class CameraCapturePage extends StatefulWidget {
           theme: theme,
           videoPreviewBuilder: videoPreviewBuilder,
           allowCaption: allowCaption,
+          orientationSource: orientationSource,
         ),
       ),
     );
@@ -149,6 +165,8 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   // in the app cache that only [dispose] is left to collect.
   bool _captureConfirmed = false;
   bool _captureCollected = false;
+  StreamSubscription<DeviceOrientation>? _heldInSubscription;
+  DeviceOrientation? _heldIn;
 
   ChatUiLocalizations get _l10n => noticeL10n;
 
@@ -156,12 +174,28 @@ class _CameraCapturePageState extends State<CameraCapturePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _listenForHeldOrientation();
     _setup();
+  }
+
+  /// A source that cannot be read only costs the rotation: the still is then
+  /// left framed the way the camera plugin framed it.
+  void _listenForHeldOrientation() {
+    void unreadable(Object error) =>
+        uiDebugLog('CameraCapturePage', 'orientation unreadable: $error');
+    runZonedGuarded(() {
+      _heldInSubscription = widget.orientationSource().listen(
+        (orientation) => _heldIn = orientation,
+        onError: (Object error) => unreadable(error),
+        cancelOnError: true,
+      );
+    }, (error, _) => unreadable(error));
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_heldInSubscription?.cancel());
     _recordingTimer?.cancel();
     final pending = _pendingCapture;
     _pendingCapture = null;
@@ -483,10 +517,19 @@ class _CameraCapturePageState extends State<CameraCapturePage>
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
     if (controller.value.isTakingPicture) return;
+    final capturedIn =
+        controller.value.lockedCaptureOrientation ??
+        controller.value.deviceOrientation;
+    final rotation = CaptureOrientation.stillRotation(
+      capturedIn: capturedIn,
+      heldIn: _heldIn ?? capturedIn,
+    );
     try {
       final file = await controller.takePicture();
-      if (controller.description.lensDirection == CameraLensDirection.front) {
-        await _matchViewfinderMirror(file);
+      final mirror =
+          controller.description.lensDirection == CameraLensDirection.front;
+      if (rotation != 0 || mirror) {
+        await _orientStill(file, rotation: rotation, mirror: mirror);
       }
       if (!mounted) return;
       _presentForReview(CameraCaptureResult(file: file, isVideo: false));
@@ -913,16 +956,21 @@ const double _dragZoomTravel = 220;
 /// before a single pixel is allocated.
 const int _maxStillPixels = 50000000;
 
-/// A still that keeps the format it arrived in, flipped along the axis it is
-/// displayed on, or `null` when the bytes are not one this can rebuild — in
-/// which case the capture is left exactly as the sensor wrote it.
+/// A still that keeps the format it arrived in, turned [_StillJob.rotation]
+/// degrees clockwise and then, for the mirrored lens, flipped along the axis
+/// it is displayed on — or `null` when the bytes are not one this can
+/// rebuild, in which case the capture is left exactly as the sensor wrote it.
 ///
-/// Any EXIF orientation is baked into the pixels first: a horizontal flip of
-/// the stored buffer lands on the vertical axis once a viewer rotates the
-/// picture by its tag, which would leave the take upside down instead of
-/// unmirrored. The ICC profile the capture carries survives the rebuild, so
-/// a Display P3 photo still reads as one downstream.
-Uint8List? _flipStillHorizontally(Uint8List bytes) {
+/// Any EXIF orientation is baked into the pixels first, so both steps work on
+/// the picture as a viewer shows it: a horizontal flip of the stored buffer
+/// lands on the vertical axis once a viewer rotates the picture by its tag,
+/// which would leave the take upside down instead of unmirrored. The flip
+/// comes after the turn for the same reason — mirroring before it would
+/// mirror across what ends up as the horizon. The ICC profile the capture
+/// carries survives the rebuild, so a Display P3 photo still reads as one
+/// downstream.
+Uint8List? _orientStillBytes(_StillJob job) {
+  final bytes = job.bytes;
   final decoder = _stillDecoder(bytes);
   if (decoder == null) return null;
   try {
@@ -931,16 +979,22 @@ Uint8List? _flipStillHorizontally(Uint8List bytes) {
     if (info.width * info.height > _maxStillPixels) return null;
     final decoded = decoder.decode(bytes, frame: 0);
     if (decoded == null) return null;
-    final flipped = img.flipHorizontal(img.bakeOrientation(decoded));
+    var oriented = img.bakeOrientation(decoded);
+    if (job.rotation != 0) {
+      oriented = img.copyRotate(oriented, angle: job.rotation);
+    }
+    if (job.mirror) oriented = img.flipHorizontal(oriented);
     return decoder is img.PngDecoder
-        ? img.PngEncoder().encode(flipped, singleFrame: true)
+        ? img.PngEncoder().encode(oriented, singleFrame: true)
         : img.JpegEncoder(
             quality: _stillQuality,
-          ).encode(flipped, singleFrame: true);
+          ).encode(oriented, singleFrame: true);
   } on Object {
     return null;
   }
 }
+
+typedef _StillJob = ({Uint8List bytes, int rotation, bool mirror});
 
 /// One generation above the 90 the metadata pass re-encodes at downstream, so
 /// the flip is not what a sent photo loses its detail to.

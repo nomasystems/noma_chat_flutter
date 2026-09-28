@@ -22,6 +22,44 @@ onwards, breaking changes require a **major version bump**.
   shared slot, then the default derived from the outgoing text colour), so
   existing themes render unchanged. See `doc/DEVELOPER_GUIDE.md` § Voice
   notes on the outgoing bubble.
+- **`CameraCapturePage.orientationSource`** (and the same parameter on
+  `CameraCapturePage.show`) — a `CaptureOrientationSource`, the stream of
+  physical `DeviceOrientation`s the capture screen reads to turn a still
+  upright. Defaults to `CaptureOrientation.accelerometer`, backed by the new
+  `sensors_plus` dependency. `CaptureOrientation` also exposes the pure
+  helpers it is built from: `fromGravity`, `counterclockwiseQuarterTurns`
+  and `stillRotation`.
+
+### Fixed
+
+- **A photo taken with the phone on its side arrived as a portrait with the
+  scene lying down** whenever the camera plugin did not know the phone had
+  been turned — any portrait-locked app on Android, and iOS with the system
+  rotation lock on. The in-app camera now turns the still by the difference
+  between the orientation the plugin framed it for and the one gravity
+  reported at the shutter, before the review step, so the take, the file
+  sent and the bubble all show it upright and with its real proportions. On
+  the front lens the mirror flip is applied after the turn. Stills the
+  plugin already framed right (iOS with the lock off) are left untouched.
+- **The iOS viewfinder squeezed a landscape frame into a portrait box** when
+  the phone was turned with the rotation lock off: `camera_avfoundation`
+  rotates the preview buffer with the device, and the page forced a
+  portrait aspect ratio around it. The preview is now turned back to match a
+  portrait UI instead of being stretched.
+- **`ImageMetadataScrubber` bakes any orientation still set after decoding**
+  before dropping the container. `image`'s JPEG decoder already applies the
+  EXIF orientation and clears the tag, so JPEG output is unchanged; the
+  guard only matters for a decoder or format that leaves the tag set.
+
+### Changed
+
+- **New dependency: `sensors_plus` (`^7.1.0`).** Needed for the capture
+  orientation above. On iOS `sensors_plus` asks for an
+  `NSMotionUsageDescription` entry in `Info.plist`. Widget tests that mount
+  `CameraCapturePage` now need either an `orientationSource` or a mock for
+  the `dev.fluttercommunity.plus/sensors/accelerometer` event channel and
+  the `dev.fluttercommunity.plus/sensors/method` method channel; without
+  one the missing plugin is reported as a test failure.
 
 ## 0.36.0 - 2026-09-22
 
