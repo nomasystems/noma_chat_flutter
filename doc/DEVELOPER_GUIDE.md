@@ -3560,7 +3560,7 @@ voice notes:
 |---|---|---|
 | `outgoingWaveformActiveColor` | Played part of the waveform | `waveformActiveColor`, then the outgoing text colour |
 | `outgoingWaveformInactiveColor` | Unplayed part of the waveform | `waveformInactiveColor`, then the outgoing text colour at 40% |
-| `outgoingAudioSeekBarActiveColor` | Played track (notes without a waveform) | `audioSeekBarActiveColor`, then the outgoing text colour |
+| `outgoingAudioSeekBarActiveColor` | Played track and thumb (notes without a waveform) | `audioSeekBarActiveColor`, then the outgoing text colour |
 | `outgoingAudioSeekBarColor` | Unplayed track (notes without a waveform) | `audioSeekBarColor`, then the outgoing text colour at 40% |
 | `outgoingAudioPlayIconColor` | Play / pause glyph and upload ring | `audioPlayIconColor`, then white |
 | `outgoingAudioPlayButtonColor` | Play / pause circle | The outgoing text colour at 30% |
@@ -3569,7 +3569,10 @@ voice notes:
 | `outgoingAudioSpeedTextStyle` | Playback-speed label | `audioSpeedTextStyle`, then 12pt bold in the outgoing text colour |
 
 Leaving them all unset paints exactly what the SDK painted before they
-existed.
+existed, with one exception: the seek-bar thumb of an outgoing note without
+a waveform now takes the played-track colour instead of
+`ColorScheme.primary`, which vanished on a bubble filled with the brand
+primary.
 
 ```dart
 theme.copyWith(

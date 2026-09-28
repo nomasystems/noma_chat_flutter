@@ -973,6 +973,7 @@ class _AudioBubbleState extends State<AudioBubble> {
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
                 activeTrackColor: seekActive,
                 inactiveTrackColor: seekInactive,
+                thumbColor: outgoing ? seekActive : null,
               ),
               child: Slider(
                 value: maxMs > 0

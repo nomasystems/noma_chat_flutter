@@ -129,9 +129,9 @@ abstract class ChatTheme with _$ChatTheme {
     /// opacity.
     Color? outgoingWaveformInactiveColor,
 
-    /// Played track of the seek bar an outgoing voice note shows when it
-    /// carries no waveform. `null` falls back to [audioSeekBarActiveColor],
-    /// then the outgoing text colour.
+    /// Played track and thumb of the seek bar an outgoing voice note shows
+    /// when it carries no waveform. `null` falls back to
+    /// [audioSeekBarActiveColor], then the outgoing text colour.
     Color? outgoingAudioSeekBarActiveColor,
 
     /// Unplayed track of that seek bar. `null` falls back to

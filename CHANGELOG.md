@@ -32,6 +32,11 @@ onwards, breaking changes require a **major version bump**.
 
 ### Fixed
 
+- **The seek-bar thumb of an outgoing voice note without a waveform could
+  vanish** on a bubble filled with the app's primary colour: it painted
+  `ColorScheme.primary`. It now takes the played-track colour
+  (`outgoingAudioSeekBarActiveColor`, then `audioSeekBarActiveColor`, then
+  the outgoing text colour). Incoming notes are unchanged.
 - **A photo taken with the phone on its side arrived as a portrait with the
   scene lying down** whenever the camera plugin did not know the phone had
   been turned — any portrait-locked app on Android, and iOS with the system
