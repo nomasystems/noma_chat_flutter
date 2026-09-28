@@ -46,6 +46,15 @@ abstract class ChatMessage with _$ChatMessage {
     @Default(false) bool isForwarded,
     @Default(false) bool isStarred,
     @Default(false) bool isSystem,
+
+    /// Server-side opt-in by which a system message ([isSystem]) counts as
+    /// unread for every room member except its sender: it bumps the room's
+    /// unread badge and sits below the "N new messages" divider like any
+    /// human-authored message. The backend stamps it as a top-level
+    /// `countsAsUnread: true` on the message and omits the key otherwise.
+    /// Meaningless on a non-system message, which always counts. Read
+    /// [raisesUnread] rather than combining the two flags by hand.
+    @Default(false) bool countsAsUnread,
     String? mimeType,
     String? fileName,
     String? fileSize,
@@ -97,6 +106,13 @@ abstract class ChatMessage with _$ChatMessage {
           metadata: metadata,
         )
       : null;
+
+  /// `true` when this message counts toward the unread badge and the
+  /// unread divider of a reader other than its sender: every non-system
+  /// message, plus system messages the server opted in via
+  /// [countsAsUnread]. It does not know who is reading — callers still skip
+  /// the reader's own messages.
+  bool get raisesUnread => !isSystem || countsAsUnread;
 
   @override
   bool operator ==(Object other) =>

@@ -821,7 +821,7 @@ class _NomaChatViewState extends State<NomaChatView>
 }) {
   final incoming = [
     for (final m in messages)
-      if (m.from != currentUserId && !m.isSystem) m,
+      if (m.from != currentUserId && m.raisesUnread) m,
   ];
   if (incoming.isEmpty) return null;
 
@@ -831,7 +831,7 @@ class _NomaChatViewState extends State<NomaChatView>
     if (at != -1) {
       final after = [
         for (var i = at + 1; i < messages.length; i++)
-          if (messages[i].from != currentUserId && !messages[i].isSystem)
+          if (messages[i].from != currentUserId && messages[i].raisesUnread)
             messages[i],
       ];
       if (after.isNotEmpty) {

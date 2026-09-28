@@ -65,6 +65,7 @@ void main() {
         isDeleted: true,
         isForwarded: true,
         isSystem: true,
+        countsAsUnread: true,
         mimeType: 'image/png',
         fileName: 'file.png',
         fileSize: '1234',
@@ -81,8 +82,12 @@ void main() {
       expect(map['mimeType'], 'image/png');
       expect(map['fileSize'], '1234');
       expect(map['thumbnailAttachmentId'], 'thumb-att-1');
+      expect(map['countsAsUnread'], true);
 
       final back = messageFromMap(map);
+      expect(back.isSystem, true);
+      expect(back.countsAsUnread, true);
+      expect(back.raisesUnread, true);
       expect(back.id, 'm1');
       expect(back.text, 'hello');
       expect(back.receipt, ReceiptStatus.read);
@@ -91,6 +96,34 @@ void main() {
       // Survives the restart: without it a cached video bubble would come
       // back with a thumbnail URL it has no id to authenticate against.
       expect(back.thumbnailAttachmentId, 'thumb-att-1');
+    });
+  });
+
+  group('serialization — countsAsUnread', () {
+    test('a message without the flag keeps the key out of the map', () {
+      final map = messageToMap(
+        ChatMessage(
+          id: 'm1',
+          from: 'u1',
+          timestamp: DateTime(2026, 1, 1),
+          isSystem: true,
+        ),
+      );
+
+      expect(map.containsKey('countsAsUnread'), isFalse);
+    });
+
+    test('a system row cached before the field existed reads back false', () {
+      final back = messageFromMap({
+        'id': 'm1',
+        'from': 'u1',
+        'timestamp': DateTime(2026, 1, 1).toIso8601String(),
+        'messageType': 'regular',
+        'isSystem': true,
+      });
+
+      expect(back.countsAsUnread, isFalse);
+      expect(back.raisesUnread, isFalse);
     });
   });
 

@@ -120,6 +120,7 @@ class MessageMapper {
       isDeleted: dto.isDeleted,
       isForwarded: isForwarded,
       isSystem: isSystem,
+      countsAsUnread: dto.countsAsUnread,
       mimeType: mimeType,
       fileName: fileName,
       fileSize: fileSize,
