@@ -222,6 +222,7 @@ export 'src/ui/services/attachment_pickers.dart';
 export 'src/ui/services/attachment_bytes_loader.dart';
 export 'src/ui/services/attachment_url_resolver.dart';
 export 'src/ui/services/video_thumbnailer.dart';
+export 'src/ui/services/capture_orientation.dart';
 export 'src/ui/widgets/bubbles/link_preview_bubble.dart';
 export 'src/ui/widgets/bubbles/forwarded_bubble.dart';
 export 'src/ui/widgets/message_status_icon.dart';

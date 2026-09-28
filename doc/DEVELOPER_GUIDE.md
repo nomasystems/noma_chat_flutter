@@ -3234,6 +3234,47 @@ the Send button, default the send-green) and
 `.cameraRetake` and `.cameraDiscard`; the clip preview announces
 `.playPreview` / `.pausePreview`.
 
+**Which way up a still is.** Neither camera plugin knows the phone was
+turned in two common cases: an app whose UI is locked to portrait on
+Android (the plugin reports the UI orientation), and any iPhone with the
+system rotation lock on (`UIDevice` orientation stops updating). A photo
+shot on its side then comes back framed as a portrait with the scene lying
+down. The capture screen reads gravity instead, through `sensors_plus`, and
+at the shutter turns the still by the difference between the orientation
+the plugin framed it for and the one the phone was actually held in — so
+it reaches the review step, the metadata pass and the bubble upright and
+with its real proportions. When the plugin already framed it right (iOS
+with the lock off) the difference is zero and the file is left untouched.
+On the front lens the mirror flip comes first and the turn after it: the
+unmirrored file has the phone's right edge on its left, so the same turn
+applied before the flip would leave a sideways selfie upside down.
+
+The source is `CameraCapturePage.orientationSource`, a
+`Stream<DeviceOrientation> Function()` defaulting to
+`CaptureOrientation.accelerometer`. Pass `() => const Stream.empty()` to
+keep every still as the plugin framed it, or your own stream if the app
+already tracks device orientation. A source that throws only costs the
+turn.
+
+On iOS the live preview follows the same rule: `camera_avfoundation` turns
+the preview buffer with the device, so in a portrait UI the viewfinder
+turns it back instead of squeezing a landscape frame into a portrait box.
+
+Two consequences for hosts:
+
+- **iOS** reads the accelerometer through Core Motion, which needs no
+  permission prompt; `sensors_plus` still asks for an
+  `NSMotionUsageDescription` entry in `Info.plist` because the plugin links
+  the barometer API.
+- **Widget tests** that mount `CameraCapturePage` (or open the camera from
+  `NomaChatView`) run without the plugin: pass an `orientationSource`, or
+  register a mock stream handler for
+  `dev.fluttercommunity.plus/sensors/accelerometer` and a method handler for
+  `dev.fluttercommunity.plus/sensors/method`.
+
+Clips are not turned: a clip recorded with the phone on its side keeps the
+frame the plugin gave it. See `ISSUES.md`.
+
 ### userDirectoryResolver — host user directory
 
 Chat only knows the ids it was handed — a room's member list is a list of
@@ -3504,6 +3545,42 @@ ChatTheme(
 ```
 
 See the `ChatTheme` class documentation for the complete field reference.
+
+### Voice notes on the outgoing bubble
+
+The audio slots (`waveformActiveColor`, `waveformInactiveColor`,
+`audioSeekBarActiveColor`, `audioSeekBarColor`, `audioPlayIconColor`,
+`audioDurationTextStyle`, `audioSpeedTextStyle`) are shared by both
+directions, so a colour chosen for the incoming surface can disappear on a
+brand-coloured outgoing bubble — a light grey waveform on an orange bubble,
+for instance. The `outgoing*` counterparts apply only to the local user's own
+voice notes:
+
+| Outgoing slot | Paints | Unset falls back to |
+|---|---|---|
+| `outgoingWaveformActiveColor` | Played part of the waveform | `waveformActiveColor`, then the outgoing text colour |
+| `outgoingWaveformInactiveColor` | Unplayed part of the waveform | `waveformInactiveColor`, then the outgoing text colour at 40% |
+| `outgoingAudioSeekBarActiveColor` | Played track and thumb (notes without a waveform) | `audioSeekBarActiveColor`, then the outgoing text colour |
+| `outgoingAudioSeekBarColor` | Unplayed track (notes without a waveform) | `audioSeekBarColor`, then the outgoing text colour at 40% |
+| `outgoingAudioPlayIconColor` | Play / pause glyph and upload ring | `audioPlayIconColor`, then white |
+| `outgoingAudioPlayButtonColor` | Play / pause circle | The outgoing text colour at 30% |
+| `outgoingAudioDurationTextStyle` | Elapsed / total time | `audioDurationTextStyle`, then 11pt in the outgoing text colour at 70% |
+| `outgoingAudioSpeedButtonColor` | Playback-speed pill | The outgoing text colour at 35% |
+| `outgoingAudioSpeedTextStyle` | Playback-speed label | `audioSpeedTextStyle`, then 12pt bold in the outgoing text colour |
+
+Leaving them all unset paints exactly what the SDK painted before they
+existed, with one exception: the seek-bar thumb of an outgoing note without
+a waveform now takes the played-track colour instead of
+`ColorScheme.primary`, which vanished on a bubble filled with the brand
+primary.
+
+```dart
+theme.copyWith(
+  waveformInactiveColor: const Color(0xFFD2D2D2),        // incoming, on white
+  outgoingWaveformActiveColor: const Color(0xFF233941),  // outgoing, on orange
+  outgoingWaveformInactiveColor: const Color(0xFF6F6F6E),
+)
+```
 
 ---
 

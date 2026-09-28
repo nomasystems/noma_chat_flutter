@@ -24,6 +24,33 @@ img.Image _busyImage(int width, int height) {
 
 void main() {
   group('DefaultAttachmentShrinker.fit', () {
+    for (final (orientation, width, height) in const [
+      (3, 400, 300),
+      (6, 300, 400),
+      (8, 300, 400),
+    ]) {
+      test('a photo tagged $orientation keeps its upright frame, '
+          '${width}x$height', () async {
+        final source = _busyImage(400, 300)
+          ..exif.imageIfd.orientation = orientation;
+        final bytes = img.encodeJpg(source, quality: 100);
+
+        const shrinker = DefaultAttachmentShrinker(
+          steps: [ShrinkStep(maxDimension: 400, quality: 40)],
+        );
+        final out = await shrinker.fit(
+          bytes,
+          mimeType: 'image/jpeg',
+          maxBytes: bytes.length - 1,
+          fileName: 'photo.jpg',
+        );
+
+        final back = img.decodeJpg(out!.bytes)!;
+        expect([back.width, back.height], [width, height]);
+        expect(back.exif.imageIfd.hasOrientation, isFalse);
+      });
+    }
+
     test(
       'an oversized image is reduced until it fits, as a renamed JPEG',
       () async {

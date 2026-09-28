@@ -30,6 +30,8 @@
 	<string>Take photos and record videos to send in chats.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Record voice messages.</string>
+	<key>NSMotionUsageDescription</key>
+	<string>Keep photos upright when the phone is turned.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Send photos and videos in chats.</string>
 	<key>NSAppTransportSecurity</key>

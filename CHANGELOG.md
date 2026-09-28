@@ -6,6 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## Unreleased
+
+### Added
+
+- **Outgoing voice-note colours on `ChatTheme`.** The audio slots were shared
+  by both directions, so a colour picked for the incoming bubble could vanish
+  on a brand-coloured outgoing one. Nine optional slots now style the local
+  user's own voice notes only: `outgoingWaveformActiveColor`,
+  `outgoingWaveformInactiveColor`, `outgoingAudioSeekBarActiveColor`,
+  `outgoingAudioSeekBarColor`, `outgoingAudioPlayIconColor`,
+  `outgoingAudioPlayButtonColor`, `outgoingAudioDurationTextStyle`,
+  `outgoingAudioSpeedButtonColor` and `outgoingAudioSpeedTextStyle`. Each one
+  left `null` falls back to what the outgoing bubble painted before (the
+  shared slot, then the default derived from the outgoing text colour), so
+  existing themes render unchanged. See `doc/DEVELOPER_GUIDE.md` § Voice
+  notes on the outgoing bubble.
+- **`CameraCapturePage.orientationSource`** (and the same parameter on
+  `CameraCapturePage.show`) — a `CaptureOrientationSource`, the stream of
+  physical `DeviceOrientation`s the capture screen reads to turn a still
+  upright. Defaults to `CaptureOrientation.accelerometer`, backed by the new
+  `sensors_plus` dependency. `CaptureOrientation` also exposes the pure
+  helpers it is built from: `fromGravity`, `counterclockwiseQuarterTurns`
+  and `stillRotation`.
+
+### Fixed
+
+- **The seek-bar thumb of an outgoing voice note without a waveform could
+  vanish** on a bubble filled with the app's primary colour: it painted
+  `ColorScheme.primary`. It now takes the played-track colour
+  (`outgoingAudioSeekBarActiveColor`, then `audioSeekBarActiveColor`, then
+  the outgoing text colour). Incoming notes are unchanged.
+- **A photo taken with the phone on its side arrived as a portrait with the
+  scene lying down** whenever the camera plugin did not know the phone had
+  been turned — any portrait-locked app on Android, and iOS with the system
+  rotation lock on. The in-app camera now turns the still by the difference
+  between the orientation the plugin framed it for and the one gravity
+  reported at the shutter, before the review step, so the take, the file
+  sent and the bubble all show it upright and with its real proportions. On
+  the front lens the still is mirrored first and turned after, so a
+  sideways selfie is not left upside down. Stills the
+  plugin already framed right (iOS with the lock off) are left untouched.
+- **The iOS viewfinder squeezed a landscape frame into a portrait box** when
+  the phone was turned with the rotation lock off: `camera_avfoundation`
+  rotates the preview buffer with the device, and the page forced a
+  portrait aspect ratio around it. The preview is now turned back to match a
+  portrait UI instead of being stretched.
+
+### Changed
+
+- **New dependency: `sensors_plus` (`^7.1.0`).** Needed for the capture
+  orientation above. On iOS `sensors_plus` asks for an
+  `NSMotionUsageDescription` entry in `Info.plist`. Widget tests that mount
+  `CameraCapturePage` now need either an `orientationSource` or a mock for
+  the `dev.fluttercommunity.plus/sensors/accelerometer` event channel and
+  the `dev.fluttercommunity.plus/sensors/method` method channel; without
+  one the missing plugin is reported as a test failure.
+
 ## 0.36.0 - 2026-09-22
 
 A host can now decide, per room, what happens when the local user stops

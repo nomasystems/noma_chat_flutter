@@ -63,6 +63,17 @@ passing) and coverage are unchanged.
 
 ## Attachments
 
+### A clip recorded with the phone on its side keeps the plugin's frame
+
+`CameraCapturePage` turns stills upright from the accelerometer (see
+`CaptureOrientation`), but not clips. Inside a portrait-locked UI on Android,
+or on iOS with the rotation lock on, a clip shot with the phone on its side
+is recorded in the portrait frame with the scene lying down. On iOS with the
+lock off the plugin already records it in landscape. Fixing it means either
+locking the capture orientation to the held one at record start (which, on
+iOS, turns the live preview buffer mid-gesture) or rotating the finished
+file, which needs a video transcoder the SDK does not ship.
+
 ### A queued attachment re-uploads its bytes when only the send fails
 
 `NomaChatClient._executeOfflineOp` replays a `PendingSendAttachment` as one

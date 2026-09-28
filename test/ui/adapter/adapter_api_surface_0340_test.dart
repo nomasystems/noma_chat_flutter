@@ -8,6 +8,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:noma_chat/noma_chat.dart';
 import 'package:noma_chat/noma_chat_testing.dart';
 
+import '../../_helpers/fake_sensors.dart';
+
 const _permissionChannel = MethodChannel(
   'flutter.baseflow.com/permissions/methods',
 );
@@ -452,8 +454,10 @@ void main() {
     late Directory captureDir;
     late File capture;
     late File clip;
+    final sensors = FakeSensors();
 
     setUp(() {
+      sensors.install();
       captureDir = Directory.systemTemp.createTempSync('noma_0340_capture');
       capture = File('${captureDir.path}/shot.jpg')..writeAsBytesSync(_jpeg);
       clip = File('${captureDir.path}/clip.mp4')..writeAsBytesSync(_clip);
@@ -477,6 +481,7 @@ void main() {
     });
 
     tearDown(() {
+      sensors.uninstall();
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
           .setMockMethodCallHandler(_permissionChannel, null);
       if (captureDir.existsSync()) captureDir.deleteSync(recursive: true);

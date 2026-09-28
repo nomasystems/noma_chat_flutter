@@ -11,6 +11,7 @@ import 'package:noma_chat/noma_chat.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
+import '../../_helpers/fake_sensors.dart';
 import '../../_helpers/fake_video_player_platform.dart';
 
 const _permissionChannel = MethodChannel(
@@ -165,6 +166,9 @@ class _FakeCameraPlatform extends CameraPlatform {
   @override
   Widget buildPreview(int cameraId) => const SizedBox.expand();
 
+  void emitDeviceOrientation(DeviceOrientation orientation) =>
+      _orientation.add(DeviceOrientationChangedEvent(orientation));
+
   @override
   Future<void> startVideoCapturing(VideoCaptureOptions options) async {
     await startVideoGate?.future;
@@ -219,6 +223,7 @@ class _CaptureHost {
 }
 
 void main() {
+  final sensors = FakeSensors();
   late List<List<int>> requestedPermissions;
   late List<int> checkedPermissions;
   late _FakeCameraPlatform camera;
@@ -239,6 +244,7 @@ void main() {
   }
 
   setUp(() {
+    sensors.install();
     requestedPermissions = [];
     checkedPermissions = [];
     camera = _FakeCameraPlatform();
@@ -291,6 +297,7 @@ void main() {
   });
 
   tearDown(() {
+    sensors.uninstall();
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(_permissionChannel, null);
   });
@@ -332,6 +339,7 @@ void main() {
     WidgetTester tester, {
     CameraVideoPreviewBuilder? videoPreviewBuilder,
     ChatTheme theme = ChatTheme.defaults,
+    CaptureOrientationSource? orientationSource,
   }) async {
     final host = _CaptureHost();
     await tester.pumpWidget(
@@ -344,10 +352,16 @@ void main() {
                   final popped = await Navigator.of(context)
                       .push<CameraCaptureSubmission>(
                         MaterialPageRoute<CameraCaptureSubmission>(
-                          builder: (_) => CameraCapturePage(
-                            theme: theme,
-                            videoPreviewBuilder: videoPreviewBuilder,
-                          ),
+                          builder: (_) => orientationSource == null
+                              ? CameraCapturePage(
+                                  theme: theme,
+                                  videoPreviewBuilder: videoPreviewBuilder,
+                                )
+                              : CameraCapturePage(
+                                  theme: theme,
+                                  videoPreviewBuilder: videoPreviewBuilder,
+                                  orientationSource: orientationSource,
+                                ),
                         ),
                       );
                   host.returns++;
@@ -1605,6 +1619,306 @@ void main() {
       expect(quadrantAt(sent, 12, 27), 'white');
     },
   );
+
+  group('a still is turned upright for the way the phone was held', () {
+    late StreamController<DeviceOrientation> held;
+
+    setUp(() {
+      held = StreamController<DeviceOrientation>.broadcast();
+    });
+
+    tearDown(() => held.close());
+
+    Future<img.Image> shootHeld(
+      WidgetTester tester,
+      DeviceOrientation orientation, {
+      CameraDescription lens = _backCamera,
+      DeviceOrientation? pluginOrientation,
+      int? exifOrientation,
+    }) async {
+      camera.cameras = <CameraDescription>[lens];
+      camera.stillBytes = quadrantJpeg(orientation: exifOrientation);
+      final host = await pumpHostedPage(
+        tester,
+        orientationSource: () => held.stream,
+      );
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+      if (pluginOrientation != null) {
+        camera.emitDeviceOrientation(pluginOrientation);
+      }
+      held.add(orientation);
+      await settle(tester, 2);
+
+      await shootStill(tester);
+      await tester.tap(find.byIcon(Icons.send));
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+      return img.decodeJpg(File(host.result!.file.path).readAsBytesSync())!;
+    }
+
+    testWidgets('on its left side with the plugin still framing portrait, '
+        'the rotation lock case', (tester) async {
+      final sent = await shootHeld(tester, DeviceOrientation.landscapeLeft);
+
+      expect([sent.width, sent.height], [16, 32]);
+      expect(quadrantAt(sent, 4, 4), 'blue');
+      expect(quadrantAt(sent, 12, 4), 'white');
+      expect(quadrantAt(sent, 4, 27), 'red');
+      expect(quadrantAt(sent, 12, 27), 'green');
+      expect(sent.exif.imageIfd.orientation, anyOf(isNull, 1));
+    });
+
+    testWidgets('on its right side', (tester) async {
+      final sent = await shootHeld(tester, DeviceOrientation.landscapeRight);
+
+      expect([sent.width, sent.height], [16, 32]);
+      expect(quadrantAt(sent, 4, 4), 'green');
+      expect(quadrantAt(sent, 12, 4), 'red');
+      expect(quadrantAt(sent, 4, 27), 'white');
+      expect(quadrantAt(sent, 12, 27), 'blue');
+    });
+
+    testWidgets('upside down', (tester) async {
+      final sent = await shootHeld(tester, DeviceOrientation.portraitDown);
+
+      expect([sent.width, sent.height], [32, 16]);
+      expect(quadrantAt(sent, 4, 4), 'white');
+      expect(quadrantAt(sent, 27, 4), 'green');
+      expect(quadrantAt(sent, 4, 12), 'blue');
+      expect(quadrantAt(sent, 27, 12), 'red');
+    });
+
+    testWidgets('never again once the plugin already framed it that way', (
+      tester,
+    ) async {
+      final sent = await shootHeld(
+        tester,
+        DeviceOrientation.landscapeLeft,
+        pluginOrientation: DeviceOrientation.landscapeLeft,
+      );
+
+      expect([sent.width, sent.height], [32, 16]);
+      expect(quadrantAt(sent, 4, 4), 'red');
+    });
+
+    testWidgets('on the front lens on its left side, mirrored first and '
+        'turned after, sky on top', (tester) async {
+      final sent = await shootHeld(
+        tester,
+        DeviceOrientation.landscapeLeft,
+        lens: _frontCamera,
+      );
+
+      expect([sent.width, sent.height], [16, 32]);
+      expect(quadrantAt(sent, 4, 4), 'red');
+      expect(quadrantAt(sent, 12, 4), 'green');
+      expect(quadrantAt(sent, 4, 27), 'blue');
+      expect(quadrantAt(sent, 12, 27), 'white');
+    });
+
+    testWidgets('on the front lens on its right side', (tester) async {
+      final sent = await shootHeld(
+        tester,
+        DeviceOrientation.landscapeRight,
+        lens: _frontCamera,
+      );
+
+      expect([sent.width, sent.height], [16, 32]);
+      expect(quadrantAt(sent, 4, 4), 'white');
+      expect(quadrantAt(sent, 12, 4), 'blue');
+      expect(quadrantAt(sent, 4, 27), 'green');
+      expect(quadrantAt(sent, 12, 27), 'red');
+    });
+
+    group('from a sensor-native buffer with its EXIF tag, as the plugins '
+        'write it', () {
+      const cases =
+          <(String, int, DeviceOrientation, CameraDescription, List<String>)>[
+            (
+              'tag 6, back lens, left side',
+              6,
+              DeviceOrientation.landscapeLeft,
+              _backCamera,
+              ['red', 'blue', 'green', 'white'],
+            ),
+            (
+              'tag 6, front lens, left side',
+              6,
+              DeviceOrientation.landscapeLeft,
+              _frontCamera,
+              ['green', 'white', 'red', 'blue'],
+            ),
+            (
+              'tag 8, back lens, right side',
+              8,
+              DeviceOrientation.landscapeRight,
+              _backCamera,
+              ['red', 'blue', 'green', 'white'],
+            ),
+            (
+              'tag 8, front lens, right side',
+              8,
+              DeviceOrientation.landscapeRight,
+              _frontCamera,
+              ['green', 'white', 'red', 'blue'],
+            ),
+            (
+              'tag 3, back lens, upside down',
+              3,
+              DeviceOrientation.portraitDown,
+              _backCamera,
+              ['red', 'blue', 'green', 'white'],
+            ),
+            (
+              'tag 3, front lens, upside down',
+              3,
+              DeviceOrientation.portraitDown,
+              _frontCamera,
+              ['blue', 'red', 'white', 'green'],
+            ),
+          ];
+      for (final (name, tag, heldIn, lens, corners) in cases) {
+        testWidgets(name, (tester) async {
+          final sent = await shootHeld(
+            tester,
+            heldIn,
+            lens: lens,
+            exifOrientation: tag,
+          );
+
+          expect([sent.width, sent.height], [32, 16]);
+          expect(sent.exif.imageIfd.orientation, anyOf(isNull, 1));
+          expect(quadrantAt(sent, 4, 4), corners[0]);
+          expect(quadrantAt(sent, 27, 4), corners[1]);
+          expect(quadrantAt(sent, 4, 12), corners[2]);
+          expect(quadrantAt(sent, 27, 12), corners[3]);
+        });
+      }
+    });
+
+    testWidgets('held upright, a back-lens still is left exactly as it came', (
+      tester,
+    ) async {
+      camera.stillBytes = quadrantJpeg();
+      final host = await pumpHostedPage(
+        tester,
+        orientationSource: () => held.stream,
+      );
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+      held.add(DeviceOrientation.portraitUp);
+      await settle(tester, 2);
+
+      await shootStill(tester);
+      await tester.tap(find.byIcon(Icons.send));
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+
+      expect(File(host.result!.file.path).readAsBytesSync(), camera.stillBytes);
+    });
+
+    testWidgets(
+      'a source that fails leaves the still as the plugin framed it',
+      (tester) async {
+        camera.stillBytes = quadrantJpeg();
+        final host = await pumpHostedPage(
+          tester,
+          orientationSource: () =>
+              Stream<DeviceOrientation>.error(StateError('no accelerometer')),
+        );
+        addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+
+        await shootStill(tester);
+        await tester.tap(find.byIcon(Icons.send));
+        await settle(tester, 8);
+        await tester.pumpAndSettle();
+
+        expect(
+          File(host.result!.file.path).readAsBytesSync(),
+          camera.stillBytes,
+        );
+      },
+    );
+
+    testWidgets('the default source is the accelerometer', (tester) async {
+      camera.stillBytes = quadrantJpeg();
+      final host = await pumpHostedPage(tester);
+      addTearDown(() => camera.stillDirectory?.deleteSync(recursive: true));
+      expect(sensors.listening, isTrue);
+      sensors.emitGravity(9.8, 0.3, 0.5);
+      await tester.runAsync(pumpEventQueue);
+      await settle(tester, 2);
+
+      await shootStill(tester);
+      await tester.tap(find.byIcon(Icons.send));
+      await settle(tester, 8);
+      await tester.pumpAndSettle();
+
+      final sent = img.decodeJpg(
+        File(host.result!.file.path).readAsBytesSync(),
+      )!;
+      expect([sent.width, sent.height], [16, 32]);
+      expect(quadrantAt(sent, 4, 4), 'blue');
+    });
+  });
+
+  group('the viewfinder follows the preview buffer on iOS', () {
+    void portraitScreen(WidgetTester tester) {
+      tester.view
+        ..physicalSize = const Size(1170, 2532)
+        ..devicePixelRatio = 3;
+      addTearDown(tester.view.reset);
+    }
+
+    RotatedBox viewfinder(WidgetTester tester) => tester.widget<RotatedBox>(
+      find.ancestor(
+        of: find.byType(CameraPreview),
+        matching: find.byType(RotatedBox),
+      ),
+    );
+
+    for (final (orientation, turns) in const [
+      (DeviceOrientation.portraitUp, 0),
+      (DeviceOrientation.landscapeLeft, 1),
+      (DeviceOrientation.portraitDown, 2),
+      (DeviceOrientation.landscapeRight, 3),
+    ]) {
+      testWidgets(
+        '$orientation turns it $turns quarter turns',
+        (tester) async {
+          portraitScreen(tester);
+          await pumpPage(tester);
+          camera.emitDeviceOrientation(orientation);
+          await settle(tester, 2);
+
+          expect(viewfinder(tester).quarterTurns, turns);
+        },
+        variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+      );
+    }
+
+    testWidgets(
+      'a landscape UI already matches the buffer',
+      (tester) async {
+        await pumpPage(tester);
+        camera.emitDeviceOrientation(DeviceOrientation.landscapeLeft);
+        await settle(tester, 2);
+
+        expect(viewfinder(tester).quarterTurns, 0);
+      },
+      variant: TargetPlatformVariant.only(TargetPlatform.iOS),
+    );
+
+    testWidgets('on Android the plugin preview already follows the UI', (
+      tester,
+    ) async {
+      portraitScreen(tester);
+      await pumpPage(tester);
+      camera.emitDeviceOrientation(DeviceOrientation.landscapeLeft);
+      await settle(tester, 2);
+
+      expect(viewfinder(tester).quarterTurns, 0);
+    });
+  });
 
   testWidgets(
     'a pinch still zooms while a clip is recording, with both fingers on the '
