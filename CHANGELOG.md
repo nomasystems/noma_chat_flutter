@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
-## Unreleased
+## 0.37.0 - 2026-09-28
 
 ### Added
 
@@ -42,6 +42,16 @@ onwards, breaking changes require a **major version bump**.
   excluded exactly as before, so hosts and backends that never set the flag
   see no change.
 
+### Changed
+
+- **New dependency: `sensors_plus` (`^7.1.0`).** Needed for the capture
+  orientation above. On iOS `sensors_plus` asks for an
+  `NSMotionUsageDescription` entry in `Info.plist`. Widget tests that mount
+  `CameraCapturePage` now need either an `orientationSource` or a mock for
+  the `dev.fluttercommunity.plus/sensors/accelerometer` event channel and
+  the `dev.fluttercommunity.plus/sensors/method` method channel; without
+  one the missing plugin is reported as a test failure.
+
 ### Fixed
 
 - **The seek-bar thumb of an outgoing voice note without a waveform could
@@ -76,16 +86,6 @@ onwards, breaking changes require a **major version bump**.
   are, so the store is now cleared like one stamped for another user
   instead of being served to the signed-in user. If it cannot be cleared the
   session is refused, and the next launch tries again.
-
-### Changed
-
-- **New dependency: `sensors_plus` (`^7.1.0`).** Needed for the capture
-  orientation above. On iOS `sensors_plus` asks for an
-  `NSMotionUsageDescription` entry in `Info.plist`. Widget tests that mount
-  `CameraCapturePage` now need either an `orientationSource` or a mock for
-  the `dev.fluttercommunity.plus/sensors/accelerometer` event channel and
-  the `dev.fluttercommunity.plus/sensors/method` method channel; without
-  one the missing plugin is reported as a test failure.
 
 ## 0.36.0 - 2026-09-22
 
