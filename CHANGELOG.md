@@ -23,6 +23,15 @@ onwards, breaking changes require a **major version bump**.
   excluded exactly as before, so hosts and backends that never set the flag
   see no change.
 
+### Fixed
+
+- **`HiveChatDatasource.create` no longer throws when the meta box cannot be
+  read** (for example a store written without a cipher reopened with
+  `encryptionCipher`, or the other way round). Since `hive_ce` 2.20.1,
+  opening a box with the wrong cipher throws instead of wiping it; the meta
+  box is now wiped and recreated with a `box_corrupted` metric, the same
+  recovery the other cache boxes already had.
+
 ## 0.36.0 - 2026-09-22
 
 A host can now decide, per room, what happens when the local user stops
