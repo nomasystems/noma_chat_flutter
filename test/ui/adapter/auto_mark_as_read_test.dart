@@ -61,9 +61,10 @@ void main() {
       );
     });
 
-    test('entering a room whose newest message is an opted-in system '
-        'message marks it read and clears the badge', () async {
+    test('an opted-in system message raises the badge while the room is '
+        'inactive, and entering marks it read and clears the badge', () async {
       adapter = ChatUiAdapter(client: client, currentUser: me);
+      adapter.start();
       client.seedRoom(const ChatRoom(id: 'r1', name: 'R1'));
       client.addMessage(
         'r1',
@@ -74,21 +75,22 @@ void main() {
           text: 'hi',
         ),
       );
-      client.addMessage(
-        'r1',
-        ChatMessage(
-          id: 's1',
-          from: 'plan-owner',
-          timestamp: DateTime(2026, 1, 1, 0, 1),
-          text: 'plan_vote_reminder',
-          isSystem: true,
-          countsAsUnread: true,
-          metadata: const {'system': true},
-        ),
-      );
       await adapter.rooms.load();
-      final room = adapter.roomListController.getRoomById('r1')!;
-      adapter.roomListController.updateRoom(room.copyWith(unreadCount: 1));
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 0);
+
+      final reminder = ChatMessage(
+        id: 's1',
+        from: 'plan-owner',
+        timestamp: DateTime(2026, 1, 1, 0, 1),
+        text: 'plan_vote_reminder',
+        isSystem: true,
+        countsAsUnread: true,
+        metadata: const {'system': true},
+      );
+      client.addMessage('r1', reminder);
+      client.emitEvent(NewMessageEvent(message: reminder, roomId: 'r1'));
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      expect(adapter.roomListController.getRoomById('r1')!.unreadCount, 1);
 
       (client.messages).resetMarkRoomAsReadCalls();
       adapter.setActiveRoom('r1');
