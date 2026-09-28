@@ -2964,36 +2964,62 @@ room titles from the room list and unstars through the adapter. Use the primary
 constructor (`load` / `onUnstar` / `onOpen` / `roomTitleFor` / `itemBuilder`) for
 full control. Each entry is a lightweight `StarredMessage` (ids + `starredAt`).
 
-### Unread counting excludes system messages
+### Unread counting and system messages
 
 `RoomListItem.unreadCount` is server-authoritative: `GET` rooms returns
 `unreadMessages` and the `UnreadUpdatedEvent` WS frame (`roomId`, `count`)
 carries live deltas, both reconciled into the room list as-is. The client
 only adds to that count locally, between reconciliations, when a `NewMessageEvent`
-arrives for a room the user isn't currently viewing — and it skips that
-local bump entirely for a message with `ChatMessage.isSystem == true`
-(plan lifecycle notices, membership changes, …), so a room whose only
-unseen activity is system messages never shows unread. The Messaggi-tab
-badge (`RoomListController.unreadRoomCount`) and the row badge both read
-`unreadCount`, so they inherit this for free. `NomaChatView`'s "N new
-messages" divider (`resolveUnreadBoundary`) applies the same exclusion
+arrives for a room the user isn't currently viewing.
+
+By default a system message (`ChatMessage.isSystem == true`: plan lifecycle
+notices, membership changes, …) does not count. The local bump is skipped,
+so a room whose only unseen activity is system messages never shows unread.
+The Messaggi-tab badge (`RoomListController.unreadRoomCount`) and the row
+badge both read `unreadCount`, so they inherit this for free. `NomaChatView`'s
+"N new messages" divider (`resolveUnreadBoundary`) applies the same rule
 independently, since it derives its own boundary from the loaded message
 list rather than from `unreadCount`.
+
+A producer can opt a single system message in, when it asks the reader to do
+something (a "you can rate the plan now" reminder, for instance). The server
+stores and emits it with a top-level `countsAsUnread: true`, and the SDK
+surfaces it as `ChatMessage.countsAsUnread`. Such a message counts exactly
+like a human-authored one for every member except its sender: it bumps the
+row badge, sits below the divider and is covered by mark-as-read.
+
+All three client-side decisions read one predicate, `ChatMessage.raisesUnread`
+(`!isSystem || countsAsUnread`). It says nothing about who is reading; the
+sender's own messages are skipped separately, as before. Read it instead of
+`isSystem` in custom UI that counts or highlights unread messages:
+
+```dart
+final unseen = messages.where(
+  (m) => m.from != currentUserId && m.raisesUnread,
+);
+```
+
+The flag is read only from the top level of the message JSON, never from
+`metadata`, and a client cannot set it: `toSendJson` does not carry it. The
+cache persists it, and rows cached before it existed read back `false`.
 
 The very first event for a room the device doesn't know yet takes a
 different path: `RoomEnricher.addFromDetail` fetches the room detail and
 builds a brand-new `RoomListItem` around it, rather than updating an
-existing one. That fresh row applies the same exclusion when seeding its
-initial `unreadCount` — an unknown room's first message being a system
-notice does not seed the row with a badge that the next reconciliation
-would then have to clear.
+existing one. That fresh row applies the same rule when seeding its
+initial `unreadCount`: an unknown room whose first message is a plain
+system notice starts without a badge, and one whose first message is an
+opted-in system message starts at 1.
 
 This is a two-sided contract: the backend's own `unreadMessages` /
-`UnreadUpdatedEvent.count` must already exclude system messages (messages
-carrying `metadata.system == true` / `type == "system"`) for the two halves
-to agree once `loadRooms` reconciles the server value. A backend that still
-counts system messages will show a badge that briefly clears (the client's
-local skip) and then reappears on the next room-list refresh.
+`UnreadUpdatedEvent.count` must follow the same rule (a message counts for
+user `U` when it is not from `U` and either is not a system message or
+carries `countsAsUnread`) for the two halves to agree once `loadRooms`
+reconciles the server value. With a backend that predates the opt-in the
+flag never arrives, so every system message keeps being excluded on both
+sides. A backend that still counts every system message shows a badge that
+briefly clears (the client's local skip) and then reappears on the next
+room-list refresh.
 
 ### Mention badge & Archived chats
 

@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## Unreleased
+
+### Added
+
+- **`ChatMessage.countsAsUnread`** (`bool`, default `false`) — server-side
+  opt-in by which a system message counts as unread for every room member
+  except its sender. Read from the top-level `countsAsUnread` key of the
+  message JSON (REST and the `new_message` realtime event), never from
+  `metadata`; never sent by the client; persisted in the cache (rows cached
+  before the field existed read back `false`).
+- **`ChatMessage.raisesUnread`** — `!isSystem || countsAsUnread`, the single
+  predicate behind the local unread bump in the event router, the badge a
+  newly discovered room is seeded with, and the "N new messages" divider
+  (`resolveUnreadBoundary`). System messages without the opt-in keep being
+  excluded exactly as before, so hosts and backends that never set the flag
+  see no change.
+
 ## 0.36.0 - 2026-09-22
 
 A host can now decide, per room, what happens when the local user stops
