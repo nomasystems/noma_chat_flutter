@@ -47,10 +47,6 @@ onwards, breaking changes require a **major version bump**.
   rotates the preview buffer with the device, and the page forced a
   portrait aspect ratio around it. The preview is now turned back to match a
   portrait UI instead of being stretched.
-- **`ImageMetadataScrubber` bakes any orientation still set after decoding**
-  before dropping the container. `image`'s JPEG decoder already applies the
-  EXIF orientation and clears the tag, so JPEG output is unchanged; the
-  guard only matters for a decoder or format that leaves the tag set.
 
 ### Changed
 
