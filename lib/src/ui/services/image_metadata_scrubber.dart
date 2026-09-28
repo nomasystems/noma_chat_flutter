@@ -29,7 +29,10 @@ import 'icc_colour_profile.dart';
 /// whose orientation tag is already `null`; re-applying it here would rotate
 /// twice. So no orientation tag is written and none is needed — the picture
 /// is upright as pixels, which is what `image_picker_android` effectively
-/// produces when it resizes.
+/// produces when it resizes. Should a tag still be set once decoding is done —
+/// a decoder that stops applying it, or a format that starts reading it — it
+/// is baked in here before the rest of the container is dropped, so the
+/// instruction to rotate can never leave without the rotation.
 ///
 /// Colour survives that rebuild the way orientation does — as a value, never
 /// as bytes. The decoder is not colour managed, so the pixels of a Display P3
@@ -173,10 +176,13 @@ class ImageMetadataScrubber {
 
       final decoded = decoder.decode(bytes, frame: 0);
       if (decoded == null) return _failed(format, 'decode_failed');
-      image = decoded;
+      final orientation = decoded.exif.imageIfd.orientation;
+      image = orientation == null || orientation == 1
+          ? decoded
+          : img.bakeOrientation(decoded);
       // The only thing taken from the source profile, before it goes the way
       // of the rest of the container.
-      space = IccColourProfile.classify(image.iccProfile);
+      space = IccColourProfile.classify(decoded.iccProfile);
     } on Object {
       return _failed(format, 'decode_failed');
     }

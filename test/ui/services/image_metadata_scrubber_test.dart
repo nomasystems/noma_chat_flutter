@@ -1,4 +1,5 @@
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -460,6 +461,27 @@ void main() {
               'write and nothing for a reader to apply a second time',
         );
         expect(back.exif.imageIfd.hasOrientation, isFalse);
+      });
+    }
+
+    for (final (orientation, width, height) in const [
+      (3, 64, 32),
+      (6, 32, 64),
+      (8, 32, 64),
+    ]) {
+      test('$orientation leaves a ${width}x$height frame for whoever measures '
+          'it, the chat bubble included', () async {
+        final out = await ImageMetadataScrubber.scrub(
+          _jpegWithGps(orientation: orientation),
+        );
+
+        final back = img.decodeJpg(out)!;
+        expect([back.width, back.height], [width, height]);
+        final codec = await ui.instantiateImageCodec(out);
+        final frame = await codec.getNextFrame();
+        expect([frame.image.width, frame.image.height], [width, height]);
+        frame.image.dispose();
+        codec.dispose();
       });
     }
 
