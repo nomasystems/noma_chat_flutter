@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and the package follows [Semantic Versioning](https://semver.org/). From `1.0.0`
 onwards, breaking changes require a **major version bump**.
 
+## Unreleased
+
+### Added
+
+- **Outgoing voice-note colours on `ChatTheme`.** The audio slots were shared
+  by both directions, so a colour picked for the incoming bubble could vanish
+  on a brand-coloured outgoing one. Nine optional slots now style the local
+  user's own voice notes only: `outgoingWaveformActiveColor`,
+  `outgoingWaveformInactiveColor`, `outgoingAudioSeekBarActiveColor`,
+  `outgoingAudioSeekBarColor`, `outgoingAudioPlayIconColor`,
+  `outgoingAudioPlayButtonColor`, `outgoingAudioDurationTextStyle`,
+  `outgoingAudioSpeedButtonColor` and `outgoingAudioSpeedTextStyle`. Each one
+  left `null` falls back to what the outgoing bubble painted before (the
+  shared slot, then the default derived from the outgoing text colour), so
+  existing themes render unchanged. See `doc/DEVELOPER_GUIDE.md` § Voice
+  notes on the outgoing bubble.
+
 ## 0.36.0 - 2026-09-22
 
 A host can now decide, per room, what happens when the local user stops

@@ -3505,6 +3505,39 @@ ChatTheme(
 
 See the `ChatTheme` class documentation for the complete field reference.
 
+### Voice notes on the outgoing bubble
+
+The audio slots (`waveformActiveColor`, `waveformInactiveColor`,
+`audioSeekBarActiveColor`, `audioSeekBarColor`, `audioPlayIconColor`,
+`audioDurationTextStyle`, `audioSpeedTextStyle`) are shared by both
+directions, so a colour chosen for the incoming surface can disappear on a
+brand-coloured outgoing bubble — a light grey waveform on an orange bubble,
+for instance. The `outgoing*` counterparts apply only to the local user's own
+voice notes:
+
+| Outgoing slot | Paints | Unset falls back to |
+|---|---|---|
+| `outgoingWaveformActiveColor` | Played part of the waveform | `waveformActiveColor`, then the outgoing text colour |
+| `outgoingWaveformInactiveColor` | Unplayed part of the waveform | `waveformInactiveColor`, then the outgoing text colour at 40% |
+| `outgoingAudioSeekBarActiveColor` | Played track (notes without a waveform) | `audioSeekBarActiveColor`, then the outgoing text colour |
+| `outgoingAudioSeekBarColor` | Unplayed track (notes without a waveform) | `audioSeekBarColor`, then the outgoing text colour at 40% |
+| `outgoingAudioPlayIconColor` | Play / pause glyph and upload ring | `audioPlayIconColor`, then white |
+| `outgoingAudioPlayButtonColor` | Play / pause circle | The outgoing text colour at 30% |
+| `outgoingAudioDurationTextStyle` | Elapsed / total time | `audioDurationTextStyle`, then 11pt in the outgoing text colour at 70% |
+| `outgoingAudioSpeedButtonColor` | Playback-speed pill | The outgoing text colour at 35% |
+| `outgoingAudioSpeedTextStyle` | Playback-speed label | `audioSpeedTextStyle`, then 12pt bold in the outgoing text colour |
+
+Leaving them all unset paints exactly what the SDK painted before they
+existed.
+
+```dart
+theme.copyWith(
+  waveformInactiveColor: const Color(0xFFD2D2D2),        // incoming, on white
+  outgoingWaveformActiveColor: const Color(0xFF233941),  // outgoing, on orange
+  outgoingWaveformInactiveColor: const Color(0xFF6F6F6E),
+)
+```
+
 ---
 
 ## Localization

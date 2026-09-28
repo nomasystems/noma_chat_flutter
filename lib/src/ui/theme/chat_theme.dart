@@ -104,6 +104,55 @@ abstract class ChatTheme with _$ChatTheme {
     Color? waveformInactiveColor,
     Color? waveformRecordingColor,
 
+    // Audio bubble, outgoing side only. The slots above are shared by both
+    // directions, so a colour picked to read on the incoming surface can
+    // vanish on a brand-coloured outgoing bubble. Each slot below applies to
+    // the local user's own voice notes and, left `null`, falls back to what
+    // that bubble painted before it existed — so leaving them all unset
+    // changes nothing.
+
+    /// Fill of the play / pause circle on an outgoing voice note, and of the
+    /// ring behind the upload progress. `null` keeps the outgoing text colour
+    /// at 30% opacity ([audioPlayButtonColor] only ever styled incoming).
+    Color? outgoingAudioPlayButtonColor,
+
+    /// Play / pause glyph and upload-progress ring on an outgoing voice
+    /// note. `null` falls back to [audioPlayIconColor], then white.
+    Color? outgoingAudioPlayIconColor,
+
+    /// Played part of the waveform on an outgoing voice note. `null` falls
+    /// back to [waveformActiveColor], then the outgoing text colour.
+    Color? outgoingWaveformActiveColor,
+
+    /// Unplayed part of the waveform on an outgoing voice note. `null` falls
+    /// back to [waveformInactiveColor], then the outgoing text colour at 40%
+    /// opacity.
+    Color? outgoingWaveformInactiveColor,
+
+    /// Played track of the seek bar an outgoing voice note shows when it
+    /// carries no waveform. `null` falls back to [audioSeekBarActiveColor],
+    /// then the outgoing text colour.
+    Color? outgoingAudioSeekBarActiveColor,
+
+    /// Unplayed track of that seek bar. `null` falls back to
+    /// [audioSeekBarColor], then the outgoing text colour at 40% opacity.
+    Color? outgoingAudioSeekBarColor,
+
+    /// Elapsed / total time label on an outgoing voice note. `null` falls
+    /// back to [audioDurationTextStyle], then 11pt in the outgoing text
+    /// colour at 70% opacity.
+    TextStyle? outgoingAudioDurationTextStyle,
+
+    /// Fill of the playback-speed pill on an outgoing voice note. `null`
+    /// keeps the outgoing text colour at 35% opacity
+    /// ([audioSpeedButtonColor] only ever styled incoming).
+    Color? outgoingAudioSpeedButtonColor,
+
+    /// Label of the playback-speed pill on an outgoing voice note. `null`
+    /// falls back to [audioSpeedTextStyle], then 12pt bold in the outgoing
+    /// text colour.
+    TextStyle? outgoingAudioSpeedTextStyle,
+
     // Image / Video / File / Link Preview bubbles
     BorderRadius? imageBorderRadius,
     double? imageMaxHeight,

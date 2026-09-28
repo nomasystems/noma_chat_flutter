@@ -671,7 +671,8 @@ class _AudioBubbleState extends State<AudioBubble> {
     final outgoingText =
         widget.theme.bubble.outgoingTextStyle?.color ?? Colors.white;
     final playColor = widget.isOutgoing
-        ? (outgoingText.withValues(alpha: 0.3))
+        ? (widget.theme.outgoingAudioPlayButtonColor ??
+              outgoingText.withValues(alpha: 0.3))
         : (widget.theme.audioPlayButtonColor ?? Colors.blue);
     final listenedColor = widget.theme.audioListenedIconColor ?? Colors.blue;
     final unlistenedColor =
@@ -783,7 +784,7 @@ class _AudioBubbleState extends State<AudioBubble> {
         valueListenable: progressListenable,
         builder: (context, value, _) {
           final clamped = value.clamp(0.0, 1.0);
-          final iconColor = widget.theme.audioPlayIconColor ?? Colors.white;
+          final iconColor = _playIconColor;
           return Semantics(
             label: widget.theme
                 .l10nOf(context)
@@ -846,7 +847,7 @@ class _AudioBubbleState extends State<AudioBubble> {
               ),
               child: Icon(
                 playing ? Icons.pause : Icons.play_arrow,
-                color: widget.theme.audioPlayIconColor ?? Colors.white,
+                color: _playIconColor,
                 size: 20,
               ),
             ),
@@ -854,6 +855,13 @@ class _AudioBubbleState extends State<AudioBubble> {
         ),
       ),
     );
+  }
+
+  Color get _playIconColor {
+    final theme = widget.theme;
+    return (widget.isOutgoing ? theme.outgoingAudioPlayIconColor : null) ??
+        theme.audioPlayIconColor ??
+        Colors.white;
   }
 
   /// Length guessed from the waveform, one sample per amplitude tick.
@@ -899,6 +907,24 @@ class _AudioBubbleState extends State<AudioBubble> {
     final defaultDurationColor = widget.isOutgoing
         ? outgoingTextColor.withValues(alpha: 0.7)
         : Colors.grey.shade600;
+    final theme = widget.theme;
+    final outgoing = widget.isOutgoing;
+    final waveformActive =
+        (outgoing ? theme.outgoingWaveformActiveColor : null) ??
+        theme.waveformActiveColor ??
+        defaultActiveColor;
+    final waveformInactive =
+        (outgoing ? theme.outgoingWaveformInactiveColor : null) ??
+        theme.waveformInactiveColor ??
+        defaultInactiveColor;
+    final seekActive =
+        (outgoing ? theme.outgoingAudioSeekBarActiveColor : null) ??
+        theme.audioSeekBarActiveColor ??
+        defaultActiveColor;
+    final seekInactive =
+        (outgoing ? theme.outgoingAudioSeekBarColor : null) ??
+        theme.audioSeekBarColor ??
+        defaultInactiveColor;
 
     return ValueListenableBuilder<Duration>(
       valueListenable: _positionNotifier,
@@ -915,10 +941,8 @@ class _AudioBubbleState extends State<AudioBubble> {
                 samples: WaveformDisplay.normalizeIntSamples(widget.waveform!),
                 progress: progress,
                 height: 28,
-                activeColor:
-                    widget.theme.waveformActiveColor ?? defaultActiveColor,
-                inactiveColor:
-                    widget.theme.waveformInactiveColor ?? defaultInactiveColor,
+                activeColor: waveformActive,
+                inactiveColor: waveformInactive,
                 onSeek: (value) {
                   if (maxMs > 0) {
                     _player?.seek(
@@ -947,10 +971,8 @@ class _AudioBubbleState extends State<AudioBubble> {
               data: SliderThemeData(
                 trackHeight: 3,
                 thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                activeTrackColor:
-                    widget.theme.audioSeekBarActiveColor ?? defaultActiveColor,
-                inactiveTrackColor:
-                    widget.theme.audioSeekBarColor ?? defaultInactiveColor,
+                activeTrackColor: seekActive,
+                inactiveTrackColor: seekInactive,
               ),
               child: Slider(
                 value: maxMs > 0
@@ -981,6 +1003,9 @@ class _AudioBubbleState extends State<AudioBubble> {
       total: total,
       isPlaying: _playerState == PlayerState.playing,
       style:
+          (widget.isOutgoing
+              ? widget.theme.outgoingAudioDurationTextStyle
+              : null) ??
           widget.theme.audioDurationTextStyle ??
           TextStyle(fontSize: 11, color: defaultDurationColor),
     );
@@ -1019,7 +1044,8 @@ class _AudioBubbleState extends State<AudioBubble> {
     // chip" — the avatar slot it replaces was the focal point of the
     // bubble, so the pill needs to match that visual weight.
     final pillColor = outgoing
-        ? outgoingText.withValues(alpha: 0.35)
+        ? (widget.theme.outgoingAudioSpeedButtonColor ??
+              outgoingText.withValues(alpha: 0.35))
         : (widget.theme.audioSpeedButtonColor ?? Colors.grey.shade400);
     final messageId = widget.messageId;
     final speedId = messageId == null ? null : audioSpeedSemanticsId(messageId);
@@ -1052,6 +1078,9 @@ class _AudioBubbleState extends State<AudioBubble> {
               child: Text(
                 _speedLabel,
                 style:
+                    (outgoing
+                        ? widget.theme.outgoingAudioSpeedTextStyle
+                        : null) ??
                     widget.theme.audioSpeedTextStyle ??
                     TextStyle(
                       fontSize: 12,
